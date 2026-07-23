@@ -185,6 +185,43 @@ export const collectionPlans = mysqlTable("collection_plans", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/**
+ * Per-customer monthly collection forecast entry (all amounts in EUR).
+ * Generated automatically at month start; the AI suggests an expected amount
+ * based on customer payment behavior; the user can override it.
+ */
+export const forecastEntries = mysqlTable("forecast_entries", {
+  id: int("id").autoincrement().primaryKey(),
+  year: int("year").notNull(),
+  month: int("month").notNull(),
+  customerId: int("customerId").notNull(),
+  /** Total open amount due within the month (incl. already-overdue), EUR. */
+  dueAmount: decimal("dueAmount", { precision: 14, scale: 2 }).default("0").notNull(),
+  /** Of which already overdue at generation time, EUR. */
+  overdueAmount: decimal("overdueAmount", { precision: 14, scale: 2 }).default("0").notNull(),
+  /** AI/heuristic-suggested expected collection, EUR. */
+  aiSuggestedAmount: decimal("aiSuggestedAmount", { precision: 14, scale: 2 }).default("0").notNull(),
+  /** Short reasoning behind the AI suggestion. */
+  aiReasoning: text("aiReasoning"),
+  /** Final expected amount — starts equal to AI suggestion, user-editable. */
+  expectedAmount: decimal("expectedAmount", { precision: 14, scale: 2 }).default("0").notNull(),
+  /** Whether the user manually adjusted expectedAmount. */
+  userAdjusted: int("userAdjusted").default(0).notNull(),
+  adjustedBy: int("adjustedBy"),
+  adjustmentNote: text("adjustmentNote"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Generic key-value app settings (FX rates, forecast cron uid, etc.). */
+export const appSettings = mysqlTable("app_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  key: varchar("key", { length: 128 }).notNull().unique(),
+  value: text("value").notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const promiseStatuses = ["Pending", "Kept", "Broken"] as const;
 
 export const promisesToPay = mysqlTable("promises_to_pay", {
@@ -237,6 +274,9 @@ export type InsertTask = typeof tasks.$inferInsert;
 export type OnHoldProposal = typeof onHoldProposals.$inferSelect;
 export type InsertOnHoldProposal = typeof onHoldProposals.$inferInsert;
 export type CollectionPlan = typeof collectionPlans.$inferSelect;
+export type ForecastEntry = typeof forecastEntries.$inferSelect;
+export type InsertForecastEntry = typeof forecastEntries.$inferInsert;
+export type AppSetting = typeof appSettings.$inferSelect;
 export type PromiseToPay = typeof promisesToPay.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type SyncLog = typeof syncLogs.$inferSelect;

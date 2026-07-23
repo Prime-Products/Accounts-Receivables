@@ -1,14 +1,100 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { Cable, RefreshCcw, Settings as SettingsIcon, ShieldCheck, Users } from "lucide-react";
+import { Cable, Coins, RefreshCcw, Settings as SettingsIcon, ShieldCheck, Users } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 const APP_ROLES = ["Administrator", "Accounting", "Credit Controller", "Management"] as const;
+
+const FX_CURRENCIES = ["USD", "AED", "SGD"] as const;
+
+function FxRatesCard() {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.admin.fxRates.useQuery();
+  const [values, setValues] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (data) {
+      const next: Record<string, string> = {};
+      for (const c of FX_CURRENCIES) next[c] = String(data.rates[c] ?? "");
+      setValues(next);
+    }
+  }, [data]);
+
+  const save = trpc.admin.setFxRates.useMutation({
+    onSuccess: () => {
+      toast.success("FX rates saved — used for all new EUR conversions");
+      utils.admin.fxRates.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const dirty =
+    data != null && FX_CURRENCIES.some(c => Number(values[c]) !== data.rates[c] && values[c] !== "");
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Coins className="h-4 w-4" /> FX Rates to EUR
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          One unit of each currency in EUR (e.g. 1 USD = 0.92 EUR). These rates are applied when converting
+          non-EUR invoices to EUR for totals, aging and forecasts.
+        </p>
+        {isLoading ? (
+          <Skeleton className="h-16" />
+        ) : (
+          <div className="flex flex-wrap items-end gap-3">
+            {FX_CURRENCIES.map(c => (
+              <div key={c} className="space-y-1.5">
+                <Label className="text-xs">1 {c} =</Label>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="number"
+                    step="0.0001"
+                    min={0}
+                    className="w-28 font-mono h-9"
+                    value={values[c] ?? ""}
+                    onChange={e => setValues(v => ({ ...v, [c]: e.target.value }))}
+                  />
+                  <span className="text-sm text-muted-foreground">EUR</span>
+                </div>
+              </div>
+            ))}
+            <Button
+              disabled={!dirty || save.isPending}
+              onClick={() => {
+                const rates: Record<string, number> = {};
+                for (const c of FX_CURRENCIES) {
+                  const n = Number(values[c]);
+                  if (Number.isFinite(n) && n > 0) rates[c] = n;
+                }
+                save.mutate({ rates });
+              }}
+            >
+              {save.isPending ? "Saving…" : "Save Rates"}
+            </Button>
+          </div>
+        )}
+        {data && (
+          <p className="text-xs text-muted-foreground">
+            Defaults: {FX_CURRENCIES.map(c => `1 ${c} = ${data.defaults[c]} EUR`).join(" · ")}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function Settings() {
   const utils = trpc.useUtils();
@@ -113,6 +199,9 @@ export default function Settings() {
           )}
         </CardContent>
       </Card>
+
+      {/* FX Rates */}
+      <FxRatesCard />
 
       {/* Users */}
       {canViewUsers && (

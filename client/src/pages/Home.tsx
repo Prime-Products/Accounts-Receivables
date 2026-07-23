@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fmtEur, monthName } from "@/lib/format";
+import { fmtByCurrency, fmtEur, monthName } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import {
   AlertTriangle,
@@ -148,6 +148,11 @@ export default function Home() {
           <CardContent>
             <div className="text-2xl font-bold font-mono text-red-600">{fmtEur(data.totalOverdue)}</div>
             <p className="text-xs text-muted-foreground mt-1">{data.overdueCount} overdue invoice(s)</p>
+            {fmtByCurrency((data.aging as any).totalByCurrency, { skipEurOnly: true }) && (
+              <p className="text-[11px] text-muted-foreground font-mono mt-1 truncate" title={fmtByCurrency((data.aging as any).totalByCurrency)}>
+                {fmtByCurrency((data.aging as any).totalByCurrency)}
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-[oklch(0.75_0.14_75)]">
@@ -274,7 +279,14 @@ export default function Home() {
                   <div className="h-2.5 rounded-full bg-muted overflow-hidden">
                     <div className={`h-full rounded-full ${colors[bucket]}`} style={{ width: `${widthPct}%` }} />
                   </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{b.count} invoice(s)</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {b.count} invoice(s)
+                    {fmtByCurrency((data.aging as any).bucketsByCurrency?.[bucket], { skipEurOnly: true }) && (
+                      <span className="block font-mono text-[11px] truncate" title={fmtByCurrency((data.aging as any).bucketsByCurrency?.[bucket])}>
+                        {fmtByCurrency((data.aging as any).bucketsByCurrency?.[bucket])}
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}

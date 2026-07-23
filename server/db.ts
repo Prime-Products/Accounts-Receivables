@@ -1,13 +1,16 @@
 import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
+  appSettings,
   auditLogs,
   collectionPlans,
   contractInstallments,
   contracts,
   customers,
+  forecastEntries,
   InsertContract,
   InsertCustomer,
+  InsertForecastEntry,
   InsertInvoice,
   InsertOnHoldProposal,
   InsertReceipt,
@@ -357,6 +360,76 @@ export async function upsertPlan(year: number, month: number, targetAmount: stri
 export async function listPlans() {
   const db = await requireDb();
   return db.select().from(collectionPlans).orderBy(desc(collectionPlans.year), desc(collectionPlans.month));
+}
+
+// ---------- Forecast entries (per-customer monthly collection forecast) ----------
+export async function listForecastEntries(year: number, month: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(forecastEntries)
+    .where(and(eq(forecastEntries.year, year), eq(forecastEntries.month, month)))
+    .orderBy(desc(forecastEntries.expectedAmount));
+}
+
+export async function getForecastEntry(id: number) {
+  const db = await requireDb();
+  const r = await db.select().from(forecastEntries).where(eq(forecastEntries.id, id)).limit(1);
+  return r[0];
+}
+
+export async function upsertForecastEntry(data: InsertForecastEntry) {
+  const db = await requireDb();
+  const existing = await db
+    .select()
+    .from(forecastEntries)
+    .where(and(eq(forecastEntries.year, data.year), eq(forecastEntries.month, data.month), eq(forecastEntries.customerId, data.customerId)))
+    .limit(1);
+  if (existing.length > 0) {
+    // Preserve user adjustments on regeneration: only refresh due/AI fields.
+    const keep = existing[0];
+    await db
+      .update(forecastEntries)
+      .set({
+        dueAmount: data.dueAmount,
+        overdueAmount: data.overdueAmount,
+        aiSuggestedAmount: data.aiSuggestedAmount,
+        aiReasoning: data.aiReasoning,
+        ...(keep.userAdjusted ? {} : { expectedAmount: data.expectedAmount }),
+      })
+      .where(eq(forecastEntries.id, keep.id));
+    return keep.id;
+  }
+  const res = await db.insert(forecastEntries).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function updateForecastEntry(id: number, data: Partial<InsertForecastEntry>) {
+  const db = await requireDb();
+  await db.update(forecastEntries).set(data).where(eq(forecastEntries.id, id));
+}
+
+export async function listForecastMonths() {
+  const db = await requireDb();
+  return db
+    .selectDistinct({ year: forecastEntries.year, month: forecastEntries.month })
+    .from(forecastEntries)
+    .orderBy(desc(forecastEntries.year), desc(forecastEntries.month));
+}
+
+// ---------- App settings (key-value) ----------
+export async function getSetting(key: string) {
+  const db = await requireDb();
+  const r = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1);
+  return r[0]?.value;
+}
+
+export async function setSetting(key: string, value: string, updatedBy?: number) {
+  const db = await requireDb();
+  await db
+    .insert(appSettings)
+    .values({ key, value, updatedBy })
+    .onDuplicateKeyUpdate({ set: { value, updatedBy } });
 }
 
 export async function listPromises(customerId?: number) {

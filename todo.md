@@ -51,13 +51,31 @@
 - [x] Analyze uploaded Excel structure and map columns to app fields
 - [x] Import customers from Excel into database (811 customers with Customer Group)
 - [x] Import open invoices from Excel into database (5,424 invoices, 6 companies, 4 currencies)
-- [ ] Verify data appears correctly in Dashboard, Aging Report, Customer 360
-- [ ] Checkpoint after import
+- [x] Verify data appears correctly in Dashboard (KPIs €2,015,030 overdue, DSO 83d, aging buckets, forecast chart), Aging Report (/invoices), Customer 360 (/customers/393 — 760 invoices, EUR totals)
+- [x] Checkpoint after import (dbf1cbe0)
 
 ## EUR Conversion (ευρωποίηση)
 - [x] Add amountEur handling: store EUR-converted value per invoice
-- [ ] FX rates settings (AED, SGD, USD → EUR) editable in Settings
 - [x] Convert all existing imported invoices to EUR values (indicative rates: USD 0.92, AED 0.25, SGD 0.68)
 - [x] Dashboard/aging/forecast totals computed in EUR; original currency shown on invoice rows
 - [x] Populate amountEur on all invoice write paths (manual create, installment invoicing, Softone pull)
 - [x] Vitest coverage for toEur and EUR-aware outstanding (25/25 tests pass)
+
+## Prime Branch & Multi-currency Totals (user request 23 Jul)
+- [x] Show Prime Branch (company) on every invoice row in Invoices page + branch filter
+- [x] Show Prime Branch in Customer 360 invoice list
+- [x] Display each invoice in its issuing currency (original currency as primary amount)
+- [x] Aging buckets & totals: EUR total + per-currency breakdown (Invoices page, Dashboard)
+- [x] Customer 360 KPI totals (Total Overdue, Current, Aging 90+): EUR + per-currency breakdown; Credit Limit stays EUR-only by definition
+- [x] Aging report export (Excel/PDF) includes branch and original currency columns
+- [x] FX rates settings (AED, SGD, USD → EUR) editable in Settings (persisted in app_settings, applied at server start and on save)
+
+## Smart Monthly Collection Forecast (user request 23 Jul)
+- [x] Schema: forecastEntries table (per customer/month: dueAmount, overdueAmount, aiSuggestedAmount + reasoning, expectedAmount, userAdjusted + adjustmentNote); collected computed live from receipts in query
+- [x] Payment behavior profiling per customer (avg delay days, collection rate, promise reliability from history)
+- [x] Auto-generate forecast on demand: scan invoices due in month + overdue, apply customer behavior (Generate/Refresh button; Jul 2026 generated for 485 customers)
+- [x] AI-assisted suggestion (LLM, top-40 exposure) with fallback to statistical heuristic when history is thin
+- [x] Forecast page: per-customer table with AI suggestion (reasoning tooltip), editable expected amount + note, reset to AI
+- [x] Live tracking: Forecast vs Collected vs Remaining per customer and total, any moment in the month
+- [ ] Monthly auto-generation via Heartbeat scheduled job (1st of month) — handler /api/scheduled/generateForecast ready; cron creation requires the site to be published first
+- [x] Vitest coverage for behavior profiling and forecast heuristic (32/32 tests passing)

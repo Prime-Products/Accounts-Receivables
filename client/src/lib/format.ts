@@ -7,6 +7,45 @@ export const fmtEurFull = (n: number | string) =>
 
 export const fmtDate = (ts: number) => new Date(ts).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
+/** Format an amount in an arbitrary currency (EUR, AED, SGD, USD, ...). */
+export const fmtCur = (n: number | string, currency = "EUR", digits = 0) =>
+  new Intl.NumberFormat("en-IE", { style: "currency", currency, maximumFractionDigits: digits, minimumFractionDigits: digits }).format(Number(n));
+
+/** Render a per-currency breakdown map as e.g. "AED 1,623,352 · SGD 316,565 · $51,962". */
+export const fmtByCurrency = (byCur: Record<string, number> | undefined | null, opts?: { skipEurOnly?: boolean }) => {
+  if (!byCur) return "";
+  const entries = Object.entries(byCur).filter(([, v]) => Math.abs(v) >= 0.005);
+  if (entries.length === 0) return "";
+  if (opts?.skipEurOnly && entries.length === 1 && entries[0][0] === "EUR") return "";
+  return entries
+    .sort((a, b) => b[1] - a[1])
+    .map(([cur, v]) => fmtCur(v, cur))
+    .join(" · ");
+};
+
+/** Short display label for Prime branches (companies). */
+export const branchShort = (company?: string | null) => {
+  if (!company) return "—";
+  const map: Record<string, string> = {
+    "Prime Products LTD": "Prime LTD",
+    "Prime Products Distribution FZC LTD": "Prime FZC",
+    "Prime Products Distribution(s) PTE LTD": "Prime PTE",
+    "Prime Products Distribution B.V": "Prime B.V",
+    "Prime Products Distribution USA LLC": "Prime USA",
+    "P.P.D. Prime Products Distribution Ltd": "P.P.D.",
+  };
+  return map[company] ?? company;
+};
+
+export const branchColors: Record<string, string> = {
+  "Prime LTD": "bg-blue-50 text-blue-700 border-blue-200",
+  "Prime FZC": "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "Prime PTE": "bg-violet-50 text-violet-700 border-violet-200",
+  "Prime B.V": "bg-orange-50 text-orange-700 border-orange-200",
+  "Prime USA": "bg-red-50 text-red-700 border-red-200",
+  "P.P.D.": "bg-teal-50 text-teal-700 border-teal-200",
+};
+
 export const monthName = (m: number) =>
   ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m - 1];
 

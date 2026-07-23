@@ -42,6 +42,8 @@ export interface InvoiceLike {
   /** EUR-converted total amount (set for non-EUR invoices). */
   amountEur?: string | number | null;
   currency?: string | null;
+  /** Prime branch / issuing company. */
+  company?: string | null;
 }
 
 /**
@@ -64,7 +66,7 @@ export function outstandingOriginal(inv: InvoiceLike): number {
 
 /**
  * Indicative FX rates to EUR used when converting invoice amounts.
- * Update here (or via future Settings UI) when rates change materially.
+ * These defaults can be overridden at runtime via `setFxRates` (Settings UI).
  */
 export const FX_RATES_TO_EUR: Record<string, number> = {
   EUR: 1,
@@ -72,6 +74,25 @@ export const FX_RATES_TO_EUR: Record<string, number> = {
   AED: 0.25,
   SGD: 0.68,
 };
+
+export const DEFAULT_FX_RATES: Record<string, number> = { ...FX_RATES_TO_EUR };
+
+/** Override the active FX rates (EUR is always pinned to 1). Invalid/non-positive values are ignored. */
+export function setFxRates(rates: Partial<Record<string, number>>): void {
+  for (const [cur, rate] of Object.entries(rates)) {
+    const key = cur.toUpperCase();
+    if (key === "EUR") continue;
+    if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
+      FX_RATES_TO_EUR[key] = rate;
+    }
+  }
+  FX_RATES_TO_EUR.EUR = 1;
+}
+
+/** Snapshot of the currently active FX rates. */
+export function getFxRates(): Record<string, number> {
+  return { ...FX_RATES_TO_EUR };
+}
 
 /** Convert an amount in the given currency to EUR (2 decimals). Unknown currencies pass through 1:1. */
 export function toEur(amount: number, currency?: string | null): number {
@@ -91,22 +112,36 @@ export function computeAging(invoices: InvoiceLike[], now: number) {
     "61-90": { amount: 0, count: 0 },
     "90+": { amount: 0, count: 0 },
   };
+  const emptyByCur = (): Record<string, number> => ({});
+  const bucketsByCurrency: Record<AgingBucket, Record<string, number>> = {
+    "0-30": emptyByCur(),
+    "31-60": emptyByCur(),
+    "61-90": emptyByCur(),
+    "90+": emptyByCur(),
+  };
+  const totalByCurrency: Record<string, number> = {};
+  const currentByCurrency: Record<string, number> = {};
   let current = 0;
   let currentCount = 0;
   for (const inv of invoices) {
     if (!isOpenInvoice(inv)) continue;
     const out = outstanding(inv);
+    const cur = (inv.currency ?? "EUR").toUpperCase();
+    const outOrig = outstandingOriginal(inv);
     if (now <= inv.dueDate) {
       current += out;
       currentCount += 1;
+      currentByCurrency[cur] = (currentByCurrency[cur] ?? 0) + outOrig;
       continue;
     }
     const b = agingBucket(inv.dueDate, now);
     buckets[b].amount += out;
     buckets[b].count += 1;
+    bucketsByCurrency[b][cur] = (bucketsByCurrency[b][cur] ?? 0) + outOrig;
+    totalByCurrency[cur] = (totalByCurrency[cur] ?? 0) + outOrig;
   }
   const totalOverdue = Object.values(buckets).reduce((s, b) => s + b.amount, 0);
-  return { buckets, current, currentCount, totalOverdue };
+  return { buckets, current, currentCount, totalOverdue, bucketsByCurrency, totalByCurrency, currentByCurrency };
 }
 
 /**
@@ -217,4 +252,117 @@ export function deriveInvoiceStatus(amount: number, paidAmount: number, dueDate:
   if (paidAmount > 0.005) return "Partially Paid";
   if (now > dueDate) return "Overdue";
   return "Open";
+}
+
+// ---------- Customer payment behavior profiling & smart forecast ----------
+
+export interface ReceiptLike {
+  receiptDate: number;
+  amount: string | number;
+}
+
+export interface PromiseLike {
+  status: string; // Pending | Kept | Broken
+}
+
+export interface PaymentBehaviorProfile {
+  /** Average days an invoice stays overdue before being fully paid (paid invoices only). */
+  avgDelayDays: number;
+  /** Share of invoiced value collected over the analysed history (0..1). */
+  collectionRate: number;
+  /** Share of receipts (last 6 months) vs open+due amount — recent payment intensity (0..1+). */
+  recentPaymentRatio: number;
+  /** Promise reliability: kept / (kept + broken); null when no resolved promises. */
+  promiseReliability: number | null;
+  paidInvoiceCount: number;
+  openInvoiceCount: number;
+  totalOpenEur: number;
+  overdueEur: number;
+}
+
+/**
+ * Build a payment behavior profile for one customer from historical data.
+ * All monetary values in EUR.
+ */
+export function buildBehaviorProfile(
+  invoices: InvoiceLike[] & { updatedAt?: unknown },
+  receipts: ReceiptLike[],
+  promises: PromiseLike[],
+  now: number,
+  paidDates?: Map<number, number>,
+): PaymentBehaviorProfile {
+  const paid = invoices.filter(i => i.status === "Paid");
+  const open = invoices.filter(isOpenInvoice);
+
+  // Average delay: for paid invoices we approximate settle date via paidDates map
+  // (invoice id → settle ts) when provided; otherwise use current overdue days of open invoices.
+  let delaySum = 0;
+  let delayCount = 0;
+  if (paidDates && paidDates.size > 0) {
+    for (const inv of paid) {
+      const settled = paidDates.get(inv.id);
+      if (settled === undefined) continue;
+      delaySum += Math.max(0, Math.floor((settled - inv.dueDate) / DAY_MS));
+      delayCount += 1;
+    }
+  }
+  if (delayCount === 0) {
+    for (const inv of open) {
+      if (now > inv.dueDate) {
+        delaySum += daysOverdue(inv.dueDate, now);
+        delayCount += 1;
+      }
+    }
+  }
+  const avgDelayDays = delayCount > 0 ? Math.round(delaySum / delayCount) : 0;
+
+  const invoicedTotal = invoices.reduce((s, i) => s + (i.amountEur != null ? Number(i.amountEur) : Number(i.amount)), 0);
+  const openTotal = open.reduce((s, i) => s + outstanding(i), 0);
+  const collectionRate = invoicedTotal > 0 ? Math.min(1, (invoicedTotal - openTotal) / invoicedTotal) : 0;
+
+  const sixMonthsAgo = now - 182 * DAY_MS;
+  const recentReceipts = receipts.filter(r => r.receiptDate >= sixMonthsAgo).reduce((s, r) => s + Number(r.amount), 0);
+  const recentPaymentRatio = openTotal > 0 ? recentReceipts / openTotal : recentReceipts > 0 ? 1 : 0;
+
+  const kept = promises.filter(p => p.status === "Kept").length;
+  const broken = promises.filter(p => p.status === "Broken").length;
+  const promiseReliability = kept + broken > 0 ? kept / (kept + broken) : null;
+
+  const overdueEur = open.filter(i => now > i.dueDate).reduce((s, i) => s + outstanding(i), 0);
+
+  return {
+    avgDelayDays,
+    collectionRate,
+    recentPaymentRatio: Math.round(recentPaymentRatio * 100) / 100,
+    promiseReliability,
+    paidInvoiceCount: paid.length,
+    openInvoiceCount: open.length,
+    totalOpenEur: Math.round(openTotal * 100) / 100,
+    overdueEur: Math.round(overdueEur * 100) / 100,
+  };
+}
+
+/**
+ * Statistical (non-LLM) expected-collection heuristic for a month, EUR.
+ * dueThisMonth: open EUR falling due within the month; overdue: already overdue EUR.
+ */
+export function heuristicExpectedAmount(
+  dueThisMonth: number,
+  overdue: number,
+  profile: PaymentBehaviorProfile,
+): { amount: number; reasoning: string } {
+  // Probability the customer pays on time decreases with historical delay.
+  const onTimeFactor = profile.avgDelayDays <= 5 ? 0.9 : profile.avgDelayDays <= 30 ? 0.65 : profile.avgDelayDays <= 60 ? 0.4 : 0.25;
+  // Overdue amounts are recovered at a slower pace, boosted by recent payment activity.
+  const overdueFactor = Math.min(0.6, 0.15 + 0.3 * Math.min(1, profile.recentPaymentRatio) + 0.15 * profile.collectionRate);
+  const reliability = profile.promiseReliability ?? profile.collectionRate;
+  const blend = 0.7 + 0.3 * reliability;
+
+  const expected = (dueThisMonth * onTimeFactor + overdue * overdueFactor) * blend;
+  const amount = Math.round(Math.min(expected, dueThisMonth + overdue) * 100) / 100;
+  const reasoning =
+    `Heuristic: avg delay ${profile.avgDelayDays}d → on-time factor ${onTimeFactor}; ` +
+    `overdue recovery factor ${overdueFactor.toFixed(2)} (recent payment ratio ${profile.recentPaymentRatio}, ` +
+    `collection rate ${(profile.collectionRate * 100).toFixed(0)}%); reliability blend ${(blend).toFixed(2)}.`;
+  return { amount, reasoning };
 }

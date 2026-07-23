@@ -16,12 +16,17 @@ import {
   computeAging,
   computeDso,
   daysOverdue,
+  DEFAULT_FX_RATES,
   deriveInvoiceStatus,
+  getFxRates,
   isOpenInvoice,
   monthRange,
   outstanding,
+  outstandingOriginal,
+  setFxRates,
 } from "../lib/arLogic";
 import { buildExcel, buildPdf, TableSpec } from "../lib/exports";
+import { generateMonthlyForecast } from "../lib/smartForecast";
 import { runTaskEngine } from "../lib/taskEngine";
 import * as softone from "../lib/softone";
 
@@ -487,6 +492,93 @@ export const forecastRouter = router({
       await audit(ctx, `Promise ${input.status}`, "promiseToPay", input.id);
       return { success: true };
     }),
+
+  /** Generate (or refresh) the smart per-customer forecast for a month. */
+  generateSmart: protectedProcedure
+    .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12), useAi: z.boolean().default(true) }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getAppRole(ctx.user.id);
+      requireRole(role, ["Administrator", "Management", "Credit Controller", "Accounting"]);
+      const result = await generateMonthlyForecast(input.year, input.month, { useAi: input.useAi });
+      await audit(ctx, "Generate Smart Forecast", "forecast", `${input.year}-${input.month}`, `${result.customers} customers (${result.aiCount} AI, ${result.heuristicCount} heuristic)`);
+      return result;
+    }),
+
+  /** Per-customer forecast entries for a month, with live collected amounts. */
+  smartEntries: protectedProcedure
+    .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12) }))
+    .query(async ({ input }) => {
+      const [entries, customers, receipts] = await Promise.all([
+        db.listForecastEntries(input.year, input.month),
+        db.listCustomers(),
+        db.listReceipts(),
+      ]);
+      const byId = new Map(customers.map(c => [c.id, c]));
+      const { start, end } = monthRange(input.year, input.month);
+      const collectedByCustomer = new Map<number, number>();
+      for (const r of receipts) {
+        if (r.receiptDate >= start && r.receiptDate < end) {
+          collectedByCustomer.set(r.customerId, (collectedByCustomer.get(r.customerId) ?? 0) + Number(r.amount));
+        }
+      }
+      const rows = entries.map(e => {
+        const collected = collectedByCustomer.get(e.customerId) ?? 0;
+        return {
+          ...e,
+          customerName: byId.get(e.customerId)?.name ?? "—",
+          customerTier: byId.get(e.customerId)?.tier ?? "New",
+          collected,
+          remaining: Math.max(0, Number(e.expectedAmount) - collected),
+        };
+      });
+      const totals = rows.reduce(
+        (acc, r) => {
+          acc.due += Number(r.dueAmount);
+          acc.overdue += Number(r.overdueAmount);
+          acc.aiSuggested += Number(r.aiSuggestedAmount);
+          acc.expected += Number(r.expectedAmount);
+          acc.collected += r.collected;
+          return acc;
+        },
+        { due: 0, overdue: 0, aiSuggested: 0, expected: 0, collected: 0 },
+      );
+      return { entries: rows, totals: { ...totals, remaining: Math.max(0, totals.expected - totals.collected) } };
+    }),
+
+  /** Months that have a generated smart forecast. */
+  smartMonths: protectedProcedure.query(async () => db.listForecastMonths()),
+
+  /** User override of the expected amount for one forecast entry. */
+  adjustEntry: protectedProcedure
+    .input(z.object({ id: z.number(), expectedAmount: z.number().nonnegative(), note: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const entry = await db.getForecastEntry(input.id);
+      if (!entry) throw new TRPCError({ code: "NOT_FOUND", message: "Forecast entry not found" });
+      await db.updateForecastEntry(input.id, {
+        expectedAmount: eur(input.expectedAmount),
+        userAdjusted: 1,
+        adjustedBy: ctx.user.id,
+        adjustmentNote: input.note,
+      });
+      await audit(ctx, "Adjust Forecast Entry", "forecastEntry", input.id, `Customer #${entry.customerId}: €${eur(Number(entry.expectedAmount))} → €${eur(input.expectedAmount)}${input.note ? ` (${input.note})` : ""}`);
+      return { success: true };
+    }),
+
+  /** Reset an entry back to the AI suggestion. */
+  resetEntry: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const entry = await db.getForecastEntry(input.id);
+      if (!entry) throw new TRPCError({ code: "NOT_FOUND" });
+      await db.updateForecastEntry(input.id, {
+        expectedAmount: entry.aiSuggestedAmount,
+        userAdjusted: 0,
+        adjustedBy: null,
+        adjustmentNote: null,
+      });
+      await audit(ctx, "Reset Forecast Entry", "forecastEntry", input.id);
+      return { success: true };
+    }),
 });
 
 export const reportsRouter = router({
@@ -559,8 +651,11 @@ export const reportsRouter = router({
           title: "Aging Report",
           columns: [
             { header: "Customer", key: "customer", width: 32 },
+            { header: "Prime Branch", key: "branch", width: 30 },
             { header: "Invoice", key: "invoice", width: 18 },
             { header: "Due Date", key: "due", width: 14 },
+            { header: "Currency", key: "cur", width: 10 },
+            { header: "Outstanding (orig.)", key: "outOrig", width: 18 },
             { header: "Outstanding (€)", key: "out", width: 16 },
             { header: "Days Overdue", key: "days", width: 14 },
             { header: "Bucket", key: "bucket", width: 10 },
@@ -569,8 +664,11 @@ export const reportsRouter = router({
             const d = daysOverdue(i.dueDate, now);
             return {
               customer: byId.get(i.customerId)?.name ?? "—",
+              branch: i.company ?? "—",
               invoice: i.invoiceNumber,
               due: new Date(i.dueDate).toISOString().slice(0, 10),
+              cur: i.currency ?? "EUR",
+              outOrig: outstandingOriginal(i).toFixed(2),
               out: outstanding(i).toFixed(2),
               days: d,
               bucket: d <= 30 ? "0-30" : d <= 60 ? "31-60" : d <= 90 ? "61-90" : "90+",
@@ -605,29 +703,38 @@ export const reportsRouter = router({
           title: `Statement of Account — ${customer.name}`,
           columns: [
             { header: "Invoice", key: "invoice", width: 18 },
+            { header: "Prime Branch", key: "branch", width: 30 },
             { header: "Issue Date", key: "issue", width: 14 },
             { header: "Due Date", key: "due", width: 14 },
-            { header: "Amount (€)", key: "amount", width: 14 },
-            { header: "Paid (€)", key: "paid", width: 14 },
+            { header: "Currency", key: "cur", width: 10 },
+            { header: "Amount", key: "amount", width: 14 },
+            { header: "Paid", key: "paid", width: 14 },
+            { header: "Outstanding (orig.)", key: "outOrig", width: 18 },
             { header: "Outstanding (€)", key: "out", width: 16 },
             { header: "Days Overdue", key: "days", width: 14 },
           ],
           rows: [
             ...open.map(i => ({
               invoice: i.invoiceNumber,
+              branch: i.company ?? "—",
               issue: new Date(i.issueDate).toISOString().slice(0, 10),
               due: new Date(i.dueDate).toISOString().slice(0, 10),
+              cur: i.currency ?? "EUR",
               amount: Number(i.amount).toFixed(2),
               paid: Number(i.paidAmount).toFixed(2),
+              outOrig: outstandingOriginal(i).toFixed(2),
               out: outstanding(i).toFixed(2),
               days: daysOverdue(i.dueDate, now),
             })),
             {
               invoice: "TOTAL",
+              branch: "",
               issue: "",
               due: "",
+              cur: "",
               amount: "",
               paid: "",
+              outOrig: "",
               out: open.reduce((s, i) => s + outstanding(i), 0).toFixed(2),
               days: "",
             },
@@ -673,6 +780,33 @@ export const adminRouter = router({
     const logs = await db.listSyncLogs(30);
     return { configured, logs };
   }),
+  /** Active FX rates to EUR (defaults + persisted overrides). */
+  fxRates: protectedProcedure.query(async () => {
+    const stored = await db.getSetting("fx_rates");
+    if (stored) {
+      try {
+        setFxRates(JSON.parse(stored));
+      } catch {
+        /* keep defaults on parse error */
+      }
+    }
+    return { rates: getFxRates(), defaults: DEFAULT_FX_RATES };
+  }),
+  /** Persist FX rate overrides (per unit of foreign currency in EUR). */
+  setFxRates: protectedProcedure
+    .input(
+      z.object({
+        rates: z.record(z.string().length(3), z.number().positive().max(1000)),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const role = await getAppRole(ctx.user.id);
+      requireRole(role, ["Administrator", "Management", "Accounting"]);
+      setFxRates(input.rates);
+      await db.setSetting("fx_rates", JSON.stringify(getFxRates()), ctx.user.id);
+      await audit(ctx, "Update FX Rates", "settings", "fx_rates", JSON.stringify(input.rates));
+      return { rates: getFxRates() };
+    }),
   syncPullCustomers: protectedProcedure.mutation(async ({ ctx }) => {
     const role = await getAppRole(ctx.user.id);
     requireRole(role, ["Administrator", "Accounting"]);

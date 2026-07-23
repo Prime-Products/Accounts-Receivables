@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { downloadBase64, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
+import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { FileDown, FileText, HandCoins, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -26,6 +26,7 @@ export default function Invoices() {
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [bucketFilter, setBucketFilter] = useState<(typeof BUCKETS)[number]>("all");
+  const [branchFilter, setBranchFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
 
   // New invoice dialog
@@ -68,10 +69,16 @@ export default function Invoices() {
 
   const allocatedTotal = Object.values(allocations).reduce((s, v) => s + Number(v || 0), 0);
 
+  const branches = useMemo(() => {
+    if (!invoices) return [] as string[];
+    return Array.from(new Set(invoices.map(i => i.company).filter((c): c is string => !!c))).sort();
+  }, [invoices]);
+
   const filtered = useMemo(() => {
     if (!invoices) return [];
     return invoices.filter(i => {
       if (statusFilter !== "all" && i.status !== statusFilter) return false;
+      if (branchFilter !== "all" && i.company !== branchFilter) return false;
       if (bucketFilter !== "all") {
         if (i.daysOverdue <= 0) return false;
         const b = i.daysOverdue <= 30 ? "0-30" : i.daysOverdue <= 60 ? "31-60" : i.daysOverdue <= 90 ? "61-90" : "90+";
@@ -81,7 +88,20 @@ export default function Invoices() {
         return false;
       return true;
     });
-  }, [invoices, statusFilter, bucketFilter, search]);
+  }, [invoices, statusFilter, bucketFilter, branchFilter, search]);
+
+  /** Totals of the currently filtered list: EUR + per-currency breakdown. */
+  const filteredTotals = useMemo(() => {
+    let eurTotal = 0;
+    const byCur: Record<string, number> = {};
+    for (const i of filtered) {
+      if (i.status === "Paid") continue;
+      eurTotal += i.outstanding;
+      const cur = (i.currency ?? "EUR").toUpperCase();
+      byCur[cur] = (byCur[cur] ?? 0) + (Number(i.amount) - Number(i.paidAmount));
+    }
+    return { eurTotal, byCur, count: filtered.length };
+  }, [filtered]);
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -288,6 +308,11 @@ export default function Invoices() {
               <div className="text-xs text-muted-foreground">{b} days overdue</div>
               <div className="text-lg font-bold font-mono">{fmtEur(aging.buckets[b].amount)}</div>
               <div className="text-xs text-muted-foreground">{aging.buckets[b].count} invoice(s)</div>
+              {fmtByCurrency((aging as any).bucketsByCurrency?.[b], { skipEurOnly: true }) && (
+                <div className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate" title={fmtByCurrency((aging as any).bucketsByCurrency?.[b])}>
+                  {fmtByCurrency((aging as any).bucketsByCurrency?.[b])}
+                </div>
+              )}
             </button>
           ))}
         </div>
@@ -295,6 +320,19 @@ export default function Invoices() {
 
       <div className="flex flex-wrap gap-3">
         <Input className="flex-1 min-w-52" placeholder="Search invoice number or customer…" value={search} onChange={e => setSearch(e.target.value)} />
+        <Select value={branchFilter} onValueChange={setBranchFilter}>
+          <SelectTrigger className="w-52">
+            <SelectValue placeholder="All branches" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Prime branches</SelectItem>
+            {branches.map(b => (
+              <SelectItem key={b} value={b}>
+                {branchShort(b)} — {b}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-44">
             <SelectValue />
@@ -309,6 +347,21 @@ export default function Invoices() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* Filtered totals: EUR + per-currency */}
+      {!isLoading && filtered.length > 0 && (
+        <div className="rounded-lg border bg-muted/30 px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+          <span className="text-muted-foreground">{filteredTotals.count} invoice(s) shown</span>
+          <span>
+            Outstanding total: <span className="font-mono font-semibold">{fmtEur(filteredTotals.eurTotal)}</span>
+          </span>
+          {fmtByCurrency(filteredTotals.byCur, { skipEurOnly: true }) && (
+            <span className="text-muted-foreground">
+              Per currency: <span className="font-mono">{fmtByCurrency(filteredTotals.byCur)}</span>
+            </span>
+          )}
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-0">
@@ -326,10 +379,11 @@ export default function Invoices() {
                 <TableRow>
                   <TableHead>Invoice</TableHead>
                   <TableHead>Customer</TableHead>
+                  <TableHead>Prime Branch</TableHead>
                   <TableHead>Due Date</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Outstanding (€)</TableHead>
+                  <TableHead className="text-right">Outstanding</TableHead>
                   <TableHead className="text-right">Days Overdue</TableHead>
                 </TableRow>
               </TableHeader>
@@ -337,7 +391,14 @@ export default function Invoices() {
                 {filtered.map(i => (
                   <TableRow key={i.id}>
                     <TableCell className="font-mono text-sm">{i.invoiceNumber}</TableCell>
-                    <TableCell className="font-medium">{i.customerName}</TableCell>
+                    <TableCell className="font-medium max-w-64">
+                      <span className="block truncate" title={i.customerName}>{i.customerName}</span>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={branchColors[branchShort(i.company)] ?? "bg-gray-50 text-gray-600 border-gray-200"} title={i.company ?? undefined}>
+                        {branchShort(i.company)}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="text-sm">{fmtDate(i.dueDate)}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={invoiceStatusColors[i.status]}>
@@ -347,15 +408,23 @@ export default function Invoices() {
                     <TableCell className="text-right font-mono">
                       {i.currency && i.currency !== "EUR" ? (
                         <span>
-                          {Number(i.amount).toLocaleString("el-GR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
-                          <span className="text-xs text-muted-foreground">{i.currency}</span>
+                          {fmtCur(i.amount, i.currency, 2)}
                           <span className="block text-xs text-muted-foreground">≈ {fmtEur(Number(i.amountEur ?? i.amount))}</span>
                         </span>
                       ) : (
                         fmtEur(i.amount)
                       )}
                     </TableCell>
-                    <TableCell className="text-right font-mono font-semibold">{fmtEur(i.outstanding)}</TableCell>
+                    <TableCell className="text-right font-mono font-semibold">
+                      {i.currency && i.currency !== "EUR" ? (
+                        <span>
+                          {fmtCur(Number(i.amount) - Number(i.paidAmount), i.currency, 2)}
+                          <span className="block text-xs text-muted-foreground font-normal">≈ {fmtEur(i.outstanding)}</span>
+                        </span>
+                      ) : (
+                        fmtEur(i.outstanding)
+                      )}
+                    </TableCell>
                     <TableCell className={`text-right font-mono ${i.daysOverdue > 0 ? "text-red-600 font-semibold" : ""}`}>
                       {i.daysOverdue > 0 ? i.daysOverdue : "—"}
                     </TableCell>

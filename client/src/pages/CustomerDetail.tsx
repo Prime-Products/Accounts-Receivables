@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { downloadBase64, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
+import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, FileDown, HandCoins, PauseCircle } from "lucide-react";
 import { useState } from "react";
@@ -65,6 +65,7 @@ export default function CustomerDetail() {
 
   const { customer, invoices, receipts, contracts, installments, promises, tasks, aging } = data;
   const openInvoices = invoices.filter(i => i.status !== "Paid");
+  const agingAny = aging as any;
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -186,12 +187,22 @@ export default function CustomerDetail() {
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Total Overdue</div>
             <div className="text-xl font-bold font-mono text-red-600">{fmtEur(aging.totalOverdue)}</div>
+            {fmtByCurrency(agingAny.totalByCurrency, { skipEurOnly: true }) && (
+              <div className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate" title={fmtByCurrency(agingAny.totalByCurrency)}>
+                {fmtByCurrency(agingAny.totalByCurrency)}
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Current (not due)</div>
             <div className="text-xl font-bold font-mono">{fmtEur(aging.current)}</div>
+            {fmtByCurrency(agingAny.currentByCurrency, { skipEurOnly: true }) && (
+              <div className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate" title={fmtByCurrency(agingAny.currentByCurrency)}>
+                {fmtByCurrency(agingAny.currentByCurrency)}
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -204,6 +215,11 @@ export default function CustomerDetail() {
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Aging 90+</div>
             <div className="text-xl font-bold font-mono">{fmtEur(aging.buckets["90+"].amount)}</div>
+            {fmtByCurrency(agingAny.bucketsByCurrency?.["90+"], { skipEurOnly: true }) && (
+              <div className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate" title={fmtByCurrency(agingAny.bucketsByCurrency?.["90+"])}>
+                {fmtByCurrency(agingAny.bucketsByCurrency?.["90+"])}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -227,6 +243,7 @@ export default function CustomerDetail() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Invoice</TableHead>
+                      <TableHead>Branch</TableHead>
                       <TableHead>Issue</TableHead>
                       <TableHead>Due</TableHead>
                       <TableHead>Status</TableHead>
@@ -239,6 +256,11 @@ export default function CustomerDetail() {
                     {invoices.map(i => (
                       <TableRow key={i.id}>
                         <TableCell className="font-mono text-sm">{i.invoiceNumber}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={branchColors[branchShort(i.company)] ?? "bg-gray-50 text-gray-600 border-gray-200"} title={i.company ?? undefined}>
+                            {branchShort(i.company)}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-sm">{fmtDate(i.issueDate)}</TableCell>
                         <TableCell className="text-sm">{fmtDate(i.dueDate)}</TableCell>
                         <TableCell>
@@ -246,10 +268,21 @@ export default function CustomerDetail() {
                             {i.status}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right font-mono">{fmtEur(i.amount)}</TableCell>
-                        <TableCell className="text-right font-mono">{fmtEur(i.paidAmount)}</TableCell>
+                        <TableCell className="text-right font-mono">
+                          {i.currency && i.currency !== "EUR" ? (
+                            <span>
+                              {fmtCur(i.amount, i.currency, 2)}
+                              <span className="block text-xs text-muted-foreground">≈ {fmtEur(Number(i.amountEur ?? i.amount))}</span>
+                            </span>
+                          ) : (
+                            fmtEur(i.amount)
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">{i.currency && i.currency !== "EUR" ? fmtCur(i.paidAmount, i.currency, 2) : fmtEur(i.paidAmount)}</TableCell>
                         <TableCell className="text-right font-mono font-semibold">
-                          {fmtEur(Number(i.amount) - Number(i.paidAmount))}
+                          {i.currency && i.currency !== "EUR"
+                            ? fmtCur(Number(i.amount) - Number(i.paidAmount), i.currency, 2)
+                            : fmtEur(Number(i.amount) - Number(i.paidAmount))}
                         </TableCell>
                       </TableRow>
                     ))}
