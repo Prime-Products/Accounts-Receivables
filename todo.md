@@ -169,6 +169,11 @@
 - [x] Promise-to-Pay dialog on GroupDetail — company picker limited to group members, defaults to filtered/largest-balance company
 - [x] Propose On-Hold dialog on GroupDetail — same company selection, auto-aggregated supporting data
 
+## Group card: promises view, notes, AI summary (user request 23/7)
+- [x] Promises-to-pay section on GroupDetail — list all group companies' promises with amount, date, status (+ Kept/Broken actions)
+- [x] Group notes: schema table + CRUD endpoints + notes section with author/date on GroupDetail
+- [x] AI Summary button on GroupDetail — LLM-generated group snapshot (balances, overdue, behavior, promises, tasks, notes)
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)

@@ -11,7 +11,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, FileDown, Filter, HandCoins, Layers, PauseCircle, Plus } from "lucide-react";
+import { ArrowLeft, Building2, FileDown, Filter, HandCoins, Layers, PauseCircle, Pencil, Plus, Sparkles, StickyNote, Trash2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -519,8 +520,259 @@ export default function GroupDetail() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Promises-to-pay, Notes & AI summary */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <GroupPromisesCard group={group} />
+            <GroupNotesCard group={group} />
+          </div>
+          <GroupAiSummaryCard group={group} />
         </>
       )}
     </div>
+  );
+}
+
+const promiseStatusColors: Record<string, string> = {
+  Pending: "bg-amber-50 text-amber-700 border-amber-200",
+  Kept: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  Broken: "bg-red-50 text-red-700 border-red-200",
+};
+
+function GroupPromisesCard({ group }: { group: string }) {
+  const utils = trpc.useUtils();
+  const { data: promises, isLoading } = trpc.customers.groupPromises.useQuery({ group });
+  const update = trpc.forecast.updatePromise.useMutation({
+    onSuccess: () => {
+      toast.success("Promise updated");
+      utils.customers.groupPromises.invalidate({ group });
+    },
+    onError: e => toast.error(e.message),
+  });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <HandCoins className="h-4 w-4" /> Promises-to-Pay
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="p-4">
+            <Skeleton className="h-24" />
+          </div>
+        ) : !promises || promises.length === 0 ? (
+          <p className="text-sm text-muted-foreground p-4">No promises recorded for this group yet. Use the "Promise-to-Pay" button above.</p>
+        ) : (
+          <div className="max-h-72 overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Promised date</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="w-32" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {promises.map(p => (
+                  <TableRow key={p.id}>
+                    <TableCell className="text-sm max-w-44">
+                      <div className="truncate" title={p.customerName}>{p.customerName}</div>
+                      {p.notes && (
+                        <div className="text-[11px] text-muted-foreground truncate" title={p.notes}>
+                          {p.notes}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">{fmtDate(p.promisedDate)}</TableCell>
+                    <TableCell className="text-right font-mono text-sm">{fmtEur(Number(p.amount))}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={`text-[10px] ${promiseStatusColors[p.status] ?? ""}`}>{p.status}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {p.status === "Pending" && (
+                        <div className="flex gap-1 justify-end">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-emerald-700"
+                            disabled={update.isPending}
+                            onClick={() => update.mutate({ id: p.id, status: "Kept" })}
+                          >
+                            Kept
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-red-700"
+                            disabled={update.isPending}
+                            onClick={() => update.mutate({ id: p.id, status: "Broken" })}
+                          >
+                            Broken
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function GroupNotesCard({ group }: { group: string }) {
+  const utils = trpc.useUtils();
+  const [content, setContent] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const { data: notes, isLoading } = trpc.customers.groupNotes.useQuery({ group });
+  const add = trpc.customers.addGroupNote.useMutation({
+    onSuccess: () => {
+      setContent("");
+      utils.customers.groupNotes.invalidate({ group });
+    },
+    onError: e => toast.error(e.message),
+  });
+  const update = trpc.customers.updateGroupNote.useMutation({
+    onSuccess: () => {
+      setEditingId(null);
+      utils.customers.groupNotes.invalidate({ group });
+    },
+    onError: e => toast.error(e.message),
+  });
+  const del = trpc.customers.deleteGroupNote.useMutation({
+    onSuccess: () => utils.customers.groupNotes.invalidate({ group }),
+    onError: e => toast.error(e.message),
+  });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <StickyNote className="h-4 w-4" /> Group Notes
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex gap-2">
+          <Textarea
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            placeholder="Add a note about this group (calls, agreements, context)…"
+            className="min-h-16"
+          />
+          <Button
+            size="sm"
+            className="self-end"
+            disabled={!content.trim() || add.isPending}
+            onClick={() => add.mutate({ group, content: content.trim() })}
+          >
+            Add
+          </Button>
+        </div>
+        {isLoading ? (
+          <Skeleton className="h-20" />
+        ) : !notes || notes.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No notes yet.</p>
+        ) : (
+          <div className="space-y-2 max-h-60 overflow-auto pr-1">
+            {notes.map(n => (
+              <div key={n.id} className="rounded-md border p-2.5 text-sm">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-[11px] text-muted-foreground">
+                    {n.authorName} · {new Date(n.createdAt).toLocaleString()}
+                  </span>
+                  <div className="flex gap-0.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-muted-foreground"
+                      onClick={() => {
+                        setEditingId(n.id);
+                        setEditContent(n.content);
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-muted-foreground hover:text-red-600"
+                      onClick={() => del.mutate({ id: n.id })}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                {editingId === n.id ? (
+                  <div className="space-y-2">
+                    <Textarea value={editContent} onChange={e => setEditContent(e.target.value)} className="min-h-16" />
+                    <div className="flex gap-2 justify-end">
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setEditingId(null)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs"
+                        disabled={!editContent.trim() || update.isPending}
+                        onClick={() => update.mutate({ id: n.id, content: editContent.trim() })}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap">{n.content}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function GroupAiSummaryCard({ group }: { group: string }) {
+  const [summary, setSummary] = useState<{ text: string; at: number } | null>(null);
+  const gen = trpc.customers.groupAiSummary.useMutation({
+    onSuccess: r => setSummary({ text: r.summary, at: r.generatedAt }),
+    onError: e => toast.error(e.message),
+  });
+  return (
+    <Card>
+      <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sparkles className="h-4 w-4" /> AI Summary
+        </CardTitle>
+        <Button size="sm" variant="outline" className="gap-1.5" disabled={gen.isPending} onClick={() => gen.mutate({ group })}>
+          {gen.isPending ? <Spinner className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+          {gen.isPending ? "Analyzing…" : summary ? "Regenerate" : "Generate Summary"}
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {gen.isPending ? (
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+          </div>
+        ) : summary ? (
+          <div>
+            <div className="text-sm whitespace-pre-wrap leading-relaxed">{summary.text}</div>
+            <p className="text-[11px] text-muted-foreground mt-2">Generated {new Date(summary.at).toLocaleString()}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Generate an AI snapshot of this group: exposure, overdue risk, payment behavior, promises, open tasks and notes — useful before a
+            collection call.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

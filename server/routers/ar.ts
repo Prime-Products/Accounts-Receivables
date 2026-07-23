@@ -32,6 +32,7 @@ import { buildExcel, buildPdf, TableSpec } from "../lib/exports";
 import { generateMonthlyForecast } from "../lib/smartForecast";
 import { runTaskEngine } from "../lib/taskEngine";
 import * as softone from "../lib/softone";
+import { invokeLLM } from "../_core/llm";
 
 async function audit(ctx: { user: { id: number; name: string | null } }, action: string, entityType: string, entityId?: string | number, details?: string) {
   try {
@@ -236,6 +237,107 @@ export const customersRouter = router({
         invoices: sortedInvoices.slice(0, 500).map(i => ({ ...i, customerName: customerNames.get(i.customerId) ?? "" })),
       };
     }),
+  /** All promises-to-pay for the member companies of a group. */
+  groupPromises: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
+    const customers = await db.listCustomers();
+    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+    const memberIds = new Set(members.map(m => m.id));
+    const names = new Map(members.map(m => [m.id, m.name]));
+    const all = await db.listPromises();
+    return all
+      .filter(p => memberIds.has(p.customerId))
+      .map(p => ({ ...p, customerName: names.get(p.customerId) ?? "—" }));
+  }),
+  /** Notes attached to a group. */
+  groupNotes: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
+    const notes = await db.listGroupNotes(input.group);
+    const users = await db.listUsersWithProfiles().catch(() => []);
+    const names = new Map(users.map(u => [u.id, u.name ?? "—"]));
+    return notes.map(n => ({ ...n, authorName: names.get(n.createdBy) ?? "—" }));
+  }),
+  addGroupNote: protectedProcedure
+    .input(z.object({ group: z.string().min(1), content: z.string().min(1).max(5000) }))
+    .mutation(async ({ ctx, input }) => {
+      const id = await db.createGroupNote({
+        groupName: input.group,
+        content: input.content,
+        createdBy: ctx.user.id,
+        createdAt: Date.now(),
+      });
+      await audit(ctx, "Add Group Note", "groupNote", id, `Group ${input.group}`);
+      return { id };
+    }),
+  deleteGroupNote: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+    await db.deleteGroupNote(input.id);
+    await audit(ctx, "Delete Group Note", "groupNote", input.id);
+    return { success: true };
+  }),
+  updateGroupNote: protectedProcedure
+    .input(z.object({ id: z.number(), content: z.string().min(1).max(5000) }))
+    .mutation(async ({ ctx, input }) => {
+      await db.updateGroupNote(input.id, input.content);
+      await audit(ctx, "Update Group Note", "groupNote", input.id);
+      return { success: true };
+    }),
+  /** AI-generated snapshot of the group: balances, behavior, promises, tasks, notes. */
+  groupAiSummary: protectedProcedure.input(z.object({ group: z.string().min(1) })).mutation(async ({ ctx, input }) => {
+    const customers = await db.listCustomers();
+    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+    if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+    const memberIds = new Set(members.map(m => m.id));
+    const names = new Map(members.map(m => [m.id, m.name]));
+    const now = Date.now();
+    const [allInvoices, allBehavior, allPromises, allTasks, notes] = await Promise.all([
+      db.listInvoices(),
+      db.listPaymentBehaviorWithGroup().catch(() => []),
+      db.listPromises(),
+      db.listTasks({}),
+      db.listGroupNotes(input.group),
+    ]);
+    const invs = allInvoices.filter(i => memberIds.has(i.customerId));
+    const open = invs.filter(isOpenInvoice);
+    const overdue = open.filter(i => now > i.dueDate);
+    const aging = computeAging(invs, now);
+    const behavior = allBehavior.filter(b => memberIds.has(b.customerId));
+    const promises = allPromises.filter(p => memberIds.has(p.customerId));
+    const pendingTasks = allTasks.filter(t => memberIds.has(t.customerId) && (t.status === "Pending" || t.status === "In Progress"));
+    const onHold = members.filter(m => m.onHoldStatus !== "Active");
+    const facts = {
+      group: input.group,
+      companies: members.length,
+      totalOpenBalanceEur: eur(open.reduce((s, i) => s + outstanding(i), 0)),
+      totalOverdueEur: eur(overdue.reduce((s, i) => s + outstanding(i), 0)),
+      overdueInvoices: overdue.length,
+      openInvoices: open.length,
+      aging,
+      topDebtors: [...members]
+        .map(m => ({ name: m.name, overdueEur: invs.filter(i => i.customerId === m.id && isOpenInvoice(i) && now > i.dueDate).reduce((s, i) => s + outstanding(i), 0) }))
+        .sort((a, b) => b.overdueEur - a.overdueEur)
+        .slice(0, 5)
+        .map(d => ({ name: d.name, overdueEur: eur(d.overdueEur) })),
+      paymentBehavior: behavior.slice(0, 10).map(b => ({ company: names.get(b.customerId), avgDaysLate: b.avgDaysLate, medianDaysLate: b.medianDaysLate, payments: b.payments })),
+      promises: promises.slice(0, 20).map(p => ({ company: names.get(p.customerId), amountEur: Number(p.amount), promisedDate: new Date(p.promisedDate).toISOString().slice(0, 10), status: p.status, notes: p.notes })),
+      pendingTasks: pendingTasks.slice(0, 20).map(t => ({ company: names.get(t.customerId), type: t.type, title: t.title, dueDate: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : null })),
+      onHoldStatuses: onHold.map(m => ({ company: m.name, status: m.onHoldStatus })),
+      recentNotes: notes.slice(0, 10).map(n => ({ date: new Date(n.createdAt).toISOString().slice(0, 10), content: n.content })),
+    };
+    const response = await invokeLLM({
+      model: "gemini-2.5-flash",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a credit-control analyst. Write a concise, factual snapshot of a customer group for an accounts-receivable team preparing a call. Use short paragraphs and bullet points. Cover: overall exposure and overdue risk, payment behavior, promises to pay (kept/broken/pending), open follow-up tasks, on-hold status, and anything notable from the notes. End with 2-3 recommended next actions. Maximum ~250 words. Respond in English.",
+        },
+        { role: "user", content: JSON.stringify(facts) },
+      ],
+    });
+    const raw = response.choices?.[0]?.message?.content;
+    const summary = typeof raw === "string" ? raw : Array.isArray(raw) ? raw.map((c: any) => (c?.type === "text" ? c.text : "")).join("") : "";
+    if (!summary) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI summary unavailable, please try again" });
+    await audit(ctx, "Generate Group AI Summary", "group", input.group);
+    return { summary, generatedAt: Date.now() };
+  }),
   get360: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
     const customer = await db.getCustomer(input.id);
     if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });

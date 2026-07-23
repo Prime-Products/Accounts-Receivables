@@ -243,6 +243,16 @@ export const appSettings = mysqlTable("app_settings", {
 
 export const promiseStatuses = ["Pending", "Kept", "Broken"] as const;
 
+/** Free-form notes attached to a customer group (group card). */
+export const groupNotes = mysqlTable("group_notes", {
+  id: int("id").autoincrement().primaryKey(),
+  groupName: varchar("groupName", { length: 255 }).notNull(),
+  content: text("content").notNull(),
+  createdBy: int("createdBy").notNull(),
+  createdAt: bigint("createdAt", { mode: "number" }).notNull(),
+});
+export type GroupNote = typeof groupNotes.$inferSelect;
+
 export const promisesToPay = mysqlTable("promises_to_pay", {
   id: int("id").autoincrement().primaryKey(),
   customerId: int("customerId").notNull(),

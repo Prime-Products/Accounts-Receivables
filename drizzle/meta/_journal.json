@@ -50,6 +50,13 @@
       "when": 1784814951151,
       "tag": "0006_dizzy_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1784826539026,
+      "tag": "0007_jazzy_bucky",
+      "breakpoints": true
     }
   ]
 }

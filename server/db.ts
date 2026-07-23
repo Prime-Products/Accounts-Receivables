@@ -8,6 +8,7 @@ import {
   contracts,
   customers,
   forecastEntries,
+  groupNotes,
   InsertContract,
   InsertCustomer,
   InsertForecastEntry,
@@ -498,6 +499,25 @@ export async function createPromise(data: typeof promisesToPay.$inferInsert) {
 export async function updatePromise(id: number, data: Partial<typeof promisesToPay.$inferInsert>) {
   const db = await requireDb();
   await db.update(promisesToPay).set(data).where(eq(promisesToPay.id, id));
+}
+
+// ---------- Group notes ----------
+export async function listGroupNotes(groupName: string) {
+  const db = await requireDb();
+  return db.select().from(groupNotes).where(eq(groupNotes.groupName, groupName)).orderBy(desc(groupNotes.createdAt));
+}
+export async function createGroupNote(data: typeof groupNotes.$inferInsert) {
+  const db = await requireDb();
+  const res = await db.insert(groupNotes).values(data);
+  return Number((res as any)[0].insertId);
+}
+export async function updateGroupNote(id: number, content: string) {
+  const db = await requireDb();
+  await db.update(groupNotes).set({ content }).where(eq(groupNotes.id, id));
+}
+export async function deleteGroupNote(id: number) {
+  const db = await requireDb();
+  await db.delete(groupNotes).where(eq(groupNotes.id, id));
 }
 
 // ---------- Audit & sync logs ----------
