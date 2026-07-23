@@ -254,6 +254,9 @@
 ## Group card quick actions to group (user request 24/7)
 - [x] GroupDetail: remove company selection from Add Task and Promise-to-Pay dialogs; record against the group (primary member internally)
 
+## Call List cleanup (user request 24/7)
+- [x] Remove the Contacted badge and Hide-contacted toggle from the Call List
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)
