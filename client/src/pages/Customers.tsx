@@ -343,6 +343,21 @@ export default function Customers() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
+                    <TableCell>TOTAL ({filteredGroups.length} groups)</TableCell>
+                    <TableCell className="text-right font-mono">{groupTotals.companies}</TableCell>
+                    <TableCell className="text-right font-mono">{fmtEur(groupTotals.open)}</TableCell>
+                    <TableCell className={`text-right font-mono ${groupTotals.overdue > 0 ? "text-red-600" : ""}`}>
+                      {fmtEur(groupTotals.overdue)}
+                    </TableCell>
+                    <TableCell className={`text-right font-mono ${groupTotals.overdueEom > 0 ? "text-amber-600" : ""}`}>
+                      {fmtEur(groupTotals.overdueEom)}
+                    </TableCell>
+                    <TableCell className={`text-right font-mono ${groupTotals.forecast > 0 ? "text-emerald-700" : ""}`}>
+                      {fmtEur(groupTotals.forecast)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">{groupTotals.overdueCount}</TableCell>
+                  </TableRow>
                   {filteredGroups.map(g => (
                     <TableRow
                       key={g.group}
@@ -371,21 +386,6 @@ export default function Customers() {
                       <TableCell className="text-right font-mono">{g.overdueCount}</TableCell>
                     </TableRow>
                   ))}
-                  <TableRow className="bg-muted/60 font-semibold border-t-2 hover:bg-muted/60">
-                    <TableCell>TOTAL ({filteredGroups.length} groups)</TableCell>
-                    <TableCell className="text-right font-mono">{groupTotals.companies}</TableCell>
-                    <TableCell className="text-right font-mono">{fmtEur(groupTotals.open)}</TableCell>
-                    <TableCell className={`text-right font-mono ${groupTotals.overdue > 0 ? "text-red-600" : ""}`}>
-                      {fmtEur(groupTotals.overdue)}
-                    </TableCell>
-                    <TableCell className={`text-right font-mono ${groupTotals.overdueEom > 0 ? "text-amber-600" : ""}`}>
-                      {fmtEur(groupTotals.overdueEom)}
-                    </TableCell>
-                    <TableCell className={`text-right font-mono ${groupTotals.forecast > 0 ? "text-emerald-700" : ""}`}>
-                      {fmtEur(groupTotals.forecast)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">{groupTotals.overdueCount}</TableCell>
-                  </TableRow>
                 </TableBody>
               </Table>
             )
@@ -414,6 +414,17 @@ export default function Customers() {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
+                  <TableCell colSpan={4}>TOTAL ({filtered.length} companies)</TableCell>
+                  <TableCell className="text-right font-mono">{fmtEur(companyTotals.open)}</TableCell>
+                  <TableCell className={`text-right font-mono ${companyTotals.overdue > 0 ? "text-red-600" : ""}`}>
+                    {fmtEur(companyTotals.overdue)}
+                  </TableCell>
+                  <TableCell className={`text-right font-mono ${companyTotals.overdueEom > 0 ? "text-amber-600" : ""}`}>
+                    {fmtEur(companyTotals.overdueEom)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">{fmtEur(companyTotals.credit)}</TableCell>
+                </TableRow>
                 {filtered.map(c => (
                   <TableRow key={c.id} className="cursor-pointer" onClick={() => navigate(`/customers/${c.id}`)}>
                     <TableCell className="font-mono text-sm">{c.code}</TableCell>
@@ -438,17 +449,6 @@ export default function Customers() {
                     <TableCell className="text-right font-mono">{fmtEur(c.creditLimit)}</TableCell>
                   </TableRow>
                 ))}
-                <TableRow className="bg-muted/60 font-semibold border-t-2 hover:bg-muted/60">
-                  <TableCell colSpan={4}>TOTAL ({filtered.length} companies)</TableCell>
-                  <TableCell className="text-right font-mono">{fmtEur(companyTotals.open)}</TableCell>
-                  <TableCell className={`text-right font-mono ${companyTotals.overdue > 0 ? "text-red-600" : ""}`}>
-                    {fmtEur(companyTotals.overdue)}
-                  </TableCell>
-                  <TableCell className={`text-right font-mono ${companyTotals.overdueEom > 0 ? "text-amber-600" : ""}`}>
-                    {fmtEur(companyTotals.overdueEom)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">{fmtEur(companyTotals.credit)}</TableCell>
-                </TableRow>
               </TableBody>
             </Table>
           )}

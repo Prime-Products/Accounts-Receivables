@@ -1,4 +1,14 @@
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -27,6 +37,7 @@ function SmartForecastSection() {
   const [editAmount, setEditAmount] = useState("");
   const [editNote, setEditNote] = useState("");
   const [search, setSearch] = useState("");
+  const [confirmRerun, setConfirmRerun] = useState(false);
   type SortKey = "due" | "overdue" | "ai" | "expected" | "collected" | "remaining";
   const [sort, setSort] = useState<{ key: SortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
 
@@ -118,6 +129,12 @@ function SmartForecastSection() {
 
   const totals = data?.totals;
   const collectedPct = totals && totals.expected > 0 ? Math.min(100, Math.round((totals.collected / totals.expected) * 100)) : 0;
+  const hasExistingForecast = (data?.entries.length ?? 0) > 0;
+
+  const handleGenerateClick = () => {
+    if (hasExistingForecast) setConfirmRerun(true);
+    else generate.mutate({ ...sel, useAi: true });
+  };
 
   return (
     <Card className="border-primary/30">
@@ -154,10 +171,36 @@ function SmartForecastSection() {
                 ))}
               </SelectContent>
             </Select>
-            <Button size="sm" className="gap-1.5" onClick={() => generate.mutate({ ...sel, useAi: true })} disabled={generate.isPending}>
+            <Button size="sm" className="gap-1.5" onClick={handleGenerateClick} disabled={generate.isPending}>
               <Sparkles className="h-4 w-4" />
               {generate.isPending ? "Generating…" : (data?.entries.length ?? 0) > 0 ? "Refresh Forecast" : "Generate Forecast"}
             </Button>
+            <AlertDialog open={confirmRerun} onOpenChange={setConfirmRerun}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Forecast for {monthName(sel.month)} {sel.year} has already run
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    The forecast for this month already exists ({data?.entries.length ?? 0} groups, expected{" "}
+                    {fmtEur(totals?.expected ?? 0)}). Re-running will recalculate Due / Overdue / AI Suggested based on the
+                    invoices that are open right now — the AI amounts will be overwritten. Your manual adjustments are kept.
+                    Collected and Remaining always update live and do not require a re-run. Are you sure you want to re-run it?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => {
+                      setConfirmRerun(false);
+                      generate.mutate({ ...sel, useAi: true });
+                    }}
+                  >
+                    Yes, re-run forecast
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
         {generate.isPending && (
@@ -239,6 +282,19 @@ function SmartForecastSection() {
                       <TableCell colSpan={9} className="text-center text-sm text-muted-foreground py-6">
                         No groups match "{search}".
                       </TableCell>
+                    </TableRow>
+                  )}
+                  {visibleRows.length > 0 && (
+                    <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
+                      <TableCell>TOTAL ({visibleRows.length} groups)</TableCell>
+                      <TableCell />
+                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.due)}</TableCell>
+                      <TableCell className="text-right font-mono text-red-600">{fmtEur(visibleTotals.overdue)}</TableCell>
+                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.ai)}</TableCell>
+                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.expected)}</TableCell>
+                      <TableCell className="text-right font-mono text-emerald-700">{fmtEur(visibleTotals.collected)}</TableCell>
+                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.remaining)}</TableCell>
+                      <TableCell />
                     </TableRow>
                   )}
                   {visibleRows.map(e => {
@@ -390,19 +446,6 @@ function SmartForecastSection() {
                       </TableRow>
                     );
                   })}
-                  {visibleRows.length > 0 && (
-                    <TableRow className="bg-muted/60 font-semibold border-t-2 hover:bg-muted/60 sticky bottom-0">
-                      <TableCell>TOTAL ({visibleRows.length} groups)</TableCell>
-                      <TableCell />
-                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.due)}</TableCell>
-                      <TableCell className="text-right font-mono text-red-600">{fmtEur(visibleTotals.overdue)}</TableCell>
-                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.ai)}</TableCell>
-                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.expected)}</TableCell>
-                      <TableCell className="text-right font-mono text-emerald-700">{fmtEur(visibleTotals.collected)}</TableCell>
-                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.remaining)}</TableCell>
-                      <TableCell />
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
             </div>

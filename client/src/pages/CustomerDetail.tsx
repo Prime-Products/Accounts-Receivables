@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import NewTaskDialog from "@/components/NewTaskDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -11,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, FileDown, HandCoins, Layers, PauseCircle } from "lucide-react";
+import { ArrowLeft, FileDown, HandCoins, Layers, PauseCircle, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -135,6 +136,14 @@ export default function CustomerDetail() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <NewTaskDialog
+            defaultCustomerId={id}
+            trigger={
+              <Button size="sm" className="gap-1.5">
+                <Plus className="h-4 w-4" /> New Task
+              </Button>
+            }
+          />
           <Button
             variant="outline"
             size="sm"
@@ -258,13 +267,13 @@ export default function CustomerDetail() {
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground">Aging 90+</div>
-            <div className="text-xl font-bold font-mono">{fmtEur(aging.buckets["90+"].amount)}</div>
-            {fmtByCurrency(agingAny.bucketsByCurrency?.["90+"], { skipEurOnly: true }) && (
-              <div className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate" title={fmtByCurrency(agingAny.bucketsByCurrency?.["90+"])}>
-                {fmtByCurrency(agingAny.bucketsByCurrency?.["90+"])}
-              </div>
-            )}
+            <div className="text-xs text-muted-foreground">Aging 90+ (91-120 & 120+)</div>
+            <div className="text-xl font-bold font-mono">
+              {fmtEur(aging.buckets["91-120"].amount + aging.buckets["120+"].amount)}
+            </div>
+            <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+              91-120: {fmtEur(aging.buckets["91-120"].amount)} · 120+: {fmtEur(aging.buckets["120+"].amount)}
+            </div>
           </CardContent>
         </Card>
       </div>

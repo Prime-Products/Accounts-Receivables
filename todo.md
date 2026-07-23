@@ -145,6 +145,23 @@
 - [x] Groups view: "AI Forecast" column (sortable) + TOTAL cell
 - [x] Companies view: forecast is group-level only — column shown in Groups view (verified with user data; AI genuinely suggests €0 for groups with poor collection history)
 
+## Forecast refresh confirmation (user request 23/7)
+- [x] Refresh Forecast button: if entries already exist for the selected month, show confirmation dialog ("forecast already ran — re-run?") before regenerating
+
+## TOTAL rows at top (user request 23/7)
+- [x] Customers Groups view: TOTAL row moved to top of table (below header)
+- [x] Customers Companies view: TOTAL row moved to top of table
+- [x] Smart Forecast table: TOTAL row moved to top of table
+
+## Aging buckets: add 120+ (user request 23/7)
+- [x] Split "90+ days" aging bucket into "91-120 days" and "120+ days" everywhere buckets appear (group card Aging, Dashboard, Invoices, Customer 360, aging export)
+
+## Customer-level task creation (user request 23/7)
+- [x] Reusable "New Task" dialog component (customer-level, no invoice binding)
+- [x] "New Task" button on GroupDetail (group card) — pick member company, defaults to group's main customer
+- [x] "New Task" button on CustomerDetail (Customer 360) — customer preselected
+- [x] Verify Customer 360 aging bucket UI shows 91-120/120+ consistently (screenshot check)
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)

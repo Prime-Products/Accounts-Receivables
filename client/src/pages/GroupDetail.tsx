@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import NewTaskDialog from "@/components/NewTaskDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -6,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, FileDown, Filter, Layers } from "lucide-react";
+import { ArrowLeft, Building2, FileDown, Filter, Layers, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -77,6 +78,22 @@ export default function GroupDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {data && data.companies.length > 0 && (
+            <NewTaskDialog
+              key={companyId}
+              customerIds={data.companies.map(c => c.id)}
+              defaultCustomerId={
+                companyId !== "all"
+                  ? Number(companyId)
+                  : [...data.companies].sort((a, b) => Number(b.openBalance ?? 0) - Number(a.openBalance ?? 0))[0]?.id
+              }
+              trigger={
+                <Button size="sm" className="gap-1.5">
+                  <Plus className="h-4 w-4" /> New Task
+                </Button>
+              }
+            />
+          )}
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => doExport("pdf")} disabled={exportSoa.isPending}>
             <FileDown className="h-4 w-4" /> SOA (PDF)
           </Button>
@@ -191,12 +208,12 @@ export default function GroupDetail() {
               <CardTitle className="text-base">Aging (current scope)</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 <div className="rounded-md border bg-muted/40 px-3 py-2">
                   <div className="text-[11px] text-muted-foreground">Current (not due)</div>
                   <div className="text-sm font-bold font-mono">{fmtEur(data.aging.current)}</div>
                 </div>
-                {(["0-30", "31-60", "61-90", "90+"] as const).map(b => (
+                {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
                   <div key={b} className="rounded-md border bg-muted/40 px-3 py-2">
                     <div className="text-[11px] text-muted-foreground">{b} days overdue</div>
                     <div className="text-sm font-bold font-mono">{fmtEur(data.aging.buckets[b].amount)}</div>
