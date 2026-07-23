@@ -233,6 +233,8 @@
 - [x] Show on-hold status consistently on both Customer 360 and Group card (group shows worst member status)
 - [x] Remove Tier (Platinum/Gold/Silver/Bronze/New) from all UI: Customers list, Customer 360, GroupDetail companies table, dialogs/forms
 - [x] Customer 360 mirrors group card exactly: same KPI cards, sections, and layout (user request 23/7)
+## Call List tweaks (user request 23/7)
+- [x] Remove the "Why" (reasons) column from the Call List table
 
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)

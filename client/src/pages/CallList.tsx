@@ -105,7 +105,6 @@ export default function CallList() {
                   <TableRow>
                     <TableHead className="w-10">#</TableHead>
                     <TableHead>Group</TableHead>
-                    <TableHead>Why</TableHead>
                     <TableHead className="text-right">Overdue</TableHead>
                     <TableHead className="text-right">61-90d</TableHead>
                     <TableHead className="text-right">Coverage</TableHead>
@@ -124,19 +123,6 @@ export default function CallList() {
                           <ChevronRight className="h-3 w-3 text-muted-foreground" />
                         </Link>
                         <div className="text-[10px] text-muted-foreground font-mono">score {r.score.toLocaleString()}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {r.reasons.length === 0 ? (
-                            <span className="text-xs text-muted-foreground">Amount at risk</span>
-                          ) : (
-                            r.reasons.map(reason => (
-                              <Badge key={reason} variant="outline" className={`text-[10px] ${reasonColors[reason] ?? ""}`}>
-                                {reason}
-                              </Badge>
-                            ))
-                          )}
-                        </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-red-600 font-semibold">
                         {fmtEur(r.overdueBalance)}
