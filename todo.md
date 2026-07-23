@@ -165,6 +165,10 @@
 ## CustomersFinancialList Excel integration (user request 23/7)
 - [x] CANCELLED by user — revert partial schema changes (drop turnoverYtd, turnoverLastYear, sector, uncovered columns)
 
+## Group card actions (user request 23/7)
+- [x] Promise-to-Pay dialog on GroupDetail — company picker limited to group members, defaults to filtered/largest-balance company
+- [x] Propose On-Hold dialog on GroupDetail — same company selection, auto-aggregated supporting data
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)

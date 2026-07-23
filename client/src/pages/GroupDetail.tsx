@@ -2,15 +2,172 @@ import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, FileDown, Filter, Layers, Plus } from "lucide-react";
+import { ArrowLeft, Building2, FileDown, Filter, HandCoins, Layers, PauseCircle, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
+
+/** Shared company picker for group-level action dialogs. */
+function CompanyPicker({
+  companies,
+  value,
+  onChange,
+}: {
+  companies: { id: number; name: string }[];
+  value: number | null;
+  onChange: (id: number) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label>Company</Label>
+      <Select value={value ? String(value) : undefined} onValueChange={v => onChange(Number(v))}>
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder="Select company…" />
+        </SelectTrigger>
+        <SelectContent>
+          {companies.map(c => (
+            <SelectItem key={c.id} value={String(c.id)}>
+              {c.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function GroupPromiseDialog({ companies, defaultCustomerId }: { companies: { id: number; name: string }[]; defaultCustomerId?: number }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
+  const [form, setForm] = useState({ amount: "", date: "", notes: "" });
+  const addPromise = trpc.forecast.addPromise.useMutation({
+    onSuccess: () => {
+      toast.success("Promise-to-pay recorded");
+      utils.customers.invalidate();
+      utils.forecast.invalidate();
+      setOpen(false);
+      setForm({ amount: "", date: "", notes: "" });
+    },
+    onError: e => toast.error(e.message),
+  });
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={o => {
+        setOpen(o);
+        if (o) setCustomerId(defaultCustomerId ?? null);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5">
+          <HandCoins className="h-4 w-4" /> Promise-to-Pay
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Record Promise-to-Pay</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <CompanyPicker companies={companies} value={customerId} onChange={setCustomerId} />
+          <div className="space-y-1.5">
+            <Label>Amount (€)</Label>
+            <Input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Promised date</Label>
+            <Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Notes</Label>
+            <Textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            disabled={!customerId || !form.amount || !form.date || addPromise.isPending}
+            onClick={() =>
+              addPromise.mutate({
+                customerId: customerId!,
+                amount: Number(form.amount),
+                promisedDate: new Date(form.date).getTime(),
+                notes: form.notes || undefined,
+              })
+            }
+          >
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function GroupOnHoldDialog({ companies, defaultCustomerId }: { companies: { id: number; name: string }[]; defaultCustomerId?: number }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
+  const [reason, setReason] = useState("");
+  const submit = trpc.onHold.submit.useMutation({
+    onSuccess: () => {
+      toast.success("On-Hold proposal submitted — status: Under Review");
+      utils.customers.invalidate();
+      utils.onHold.list.invalidate();
+      setOpen(false);
+      setReason("");
+    },
+    onError: e => toast.error(e.message),
+  });
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={o => {
+        setOpen(o);
+        if (o) setCustomerId(defaultCustomerId ?? null);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="destructive" size="sm" className="gap-1.5">
+          <PauseCircle className="h-4 w-4" /> Propose On-Hold
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Submit On-Hold Proposal</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Supporting data (overdue invoices, amounts, days overdue) is aggregated automatically for the selected
+          company. The proposal starts as <strong>Under Review</strong> and Management decides the next step.
+        </p>
+        <div className="space-y-3">
+          <CompanyPicker companies={companies} value={customerId} onChange={setCustomerId} />
+          <div className="space-y-1.5">
+            <Label>Reason *</Label>
+            <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Why should this company be placed on hold?" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="destructive"
+            disabled={!customerId || !reason || submit.isPending}
+            onClick={() => submit.mutate({ customerId: customerId!, reason })}
+          >
+            Submit Proposal
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export default function GroupDetail() {
   const [, params] = useRoute("/groups/:name");
@@ -59,6 +216,13 @@ export default function GroupDetail() {
           .filter(Boolean)
           .join(" · ");
 
+  const defaultActionCustomerId =
+    companyId !== "all"
+      ? Number(companyId)
+      : data
+        ? [...data.companies].sort((a, b) => Number(b.openBalance ?? 0) - Number(a.openBalance ?? 0))[0]?.id
+        : undefined;
+
   if (!group) return null;
 
   return (
@@ -79,20 +243,20 @@ export default function GroupDetail() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {data && data.companies.length > 0 && (
-            <NewTaskDialog
-              key={companyId}
-              customerIds={data.companies.map(c => c.id)}
-              defaultCustomerId={
-                companyId !== "all"
-                  ? Number(companyId)
-                  : [...data.companies].sort((a, b) => Number(b.openBalance ?? 0) - Number(a.openBalance ?? 0))[0]?.id
-              }
-              trigger={
-                <Button size="sm" className="gap-1.5">
-                  <Plus className="h-4 w-4" /> New Task
-                </Button>
-              }
-            />
+            <>
+              <NewTaskDialog
+                key={companyId}
+                customerIds={data.companies.map(c => c.id)}
+                defaultCustomerId={defaultActionCustomerId}
+                trigger={
+                  <Button size="sm" className="gap-1.5">
+                    <Plus className="h-4 w-4" /> New Task
+                  </Button>
+                }
+              />
+              <GroupPromiseDialog key={`ptp-${companyId}`} companies={data.companies} defaultCustomerId={defaultActionCustomerId} />
+              <GroupOnHoldDialog key={`oh-${companyId}`} companies={data.companies} defaultCustomerId={defaultActionCustomerId} />
+            </>
           )}
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => doExport("pdf")} disabled={exportSoa.isPending}>
             <FileDown className="h-4 w-4" /> SOA (PDF)
