@@ -4,10 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { branchColors, branchShort, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, tierColors } from "@/lib/format";
+import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, Filter, Layers } from "lucide-react";
+import { ArrowLeft, Building2, FileDown, Filter, Layers } from "lucide-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 
 export default function GroupDetail() {
@@ -16,23 +17,43 @@ export default function GroupDetail() {
   const group = decodeURIComponent(params?.name ?? "");
   const [companyId, setCompanyId] = useState<string>("all");
   const [branch, setBranch] = useState<string>("all");
+  const [agingFilter, setAgingFilter] = useState<string>("all");
 
   const query = useMemo(
     () => ({
       group,
       customerId: companyId === "all" ? undefined : Number(companyId),
       branch: branch === "all" ? undefined : branch,
+      minDaysOverdue: agingFilter === "all" ? undefined : Number(agingFilter),
     }),
-    [group, companyId, branch],
+    [group, companyId, branch, agingFilter],
   );
   const { data, isLoading } = trpc.customers.groupDetail.useQuery(query, { enabled: !!group });
 
+  const exportSoa = trpc.reports.export.useMutation({
+    onSuccess: r => {
+      downloadBase64(r.filename, r.mimeType, r.base64);
+      toast.success("Group Statement of Account downloaded");
+    },
+    onError: e => toast.error(e.message),
+  });
+  const doExport = (format: "pdf" | "xlsx") =>
+    exportSoa.mutate({
+      report: "soa-group",
+      format,
+      group,
+      customerId: companyId === "all" ? undefined : Number(companyId),
+      branch: branch === "all" ? undefined : branch,
+      minDaysOverdue: agingFilter === "all" ? undefined : Number(agingFilter),
+    });
+
   const scopeLabel =
-    companyId === "all" && branch === "all"
+    companyId === "all" && branch === "all" && agingFilter === "all"
       ? "Whole group"
       : [
           companyId !== "all" ? data?.companies.find(c => String(c.id) === companyId)?.name : null,
           branch !== "all" ? branchShort(branch) : null,
+          agingFilter !== "all" ? `${agingFilter}+ days overdue` : null,
         ]
           .filter(Boolean)
           .join(" · ");
@@ -55,7 +76,13 @@ export default function GroupDetail() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => doExport("pdf")} disabled={exportSoa.isPending}>
+            <FileDown className="h-4 w-4" /> SOA (PDF)
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => doExport("xlsx")} disabled={exportSoa.isPending}>
+            <FileDown className="h-4 w-4" /> SOA (Excel)
+          </Button>
           <Filter className="h-4 w-4 text-muted-foreground" />
           <Select value={companyId} onValueChange={setCompanyId}>
             <SelectTrigger className="w-64 h-9">
@@ -81,6 +108,17 @@ export default function GroupDetail() {
                   {branchShort(b)}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+          <Select value={agingFilter} onValueChange={setAgingFilter}>
+            <SelectTrigger className="w-44 h-9">
+              <SelectValue placeholder="Aging" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All invoices</SelectItem>
+              <SelectItem value="1">Overdue (any)</SelectItem>
+              <SelectItem value="60">Overdue 60+ days</SelectItem>
+              <SelectItem value="120">Overdue 120+ days</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -231,6 +269,7 @@ export default function GroupDetail() {
                       <TableHead>Document</TableHead>
                       <TableHead>Company</TableHead>
                       <TableHead>Branch</TableHead>
+                      <TableHead>Doc. Date</TableHead>
                       <TableHead>Due Date</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
@@ -248,6 +287,7 @@ export default function GroupDetail() {
                             {branchShort(i.company)}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-sm whitespace-nowrap">{fmtDate(i.issueDate)}</TableCell>
                         <TableCell className="text-sm whitespace-nowrap">{fmtDate(i.dueDate)}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className={`text-[10px] ${invoiceStatusColors[i.status] ?? ""}`}>

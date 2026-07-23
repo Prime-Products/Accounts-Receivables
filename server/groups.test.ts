@@ -52,4 +52,17 @@ describe("group scoping", () => {
     expect(aging.buckets["31-60"].amount).toBeCloseTo(1000, 2);
     expect(aging.current).toBeCloseTo(460, 2);
   });
+
+  it("minDaysOverdue filter keeps only sufficiently overdue open invoices", () => {
+    const minDays = (list: Inv[], min: number) =>
+      list.filter(i => isOpenInvoice(i) && now > i.dueDate && (now - i.dueDate) / day >= min);
+    // 60+: only none qualify (40d and 5d overdue)
+    expect(minDays(invoices, 60)).toHaveLength(0);
+    // 30+: the 40-day-overdue invoice qualifies
+    const over30 = minDays(invoices, 30);
+    expect(over30).toHaveLength(1);
+    expect(outstanding(over30[0])).toBe(1000);
+    // 1+: both overdue open invoices qualify; paid one excluded despite 100d
+    expect(minDays(invoices, 1)).toHaveLength(2);
+  });
 });

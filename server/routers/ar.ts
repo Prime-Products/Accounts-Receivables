@@ -127,6 +127,7 @@ export const customersRouter = router({
         group: z.string().min(1),
         customerId: z.number().optional(),
         branch: z.string().optional(),
+        minDaysOverdue: z.number().int().optional(),
       }),
     )
     .query(async ({ input }) => {
@@ -143,7 +144,8 @@ export const customersRouter = router({
       const scoped = groupInvoices.filter(
         i =>
           (input.customerId === undefined || i.customerId === input.customerId) &&
-          (input.branch === undefined || i.company === input.branch),
+          (input.branch === undefined || i.company === input.branch) &&
+          (input.minDaysOverdue === undefined || (isOpenInvoice(i) && now > i.dueDate && daysOverdue(i.dueDate, now) >= input.minDaysOverdue)),
       );
       const aging = computeAging(scoped, now);
       const open = scoped.filter(isOpenInvoice);
@@ -153,8 +155,12 @@ export const customersRouter = router({
         const cur = inv.currency ?? "EUR";
         openByCurrency[cur] = (openByCurrency[cur] ?? 0) + outstandingOriginal(inv);
       }
-      // Per-company summary within current branch filter (company filter not applied so the list stays complete)
-      const branchScoped = groupInvoices.filter(i => input.branch === undefined || i.company === input.branch);
+      // Per-company summary within current branch/aging filter (company filter not applied so the list stays complete)
+      const branchScoped = groupInvoices.filter(
+        i =>
+          (input.branch === undefined || i.company === input.branch) &&
+          (input.minDaysOverdue === undefined || (isOpenInvoice(i) && now > i.dueDate && daysOverdue(i.dueDate, now) >= input.minDaysOverdue)),
+      );
       const companies = members
         .map(m => {
           const mine = branchScoped.filter(i => i.customerId === m.id);
@@ -749,9 +755,12 @@ export const reportsRouter = router({
   /** Export aging report / forecast / SOA to Excel or PDF; returns base64. */
   export: protectedProcedure
     .input(z.object({
-      report: z.enum(["aging", "forecast", "soa"]),
+      report: z.enum(["aging", "forecast", "soa", "soa-group"]),
       format: z.enum(["xlsx", "pdf"]),
       customerId: z.number().optional(),
+      group: z.string().optional(),
+      branch: z.string().optional(),
+      minDaysOverdue: z.number().int().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const now = Date.now();
@@ -807,6 +816,73 @@ export const reportsRouter = router({
             total: f.total.toFixed(2),
           })),
         };
+      } else if (input.report === "soa-group") {
+        if (!input.group) throw new TRPCError({ code: "BAD_REQUEST", message: "group is required for group SOA export" });
+        const customers = await db.listCustomers();
+        const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+        if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+        const memberIds = new Set(members.map(m => m.id));
+        const names = new Map(members.map(m => [m.id, m.name]));
+        const allInvoices = await db.listInvoices();
+        const open = allInvoices.filter(
+          i =>
+            memberIds.has(i.customerId) &&
+            isOpenInvoice(i) &&
+            (input.customerId === undefined || i.customerId === input.customerId) &&
+            (input.branch === undefined || i.company === input.branch) &&
+            (input.minDaysOverdue === undefined || daysOverdue(i.dueDate, now) >= input.minDaysOverdue),
+        );
+        const scopeParts = [
+          input.customerId !== undefined ? names.get(input.customerId) : null,
+          input.branch ?? null,
+          input.minDaysOverdue !== undefined ? `${input.minDaysOverdue}+ days overdue` : null,
+        ].filter(Boolean);
+        spec = {
+          title: `Statement of Account — Group ${input.group}${scopeParts.length ? ` (${scopeParts.join(", ")})` : ""}`,
+          columns: [
+            { header: "Company", key: "company", width: 32 },
+            { header: "Invoice", key: "invoice", width: 18 },
+            { header: "Prime Branch", key: "branch", width: 30 },
+            { header: "Document Date", key: "issue", width: 14 },
+            { header: "Due Date", key: "due", width: 14 },
+            { header: "Currency", key: "cur", width: 10 },
+            { header: "Amount", key: "amount", width: 14 },
+            { header: "Paid", key: "paid", width: 14 },
+            { header: "Outstanding (orig.)", key: "outOrig", width: 18 },
+            { header: "Outstanding (€)", key: "out", width: 16 },
+            { header: "Days Overdue", key: "days", width: 14 },
+          ],
+          rows: [
+            ...open
+              .sort((a, b) => (names.get(a.customerId) ?? "").localeCompare(names.get(b.customerId) ?? "") || a.dueDate - b.dueDate)
+              .map(i => ({
+                company: names.get(i.customerId) ?? "—",
+                invoice: i.invoiceNumber,
+                branch: i.company ?? "—",
+                issue: new Date(i.issueDate).toISOString().slice(0, 10),
+                due: new Date(i.dueDate).toISOString().slice(0, 10),
+                cur: i.currency ?? "EUR",
+                amount: Number(i.amount).toFixed(2),
+                paid: Number(i.paidAmount).toFixed(2),
+                outOrig: outstandingOriginal(i).toFixed(2),
+                out: outstanding(i).toFixed(2),
+                days: daysOverdue(i.dueDate, now),
+              })),
+            {
+              company: "TOTAL",
+              invoice: "",
+              branch: "",
+              issue: "",
+              due: "",
+              cur: "",
+              amount: "",
+              paid: "",
+              outOrig: "",
+              out: open.reduce((s, i) => s + outstanding(i), 0).toFixed(2),
+              days: "",
+            },
+          ],
+        };
       } else {
         if (!input.customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "customerId is required for SOA export" });
         const customer = await db.getCustomer(input.customerId);
@@ -818,7 +894,7 @@ export const reportsRouter = router({
           columns: [
             { header: "Invoice", key: "invoice", width: 18 },
             { header: "Prime Branch", key: "branch", width: 30 },
-            { header: "Issue Date", key: "issue", width: 14 },
+            { header: "Document Date", key: "issue", width: 14 },
             { header: "Due Date", key: "due", width: 14 },
             { header: "Currency", key: "cur", width: 10 },
             { header: "Amount", key: "amount", width: 14 },

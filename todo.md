@@ -78,7 +78,16 @@
 - [x] Forecast page: per-customer table with AI suggestion (reasoning tooltip), editable expected amount + note, reset to AI
 - [x] Live tracking: Forecast vs Collected vs Remaining per customer and total, any moment in the month
 - [x] Monthly auto-generation Heartbeat cron created (1st of month, 05:00 UTC, task_uid HeeWvn3uGNohbSoCakYup7 in app_settings) + handler /api/scheduled/generateForecast implemented and mounted
-- [ ] Verify scheduled endpoint on production after the user clicks Publish (redeploy needed so the live build includes the new handler; check via manus-heartbeat logs or Run Now)
+- [x] Verify scheduled endpoint on production after Publish — handler live (403 "permission error for cron cookie" for unsigned calls = correctly auth-gated); heartbeat job monthly-forecast enabled, next run 2026-08-01T05:00Z
+
+## Group SOA, document date, aging filters (user request 23 Jul)
+- [x] Backend: SOA export (PDF/Excel) at group level ("soa-group"), honoring company/branch/aging filters, with Company + Document Date columns and TOTAL row
+- [x] Backend: groupDetail supports minDaysOverdue filter (Overdue any/60+/120+) scoping totals, aging, companies and invoices
+- [x] Group card: SOA (PDF/Excel) buttons exporting the current filter scope
+- [x] Group card: Document Date column in invoices table
+- [x] Group card: aging grouping filter — All / Overdue any / 60+ / 120+ days
+- [x] Customer 360: aging grouping filter on invoices tab with filtered count + outstanding summary; Issue column renamed Doc. Date
+- [x] Verify production deployment includes the scheduled forecast endpoint (deploy succeeded; endpoint auth-gated 403 as expected)
 
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)

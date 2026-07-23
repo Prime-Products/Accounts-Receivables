@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -35,6 +36,7 @@ export default function CustomerDetail() {
 
   const [onHoldOpen, setOnHoldOpen] = useState(false);
   const [onHoldReason, setOnHoldReason] = useState("");
+  const [agingFilter, setAgingFilter] = useState<string>("all");
   const submitOnHold = trpc.onHold.submit.useMutation({
     onSuccess: () => {
       toast.success("On-Hold proposal submitted — status: Under Review");
@@ -66,6 +68,15 @@ export default function CustomerDetail() {
   const { customer, invoices, receipts, contracts, installments, promises, tasks, aging } = data;
   const openInvoices = invoices.filter(i => i.status !== "Paid");
   const agingAny = aging as any;
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const visibleInvoices =
+    agingFilter === "all"
+      ? invoices
+      : invoices.filter(i => {
+          if (i.status === "Paid" || now <= i.dueDate) return false;
+          return (now - i.dueDate) / dayMs >= Number(agingFilter);
+        });
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -245,8 +256,26 @@ export default function CustomerDetail() {
 
         <TabsContent value="invoices">
           <Card>
+            <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-1 flex-wrap">
+              <div className="text-xs text-muted-foreground">
+                {agingFilter === "all"
+                  ? `${invoices.length} invoices`
+                  : `${visibleInvoices.length} overdue ${agingFilter === "1" ? "" : `${agingFilter}+ days `}invoice(s) · outstanding ${fmtEur(visibleInvoices.reduce((s, i) => s + Number((i as any).amountEur != null && Number(i.amount) > 0 ? ((Number(i.amount) - Number(i.paidAmount)) / Number(i.amount)) * Number((i as any).amountEur) : Number(i.amount) - Number(i.paidAmount)), 0))}`}
+              </div>
+              <Select value={agingFilter} onValueChange={setAgingFilter}>
+                <SelectTrigger className="w-44 h-8 text-xs">
+                  <SelectValue placeholder="Aging" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All invoices</SelectItem>
+                  <SelectItem value="1">Overdue (any)</SelectItem>
+                  <SelectItem value="60">Overdue 60+ days</SelectItem>
+                  <SelectItem value="120">Overdue 120+ days</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <CardContent className="p-0">
-              {invoices.length === 0 ? (
+              {visibleInvoices.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">No invoices for this customer.</div>
               ) : (
                 <Table>
@@ -254,7 +283,7 @@ export default function CustomerDetail() {
                     <TableRow>
                       <TableHead>Invoice</TableHead>
                       <TableHead>Branch</TableHead>
-                      <TableHead>Issue</TableHead>
+                      <TableHead>Doc. Date</TableHead>
                       <TableHead>Due</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
@@ -263,7 +292,7 @@ export default function CustomerDetail() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {invoices.map(i => (
+                    {visibleInvoices.map(i => (
                       <TableRow key={i.id}>
                         <TableCell className="font-mono text-sm">{i.invoiceNumber}</TableCell>
                         <TableCell>
