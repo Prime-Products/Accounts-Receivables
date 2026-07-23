@@ -162,6 +162,9 @@
 - [x] "New Task" button on CustomerDetail (Customer 360) — customer preselected
 - [x] Verify Customer 360 aging bucket UI shows 91-120/120+ consistently (screenshot check)
 
+## CustomersFinancialList Excel integration (user request 23/7)
+- [x] CANCELLED by user — revert partial schema changes (drop turnoverYtd, turnoverLastYear, sector, uncovered columns)
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)
