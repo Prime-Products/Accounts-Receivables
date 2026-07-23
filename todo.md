@@ -267,6 +267,7 @@
 
 ## Invoices: per-group summary (user request 24/7)
 - [x] Invoices page: when filtering (e.g., aging 120+), show a "By group" summary view with each group and its total amount
+- [x] "By group" view: clicking a group's invoice count drills down to the underlying invoices of that group (keeping active filters)
 
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)

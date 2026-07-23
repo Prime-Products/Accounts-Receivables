@@ -36,6 +36,11 @@ export default function Invoices() {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("view") === "group";
   });
+  /** Drill-down: when set, the invoice list shows only this group's invoices (within the active filters). */
+  const [groupDrill, setGroupDrill] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("group");
+  });
   const [search, setSearch] = useState(() => {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("q") ?? "";
@@ -91,6 +96,7 @@ export default function Invoices() {
     return invoices.filter(i => {
       if (statusFilter !== "all" && i.status !== statusFilter) return false;
       if (branchFilter !== "all" && i.company !== branchFilter) return false;
+      if (groupDrill && ((i as any).customerGroup ?? i.customerName) !== groupDrill) return false;
       if (bucketFilter !== "all") {
         if (i.daysOverdue <= 0) return false;
         const b =
@@ -101,7 +107,7 @@ export default function Invoices() {
         return false;
       return true;
     });
-  }, [invoices, statusFilter, bucketFilter, branchFilter, search]);
+  }, [invoices, statusFilter, bucketFilter, branchFilter, search, groupDrill]);
 
   /** Totals of the currently filtered list: EUR + per-currency breakdown. */
   const filteredTotals = useMemo(() => {
@@ -384,6 +390,21 @@ export default function Invoices() {
       {!isLoading && filtered.length > 0 && (
         <div className="rounded-lg border bg-muted/30 px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <span className="text-muted-foreground">{filteredTotals.count} invoice(s) shown</span>
+          {groupDrill && (
+            <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30 max-w-64">
+              <span className="truncate" title={groupDrill}>{groupDrill}</span>
+              <button
+                className="ml-0.5 text-muted-foreground hover:text-foreground"
+                title="Clear group filter"
+                onClick={() => {
+                  setGroupDrill(null);
+                  setGroupView(true);
+                }}
+              >
+                ×
+              </button>
+            </Badge>
+          )}
           <span>
             Outstanding total: <span className="font-mono font-semibold">{fmtEur(filteredTotals.eurTotal)}</span>
           </span>
@@ -428,7 +449,15 @@ export default function Invoices() {
                 <TableRow className="bg-muted/40 font-semibold">
                   <TableCell />
                   <TableCell>TOTAL — {byGroup.length} group(s)</TableCell>
-                  <TableCell className="text-right font-mono">{byGroup.reduce((s, g) => s + g.count, 0)}</TableCell>
+                  <TableCell className="text-right font-mono">
+                    <button
+                      className="hover:underline underline-offset-2 text-primary"
+                      title="View all these invoices"
+                      onClick={() => setGroupView(false)}
+                    >
+                      {byGroup.reduce((s, g) => s + g.count, 0)}
+                    </button>
+                  </TableCell>
                   <TableCell className="text-right font-mono">{fmtEur(byGroup.reduce((s, g) => s + g.outstanding, 0))}</TableCell>
                   <TableCell className="text-right font-mono">100%</TableCell>
                 </TableRow>
@@ -444,7 +473,18 @@ export default function Invoices() {
                         <div className="text-[11px] text-muted-foreground font-mono">{fmtByCurrency(g.byCur)}</div>
                       )}
                     </TableCell>
-                    <TableCell className="text-right font-mono">{g.count}</TableCell>
+                    <TableCell className="text-right font-mono">
+                      <button
+                        className="hover:underline underline-offset-2 text-primary"
+                        title={`View the ${g.count} invoice(s) of ${g.group}`}
+                        onClick={() => {
+                          setGroupDrill(g.group);
+                          setGroupView(false);
+                        }}
+                      >
+                        {g.count}
+                      </button>
+                    </TableCell>
                     <TableCell className="text-right font-mono font-semibold">{fmtEur(g.outstanding)}</TableCell>
                     <TableCell className="text-right font-mono text-muted-foreground">
                       {filteredTotals.eurTotal > 0 ? `${((g.outstanding / filteredTotals.eurTotal) * 100).toFixed(1)}%` : "—"}
