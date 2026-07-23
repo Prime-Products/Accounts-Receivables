@@ -2,19 +2,38 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
+import DashboardLayout from "./components/DashboardLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import Customers from "./pages/Customers";
+import CustomerDetail from "./pages/CustomerDetail";
+import Invoices from "./pages/Invoices";
+import Contracts from "./pages/Contracts";
+import Tasks from "./pages/Tasks";
+import OnHold from "./pages/OnHold";
+import Forecast from "./pages/Forecast";
+import Reports from "./pages/Reports";
+import Settings from "./pages/Settings";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
-    <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
-      <Route component={NotFound} />
-    </Switch>
+    <DashboardLayout>
+      <Switch>
+        <Route path={"/"} component={Home} />
+        <Route path={"/customers"} component={Customers} />
+        <Route path={"/customers/:id"} component={CustomerDetail} />
+        <Route path={"/invoices"} component={Invoices} />
+        <Route path={"/contracts"} component={Contracts} />
+        <Route path={"/tasks"} component={Tasks} />
+        <Route path={"/on-hold"} component={OnHold} />
+        <Route path={"/forecast"} component={Forecast} />
+        <Route path={"/reports"} component={Reports} />
+        <Route path={"/settings"} component={Settings} />
+        <Route path={"/404"} component={NotFound} />
+        <Route component={NotFound} />
+      </Switch>
+    </DashboardLayout>
   );
 }
 

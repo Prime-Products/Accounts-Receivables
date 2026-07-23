@@ -21,15 +21,35 @@ import {
 } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
+import {
+  BarChart3,
+  FileSpreadsheet,
+  FileText,
+  LayoutDashboard,
+  ListChecks,
+  LogOut,
+  PanelLeft,
+  PauseCircle,
+  ScrollText,
+  Settings,
+  TrendingUp,
+  Users,
+} from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 
 const menuItems = [
-  { icon: LayoutDashboard, label: "Page 1", path: "/" },
-  { icon: Users, label: "Page 2", path: "/some-path" },
+  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+  { icon: Users, label: "Customers", path: "/customers" },
+  { icon: FileText, label: "Invoices", path: "/invoices" },
+  { icon: ScrollText, label: "Contracts", path: "/contracts" },
+  { icon: ListChecks, label: "Tasks", path: "/tasks" },
+  { icon: PauseCircle, label: "On-Hold", path: "/on-hold" },
+  { icon: TrendingUp, label: "Forecast", path: "/forecast" },
+  { icon: BarChart3, label: "Reports", path: "/reports" },
+  { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -110,7 +130,9 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item => item.path === location);
+  const activeMenuItem = menuItems.find(item =>
+    item.path === "/" ? location === "/" : location.startsWith(item.path),
+  );
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -168,8 +190,11 @@ function DashboardLayoutContent({
               </button>
               {!isCollapsed ? (
                 <div className="flex items-center gap-2 min-w-0">
+                  <div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center shrink-0">
+                    <FileSpreadsheet className="h-4 w-4 text-primary-foreground" />
+                  </div>
                   <span className="font-semibold tracking-tight truncate">
-                    Navigation
+                    AR Pro
                   </span>
                 </div>
               ) : null}
@@ -179,7 +204,7 @@ function DashboardLayoutContent({
           <SidebarContent className="gap-0">
             <SidebarMenu className="px-2 py-1">
               {menuItems.map(item => {
-                const isActive = location === item.path;
+                const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
                 return (
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton

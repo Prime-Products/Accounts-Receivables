@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { bigint, decimal, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -25,4 +25,213 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+/** App-level role for AR workflows (beyond the base user/admin role). */
+export const appRoles = ["Administrator", "Accounting", "Credit Controller", "Management"] as const;
+
+export const userProfiles = mysqlTable("user_profiles", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  appRole: mysqlEnum("appRole", appRoles).default("Accounting").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const customerTiers = ["Platinum", "Gold", "Silver", "Bronze", "New"] as const;
+
+export const customers = mysqlTable("customers", {
+  id: int("id").autoincrement().primaryKey(),
+  code: varchar("code", { length: 64 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  vatNumber: varchar("vatNumber", { length: 32 }),
+  email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 64 }),
+  contactPerson: varchar("contactPerson", { length: 255 }),
+  tier: mysqlEnum("tier", customerTiers).default("New").notNull(),
+  creditLimit: decimal("creditLimit", { precision: 14, scale: 2 }).default("0").notNull(),
+  paymentTermsDays: int("paymentTermsDays").default(30).notNull(),
+  onHoldStatus: mysqlEnum("onHoldStatus", ["Active", "Under Review", "Eligible for On Hold", "On Hold", "Legal"]).default("Active").notNull(),
+  softoneId: varchar("softoneId", { length: 64 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const invoiceStatuses = ["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const;
+
+export const invoices = mysqlTable("invoices", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull(),
+  invoiceNumber: varchar("invoiceNumber", { length: 64 }).notNull().unique(),
+  issueDate: bigint("issueDate", { mode: "number" }).notNull(),
+  dueDate: bigint("dueDate", { mode: "number" }).notNull(),
+  amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+  paidAmount: decimal("paidAmount", { precision: 14, scale: 2 }).default("0").notNull(),
+  status: mysqlEnum("status", invoiceStatuses).default("Open").notNull(),
+  contractInstallmentId: int("contractInstallmentId"),
+  softoneId: varchar("softoneId", { length: 64 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const receiptMethods = ["Bank Transfer", "Cash", "Cheque", "Card"] as const;
+
+export const receipts = mysqlTable("receipts", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull(),
+  receiptNumber: varchar("receiptNumber", { length: 64 }).notNull(),
+  receiptDate: bigint("receiptDate", { mode: "number" }).notNull(),
+  amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+  method: mysqlEnum("method", receiptMethods).default("Bank Transfer").notNull(),
+  softoneId: varchar("softoneId", { length: 64 }),
+  notes: text("notes"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+/** Allocation of a receipt against one or more invoices (matching/reconciliation). */
+export const receiptAllocations = mysqlTable("receipt_allocations", {
+  id: int("id").autoincrement().primaryKey(),
+  receiptId: int("receiptId").notNull(),
+  invoiceId: int("invoiceId").notNull(),
+  amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const contractStatuses = ["Active", "Expiring Soon", "Expired", "Terminated"] as const;
+
+export const contracts = mysqlTable("contracts", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull(),
+  contractNumber: varchar("contractNumber", { length: 64 }).notNull().unique(),
+  title: varchar("title", { length: 255 }).notNull(),
+  totalValue: decimal("totalValue", { precision: 14, scale: 2 }).notNull(),
+  startDate: bigint("startDate", { mode: "number" }).notNull(),
+  endDate: bigint("endDate", { mode: "number" }).notNull(),
+  status: mysqlEnum("status", contractStatuses).default("Active").notNull(),
+  expiryNotified: int("expiryNotified").default(0).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const installmentStatuses = ["Upcoming", "Invoiced", "Paid", "Overdue"] as const;
+
+export const contractInstallments = mysqlTable("contract_installments", {
+  id: int("id").autoincrement().primaryKey(),
+  contractId: int("contractId").notNull(),
+  installmentNumber: int("installmentNumber").notNull(),
+  dueDate: bigint("dueDate", { mode: "number" }).notNull(),
+  amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+  status: mysqlEnum("status", installmentStatuses).default("Upcoming").notNull(),
+  invoiceId: int("invoiceId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** SOP follow-up offsets in days from invoice due date: +2, +15, +20, +30 */
+export const taskTypes = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual"] as const;
+export const taskStatuses = ["Pending", "In Progress", "Completed", "Cancelled"] as const;
+
+export const tasks = mysqlTable("tasks", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull(),
+  invoiceId: int("invoiceId"),
+  contractId: int("contractId"),
+  type: mysqlEnum("type", taskTypes).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  dueDate: bigint("dueDate", { mode: "number" }).notNull(),
+  status: mysqlEnum("status", taskStatuses).default("Pending").notNull(),
+  assignedTo: int("assignedTo"),
+  completedAt: bigint("completedAt", { mode: "number" }),
+  completionNotes: text("completionNotes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const onHoldStatuses = ["Under Review", "Eligible for On Hold", "On Hold", "Legal", "Rejected", "Resolved"] as const;
+
+export const onHoldProposals = mysqlTable("on_hold_proposals", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull(),
+  status: mysqlEnum("status", onHoldStatuses).default("Under Review").notNull(),
+  reason: text("reason").notNull(),
+  totalOverdue: decimal("totalOverdue", { precision: 14, scale: 2 }).notNull(),
+  overdueInvoiceCount: int("overdueInvoiceCount").notNull(),
+  oldestOverdueDays: int("oldestOverdueDays").notNull(),
+  supportingData: text("supportingData"),
+  submittedBy: int("submittedBy").notNull(),
+  decidedBy: int("decidedBy"),
+  decisionNotes: text("decisionNotes"),
+  decidedAt: bigint("decidedAt", { mode: "number" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const collectionPlans = mysqlTable("collection_plans", {
+  id: int("id").autoincrement().primaryKey(),
+  year: int("year").notNull(),
+  month: int("month").notNull(),
+  targetAmount: decimal("targetAmount", { precision: 14, scale: 2 }).notNull(),
+  notes: text("notes"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const promiseStatuses = ["Pending", "Kept", "Broken"] as const;
+
+export const promisesToPay = mysqlTable("promises_to_pay", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull(),
+  invoiceId: int("invoiceId"),
+  promisedDate: bigint("promisedDate", { mode: "number" }).notNull(),
+  amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+  status: mysqlEnum("status", promiseStatuses).default("Pending").notNull(),
+  notes: text("notes"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const auditLogs = mysqlTable("audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"),
+  userName: varchar("userName", { length: 255 }),
+  action: varchar("action", { length: 128 }).notNull(),
+  entityType: varchar("entityType", { length: 64 }).notNull(),
+  entityId: varchar("entityId", { length: 64 }),
+  details: text("details"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const syncLogs = mysqlTable("sync_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  direction: mysqlEnum("direction", ["Pull", "Push"]).notNull(),
+  entityType: varchar("entityType", { length: 64 }).notNull(),
+  recordCount: int("recordCount").default(0).notNull(),
+  status: mysqlEnum("status", ["Success", "Failed", "Partial"]).notNull(),
+  message: text("message"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type UserProfile = typeof userProfiles.$inferSelect;
+export type Customer = typeof customers.$inferSelect;
+export type InsertCustomer = typeof customers.$inferInsert;
+export type Invoice = typeof invoices.$inferSelect;
+export type InsertInvoice = typeof invoices.$inferInsert;
+export type Receipt = typeof receipts.$inferSelect;
+export type InsertReceipt = typeof receipts.$inferInsert;
+export type ReceiptAllocation = typeof receiptAllocations.$inferSelect;
+export type Contract = typeof contracts.$inferSelect;
+export type InsertContract = typeof contracts.$inferInsert;
+export type ContractInstallment = typeof contractInstallments.$inferSelect;
+export type Task = typeof tasks.$inferSelect;
+export type InsertTask = typeof tasks.$inferInsert;
+export type OnHoldProposal = typeof onHoldProposals.$inferSelect;
+export type InsertOnHoldProposal = typeof onHoldProposals.$inferInsert;
+export type CollectionPlan = typeof collectionPlans.$inferSelect;
+export type PromiseToPay = typeof promisesToPay.$inferSelect;
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type SyncLog = typeof syncLogs.$inferSelect;

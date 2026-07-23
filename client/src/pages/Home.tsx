@@ -1,33 +1,292 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { Streamdown } from 'streamdown';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { fmtEur, monthName } from "@/lib/format";
+import { trpc } from "@/lib/trpc";
+import {
+  AlertTriangle,
+  CalendarClock,
+  Flag,
+  ListChecks,
+  PauseCircle,
+  Target,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
+import { useState } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { toast } from "sonner";
+import { useLocation } from "wouter";
 
-/**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Workflow, Frontend Best Practices, Design Guide and Common Pitfalls
- */
 export default function Home() {
-  // The useAuth hook provides authentication state.
-  // To implement login/logout, call logout(), or start login from an event
-  // handler: onClick={() => startLogin()} (imported from "@/const"). Never call
-  // startLogin() during render (no href={startLogin()}) — it mints a one-time
-  // nonce cookie and must run only at the moment of navigation.
-  let { user, loading, error, isAuthenticated, logout } = useAuth();
+  const { data, isLoading } = trpc.forecast.dashboard.useQuery();
+  const utils = trpc.useUtils();
+  const [, navigate] = useLocation();
+  const [targetOpen, setTargetOpen] = useState(false);
+  const [targetVal, setTargetVal] = useState("");
+  const setTarget = trpc.forecast.setTarget.useMutation({
+    onSuccess: () => {
+      toast.success("Monthly collection target saved");
+      utils.forecast.dashboard.invalidate();
+      utils.forecast.plans.invalidate();
+      setTargetOpen(false);
+    },
+    onError: e => toast.error(e.message),
+  });
 
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
+  if (isLoading || !data) {
+    return (
+      <div className="p-4 space-y-4">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-32" />
+          ))}
+        </div>
+        <Skeleton className="h-80" />
+      </div>
+    );
+  }
+
+  const pct = data.target && data.target > 0 ? Math.round((data.collected / data.target) * 100) : null;
+  const chartData = data.forecast.map(f => ({
+    name: `${monthName(f.month)} ${String(f.year).slice(2)}`,
+    "From Invoices": Math.round(f.fromInvoices),
+    "From Contracts": Math.round(f.fromContracts),
+  }));
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
-      </main>
+    <div className="p-2 sm:p-4 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Accounts Receivable Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {monthName(data.month)} {data.year} — live collection status
+          </p>
+        </div>
+        <Dialog open={targetOpen} onOpenChange={setTargetOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline" className="gap-2">
+              <Target className="h-4 w-4" /> Set Monthly Target
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                Collection Target — {monthName(data.month)} {data.year}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="target">Target amount (€)</Label>
+              <Input
+                id="target"
+                type="number"
+                min="0"
+                value={targetVal}
+                onChange={e => setTargetVal(e.target.value)}
+                placeholder="e.g. 500000"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={() =>
+                  setTarget.mutate({ year: data.year, month: data.month, targetAmount: Number(targetVal || 0) })
+                }
+                disabled={setTarget.isPending || targetVal === ""}
+              >
+                Save Target
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="border-l-4 border-l-[oklch(0.55_0.14_255)]">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Collection Target</CardTitle>
+            <Target className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold font-mono">{data.target !== null ? fmtEur(data.target) : "—"}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {data.target !== null ? `Target for ${monthName(data.month)} ${data.year}` : "No target set yet"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-[oklch(0.65_0.12_175)]">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Collected vs Target</CardTitle>
+            <Wallet className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold font-mono">{fmtEur(data.collected)}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {pct !== null ? `${pct}% of monthly target` : "Set a target to track progress"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-[oklch(0.6_0.2_25)]">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Outstanding Overdue</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold font-mono text-red-600">{fmtEur(data.totalOverdue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">{data.overdueCount} overdue invoice(s)</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-[oklch(0.75_0.14_75)]">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-foreground">DSO (Days Sales Outstanding)</CardTitle>
+            <CalendarClock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold font-mono">{data.dso} days</div>
+            <p className="text-xs text-muted-foreground mt-1">Based on last 90 days of sales</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Smart tasks & workflow strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <button
+          onClick={() => navigate("/tasks")}
+          className="text-left rounded-lg border bg-card p-4 hover:shadow-md transition-shadow flex items-center gap-4"
+        >
+          <div className="h-11 w-11 rounded-lg bg-sky-100 flex items-center justify-center">
+            <ListChecks className="h-5 w-5 text-sky-700" />
+          </div>
+          <div>
+            <div className="text-xl font-bold">{data.pendingTasks}</div>
+            <div className="text-sm text-muted-foreground">Pending follow-up tasks</div>
+          </div>
+        </button>
+        <button
+          onClick={() => navigate("/on-hold")}
+          className="text-left rounded-lg border bg-card p-4 hover:shadow-md transition-shadow flex items-center gap-4"
+        >
+          <div className="h-11 w-11 rounded-lg bg-amber-100 flex items-center justify-center">
+            <PauseCircle className="h-5 w-5 text-amber-700" />
+          </div>
+          <div>
+            <div className="text-xl font-bold">{data.onHoldPending}</div>
+            <div className="text-sm text-muted-foreground">On-Hold proposals Under Review</div>
+          </div>
+        </button>
+        <button
+          onClick={() => navigate("/tasks")}
+          className="text-left rounded-lg border bg-card p-4 hover:shadow-md transition-shadow flex items-center gap-4"
+        >
+          <div className="h-11 w-11 rounded-lg bg-red-100 flex items-center justify-center">
+            <Flag className="h-5 w-5 text-red-700" />
+          </div>
+          <div>
+            <div className="text-xl font-bold">{data.escalations}</div>
+            <div className="text-sm text-muted-foreground">Escalations (+30 days) needing review</div>
+          </div>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Forecast chart */}
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" /> Cash Flow Forecast — Next 6 Months
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 8, right: 12, left: 8, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="gInv" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="oklch(0.55 0.14 255)" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="oklch(0.55 0.14 255)" stopOpacity={0.03} />
+                    </linearGradient>
+                    <linearGradient id="gCon" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="oklch(0.65 0.12 175)" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="oklch(0.65 0.12 175)" stopOpacity={0.03} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.91 0.006 250)" />
+                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={v => `€${(v / 1000).toFixed(0)}K`} />
+                  <Tooltip formatter={(v: number) => fmtEur(v)} />
+                  <Legend />
+                  <Area
+                    type="monotone"
+                    dataKey="From Invoices"
+                    stroke="oklch(0.55 0.14 255)"
+                    fill="url(#gInv)"
+                    strokeWidth={2}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="From Contracts"
+                    stroke="oklch(0.65 0.12 175)"
+                    fill="url(#gCon)"
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Aging summary */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Aging Buckets (Overdue)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {(["0-30", "31-60", "61-90", "90+"] as const).map(bucket => {
+              const b = data.aging.buckets[bucket];
+              const max = Math.max(1, ...Object.values(data.aging.buckets).map(x => x.amount));
+              const widthPct = Math.round((b.amount / max) * 100);
+              const colors: Record<string, string> = {
+                "0-30": "bg-sky-500",
+                "31-60": "bg-amber-500",
+                "61-90": "bg-orange-500",
+                "90+": "bg-red-600",
+              };
+              return (
+                <div key={bucket}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="font-medium">{bucket} days</span>
+                    <span className="font-mono">{fmtEur(b.amount)}</span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-muted overflow-hidden">
+                    <div className={`h-full rounded-full ${colors[bucket]}`} style={{ width: `${widthPct}%` }} />
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{b.count} invoice(s)</div>
+                </div>
+              );
+            })}
+            <div className="pt-2 border-t flex items-center justify-between">
+              <span className="text-sm font-medium">Total AR balance</span>
+              <Badge variant="secondary" className="font-mono">
+                {fmtEur(data.arBalance)}
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
