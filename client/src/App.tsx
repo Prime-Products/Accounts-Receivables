@@ -7,7 +7,8 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Customers from "./pages/Customers";
-import CustomerDetail from "./pages/CustomerDetail";
+import CustomerDetail from "@/pages/CustomerDetail";
+import GroupDetail from "@/pages/GroupDetail";
 import Invoices from "./pages/Invoices";
 import Contracts from "./pages/Contracts";
 import Tasks from "./pages/Tasks";
@@ -23,6 +24,7 @@ function Router() {
         <Route path={"/"} component={Home} />
         <Route path={"/customers"} component={Customers} />
         <Route path={"/customers/:id"} component={CustomerDetail} />
+        <Route path={"/groups/:name"} component={GroupDetail} />
         <Route path={"/invoices"} component={Invoices} />
         <Route path={"/contracts"} component={Contracts} />
         <Route path={"/tasks"} component={Tasks} />

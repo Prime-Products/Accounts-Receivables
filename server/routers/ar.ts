@@ -74,6 +74,120 @@ export const customersRouter = router({
       };
     });
   }),
+  /** Group-level view: aggregated totals per customer group. */
+  groups: protectedProcedure.query(async () => {
+    const [customers, invoices] = await Promise.all([db.listCustomers(), db.listInvoices()]);
+    const now = Date.now();
+    const byCustomer = new Map<number, typeof invoices>();
+    for (const inv of invoices) {
+      const arr = byCustomer.get(inv.customerId);
+      if (arr) arr.push(inv);
+      else byCustomer.set(inv.customerId, [inv]);
+    }
+    const groups = new Map<
+      string,
+      {
+        group: string;
+        companyCount: number;
+        openBalance: number;
+        overdueBalance: number;
+        overdueCount: number;
+        openByCurrency: Record<string, number>;
+        branches: Set<string>;
+      }
+    >();
+    for (const c of customers) {
+      const key = (c.customerGroup ?? "").trim() || c.name;
+      let g = groups.get(key);
+      if (!g) {
+        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set() };
+        groups.set(key, g);
+      }
+      g.companyCount += 1;
+      for (const inv of byCustomer.get(c.id) ?? []) {
+        if (!isOpenInvoice(inv)) continue;
+        g.openBalance += outstanding(inv);
+        const cur = inv.currency ?? "EUR";
+        g.openByCurrency[cur] = (g.openByCurrency[cur] ?? 0) + outstandingOriginal(inv);
+        if (inv.company) g.branches.add(inv.company);
+        if (now > inv.dueDate) {
+          g.overdueBalance += outstanding(inv);
+          g.overdueCount += 1;
+        }
+      }
+    }
+    return Array.from(groups.values())
+      .map(g => ({ ...g, branches: Array.from(g.branches).sort() }))
+      .sort((a, b) => b.openBalance - a.openBalance);
+  }),
+  /** Group card: aggregates + invoices, scoped by optional member company and/or Prime Branch. */
+  groupDetail: protectedProcedure
+    .input(
+      z.object({
+        group: z.string().min(1),
+        customerId: z.number().optional(),
+        branch: z.string().optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+      if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+      const memberIds = new Set(members.map(m => m.id));
+      const allInvoices = await db.listInvoices();
+      const now = Date.now();
+      // Full group scope (for the branch list and per-company summary regardless of filters)
+      const groupInvoices = allInvoices.filter(i => memberIds.has(i.customerId));
+      const branches = Array.from(new Set(groupInvoices.map(i => i.company).filter((b): b is string => !!b))).sort();
+      // Filtered scope drives all page data
+      const scoped = groupInvoices.filter(
+        i =>
+          (input.customerId === undefined || i.customerId === input.customerId) &&
+          (input.branch === undefined || i.company === input.branch),
+      );
+      const aging = computeAging(scoped, now);
+      const open = scoped.filter(isOpenInvoice);
+      const overdue = open.filter(i => now > i.dueDate);
+      const openByCurrency: Record<string, number> = {};
+      for (const inv of open) {
+        const cur = inv.currency ?? "EUR";
+        openByCurrency[cur] = (openByCurrency[cur] ?? 0) + outstandingOriginal(inv);
+      }
+      // Per-company summary within current branch filter (company filter not applied so the list stays complete)
+      const branchScoped = groupInvoices.filter(i => input.branch === undefined || i.company === input.branch);
+      const companies = members
+        .map(m => {
+          const mine = branchScoped.filter(i => i.customerId === m.id);
+          const mOpen = mine.filter(isOpenInvoice);
+          const mOverdue = mOpen.filter(i => now > i.dueDate);
+          return {
+            id: m.id,
+            name: m.name,
+            code: m.code,
+            tier: m.tier,
+            openBalance: mOpen.reduce((s, i) => s + outstanding(i), 0),
+            overdueBalance: mOverdue.reduce((s, i) => s + outstanding(i), 0),
+            invoiceCount: mOpen.length,
+          };
+        })
+        .sort((a, b) => b.openBalance - a.openBalance);
+      const sortedInvoices = [...scoped].sort((a, b) => b.dueDate - a.dueDate);
+      const customerNames = new Map(members.map(m => [m.id, m.name]));
+      return {
+        group: input.group,
+        companies,
+        branches,
+        aging,
+        totals: {
+          openBalance: open.reduce((s, i) => s + outstanding(i), 0),
+          overdueBalance: overdue.reduce((s, i) => s + outstanding(i), 0),
+          overdueCount: overdue.length,
+          openCount: open.length,
+          openByCurrency,
+        },
+        invoices: sortedInvoices.slice(0, 500).map(i => ({ ...i, customerName: customerNames.get(i.customerId) ?? "" })),
+      };
+    }),
   get360: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
     const customer = await db.getCustomer(input.id);
     if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });

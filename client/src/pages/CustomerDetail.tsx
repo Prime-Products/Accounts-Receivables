@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, FileDown, HandCoins, PauseCircle } from "lucide-react";
+import { ArrowLeft, FileDown, HandCoins, Layers, PauseCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -83,6 +83,16 @@ export default function CustomerDetail() {
             <Badge variant="outline" className={onHoldStatusColors[customer.onHoldStatus] ?? ""}>
               {customer.onHoldStatus}
             </Badge>
+            {customer.customerGroup && (
+              <Badge
+                variant="outline"
+                className="cursor-pointer gap-1 bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+                onClick={() => navigate(`/groups/${encodeURIComponent(customer.customerGroup!.trim())}`)}
+                title="Open the group card"
+              >
+                <Layers className="h-3 w-3" /> {customer.customerGroup}
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             {customer.code} · VAT {customer.vatNumber || "—"} · {customer.email || "no email"} · terms{" "}

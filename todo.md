@@ -77,5 +77,15 @@
 - [x] AI-assisted suggestion (LLM, top-40 exposure) with fallback to statistical heuristic when history is thin
 - [x] Forecast page: per-customer table with AI suggestion (reasoning tooltip), editable expected amount + note, reset to AI
 - [x] Live tracking: Forecast vs Collected vs Remaining per customer and total, any moment in the month
-- [ ] Monthly auto-generation via Heartbeat scheduled job (1st of month) — handler /api/scheduled/generateForecast ready; cron creation requires the site to be published first
+- [x] Monthly auto-generation Heartbeat cron created (1st of month, 05:00 UTC, task_uid HeeWvn3uGNohbSoCakYup7 in app_settings) + handler /api/scheduled/generateForecast implemented and mounted
+- [ ] Verify scheduled endpoint on production after the user clicks Publish (redeploy needed so the live build includes the new handler; check via manus-heartbeat logs or Run Now)
+
+## Customer Group hierarchy (user request 23 Jul)
+- [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
+- [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)
+- [x] Backend: customers.groupDetail endpoint — group aggregates + invoices, scoped by optional company and Prime Branch filters (AND-combined)
+- [x] Customers page: Groups/Companies toggle — group totals with per-currency breakdown, click-through to group card
+- [x] Group card page (/groups/:name): group-wide data by default; company select or row-click re-scopes KPIs/aging/invoices; branch select re-scopes; filters combine
+- [x] Customer 360: group badge in header linking to the group card
+- [x] Vitest coverage for group aggregation scoping (37/37 tests passing)
 - [x] Vitest coverage for behavior profiling and forecast heuristic (32/32 tests passing)

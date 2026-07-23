@@ -1,5 +1,15 @@
 # Session state 23 Jul (branch/currency + smart forecast)
 
+## Customer Group hierarchy (latest request)
+- Excel: 5424 rows, 363 groups, 811 customers; 113 groups have >1 company (SAFETY 40, DYNACOM 37, MERCURIA 28, V.SHIPS 21, DYNAGAS 18)
+- DB: customers.customerGroup populated for all 811 (363 distinct) — no schema change needed
+- UX (user-specified): entering a group shows GROUP data first; picking a company shows that company's data; picking a Prime Branch shows that branch's data; combinable
+
+## Customer Group hierarchy (latest request)
+- Excel: 5424 rows, 363 groups, 811 customers; 113 groups have >1 company (e.g. SAFETY 40, DYNACOM 37, MERCURIA 28)
+- DB: customers.customerGroup already populated for all 811 customers (363 distinct groups) — no schema change needed
+- Plan: groups tRPC endpoints (list w/ aggregated totals incl. per-currency; detail w/ member companies), Customers page Group view toggle, /groups/:name page with company filter, group link on Customer 360
+
 ## Status: Phases 1-3 done, Phase 4 (checkpoint + deliver) in progress
 - Smart Forecast fully implemented + Jul 2026 generated (485 customers, 40 AI, 445 heuristic); verified via screenshot
 - FX settings card in Settings (admin.fxRates/setFxRates, persisted app_settings.fx_rates, applied at server boot) — verified via screenshot
@@ -49,3 +59,4 @@
    - Example user gave: Eletson owes 100k but expect 30k based on behavior
 2. FX rates settings UI in Settings (backend helpers ready in arLogic)
 3. Vitest for forecast/profiling; checkpoint; deliver in Greek
+- IMPLEMENTED: customers.groups + customers.groupDetail (server/routers/ar.ts), GroupDetail.tsx (/groups/:name), Customers.tsx Groups/Companies tabs, group badge on CustomerDetail; groups.test.ts; TS clean, 37/37 tests
