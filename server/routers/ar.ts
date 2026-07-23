@@ -7,6 +7,7 @@ import {
   onHoldStatuses,
   receiptMethods,
   taskStatuses,
+  taskTypes,
 } from "../../drizzle/schema";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -439,6 +440,32 @@ export const contractsRouter = router({
 });
 
 export const tasksRouter = router({
+  /** Manual task creation by the user. */
+  create: protectedProcedure
+    .input(z.object({
+      customerId: z.number(),
+      type: z.enum(taskTypes),
+      title: z.string().min(1),
+      description: z.string().optional(),
+      dueDate: z.number(),
+      invoiceId: z.number().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const customer = await db.getCustomer(input.customerId);
+      if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+      const id = await db.createTask({
+        customerId: input.customerId,
+        type: input.type,
+        title: input.title,
+        description: input.description,
+        dueDate: input.dueDate,
+        invoiceId: input.invoiceId,
+        status: "Pending",
+        assignedTo: ctx.user.id,
+      });
+      await audit(ctx, "Create Task", "task", id, `Manual task "${input.title}" for ${customer.name}`);
+      return { id };
+    }),
   list: protectedProcedure
     .input(z.object({ statuses: z.array(z.enum(taskStatuses)).optional() }).optional())
     .query(async ({ input }) => {

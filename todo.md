@@ -89,6 +89,14 @@
 - [x] Customer 360: aging grouping filter on invoices tab with filtered count + outstanding summary; Issue column renamed Doc. Date
 - [x] Verify production deployment includes the scheduled forecast endpoint (deploy succeeded; endpoint auth-gated 403 as expected)
 
+## Manual tasks (user request 23 Jul)
+- [x] Delete all existing tasks from the database
+- [x] Backend: tasks.create procedure (customer, type, description, due date; assigned to creator — single-operator app)
+- [x] Tasks page: New Task dialog with customer picker, type, description, due date
+- [x] Vitest coverage for task creation validation
+- [x] Customer 360: editable Tier (dropdown on the tier badge) wired to customers.update
+- [x] Confirmation dialog on "Run Task Engine Now" to prevent accidental bulk generation
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)

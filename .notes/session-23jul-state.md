@@ -60,3 +60,20 @@
 2. FX rates settings UI in Settings (backend helpers ready in arLogic)
 3. Vitest for forecast/profiling; checkpoint; deliver in Greek
 - IMPLEMENTED: customers.groups + customers.groupDetail (server/routers/ar.ts), GroupDetail.tsx (/groups/:name), Customers.tsx Groups/Companies tabs, group badge on CustomerDetail; groups.test.ts; TS clean, 37/37 tests
+
+## Group SOA + doc date + aging filters (DONE, checkpoint 719e4ae3)
+- reports.export gained "soa-group" report with group/branch/minDaysOverdue inputs; groupDetail gained minDaysOverdue; GroupDetail.tsx has SOA buttons + aging select; CustomerDetail.tsx invoices tab has aging select + Doc. Date; 38/38 tests
+- Production: heartbeat monthly-forecast (task_uid HeeWvn3uGNohbSoCakYup7) enabled, next 2026-08-01T05:00Z; endpoint live (403 auth-gated for unsigned)
+
+## Manual tasks (IN PROGRESS)
+- All 3473 auto tasks deleted from DB (tasks table now 0 rows; task engine only runs via tasks.runEngine mutation = "Run SOP Engine" button on Tasks page)
+- tasks.create procedure added (customer, type from taskTypes enum, title, description, dueDate, optional invoiceId, assignedTo=creator)
+- NEXT: New Task dialog on client/src/pages/Tasks.tsx, vitest for creation validation
+
+## Status update (11:18)
+- New Task dialog DONE on Tasks.tsx (customer combobox via customers.list, type select from TYPES incl "Follow-up +15" not "Reminder +15", title, description, due date); tasks.create procedure in ar.ts tasksRouter (needs taskTypes import — DONE)
+- Tier: schema customerTiers = ["Platinum","Gold","Silver","Bronze","New"] (NOT Strategic/Regular/High Risk — my earlier message to user misnamed them). Inline tier Select added on CustomerDetail header wired to customers.update, invalidates get360+list. TOLD USER wrong tier names — correct in final message.
+- Tasks deletion: user clicked "Run Task Engine Now" at 11:10 on production → long run kept inserting (~1-2/s). Audit shows only ONE run. Plan: wait for it to stop (insert timestamps stale >2min), then final DELETE FROM tasks. Last check 11:15:19 count=133.
+- Consider: remove/deprioritize "Run Task Engine Now" button? User wants manual tasks first; keep engine but maybe confirm dialog. NOT done.
+- Memory pressure earlier: killed stray esbuild; dev server restarted OK.
+- Remaining todos: vitest for task creation validation, tier editor todo item, final delete verification, checkpoint, Greek delivery.

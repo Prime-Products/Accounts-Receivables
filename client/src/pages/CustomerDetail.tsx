@@ -37,6 +37,14 @@ export default function CustomerDetail() {
   const [onHoldOpen, setOnHoldOpen] = useState(false);
   const [onHoldReason, setOnHoldReason] = useState("");
   const [agingFilter, setAgingFilter] = useState<string>("all");
+  const updateTier = trpc.customers.update.useMutation({
+    onSuccess: () => {
+      toast.success("Tier updated");
+      utils.customers.get360.invalidate({ id });
+      utils.customers.list.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
   const submitOnHold = trpc.onHold.submit.useMutation({
     onSuccess: () => {
       toast.success("On-Hold proposal submitted — status: Under Review");
@@ -67,6 +75,7 @@ export default function CustomerDetail() {
 
   const { customer, invoices, receipts, contracts, installments, promises, tasks, aging } = data;
   const openInvoices = invoices.filter(i => i.status !== "Paid");
+  const TIERS = ["Platinum", "Gold", "Silver", "Bronze", "New"] as const;
   const agingAny = aging as any;
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
@@ -88,9 +97,24 @@ export default function CustomerDetail() {
         <div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold tracking-tight">{customer.name}</h1>
-            <Badge variant="outline" className={tierColors[customer.tier]}>
-              {customer.tier}
-            </Badge>
+            <Select
+              value={customer.tier}
+              onValueChange={v => updateTier.mutate({ id: customer.id, tier: v as (typeof TIERS)[number] })}
+            >
+              <SelectTrigger
+                className={`h-6 gap-1 rounded-full border px-2.5 text-xs font-semibold w-auto ${tierColors[customer.tier] ?? ""}`}
+                title="Change customer tier"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TIERS.map(t => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Badge variant="outline" className={onHoldStatusColors[customer.onHoldStatus] ?? ""}>
               {customer.onHoldStatus}
             </Badge>
