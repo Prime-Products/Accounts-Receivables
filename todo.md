@@ -126,6 +126,14 @@
 - [x] Backend: forecast.dashboard / plans derive target from forecast_entries expected sums (setTarget procedure removed)
 - [x] Dashboard page: monthly-target KPI reads the forecast-derived target
 
+## Reimport open invoices as of 21/07/26 (user Excel, 23/7)
+- [x] Analyze OPENINVOICESCUSTOMERS21.07.26FORAI.xlsx structure (sheets, columns, totals)
+- [x] Compare against DB open invoices — reconciled per-currency counts AND sums match to the cent (DB vs Excel): EUR 4769/4,916,462.32, AED 322/1,623,352.48, SGD 259/316,565.12, USD 74/51,961.71; total 5,424=5,424; same file as original import, no reimport needed (user confirmed skip)
+
+## Forecast sorting (user request 23/7)
+- [x] Smart Forecast: sortable AI Suggested column (click header, asc/desc with arrow)
+- [x] Smart Forecast: sortable Expected, Collected, Remaining columns
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)

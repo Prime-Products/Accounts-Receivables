@@ -126,3 +126,7 @@
 ## Column totals (23/7 latest)
 - Customers.tsx: TOTAL rows in Groups + Companies views (respect filters); creditLimit decimal string -> Number()
 - Forecast.tsx: sticky TOTAL row for visible rows (due/overdue/ai/expected/collected/remaining)
+
+## 23/7 late: sortable forecast columns
+- Forecast.tsx SmartForecastSection: SortKey = due|overdue|ai|expected|collected|remaining, all 6 amount headers sortable via map
+- Excel OPENINVOICESCUSTOMERS21.07.26FORAI.xlsx re-uploaded by user = SAME data already in DB (per-currency counts+sums match to cent); no reimport

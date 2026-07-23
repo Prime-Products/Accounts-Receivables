@@ -27,9 +27,10 @@ function SmartForecastSection() {
   const [editAmount, setEditAmount] = useState("");
   const [editNote, setEditNote] = useState("");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<{ key: "due" | "overdue" | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
+  type SortKey = "due" | "overdue" | "ai" | "expected" | "collected" | "remaining";
+  const [sort, setSort] = useState<{ key: SortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
 
-  const toggleSort = (key: "due" | "overdue") =>
+  const toggleSort = (key: SortKey) =>
     setSort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
 
   const visibleRows = useMemo(() => {
@@ -37,9 +38,26 @@ function SmartForecastSection() {
     const q = search.trim().toLowerCase();
     if (q) rows = rows.filter(e => e.customerName.toLowerCase().includes(q));
     if (sort.key) {
-      const field = sort.key === "due" ? "dueAmount" : "overdueAmount";
+      const getVal = (e: (typeof rows)[number]): number => {
+        switch (sort.key) {
+          case "due":
+            return Number(e.dueAmount);
+          case "overdue":
+            return Number(e.overdueAmount);
+          case "ai":
+            return Number(e.aiSuggestedAmount);
+          case "expected":
+            return Number(e.expectedAmount);
+          case "collected":
+            return e.collected;
+          case "remaining":
+            return e.remaining;
+          default:
+            return 0;
+        }
+      };
       rows = [...rows].sort((a, b) => {
-        const diff = Number(a[field]) - Number(b[field]);
+        const diff = getVal(a) - getVal(b);
         return sort.dir === "asc" ? diff : -diff;
       });
     }
@@ -187,22 +205,31 @@ function SmartForecastSection() {
                   <TableRow>
                     <TableHead>Customer Group</TableHead>
                     <TableHead className="text-right">Behavior (days)</TableHead>
-                    <TableHead className="text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("due")}>
-                        Due (month)
-                        {sort.key === "due" ? (sort.dir === "desc" ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
-                      </button>
-                    </TableHead>
-                    <TableHead className="text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("overdue")}>
-                        Overdue
-                        {sort.key === "overdue" ? (sort.dir === "desc" ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
-                      </button>
-                    </TableHead>
-                    <TableHead className="text-right">AI Suggested</TableHead>
-                    <TableHead className="text-right">Expected</TableHead>
-                    <TableHead className="text-right">Collected</TableHead>
-                    <TableHead className="text-right">Remaining</TableHead>
+                    {(
+                      [
+                        ["due", "Due (month)"],
+                        ["overdue", "Overdue"],
+                        ["ai", "AI Suggested"],
+                        ["expected", "Expected"],
+                        ["collected", "Collected"],
+                        ["remaining", "Remaining"],
+                      ] as [SortKey, string][]
+                    ).map(([key, label]) => (
+                      <TableHead key={key} className="text-right">
+                        <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort(key)}>
+                          {label}
+                          {sort.key === key ? (
+                            sort.dir === "desc" ? (
+                              <ArrowDown className="h-3 w-3" />
+                            ) : (
+                              <ArrowUp className="h-3 w-3" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="h-3 w-3 opacity-40" />
+                          )}
+                        </button>
+                      </TableHead>
+                    ))}
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
