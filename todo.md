@@ -241,6 +241,8 @@
 - [x] Frontend: "Hide contacted" toggle to filter contacted groups
 - [x] Badge clears automatically when task completes / promise resolves (derived, no extra state)
 - [x] Vitest coverage for the contacted flag logic
+## Call List quick actions to group (user request 24/7)
+- [x] Remove company selection from Call List quick-action dialogs; task and promise are recorded against the group directly (default to primary member internally)
 
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)

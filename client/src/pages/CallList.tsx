@@ -201,12 +201,9 @@ export default function CallList() {
 function QuickActionDialog({ action, onClose }: { action: NonNullable<QuickAction>; onClose: () => void }) {
   const { row, kind } = action;
   const utils = trpc.useUtils();
-  const { data: customers } = trpc.customers.list.useQuery();
-  const members = useMemo(
-    () => (customers ?? []).filter(c => row.memberIds.includes(c.id)),
-    [customers, row.memberIds],
-  );
-  const [customerId, setCustomerId] = useState<string>("");
+  // Actions are recorded against the group: internally we attach them to the
+  // group's primary member (first member id) — no company selection needed.
+  const customerId = row.memberIds[0];
   const [text, setText] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(() => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
@@ -220,11 +217,10 @@ function QuickActionDialog({ action, onClose }: { action: NonNullable<QuickActio
   const addPromise = trpc.forecast.addPromise.useMutation({ onSuccess: () => done("Promise recorded"), onError: e => toast.error(e.message) });
   const createTask = trpc.tasks.create.useMutation({ onSuccess: () => done("Task created"), onError: e => toast.error(e.message) });
 
-  const needsCustomer = kind !== "note";
   const pending = addNote.isPending || addPromise.isPending || createTask.isPending;
   const canSubmit =
     !pending &&
-    (kind === "note" ? text.trim().length > 0 : customerId !== "") &&
+    (kind !== "note" || text.trim().length > 0) &&
     (kind !== "promise" || (amount !== "" && Number(amount) > 0)) &&
     (kind !== "task" || text.trim().length > 0);
 
@@ -233,14 +229,14 @@ function QuickActionDialog({ action, onClose }: { action: NonNullable<QuickActio
       addNote.mutate({ group: row.group, content: text.trim() });
     } else if (kind === "promise") {
       addPromise.mutate({
-        customerId: Number(customerId),
+        customerId,
         promisedDate: new Date(`${date}T12:00:00Z`).getTime(),
         amount: Number(amount),
         notes: text.trim() || undefined,
       });
     } else {
       createTask.mutate({
-        customerId: Number(customerId),
+        customerId,
         type: "Manual",
         title: text.trim(),
         dueDate: new Date(`${date}T12:00:00Z`).getTime(),
@@ -258,23 +254,6 @@ function QuickActionDialog({ action, onClose }: { action: NonNullable<QuickActio
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          {needsCustomer && (
-            <div className="space-y-1">
-              <Label>Company</Label>
-              <Select value={customerId} onValueChange={setCustomerId}>
-                <SelectTrigger className="bg-background">
-                  <SelectValue placeholder="Select company" />
-                </SelectTrigger>
-                <SelectContent>
-                  {members.map(m => (
-                    <SelectItem key={m.id} value={String(m.id)}>
-                      {m.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
           {kind === "promise" && (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
