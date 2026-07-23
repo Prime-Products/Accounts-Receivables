@@ -235,6 +235,12 @@
 - [x] Customer 360 mirrors group card exactly: same KPI cards, sections, and layout (user request 23/7)
 ## Call List tweaks (user request 23/7)
 - [x] Remove the "Why" (reasons) column from the Call List table
+## Call List: Contacted status (user request 23/7)
+- [x] Backend: callList returns contacted flag + follow-up date when group has open task or pending promise
+- [x] Frontend: "Contacted" badge with follow-up date on Call List rows
+- [x] Frontend: "Hide contacted" toggle to filter contacted groups
+- [x] Badge clears automatically when task completes / promise resolves (derived, no extra state)
+- [x] Vitest coverage for the contacted flag logic
 
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)

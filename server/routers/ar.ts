@@ -258,13 +258,14 @@ export const customersRouter = router({
   callList: protectedProcedure.query(async () => {
     const now = Date.now();
     const today = new Date();
-    const [customers, invoices, forecastRows, behavior, allPromises, receipts] = await Promise.all([
+    const [customers, invoices, forecastRows, behavior, allPromises, receipts, openTasks] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
       db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
       db.listPaymentBehaviorWithGroup().catch(() => []),
       db.listPromises(),
       db.listReceipts(),
+      db.listTasks({ statuses: ["Pending", "In Progress"] }),
     ]);
     const eom = endOfCurrentMonth();
     const day61 = 61 * 24 * 60 * 60 * 1000;
@@ -294,6 +295,7 @@ export const customersRouter = router({
       promisesOverduePending: number;
       pendingPromiseAmount: number;
       lastPaymentTs: number | null;
+      followUpTs: number | null;
       turnoverYtd: number;
       turnoverLastYear: number;
       worstHold: string;
@@ -306,7 +308,7 @@ export const customersRouter = router({
       const key = groupKeyOf(c);
       let g = aggs.get(key);
       if (!g) {
-        g = { group: key, openBalance: 0, overdueBalance: 0, overdueEom: 0, overdue6190: 0, overdue90Plus: 0, overdueCount: 0, promisesKept: 0, promisesBroken: 0, promisesOverduePending: 0, pendingPromiseAmount: 0, lastPaymentTs: null, turnoverYtd: 0, turnoverLastYear: 0, worstHold: "Active", contacts: [], memberIds: [] };
+        g = { group: key, openBalance: 0, overdueBalance: 0, overdueEom: 0, overdue6190: 0, overdue90Plus: 0, overdueCount: 0, promisesKept: 0, promisesBroken: 0, promisesOverduePending: 0, pendingPromiseAmount: 0, lastPaymentTs: null, followUpTs: null, turnoverYtd: 0, turnoverLastYear: 0, worstHold: "Active", contacts: [], memberIds: [] };
         aggs.set(key, g);
       }
       g.memberIds.push(c.id);
@@ -341,7 +343,17 @@ export const customersRouter = router({
       else if (p.status === "Pending") {
         if (p.promisedDate < now) g.promisesOverduePending += 1;
         g.pendingPromiseAmount += Number(p.amount);
+        if (g.followUpTs === null || p.promisedDate < g.followUpTs) g.followUpTs = p.promisedDate;
       }
+    }
+    for (const t of openTasks) {
+      if (!t.customerId) continue;
+      const cust = custById.get(t.customerId);
+      if (!cust) continue;
+      const g = aggs.get(groupKeyOf(cust));
+      if (!g) continue;
+      const due = t.dueDate ?? now;
+      if (g.followUpTs === null || due < g.followUpTs) g.followUpTs = due;
     }
     for (const r of receipts) {
       const cust = custById.get(r.customerId);
@@ -397,6 +409,8 @@ export const customersRouter = router({
           daysSinceLastPayment,
           contacts: g.contacts.slice(0, 3),
           memberIds: g.memberIds,
+          contacted: g.followUpTs !== null,
+          followUpDate: g.followUpTs,
         };
       })
       .sort((a, b) => b.score - a.score);

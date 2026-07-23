@@ -10,9 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { Phone, StickyNote, HandCoins, ListPlus, ChevronRight } from "lucide-react";
+import { Phone, StickyNote, HandCoins, ListPlus, ChevronRight, PhoneOutgoing } from "lucide-react";
 import { toast } from "sonner";
 
 const ratingColors: Record<string, string> = {
@@ -43,13 +44,18 @@ type QuickAction = { row: CallRow; kind: "note" | "promise" | "task" } | null;
 export default function CallList() {
   const { data, isLoading } = trpc.customers.callList.useQuery();
   const [reasonFilter, setReasonFilter] = useState<string>("all");
+  const [hideContacted, setHideContacted] = useState(false);
   const [action, setAction] = useState<QuickAction>(null);
 
   const rows = useMemo(() => {
     if (!data) return [];
-    if (reasonFilter === "all") return data;
-    return data.filter(r => r.reasons.includes(reasonFilter));
-  }, [data, reasonFilter]);
+    let list = data;
+    if (reasonFilter !== "all") list = list.filter(r => r.reasons.includes(reasonFilter));
+    if (hideContacted) list = list.filter(r => !r.contacted);
+    return list;
+  }, [data, reasonFilter, hideContacted]);
+
+  const contactedCount = useMemo(() => (data ?? []).filter(r => r.contacted).length, [data]);
 
   const totalOverdue = useMemo(() => (data ?? []).reduce((s, r) => s + r.overdueBalance, 0), [data]);
 
@@ -65,6 +71,12 @@ export default function CallList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 mr-2">
+            <Switch id="hide-contacted" checked={hideContacted} onCheckedChange={setHideContacted} />
+            <Label htmlFor="hide-contacted" className="text-xs text-muted-foreground cursor-pointer">
+              Hide contacted{contactedCount > 0 ? ` (${contactedCount})` : ""}
+            </Label>
+          </div>
           <Label className="text-xs text-muted-foreground">Reason</Label>
           <Select value={reasonFilter} onValueChange={setReasonFilter}>
             <SelectTrigger className="w-44 bg-background">
@@ -123,6 +135,13 @@ export default function CallList() {
                           <ChevronRight className="h-3 w-3 text-muted-foreground" />
                         </Link>
                         <div className="text-[10px] text-muted-foreground font-mono">score {r.score.toLocaleString()}</div>
+                        {r.contacted && (
+                          <Badge variant="outline" className="mt-1 text-[10px] border-sky-300 bg-sky-50 text-sky-700 inline-flex items-center gap-1">
+                            <PhoneOutgoing className="h-2.5 w-2.5" />
+                            Contacted
+                            {r.followUpDate ? ` — follow-up ${new Date(r.followUpDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : ""}
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="text-right font-mono text-red-600 font-semibold">
                         {fmtEur(r.overdueBalance)}
