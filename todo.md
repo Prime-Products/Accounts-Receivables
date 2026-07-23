@@ -257,6 +257,9 @@
 ## Call List cleanup (user request 24/7)
 - [x] Remove the Contacted badge and Hide-contacted toggle from the Call List
 
+## Tasks list cleanup (user request 24/7)
+- [x] Tasks list: don't show the full description under the task title — only the "Promise to Pay" indicator where applicable
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)
