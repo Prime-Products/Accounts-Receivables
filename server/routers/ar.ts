@@ -16,6 +16,7 @@ import {
   canTransitionOnHold,
   computeAging,
   computeDso,
+  computeCreditRating,
   daysOverdue,
   DEFAULT_FX_RATES,
   deriveInvoiceStatus,
@@ -69,20 +70,51 @@ function endOfCurrentMonth(now = new Date()): number {
 
 export const customersRouter = router({
   list: protectedProcedure.query(async () => {
-    const [customers, invoices] = await Promise.all([db.listCustomers(), db.listInvoices()]);
+    const [customers, invoices, behavior, allPromises] = await Promise.all([
+      db.listCustomers(),
+      db.listInvoices(),
+      db.listPaymentBehaviorWithGroup().catch(() => []),
+      db.listPromises(),
+    ]);
     const now = Date.now();
     const eom = endOfCurrentMonth();
+    const behaviorById = new Map(behavior.map(b => [b.customerId, b]));
+    const promisesById = new Map<number, { kept: number; broken: number }>();
+    for (const p of allPromises) {
+      const e = promisesById.get(p.customerId) ?? { kept: 0, broken: 0 };
+      if (p.status === "Kept") e.kept++;
+      else if (p.status === "Broken") e.broken++;
+      promisesById.set(p.customerId, e);
+    }
+    const day90 = 90 * 24 * 60 * 60 * 1000;
     return customers.map(c => {
       const custInvoices = invoices.filter(i => i.customerId === c.id);
       const open = custInvoices.filter(isOpenInvoice);
       const overdue = open.filter(i => now > i.dueDate);
       const overdueEom = open.filter(i => i.dueDate <= eom);
+      const openBalance = open.reduce((s, i) => s + outstanding(i), 0);
+      const overdueBalance = overdue.reduce((s, i) => s + outstanding(i), 0);
+      const overdue90Plus = overdue.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0);
+      const beh = behaviorById.get(c.id);
+      const prom = promisesById.get(c.id) ?? { kept: 0, broken: 0 };
+      const ratingResult = computeCreditRating({
+        daysLate: beh?.medianDaysLate ?? beh?.avgDaysLate ?? null,
+        openBalance,
+        overdueBalance,
+        overdue90Plus,
+        promisesKept: prom.kept,
+        promisesBroken: prom.broken,
+        onHoldStatus: c.onHoldStatus,
+      });
       return {
         ...c,
-        openBalance: open.reduce((s, i) => s + outstanding(i), 0),
-        overdueBalance: overdue.reduce((s, i) => s + outstanding(i), 0),
+        openBalance,
+        overdueBalance,
         overdueEomBalance: overdueEom.reduce((s, i) => s + outstanding(i), 0),
         overdueCount: overdue.length,
+        rating: ratingResult.rating,
+        ratingScore: ratingResult.score,
+        ratingFactors: ratingResult.factors,
       };
     });
   }),
@@ -90,10 +122,12 @@ export const customersRouter = router({
   groups: protectedProcedure.query(async () => {
     const now = Date.now();
     const today = new Date();
-    const [customers, invoices, forecastRows] = await Promise.all([
+    const [customers, invoices, forecastRows, behavior, allPromises] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
       db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
+      db.listPaymentBehaviorWithGroup().catch(() => []),
+      db.listPromises(),
     ]);
     const eom = endOfCurrentMonth();
     const forecastByGroup = new Map<string, number>();
@@ -108,6 +142,17 @@ export const customersRouter = router({
       if (arr) arr.push(inv);
       else byCustomer.set(inv.customerId, [inv]);
     }
+    // Per-group behavior (weighted) and promise tallies for ratings
+    const groupBehavior = aggregateGroupBehavior(behavior as BehaviorRow[]);
+    const promisesByCustomer = new Map<number, { kept: number; broken: number }>();
+    for (const p of allPromises) {
+      const e = promisesByCustomer.get(p.customerId) ?? { kept: 0, broken: 0 };
+      if (p.status === "Kept") e.kept++;
+      else if (p.status === "Broken") e.broken++;
+      promisesByCustomer.set(p.customerId, e);
+    }
+    const HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
+    const day90 = 90 * 24 * 60 * 60 * 1000;
     const groups = new Map<
       string,
       {
@@ -119,16 +164,26 @@ export const customersRouter = router({
         overdueCount: number;
         openByCurrency: Record<string, number>;
         branches: Set<string>;
+        overdue90Plus: number;
+        promisesKept: number;
+        promisesBroken: number;
+        worstHold: string;
       }
     >();
     for (const c of customers) {
       const key = (c.customerGroup ?? "").trim() || c.name;
       let g = groups.get(key);
       if (!g) {
-        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set() };
+        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set(), overdue90Plus: 0, promisesKept: 0, promisesBroken: 0, worstHold: "Active" };
         groups.set(key, g);
       }
       g.companyCount += 1;
+      const prom = promisesByCustomer.get(c.id);
+      if (prom) {
+        g.promisesKept += prom.kept;
+        g.promisesBroken += prom.broken;
+      }
+      if ((HOLD_SEVERITY[c.onHoldStatus] ?? 0) > (HOLD_SEVERITY[g.worstHold] ?? 0)) g.worstHold = c.onHoldStatus;
       for (const inv of byCustomer.get(c.id) ?? []) {
         if (!isOpenInvoice(inv)) continue;
         g.openBalance += outstanding(inv);
@@ -138,16 +193,39 @@ export const customersRouter = router({
         if (now > inv.dueDate) {
           g.overdueBalance += outstanding(inv);
           g.overdueCount += 1;
+          if (now - inv.dueDate > day90) g.overdue90Plus += outstanding(inv);
         }
         if (inv.dueDate <= eom) g.overdueEomBalance += outstanding(inv);
       }
     }
     return Array.from(groups.values())
-      .map(g => ({
-        ...g,
-        branches: Array.from(g.branches).sort(),
-        forecastExpected: forecastByGroup.get(g.group) ?? 0,
-      }))
+      .map(g => {
+        const beh = groupBehavior.get(g.group);
+        const ratingResult = computeCreditRating({
+          daysLate: beh?.medianDaysLate ?? beh?.avgDaysLate ?? null,
+          openBalance: g.openBalance,
+          overdueBalance: g.overdueBalance,
+          overdue90Plus: g.overdue90Plus,
+          promisesKept: g.promisesKept,
+          promisesBroken: g.promisesBroken,
+          onHoldStatus: g.worstHold,
+        });
+        const forecastExpected = forecastByGroup.get(g.group) ?? 0;
+        // Business rule: problematic when the month's forecast covers < 80% of what will be overdue by EOM.
+        const hasForecast = forecastByGroup.has(g.group);
+        const problematic = hasForecast && g.overdueEomBalance > 0 && forecastExpected < 0.8 * g.overdueEomBalance;
+        const { overdue90Plus, promisesKept, promisesBroken, worstHold, ...rest } = g;
+        return {
+          ...rest,
+          branches: Array.from(g.branches).sort(),
+          forecastExpected,
+          forecastCoverage: g.overdueEomBalance > 0 ? forecastExpected / g.overdueEomBalance : null,
+          problematic,
+          rating: ratingResult.rating,
+          ratingScore: ratingResult.score,
+          ratingFactors: ratingResult.factors,
+        };
+      })
       .sort((a, b) => b.openBalance - a.openBalance);
   }),
   /** Group card: aggregates + invoices, scoped by optional member company and/or Prime Branch. */
@@ -199,6 +277,29 @@ export const customersRouter = router({
       const groupBehavior = memberBehavior.length > 0
         ? Array.from(aggregateGroupBehavior(memberBehavior.map(b => ({ ...b, customerGroup: input.group })) as BehaviorRow[]).values())[0] ?? null
         : null;
+      // Group-level credit rating (full scope, not filtered)
+      const day90 = 90 * 24 * 60 * 60 * 1000;
+      const gOpen = groupInvoices.filter(isOpenInvoice);
+      const gOverdue = gOpen.filter(i => now > i.dueDate);
+      const eomTs = endOfCurrentMonth();
+      const gOverdueEom = gOpen.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
+      const memberPromises = (await db.listPromises()).filter(p => memberIds.has(p.customerId));
+      const HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
+      const worstHold = members.reduce((w, m) => ((HOLD_SEVERITY[m.onHoldStatus] ?? 0) > (HOLD_SEVERITY[w] ?? 0) ? m.onHoldStatus : w), "Active");
+      const ratingResult = computeCreditRating({
+        daysLate: groupBehavior?.medianDaysLate ?? groupBehavior?.avgDaysLate ?? null,
+        openBalance: gOpen.reduce((s, i) => s + outstanding(i), 0),
+        overdueBalance: gOverdue.reduce((s, i) => s + outstanding(i), 0),
+        overdue90Plus: gOverdue.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0),
+        promisesKept: memberPromises.filter(p => p.status === "Kept").length,
+        promisesBroken: memberPromises.filter(p => p.status === "Broken").length,
+        onHoldStatus: worstHold,
+      });
+      const todayD = new Date();
+      const forecastRows = await db.listForecastEntries(todayD.getUTCFullYear(), todayD.getUTCMonth() + 1);
+      const groupForecast = forecastRows.filter(f => (f.customerGroup ?? "").trim() === input.group).reduce((s, f) => s + Number(f.expectedAmount), 0);
+      const hasForecast = forecastRows.some(f => (f.customerGroup ?? "").trim() === input.group);
+      const problematic = hasForecast && gOverdueEom > 0 && groupForecast < 0.8 * gOverdueEom;
       const companies = members
         .map(m => {
           const mine = branchScoped.filter(i => i.customerId === m.id);
@@ -227,12 +328,18 @@ export const customersRouter = router({
         branches,
         aging,
         behavior: groupBehavior,
+        rating: ratingResult,
+        problematic,
+        forecastExpected: groupForecast,
+        overdueEomBalance: gOverdueEom,
         totals: {
           openBalance: open.reduce((s, i) => s + outstanding(i), 0),
           overdueBalance: overdue.reduce((s, i) => s + outstanding(i), 0),
           overdueCount: overdue.length,
           openCount: open.length,
           openByCurrency,
+          turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
+          turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
         },
         invoices: sortedInvoices.slice(0, 500).map(i => ({ ...i, customerName: customerNames.get(i.customerId) ?? "" })),
       };
@@ -353,7 +460,21 @@ export const customersRouter = router({
     const installments = allInstallments.filter(i => contractIds.has(i.contractId));
     const now = Date.now();
     const aging = computeAging(invoices, now);
-    return { customer, invoices, receipts, contracts, installments, promises, tasks, aging };
+    // Credit rating with factor breakdown
+    const day90 = 90 * 24 * 60 * 60 * 1000;
+    const openInv = invoices.filter(isOpenInvoice);
+    const overdueInv = openInv.filter(i => now > i.dueDate);
+    const behaviorRow = await db.getPaymentBehavior(input.id).catch(() => null);
+    const ratingResult = computeCreditRating({
+      daysLate: behaviorRow?.medianDaysLate ?? behaviorRow?.avgDaysLate ?? null,
+      openBalance: openInv.reduce((s, i) => s + outstanding(i), 0),
+      overdueBalance: overdueInv.reduce((s, i) => s + outstanding(i), 0),
+      overdue90Plus: overdueInv.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0),
+      promisesKept: promises.filter(p => p.status === "Kept").length,
+      promisesBroken: promises.filter(p => p.status === "Broken").length,
+      onHoldStatus: customer.onHoldStatus,
+    });
+    return { customer, invoices, receipts, contracts, installments, promises, tasks, aging, rating: ratingResult };
   }),
   create: protectedProcedure
     .input(z.object({
@@ -765,6 +886,18 @@ export const forecastRouter = router({
     .mutation(async ({ ctx, input }) => {
       const id = await db.createPromise({ ...input, amount: eur(input.amount), createdBy: ctx.user.id });
       await audit(ctx, "Record Promise-to-Pay", "promiseToPay", id, `Customer #${input.customerId} promised €${eur(input.amount)} by ${new Date(input.promisedDate).toISOString().slice(0, 10)}`);
+      // Also record the promise as a group note so the full contact history lives in one stream.
+      const cust = await db.getCustomer(input.customerId);
+      if (cust) {
+        const groupKey = cust.customerGroup || cust.name;
+        const dateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
+        await db.createGroupNote({
+          groupName: groupKey,
+          content: `Promise-to-Pay: ${cust.name} — €${Number(eur(input.amount)).toLocaleString()} by ${dateStr}${input.notes ? ` — ${input.notes}` : ""}`,
+          createdBy: ctx.user.id,
+          createdAt: Date.now(),
+        });
+      }
       return { id };
     }),
   updatePromise: protectedProcedure

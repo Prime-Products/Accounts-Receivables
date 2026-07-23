@@ -91,6 +91,15 @@ export const taskTypeColors: Record<string, string> = {
   Manual: "bg-gray-100 text-gray-700 border-gray-200",
 };
 
+/** Credit rating badge colors (A best → E worst). */
+export const ratingColors: Record<string, string> = {
+  A: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  B: "bg-lime-100 text-lime-800 border-lime-200",
+  C: "bg-amber-100 text-amber-800 border-amber-200",
+  D: "bg-orange-100 text-orange-800 border-orange-200",
+  E: "bg-red-100 text-red-700 border-red-200",
+};
+
 export function downloadBase64(filename: string, mimeType: string, base64: string) {
   const bytes = atob(base64);
   const arr = new Uint8Array(bytes.length);

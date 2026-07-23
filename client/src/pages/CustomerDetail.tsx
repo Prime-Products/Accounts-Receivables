@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
+import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, FileDown, HandCoins, Layers, PauseCircle, Plus } from "lucide-react";
 import { useState } from "react";
@@ -98,6 +98,15 @@ export default function CustomerDetail() {
         <div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold tracking-tight">{customer.name}</h1>
+            {data.rating && (
+              <Badge
+                variant="outline"
+                className={`${ratingColors[data.rating.rating] ?? ""} font-mono`}
+                title={`Credit score ${data.rating.score}/100\n${data.rating.factors.map(f => `${f.label}: ${f.points}/${f.max} (${f.detail})`).join("\n")}`}
+              >
+                {data.rating.rating} · {data.rating.score}
+              </Badge>
+            )}
             <Select
               value={customer.tier}
               onValueChange={v => updateTier.mutate({ id: customer.id, tier: v as (typeof TIERS)[number] })}
@@ -236,7 +245,7 @@ export default function CustomerDetail() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <Card>
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Total Overdue</div>
@@ -274,6 +283,27 @@ export default function CustomerDetail() {
             <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
               91-120: {fmtEur(aging.buckets["91-120"].amount)} · 120+: {fmtEur(aging.buckets["120+"].amount)}
             </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="text-xs text-muted-foreground">Turnover (up to day)</div>
+            <div className="text-xl font-bold font-mono text-blue-700">
+              {customer.turnoverYtd != null ? fmtEur(customer.turnoverYtd) : "—"}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="text-xs text-muted-foreground">Turnover Last Year</div>
+            <div className="text-xl font-bold font-mono">
+              {customer.turnoverLastYear != null ? fmtEur(customer.turnoverLastYear) : "—"}
+            </div>
+            {customer.turnoverYtd != null && customer.turnoverLastYear != null && Number(customer.turnoverLastYear) > 0 && (
+              <div className={`text-[10px] font-mono mt-0.5 ${Number(customer.turnoverYtd) >= Number(customer.turnoverLastYear) ? "text-emerald-600" : "text-amber-600"}`}>
+                {((Number(customer.turnoverYtd) / Number(customer.turnoverLastYear) - 1) * 100).toFixed(0)}% vs last year
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

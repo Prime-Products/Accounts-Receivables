@@ -345,6 +345,98 @@ export function buildBehaviorProfile(
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Credit rating (A-E)                                                 */
+/* ------------------------------------------------------------------ */
+
+export type CreditRating = "A" | "B" | "C" | "D" | "E";
+
+export interface RatingInput {
+  /** Average / median days late from payment behavior (use median when available). */
+  daysLate: number | null;
+  /** Open balance EUR. */
+  openBalance: number;
+  /** Overdue balance EUR (today). */
+  overdueBalance: number;
+  /** Overdue EUR older than 90 days. */
+  overdue90Plus: number;
+  /** Kept promises count. */
+  promisesKept: number;
+  /** Broken promises count. */
+  promisesBroken: number;
+  /** On-hold status of the customer (worst of members for a group). */
+  onHoldStatus: string | null;
+}
+
+export interface RatingResult {
+  rating: CreditRating;
+  /** 0-100, higher is better. */
+  score: number;
+  /** Per-factor breakdown for transparency. */
+  factors: { label: string; points: number; max: number; detail: string }[];
+}
+
+/**
+ * Deterministic 0-100 score → A-E rating.
+ * Weights: payment delay 35, overdue ratio 30, aging severity 15, promises 10, on-hold 10.
+ */
+export function computeCreditRating(input: RatingInput): RatingResult {
+  const factors: RatingResult["factors"] = [];
+
+  // 1. Payment delay (35 pts): 0d late → full, 90+d → 0.
+  const dl = input.daysLate;
+  let delayPts: number;
+  let delayDetail: string;
+  if (dl === null) {
+    delayPts = 21; // neutral 60% when no history
+    delayDetail = "No payment history — neutral";
+  } else {
+    const clamped = Math.max(0, Math.min(90, dl));
+    delayPts = Math.round(35 * (1 - clamped / 90));
+    delayDetail = `${dl}d avg/median late`;
+  }
+  factors.push({ label: "Payment delay", points: delayPts, max: 35, detail: delayDetail });
+
+  // 2. Overdue ratio (30 pts): overdue / open balance. 0% → full, 60%+ → 0.
+  const ratio = input.openBalance > 0 ? input.overdueBalance / input.openBalance : 0;
+  const ratioPts = Math.round(30 * (1 - Math.max(0, Math.min(0.6, ratio)) / 0.6));
+  factors.push({
+    label: "Overdue ratio",
+    points: ratioPts,
+    max: 30,
+    detail: `${Math.round(ratio * 100)}% of open balance is overdue`,
+  });
+
+  // 3. Aging severity (15 pts): share of overdue older than 90 days. 0% → full, 50%+ → 0.
+  const oldShare = input.overdueBalance > 0 ? input.overdue90Plus / input.overdueBalance : 0;
+  const agingPts = Math.round(15 * (1 - Math.max(0, Math.min(0.5, oldShare)) / 0.5));
+  factors.push({
+    label: "Aging severity",
+    points: agingPts,
+    max: 15,
+    detail: `${Math.round(oldShare * 100)}% of overdue is older than 90 days`,
+  });
+
+  // 4. Promise reliability (10 pts): kept / (kept+broken); no promises → neutral 70%.
+  const totalPromises = input.promisesKept + input.promisesBroken;
+  const promisePts = totalPromises > 0 ? Math.round(10 * (input.promisesKept / totalPromises)) : 7;
+  factors.push({
+    label: "Promise reliability",
+    points: promisePts,
+    max: 10,
+    detail: totalPromises > 0 ? `${input.promisesKept} kept / ${input.promisesBroken} broken` : "No promises recorded — neutral",
+  });
+
+  // 5. On-hold status (10 pts): Active → full; Under Review/Eligible → 5; On Hold → 2; Legal → 0.
+  const st = input.onHoldStatus ?? "Active";
+  const holdPts = st === "Active" || st === "Resolved" ? 10 : st === "Under Review" || st === "Eligible for On Hold" ? 5 : st === "On Hold" ? 2 : 0;
+  factors.push({ label: "On-hold status", points: holdPts, max: 10, detail: st });
+
+  const score = factors.reduce((s, f) => s + f.points, 0);
+  const rating: CreditRating = score >= 85 ? "A" : score >= 70 ? "B" : score >= 50 ? "C" : score >= 30 ? "D" : "E";
+  return { rating, score, factors };
+}
+
 /**
  * Statistical (non-LLM) expected-collection heuristic for a month, EUR.
  * dueThisMonth: open EUR falling due within the month; overdue: already overdue EUR.

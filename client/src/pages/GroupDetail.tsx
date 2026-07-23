@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, tierColors } from "@/lib/format";
+import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Building2, FileDown, Filter, HandCoins, Layers, PauseCircle, Pencil, Plus, Sparkles, StickyNote, Trash2 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
@@ -236,6 +236,24 @@ export default function GroupDetail() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <Layers className="h-6 w-6" /> {group}
+              {data?.rating && (
+                <Badge
+                  variant="outline"
+                  className={`${ratingColors[data.rating.rating] ?? ""} font-mono text-sm`}
+                  title={`Credit score ${data.rating.score}/100\n${data.rating.factors.map(f => `${f.label}: ${f.points}/${f.max} (${f.detail})`).join("\n")}`}
+                >
+                  {data.rating.rating} · {data.rating.score}
+                </Badge>
+              )}
+              {data?.problematic && (
+                <Badge
+                  variant="outline"
+                  className="bg-red-100 text-red-700 border-red-200"
+                  title={`Forecast ${fmtEur(data.forecastExpected)} covers less than 80% of overdue end-of-month ${fmtEur(data.overdueEomBalance)}`}
+                >
+                  Problematic
+                </Badge>
+              )}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               Group card — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}
@@ -257,6 +275,7 @@ export default function GroupDetail() {
               />
               <GroupPromiseDialog key={`ptp-${companyId}`} companies={data.companies} defaultCustomerId={defaultActionCustomerId} />
               <GroupOnHoldDialog key={`oh-${companyId}`} companies={data.companies} defaultCustomerId={defaultActionCustomerId} />
+              <GroupNotesDialog group={group} />
             </>
           )}
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => doExport("pdf")} disabled={exportSoa.isPending}>
@@ -318,7 +337,7 @@ export default function GroupDetail() {
       ) : (
         <>
           {/* KPI cards for current scope */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
             <Card>
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Open Balance</div>
@@ -362,6 +381,28 @@ export default function GroupDetail() {
                   </>
                 ) : (
                   <div className="text-sm text-muted-foreground mt-1">No payment history</div>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-xs text-muted-foreground">Turnover (up to day)</div>
+                <div className="text-xl font-bold font-mono text-blue-700">
+                  {data.totals.turnoverYtd > 0 ? fmtEur(data.totals.turnoverYtd) : "—"}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">sum of member companies</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-xs text-muted-foreground">Turnover Last Year</div>
+                <div className="text-xl font-bold font-mono">
+                  {data.totals.turnoverLastYear > 0 ? fmtEur(data.totals.turnoverLastYear) : "—"}
+                </div>
+                {data.totals.turnoverYtd > 0 && data.totals.turnoverLastYear > 0 && (
+                  <div className={`text-[11px] font-mono mt-0.5 ${data.totals.turnoverYtd >= data.totals.turnoverLastYear ? "text-emerald-600" : "text-amber-600"}`}>
+                    {((data.totals.turnoverYtd / data.totals.turnoverLastYear - 1) * 100).toFixed(0)}% vs last year
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -524,9 +565,8 @@ export default function GroupDetail() {
           {/* Promises-to-pay, Notes & AI summary */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <GroupPromisesCard group={group} />
-            <GroupNotesCard group={group} />
+            <GroupAiSummaryCard group={group} />
           </div>
-          <GroupAiSummaryCard group={group} />
         </>
       )}
     </div>
@@ -626,15 +666,18 @@ function GroupPromisesCard({ group }: { group: string }) {
   );
 }
 
-function GroupNotesCard({ group }: { group: string }) {
+function GroupNotesDialog({ group }: { group: string }) {
+  const [open, setOpen] = useState(false);
   const utils = trpc.useUtils();
   const [content, setContent] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
-  const { data: notes, isLoading } = trpc.customers.groupNotes.useQuery({ group });
+  const { data: notes, isLoading } = trpc.customers.groupNotes.useQuery({ group }, { enabled: open });
+  const noteCount = trpc.customers.groupNotes.useQuery({ group }, { enabled: !open }).data?.length;
   const add = trpc.customers.addGroupNote.useMutation({
     onSuccess: () => {
       setContent("");
+      toast.success("Note added");
       utils.customers.groupNotes.invalidate({ group });
     },
     onError: e => toast.error(e.message),
@@ -651,13 +694,22 @@ function GroupNotesCard({ group }: { group: string }) {
     onError: e => toast.error(e.message),
   });
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
-          <StickyNote className="h-4 w-4" /> Group Notes
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="gap-1.5">
+          <StickyNote className="h-4 w-4" /> New Note
+          {typeof noteCount === "number" && noteCount > 0 && (
+            <Badge variant="secondary" className="ml-0.5 h-4 px-1 text-[10px]">{noteCount}</Badge>
+          )}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <StickyNote className="h-4 w-4" /> Group Notes — {group}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
         <div className="flex gap-2">
           <Textarea
             value={content}
@@ -679,7 +731,7 @@ function GroupNotesCard({ group }: { group: string }) {
         ) : !notes || notes.length === 0 ? (
           <p className="text-sm text-muted-foreground">No notes yet.</p>
         ) : (
-          <div className="space-y-2 max-h-60 overflow-auto pr-1">
+          <div className="space-y-2 max-h-72 overflow-auto pr-1">
             {notes.map(n => (
               <div key={n.id} className="rounded-md border p-2.5 text-sm">
                 <div className="flex items-center justify-between gap-2 mb-1">
@@ -732,8 +784,9 @@ function GroupNotesCard({ group }: { group: string }) {
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

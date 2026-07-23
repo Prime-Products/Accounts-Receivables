@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fmtByCurrency, fmtEur, onHoldStatusColors, tierColors } from "@/lib/format";
+import { fmtByCurrency, fmtEur, onHoldStatusColors, ratingColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowDown, ArrowUp, ArrowUpDown, Layers, Plus, Search, Users } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -17,8 +17,8 @@ import { useLocation } from "wouter";
 
 const TIERS = ["Platinum", "Gold", "Silver", "Bronze", "New"] as const;
 
-type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "overdueCount";
-type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit";
+type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "overdueCount" | "rating";
+type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "rating";
 
 function SortableHead({
   label,
@@ -109,6 +109,8 @@ export default function Customers() {
             return c.overdueEomBalance;
           case "credit":
             return Number(c.creditLimit);
+          case "rating":
+            return c.ratingScore;
           default:
             return 0;
         }
@@ -139,6 +141,8 @@ export default function Customers() {
             return g.forecastExpected;
           case "overdueCount":
             return g.overdueCount;
+          case "rating":
+            return g.ratingScore;
           default:
             return 0;
         }
@@ -334,6 +338,7 @@ export default function Customers() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Group</TableHead>
+                    <SortableHead label="Rating" active={groupSort.key === "rating"} dir={groupSort.dir} onClick={() => toggleGroupSort("rating")} />
                     <SortableHead label="Companies" active={groupSort.key === "companies"} dir={groupSort.dir} onClick={() => toggleGroupSort("companies")} />
                     <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} />
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
@@ -345,6 +350,7 @@ export default function Customers() {
                 <TableBody>
                   <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
                     <TableCell>TOTAL ({filteredGroups.length} groups)</TableCell>
+                    <TableCell />
                     <TableCell className="text-right font-mono">{groupTotals.companies}</TableCell>
                     <TableCell className="text-right font-mono">{fmtEur(groupTotals.open)}</TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.overdue > 0 ? "text-red-600" : ""}`}>
@@ -365,7 +371,23 @@ export default function Customers() {
                       onClick={() => navigate(`/groups/${encodeURIComponent(g.group)}`)}
                     >
                       <TableCell className="font-medium max-w-72">
-                        <div className="truncate" title={g.group}>{g.group}</div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="truncate" title={g.group}>{g.group}</div>
+                          {g.problematic && (
+                            <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200 text-[10px] shrink-0" title="Forecast covers less than 80% of overdue end-of-month">
+                              Problematic
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant="outline"
+                          className={`${ratingColors[g.rating] ?? ""} font-mono`}
+                          title={`Credit score ${g.ratingScore}/100${g.ratingFactors ? `\n${g.ratingFactors.map(f => `${f.label}: ${f.points}/${f.max} (${f.detail})`).join("\n")}` : ""}`}
+                        >
+                          {g.rating}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono">{g.companyCount}</TableCell>
                       <TableCell className="text-right font-mono">
@@ -405,6 +427,7 @@ export default function Customers() {
                 <TableRow>
                   <TableHead>Code</TableHead>
                   <TableHead>Name</TableHead>
+                  <SortableHead label="Rating" active={companySort.key === "rating"} dir={companySort.dir} onClick={() => toggleCompanySort("rating")} />
                   <TableHead>Tier</TableHead>
                   <TableHead>Status</TableHead>
                   <SortableHead label="Open Balance" active={companySort.key === "open"} dir={companySort.dir} onClick={() => toggleCompanySort("open")} />
@@ -415,7 +438,7 @@ export default function Customers() {
               </TableHeader>
               <TableBody>
                 <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
-                  <TableCell colSpan={4}>TOTAL ({filtered.length} companies)</TableCell>
+                  <TableCell colSpan={5}>TOTAL ({filtered.length} companies)</TableCell>
                   <TableCell className="text-right font-mono">{fmtEur(companyTotals.open)}</TableCell>
                   <TableCell className={`text-right font-mono ${companyTotals.overdue > 0 ? "text-red-600" : ""}`}>
                     {fmtEur(companyTotals.overdue)}
@@ -429,6 +452,15 @@ export default function Customers() {
                   <TableRow key={c.id} className="cursor-pointer" onClick={() => navigate(`/customers/${c.id}`)}>
                     <TableCell className="font-mono text-sm">{c.code}</TableCell>
                     <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="text-right">
+                      <Badge
+                        variant="outline"
+                        className={`${ratingColors[c.rating] ?? ""} font-mono`}
+                        title={`Credit score ${c.ratingScore}/100${c.ratingFactors ? `\n${c.ratingFactors.map(f => `${f.label}: ${f.points}/${f.max} (${f.detail})`).join("\n")}` : ""}`}
+                      >
+                        {c.rating}
+                      </Badge>
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={tierColors[c.tier]}>
                         {c.tier}

@@ -67,6 +67,8 @@ export const customers = mysqlTable("customers", {
   tier: mysqlEnum("tier", customerTiers).default("New").notNull(),
   creditLimit: decimal("creditLimit", { precision: 14, scale: 2 }).default("0").notNull(),
   paymentTermsDays: int("paymentTermsDays").default(30).notNull(),
+  turnoverYtd: decimal("turnoverYtd", { precision: 14, scale: 2 }),
+  turnoverLastYear: decimal("turnoverLastYear", { precision: 14, scale: 2 }),
   onHoldStatus: mysqlEnum("onHoldStatus", ["Active", "Under Review", "Eligible for On Hold", "On Hold", "Legal"]).default("Active").notNull(),
   softoneId: varchar("softoneId", { length: 64 }),
   notes: text("notes"),
@@ -242,6 +244,8 @@ export const appSettings = mysqlTable("app_settings", {
 });
 
 export const promiseStatuses = ["Pending", "Kept", "Broken"] as const;
+
+// Turnover figures (EUR) imported from the ERP customers financial list.
 
 /** Free-form notes attached to a customer group (group card). */
 export const groupNotes = mysqlTable("group_notes", {

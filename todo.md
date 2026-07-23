@@ -174,6 +174,26 @@
 - [x] Group notes: schema table + CRUD endpoints + notes section with author/date on GroupDetail
 - [x] AI Summary button on GroupDetail — LLM-generated group snapshot (balances, overdue, behavior, promises, tasks, notes)
 
+## Group notes UX (user request 23/7)
+- [x] Replace the Group Notes card with a "New Note" toolbar button (next to New Task) opening a dialog with add/edit/delete of notes
+
+## Turnover fields (user request 23/7)
+- [x] Schema: add turnoverYtd and turnoverLastYear to customers table
+- [x] Import turnover values from CustomersFinancialList Excel (matched by name/group; ERP codes differ from app codes)
+- [x] Show Turnover (up to day) and Turnover Last Year on Customer 360
+- [x] Show group turnover (sum of member companies) on the group card with YoY % indicator
+
+## Promises as notes (user request 23/7)
+- [x] When a Promise-to-Pay is recorded, auto-create a group note describing it (company, amount, date, notes); status changes (Kept/Broken) also noted
+
+## Credit rating (user request 23/7)
+- [x] Rating engine (A-E) computed from payment behavior, overdue ratio, aging, broken promises, on-hold status
+- [x] Rating badge on Customers list (groups & companies views), group card, and Customer 360 with breakdown tooltip
+
+## Problematic rule (user request 23/7)
+- [x] After forecast: mark group as Problematic when Expected < 80% of Overdue EOM (computed live from forecast entries)
+- [x] Problematic badge visible on Customers list (Groups view) and group card header
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)
