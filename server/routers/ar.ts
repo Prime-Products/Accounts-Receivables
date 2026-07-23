@@ -87,9 +87,20 @@ export const customersRouter = router({
   }),
   /** Group-level view: aggregated totals per customer group. */
   groups: protectedProcedure.query(async () => {
-    const [customers, invoices] = await Promise.all([db.listCustomers(), db.listInvoices()]);
     const now = Date.now();
+    const today = new Date();
+    const [customers, invoices, forecastRows] = await Promise.all([
+      db.listCustomers(),
+      db.listInvoices(),
+      db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
+    ]);
     const eom = endOfCurrentMonth();
+    const forecastByGroup = new Map<string, number>();
+    for (const f of forecastRows) {
+      const key = (f.customerGroup ?? "").trim();
+      if (!key) continue;
+      forecastByGroup.set(key, (forecastByGroup.get(key) ?? 0) + Number(f.expectedAmount));
+    }
     const byCustomer = new Map<number, typeof invoices>();
     for (const inv of invoices) {
       const arr = byCustomer.get(inv.customerId);
@@ -131,7 +142,11 @@ export const customersRouter = router({
       }
     }
     return Array.from(groups.values())
-      .map(g => ({ ...g, branches: Array.from(g.branches).sort() }))
+      .map(g => ({
+        ...g,
+        branches: Array.from(g.branches).sort(),
+        forecastExpected: forecastByGroup.get(g.group) ?? 0,
+      }))
       .sort((a, b) => b.openBalance - a.openBalance);
   }),
   /** Group card: aggregates + invoices, scoped by optional member company and/or Prime Branch. */

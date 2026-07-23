@@ -17,7 +17,7 @@ import { useLocation } from "wouter";
 
 const TIERS = ["Platinum", "Gold", "Silver", "Bronze", "New"] as const;
 
-type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "overdueCount";
+type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "overdueCount";
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit";
 
 function SortableHead({
@@ -135,6 +135,8 @@ export default function Customers() {
             return g.overdueBalance;
           case "overdueEom":
             return g.overdueEomBalance;
+          case "forecast":
+            return g.forecastExpected;
           case "overdueCount":
             return g.overdueCount;
           default:
@@ -152,14 +154,15 @@ export default function Customers() {
   const groupTotals = useMemo(
     () =>
       filteredGroups.reduce(
-        (t: { companies: number; open: number; overdue: number; overdueEom: number; overdueCount: number }, g) => ({
+        (t: { companies: number; open: number; overdue: number; overdueEom: number; forecast: number; overdueCount: number }, g) => ({
           companies: t.companies + g.companyCount,
           open: t.open + g.openBalance,
           overdue: t.overdue + g.overdueBalance,
           overdueEom: t.overdueEom + g.overdueEomBalance,
+          forecast: t.forecast + g.forecastExpected,
           overdueCount: t.overdueCount + g.overdueCount,
         }),
-        { companies: 0, open: 0, overdue: 0, overdueEom: 0, overdueCount: 0 }
+        { companies: 0, open: 0, overdue: 0, overdueEom: 0, forecast: 0, overdueCount: 0 }
       ),
     [filteredGroups]
   );
@@ -335,6 +338,7 @@ export default function Customers() {
                     <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} />
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
                     <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} />
+                    <SortableHead label="AI Forecast" active={groupSort.key === "forecast"} dir={groupSort.dir} onClick={() => toggleGroupSort("forecast")} />
                     <SortableHead label="Overdue Inv." active={groupSort.key === "overdueCount"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueCount")} />
                   </TableRow>
                 </TableHeader>
@@ -361,6 +365,9 @@ export default function Customers() {
                       <TableCell className={`text-right font-mono ${g.overdueEomBalance > 0 ? "text-amber-600" : ""}`}>
                         {fmtEur(g.overdueEomBalance)}
                       </TableCell>
+                      <TableCell className={`text-right font-mono ${g.forecastExpected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
+                        {fmtEur(g.forecastExpected)}
+                      </TableCell>
                       <TableCell className="text-right font-mono">{g.overdueCount}</TableCell>
                     </TableRow>
                   ))}
@@ -373,6 +380,9 @@ export default function Customers() {
                     </TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.overdueEom > 0 ? "text-amber-600" : ""}`}>
                       {fmtEur(groupTotals.overdueEom)}
+                    </TableCell>
+                    <TableCell className={`text-right font-mono ${groupTotals.forecast > 0 ? "text-emerald-700" : ""}`}>
+                      {fmtEur(groupTotals.forecast)}
                     </TableCell>
                     <TableCell className="text-right font-mono">{groupTotals.overdueCount}</TableCell>
                   </TableRow>

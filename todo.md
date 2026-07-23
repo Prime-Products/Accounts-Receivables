@@ -140,6 +140,11 @@
 - [x] Customers page Companies view: new "Overdue EOM" column + TOTAL cell
 - [x] Customers page: sortable amount columns (both views) with asc/desc arrows
 
+## Customers page: AI Forecast column + totals (user request 23/7)
+- [x] Backend: customers.groups returns current-month forecast Expected per group (from forecast_entries)
+- [x] Groups view: "AI Forecast" column (sortable) + TOTAL cell
+- [x] Companies view: forecast is group-level only — column shown in Groups view (verified with user data; AI genuinely suggests €0 for groups with poor collection history)
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)
