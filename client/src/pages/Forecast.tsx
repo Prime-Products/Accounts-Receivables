@@ -12,8 +12,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { downloadBase64, fmtDate, fmtEur, monthName } from "@/lib/format";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { Check, FileDown, Info, Pencil, Plus, RotateCcw, Sparkles, TrendingUp, X } from "lucide-react";
-import { useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, FileDown, Info, Pencil, Plus, RotateCcw, Search, Sparkles, TrendingUp, X } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 function SmartForecastSection() {
@@ -26,6 +26,25 @@ function SmartForecastSection() {
   const [editId, setEditId] = useState<number | null>(null);
   const [editAmount, setEditAmount] = useState("");
   const [editNote, setEditNote] = useState("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<{ key: "due" | "overdue" | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
+
+  const toggleSort = (key: "due" | "overdue") =>
+    setSort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
+
+  const visibleRows = useMemo(() => {
+    let rows = data?.entries ?? [];
+    const q = search.trim().toLowerCase();
+    if (q) rows = rows.filter(e => e.customerName.toLowerCase().includes(q));
+    if (sort.key) {
+      const field = sort.key === "due" ? "dueAmount" : "overdueAmount";
+      rows = [...rows].sort((a, b) => {
+        const diff = Number(a[field]) - Number(b[field]);
+        return sort.dir === "asc" ? diff : -diff;
+      });
+    }
+    return rows;
+  }, [data?.entries, search, sort]);
 
   const generate = trpc.forecast.generateSmart.useMutation({
     onSuccess: r => {
@@ -74,6 +93,15 @@ function SmartForecastSection() {
             <Sparkles className="h-4 w-4 text-primary" /> Smart Forecast per Customer Group — AI suggestion, user-adjustable (all amounts EUR)
           </CardTitle>
           <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search group…"
+                className="h-8 w-44 pl-7 text-sm"
+              />
+            </div>
             <Select
               value={`${sel.year}-${sel.month}`}
               onValueChange={v => {
@@ -143,8 +171,18 @@ function SmartForecastSection() {
                   <TableRow>
                     <TableHead>Customer Group</TableHead>
                     <TableHead className="text-right">Behavior (days)</TableHead>
-                    <TableHead className="text-right">Due (month)</TableHead>
-                    <TableHead className="text-right">Overdue</TableHead>
+                    <TableHead className="text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("due")}>
+                        Due (month)
+                        {sort.key === "due" ? (sort.dir === "desc" ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("overdue")}>
+                        Overdue
+                        {sort.key === "overdue" ? (sort.dir === "desc" ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                    </TableHead>
                     <TableHead className="text-right">AI Suggested</TableHead>
                     <TableHead className="text-right">Expected</TableHead>
                     <TableHead className="text-right">Collected</TableHead>
@@ -153,7 +191,14 @@ function SmartForecastSection() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.entries ?? []).map(e => {
+                  {visibleRows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center text-sm text-muted-foreground py-6">
+                        No groups match "{search}".
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {visibleRows.map(e => {
                     const isEditing = editId === e.id;
                     return (
                       <TableRow key={e.id}>
