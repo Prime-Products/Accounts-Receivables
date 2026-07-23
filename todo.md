@@ -46,3 +46,18 @@
 - [x] Vitest tests for core business logic (aging, task engine, on-hold transitions, forecast) — 17/17 passing
 - [x] Visual verification via screenshots
 - [x] Final checkpoint & delivery
+
+## Excel Import (user's real open invoices)
+- [x] Analyze uploaded Excel structure and map columns to app fields
+- [x] Import customers from Excel into database (811 customers with Customer Group)
+- [x] Import open invoices from Excel into database (5,424 invoices, 6 companies, 4 currencies)
+- [ ] Verify data appears correctly in Dashboard, Aging Report, Customer 360
+- [ ] Checkpoint after import
+
+## EUR Conversion (ευρωποίηση)
+- [x] Add amountEur handling: store EUR-converted value per invoice
+- [ ] FX rates settings (AED, SGD, USD → EUR) editable in Settings
+- [x] Convert all existing imported invoices to EUR values (indicative rates: USD 0.92, AED 0.25, SGD 0.68)
+- [x] Dashboard/aging/forecast totals computed in EUR; original currency shown on invoice rows
+- [x] Populate amountEur on all invoice write paths (manual create, installment invoicing, Softone pull)
+- [x] Vitest coverage for toEur and EUR-aware outstanding (25/25 tests pass)

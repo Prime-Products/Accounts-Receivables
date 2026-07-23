@@ -46,6 +46,7 @@ export const customers = mysqlTable("customers", {
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 64 }),
   contactPerson: varchar("contactPerson", { length: 255 }),
+  customerGroup: varchar("customerGroup", { length: 255 }),
   tier: mysqlEnum("tier", customerTiers).default("New").notNull(),
   creditLimit: decimal("creditLimit", { precision: 14, scale: 2 }).default("0").notNull(),
   paymentTermsDays: int("paymentTermsDays").default(30).notNull(),
@@ -62,6 +63,10 @@ export const invoices = mysqlTable("invoices", {
   id: int("id").autoincrement().primaryKey(),
   customerId: int("customerId").notNull(),
   invoiceNumber: varchar("invoiceNumber", { length: 64 }).notNull().unique(),
+  company: varchar("company", { length: 128 }),
+  currency: varchar("currency", { length: 8 }).default("EUR").notNull(),
+  /** Original amount converted to EUR using the FX rate at import/sync time. */
+  amountEur: decimal("amountEur", { precision: 14, scale: 2 }),
   issueDate: bigint("issueDate", { mode: "number" }).notNull(),
   dueDate: bigint("dueDate", { mode: "number" }).notNull(),
   amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),

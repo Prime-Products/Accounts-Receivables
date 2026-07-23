@@ -155,7 +155,7 @@ export const invoicesRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const id = await db.createInvoice({ ...input, amount: eur(input.amount) });
+      const id = await db.createInvoice({ ...input, amount: eur(input.amount), amountEur: eur(input.amount) });
       await audit(ctx, "Create Invoice", "invoice", id, `Invoice ${input.invoiceNumber} for customer #${input.customerId}, amount €${eur(input.amount)}`);
       return { id };
     }),
@@ -303,6 +303,7 @@ export const contractsRouter = router({
         issueDate: now,
         dueDate: inst.dueDate > now ? inst.dueDate : now + input.paymentTermsDays * 24 * 60 * 60 * 1000,
         amount: inst.amount,
+        amountEur: inst.amount,
         contractInstallmentId: inst.id,
         notes: `Installment ${inst.installmentNumber} of contract ${contract.contractNumber}`,
       });

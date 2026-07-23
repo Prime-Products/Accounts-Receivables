@@ -1,0 +1,1 @@
+ALTER TABLE `invoices` ADD `amountEur` decimal(14,2);

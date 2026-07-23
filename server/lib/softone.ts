@@ -5,6 +5,7 @@
  */
 import axios from "axios";
 import * as db from "../db";
+import { toEur } from "./arLogic";
 
 export interface SoftoneConfig {
   baseUrl: string;
@@ -210,6 +211,8 @@ export async function pullInvoices(): Promise<{ synced: number }> {
       dueDate: new Date(row.FINALDATE ?? row.finaldate ?? row.TRNDATE ?? row.trndate).getTime(),
       amount: String(row.SUMAMNT ?? row.sumamnt ?? 0),
       paidAmount: String(row.PAYAMNT ?? row.payamnt ?? 0),
+      currency: String(row.CURRENCY ?? row.currency ?? "EUR"),
+      amountEur: toEur(Number(row.SUMAMNT ?? row.sumamnt ?? 0), String(row.CURRENCY ?? row.currency ?? "EUR")).toFixed(2),
       softoneId: String(row.FINDOC ?? row.findoc ?? ""),
     };
     const found = byNumber.get(num);

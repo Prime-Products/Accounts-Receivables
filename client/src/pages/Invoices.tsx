@@ -329,7 +329,7 @@ export default function Invoices() {
                   <TableHead>Due Date</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Outstanding</TableHead>
+                  <TableHead className="text-right">Outstanding (€)</TableHead>
                   <TableHead className="text-right">Days Overdue</TableHead>
                 </TableRow>
               </TableHeader>
@@ -344,7 +344,17 @@ export default function Invoices() {
                         {i.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right font-mono">{fmtEur(i.amount)}</TableCell>
+                    <TableCell className="text-right font-mono">
+                      {i.currency && i.currency !== "EUR" ? (
+                        <span>
+                          {Number(i.amount).toLocaleString("el-GR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
+                          <span className="text-xs text-muted-foreground">{i.currency}</span>
+                          <span className="block text-xs text-muted-foreground">≈ {fmtEur(Number(i.amountEur ?? i.amount))}</span>
+                        </span>
+                      ) : (
+                        fmtEur(i.amount)
+                      )}
+                    </TableCell>
                     <TableCell className="text-right font-mono font-semibold">{fmtEur(i.outstanding)}</TableCell>
                     <TableCell className={`text-right font-mono ${i.daysOverdue > 0 ? "text-red-600 font-semibold" : ""}`}>
                       {i.daysOverdue > 0 ? i.daysOverdue : "—"}

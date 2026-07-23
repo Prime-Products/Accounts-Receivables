@@ -39,10 +39,44 @@ export interface InvoiceLike {
   amount: string | number;
   paidAmount: string | number;
   status: string;
+  /** EUR-converted total amount (set for non-EUR invoices). */
+  amountEur?: string | number | null;
+  currency?: string | null;
 }
 
+/**
+ * Outstanding amount in EUR. For non-EUR invoices, the EUR value is derived
+ * from `amountEur` proportionally to the unpaid fraction of the original amount.
+ */
 export function outstanding(inv: InvoiceLike): number {
+  const openOriginal = Number(inv.amount) - Number(inv.paidAmount);
+  const eur = inv.amountEur != null ? Number(inv.amountEur) : null;
+  if (eur != null && Number(inv.amount) > 0) {
+    return (openOriginal / Number(inv.amount)) * eur;
+  }
+  return openOriginal;
+}
+
+/** Outstanding amount in the invoice's original currency. */
+export function outstandingOriginal(inv: InvoiceLike): number {
   return Number(inv.amount) - Number(inv.paidAmount);
+}
+
+/**
+ * Indicative FX rates to EUR used when converting invoice amounts.
+ * Update here (or via future Settings UI) when rates change materially.
+ */
+export const FX_RATES_TO_EUR: Record<string, number> = {
+  EUR: 1,
+  USD: 0.92,
+  AED: 0.25,
+  SGD: 0.68,
+};
+
+/** Convert an amount in the given currency to EUR (2 decimals). Unknown currencies pass through 1:1. */
+export function toEur(amount: number, currency?: string | null): number {
+  const rate = FX_RATES_TO_EUR[(currency ?? "EUR").toUpperCase()] ?? 1;
+  return Math.round(amount * rate * 100) / 100;
 }
 
 export function isOpenInvoice(inv: InvoiceLike): boolean {

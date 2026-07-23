@@ -15,6 +15,20 @@
       "when": 1784792013207,
       "tag": "0001_broken_firedrake",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1784795346417,
+      "tag": "0002_foamy_the_captain",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1784795863385,
+      "tag": "0003_wakeful_tombstone",
+      "breakpoints": true
     }
   ]
 }
