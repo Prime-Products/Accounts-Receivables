@@ -16,14 +16,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Phone, StickyNote, HandCoins, ListPlus, ChevronRight, PhoneOutgoing } from "lucide-react";
 import { toast } from "sonner";
 
-const ratingColors: Record<string, string> = {
-  A: "border-emerald-300 bg-emerald-50 text-emerald-700",
-  B: "border-lime-300 bg-lime-50 text-lime-700",
-  C: "border-amber-300 bg-amber-50 text-amber-700",
-  D: "border-orange-300 bg-orange-50 text-orange-700",
-  E: "border-red-300 bg-red-50 text-red-700",
-};
-
 const reasonColors: Record<string, string> = {
   "Broken promise": "border-red-300 bg-red-50 text-red-700",
   "Aging 61-90": "border-orange-300 bg-orange-50 text-orange-700",
@@ -118,9 +110,6 @@ export default function CallList() {
                     <TableHead className="w-10">#</TableHead>
                     <TableHead>Group</TableHead>
                     <TableHead className="text-right">Overdue</TableHead>
-                    <TableHead className="text-right">61-90d</TableHead>
-                    <TableHead className="text-right">Coverage</TableHead>
-                    <TableHead>Rating</TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -146,15 +135,6 @@ export default function CallList() {
                       <TableCell className="text-right font-mono text-red-600 font-semibold">
                         {fmtEur(r.overdueBalance)}
                         <div className="text-[10px] font-normal text-muted-foreground">{r.overdueCount} inv.</div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">{r.overdue6190 > 0 ? fmtEur(r.overdue6190) : "—"}</TableCell>
-                      <TableCell className="text-right font-mono">
-                        {r.forecastCoverage === null ? "—" : `${Math.round(r.forecastCoverage * 100)}%`}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={`font-mono ${ratingColors[r.rating] ?? ""}`} title={`Credit score ${r.ratingScore}/100`}>
-                          {r.rating}
-                        </Badge>
                       </TableCell>
                       <TableCell className="max-w-44">
                         {r.contacts.length === 0 ? (

@@ -244,6 +244,13 @@
 ## Call List quick actions to group (user request 24/7)
 - [x] Remove company selection from Call List quick-action dialogs; task and promise are recorded against the group directly (default to primary member internally)
 
+## Global search (user request 24/7)
+- [x] Backend: search endpoint across groups, companies, invoices (number), group notes, tasks
+- [x] Frontend: search bar on dashboard header with grouped results (command palette style)
+- [x] Navigation: clicking a result opens the right page (group card, customer 360, invoices filtered, tasks)
+- [x] Vitest coverage for the search endpoint
+- [x] Remove 61-90d, Coverage, and Rating columns from the Call List table
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)

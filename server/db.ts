@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   appSettings,
@@ -583,4 +583,35 @@ export async function sumInvoicedInRange(start: number, end: number) {
     .from(invoices)
     .where(and(gte(invoices.issueDate, start), lt(invoices.issueDate, end)));
   return Number(r[0]?.total ?? 0);
+}
+
+/** Global search across customers, invoices, group notes, and tasks (case-insensitive LIKE). */
+export async function globalSearch(query: string, limitPerType = 8) {
+  const db = await requireDb();
+  const q = `%${query}%`;
+  const [custRows, invRows, noteRows, taskRows] = await Promise.all([
+    db
+      .select({ id: customers.id, name: customers.name, code: customers.code, customerGroup: customers.customerGroup })
+      .from(customers)
+      .where(or(like(customers.name, q), like(customers.code, q), like(customers.customerGroup, q), like(customers.vatNumber, q)))
+      .limit(limitPerType * 3),
+    db
+      .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, customerId: invoices.customerId, amount: invoices.amount, status: invoices.status, dueDate: invoices.dueDate })
+      .from(invoices)
+      .where(like(invoices.invoiceNumber, q))
+      .limit(limitPerType),
+    db
+      .select({ id: groupNotes.id, groupName: groupNotes.groupName, content: groupNotes.content, createdAt: groupNotes.createdAt })
+      .from(groupNotes)
+      .where(or(like(groupNotes.content, q), like(groupNotes.groupName, q)))
+      .orderBy(desc(groupNotes.createdAt))
+      .limit(limitPerType),
+    db
+      .select({ id: tasks.id, title: tasks.title, status: tasks.status, dueDate: tasks.dueDate, customerId: tasks.customerId })
+      .from(tasks)
+      .where(or(like(tasks.title, q), like(tasks.description, q)))
+      .orderBy(desc(tasks.dueDate))
+      .limit(limitPerType),
+  ]);
+  return { customers: custRows, invoices: invRows, notes: noteRows, tasks: taskRows };
 }

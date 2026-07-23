@@ -27,7 +27,10 @@ export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [bucketFilter, setBucketFilter] = useState<(typeof BUCKETS)[number]>("all");
   const [branchFilter, setBranchFilter] = useState<string>("all");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("q") ?? "";
+  });
 
   // New invoice dialog
   const [invOpen, setInvOpen] = useState(false);

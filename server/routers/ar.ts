@@ -70,6 +70,62 @@ function endOfCurrentMonth(now = new Date()): number {
 }
 
 export const customersRouter = router({
+  /** Global search across groups, companies, invoices, notes, and tasks. */
+  search: protectedProcedure
+    .input(z.object({ query: z.string().min(2).max(100) }))
+    .query(async ({ input }) => {
+      const q = input.query.trim();
+      const [res, allCustomers] = await Promise.all([db.globalSearch(q), db.listCustomers()]);
+      const custById = new Map(allCustomers.map(c => [c.id, c]));
+      const groupKeyOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
+      // Distinct groups matched via customer name/group
+      const groups = new Map<string, number>();
+      for (const c of res.customers) {
+        const key = (c.customerGroup ?? "").trim() || c.name;
+        groups.set(key, (groups.get(key) ?? 0) + 1);
+      }
+      const lower = q.toLowerCase();
+      return {
+        groups: Array.from(groups.entries())
+          .sort((a, b) => Number(b[0].toLowerCase().includes(lower)) - Number(a[0].toLowerCase().includes(lower)))
+          .slice(0, 8)
+          .map(([name, members]) => ({ name, members })),
+        companies: res.customers.slice(0, 8).map(c => ({
+          id: c.id,
+          name: c.name,
+          code: c.code,
+          group: (c.customerGroup ?? "").trim() || c.name,
+        })),
+        invoices: res.invoices.map(i => {
+          const cust = custById.get(i.customerId);
+          return {
+            id: i.id,
+            invoiceNumber: i.invoiceNumber,
+            amount: Number(i.amount),
+            status: i.status,
+            dueDate: i.dueDate,
+            customerName: cust?.name ?? "",
+            group: cust ? groupKeyOf(cust) : "",
+          };
+        }),
+        notes: res.notes.map(n => ({
+          id: n.id,
+          group: n.groupName,
+          excerpt: n.content.length > 120 ? `${n.content.slice(0, 120)}…` : n.content,
+          createdAt: n.createdAt,
+        })),
+        tasks: res.tasks.map(t => {
+          const cust = t.customerId ? custById.get(t.customerId) : undefined;
+          return {
+            id: t.id,
+            title: t.title,
+            status: t.status,
+            dueDate: t.dueDate,
+            group: cust ? groupKeyOf(cust) : null,
+          };
+        }),
+      };
+    }),
   list: protectedProcedure.query(async () => {
     const [customers, invoices, behavior, allPromises] = await Promise.all([
       db.listCustomers(),
