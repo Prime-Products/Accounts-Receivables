@@ -10,12 +10,44 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtByCurrency, fmtEur, onHoldStatusColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { Layers, Plus, Search, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Layers, Plus, Search, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 const TIERS = ["Platinum", "Gold", "Silver", "Bronze", "New"] as const;
+
+type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "overdueCount";
+type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit";
+
+function SortableHead({
+  label,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  dir: "asc" | "desc";
+  onClick: () => void;
+}) {
+  return (
+    <TableHead className="text-right">
+      <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={onClick}>
+        {label}
+        {active ? (
+          dir === "desc" ? (
+            <ArrowDown className="h-3 w-3" />
+          ) : (
+            <ArrowUp className="h-3 w-3" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-40" />
+        )}
+      </button>
+    </TableHead>
+  );
+}
 
 export default function Customers() {
   const { data, isLoading } = trpc.customers.list.useQuery();
@@ -28,6 +60,13 @@ export default function Customers() {
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [open, setOpen] = useState(false);
+  const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
+  const [companySort, setCompanySort] = useState<{ key: CompanySortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
+
+  const toggleGroupSort = (key: GroupSortKey) =>
+    setGroupSort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
+  const toggleCompanySort = (key: CompanySortKey) =>
+    setCompanySort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
   const [form, setForm] = useState({
     code: "",
     name: "",
@@ -51,7 +90,7 @@ export default function Customers() {
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    return data.filter(c => {
+    let rows = data.filter(c => {
       const matchesSearch =
         !search ||
         c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -59,37 +98,82 @@ export default function Customers() {
       const matchesTier = tierFilter === "all" || c.tier === tierFilter;
       return matchesSearch && matchesTier;
     });
-  }, [data, search, tierFilter]);
+    if (companySort.key) {
+      const getVal = (c: (typeof rows)[number]): number => {
+        switch (companySort.key) {
+          case "open":
+            return c.openBalance;
+          case "overdue":
+            return c.overdueBalance;
+          case "overdueEom":
+            return c.overdueEomBalance;
+          case "credit":
+            return Number(c.creditLimit);
+          default:
+            return 0;
+        }
+      };
+      rows = [...rows].sort((a, b) => {
+        const diff = getVal(a) - getVal(b);
+        return companySort.dir === "asc" ? diff : -diff;
+      });
+    }
+    return rows;
+  }, [data, search, tierFilter, companySort]);
 
   const filteredGroups = useMemo(() => {
     if (!groups) return [];
-    if (!search) return groups;
-    return groups.filter(g => g.group.toLowerCase().includes(search.toLowerCase()));
-  }, [groups, search]);
+    let rows = search ? groups.filter(g => g.group.toLowerCase().includes(search.toLowerCase())) : groups;
+    if (groupSort.key) {
+      const getVal = (g: (typeof rows)[number]): number => {
+        switch (groupSort.key) {
+          case "companies":
+            return g.companyCount;
+          case "open":
+            return g.openBalance;
+          case "overdue":
+            return g.overdueBalance;
+          case "overdueEom":
+            return g.overdueEomBalance;
+          case "overdueCount":
+            return g.overdueCount;
+          default:
+            return 0;
+        }
+      };
+      rows = [...rows].sort((a, b) => {
+        const diff = getVal(a) - getVal(b);
+        return groupSort.dir === "asc" ? diff : -diff;
+      });
+    }
+    return rows;
+  }, [groups, search, groupSort]);
 
   const groupTotals = useMemo(
     () =>
       filteredGroups.reduce(
-        (t: { companies: number; open: number; overdue: number; overdueCount: number }, g) => ({
+        (t: { companies: number; open: number; overdue: number; overdueEom: number; overdueCount: number }, g) => ({
           companies: t.companies + g.companyCount,
           open: t.open + g.openBalance,
           overdue: t.overdue + g.overdueBalance,
+          overdueEom: t.overdueEom + g.overdueEomBalance,
           overdueCount: t.overdueCount + g.overdueCount,
         }),
-        { companies: 0, open: 0, overdue: 0, overdueCount: 0 }
+        { companies: 0, open: 0, overdue: 0, overdueEom: 0, overdueCount: 0 }
       ),
     [filteredGroups]
   );
 
   const companyTotals = useMemo(
     () =>
-      filtered.reduce<{ open: number; overdue: number; credit: number }>(
+      filtered.reduce<{ open: number; overdue: number; overdueEom: number; credit: number }>(
         (t, c) => ({
           open: t.open + c.openBalance,
           overdue: t.overdue + c.overdueBalance,
+          overdueEom: t.overdueEom + c.overdueEomBalance,
           credit: t.credit + Number(c.creditLimit),
         }),
-        { open: 0, overdue: 0, credit: 0 }
+        { open: 0, overdue: 0, overdueEom: 0, credit: 0 }
       ),
     [filtered]
   );
@@ -247,10 +331,11 @@ export default function Customers() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Group</TableHead>
-                    <TableHead className="text-right">Companies</TableHead>
-                    <TableHead className="text-right">Open Balance</TableHead>
-                    <TableHead className="text-right">Overdue</TableHead>
-                    <TableHead className="text-right">Overdue Inv.</TableHead>
+                    <SortableHead label="Companies" active={groupSort.key === "companies"} dir={groupSort.dir} onClick={() => toggleGroupSort("companies")} />
+                    <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} />
+                    <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
+                    <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} />
+                    <SortableHead label="Overdue Inv." active={groupSort.key === "overdueCount"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueCount")} />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -273,6 +358,9 @@ export default function Customers() {
                       <TableCell className={`text-right font-mono ${g.overdueBalance > 0 ? "text-red-600 font-semibold" : ""}`}>
                         {fmtEur(g.overdueBalance)}
                       </TableCell>
+                      <TableCell className={`text-right font-mono ${g.overdueEomBalance > 0 ? "text-amber-600" : ""}`}>
+                        {fmtEur(g.overdueEomBalance)}
+                      </TableCell>
                       <TableCell className="text-right font-mono">{g.overdueCount}</TableCell>
                     </TableRow>
                   ))}
@@ -282,6 +370,9 @@ export default function Customers() {
                     <TableCell className="text-right font-mono">{fmtEur(groupTotals.open)}</TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.overdue > 0 ? "text-red-600" : ""}`}>
                       {fmtEur(groupTotals.overdue)}
+                    </TableCell>
+                    <TableCell className={`text-right font-mono ${groupTotals.overdueEom > 0 ? "text-amber-600" : ""}`}>
+                      {fmtEur(groupTotals.overdueEom)}
                     </TableCell>
                     <TableCell className="text-right font-mono">{groupTotals.overdueCount}</TableCell>
                   </TableRow>
@@ -306,9 +397,10 @@ export default function Customers() {
                   <TableHead>Name</TableHead>
                   <TableHead>Tier</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Open Balance</TableHead>
-                  <TableHead className="text-right">Overdue</TableHead>
-                  <TableHead className="text-right">Credit Limit</TableHead>
+                  <SortableHead label="Open Balance" active={companySort.key === "open"} dir={companySort.dir} onClick={() => toggleCompanySort("open")} />
+                  <SortableHead label="Overdue" active={companySort.key === "overdue"} dir={companySort.dir} onClick={() => toggleCompanySort("overdue")} />
+                  <SortableHead label="Overdue EOM" active={companySort.key === "overdueEom"} dir={companySort.dir} onClick={() => toggleCompanySort("overdueEom")} />
+                  <SortableHead label="Credit Limit" active={companySort.key === "credit"} dir={companySort.dir} onClick={() => toggleCompanySort("credit")} />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -330,6 +422,9 @@ export default function Customers() {
                     <TableCell className={`text-right font-mono ${c.overdueBalance > 0 ? "text-red-600 font-semibold" : ""}`}>
                       {fmtEur(c.overdueBalance)}
                     </TableCell>
+                    <TableCell className={`text-right font-mono ${c.overdueEomBalance > 0 ? "text-amber-600" : ""}`}>
+                      {fmtEur(c.overdueEomBalance)}
+                    </TableCell>
                     <TableCell className="text-right font-mono">{fmtEur(c.creditLimit)}</TableCell>
                   </TableRow>
                 ))}
@@ -338,6 +433,9 @@ export default function Customers() {
                   <TableCell className="text-right font-mono">{fmtEur(companyTotals.open)}</TableCell>
                   <TableCell className={`text-right font-mono ${companyTotals.overdue > 0 ? "text-red-600" : ""}`}>
                     {fmtEur(companyTotals.overdue)}
+                  </TableCell>
+                  <TableCell className={`text-right font-mono ${companyTotals.overdueEom > 0 ? "text-amber-600" : ""}`}>
+                    {fmtEur(companyTotals.overdueEom)}
                   </TableCell>
                   <TableCell className="text-right font-mono">{fmtEur(companyTotals.credit)}</TableCell>
                 </TableRow>

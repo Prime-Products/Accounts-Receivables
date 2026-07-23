@@ -61,18 +61,26 @@ function requireRole(role: string, allowed: string[]) {
 
 const eur = (n: number) => n.toFixed(2);
 
+/** Timestamp of the last millisecond of the current month (UTC). Invoices due on or before this are "overdue by end of month". */
+function endOfCurrentMonth(now = new Date()): number {
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) - 1;
+}
+
 export const customersRouter = router({
   list: protectedProcedure.query(async () => {
     const [customers, invoices] = await Promise.all([db.listCustomers(), db.listInvoices()]);
     const now = Date.now();
+    const eom = endOfCurrentMonth();
     return customers.map(c => {
       const custInvoices = invoices.filter(i => i.customerId === c.id);
       const open = custInvoices.filter(isOpenInvoice);
       const overdue = open.filter(i => now > i.dueDate);
+      const overdueEom = open.filter(i => i.dueDate <= eom);
       return {
         ...c,
         openBalance: open.reduce((s, i) => s + outstanding(i), 0),
         overdueBalance: overdue.reduce((s, i) => s + outstanding(i), 0),
+        overdueEomBalance: overdueEom.reduce((s, i) => s + outstanding(i), 0),
         overdueCount: overdue.length,
       };
     });
@@ -81,6 +89,7 @@ export const customersRouter = router({
   groups: protectedProcedure.query(async () => {
     const [customers, invoices] = await Promise.all([db.listCustomers(), db.listInvoices()]);
     const now = Date.now();
+    const eom = endOfCurrentMonth();
     const byCustomer = new Map<number, typeof invoices>();
     for (const inv of invoices) {
       const arr = byCustomer.get(inv.customerId);
@@ -94,6 +103,7 @@ export const customersRouter = router({
         companyCount: number;
         openBalance: number;
         overdueBalance: number;
+        overdueEomBalance: number;
         overdueCount: number;
         openByCurrency: Record<string, number>;
         branches: Set<string>;
@@ -103,7 +113,7 @@ export const customersRouter = router({
       const key = (c.customerGroup ?? "").trim() || c.name;
       let g = groups.get(key);
       if (!g) {
-        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set() };
+        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set() };
         groups.set(key, g);
       }
       g.companyCount += 1;
@@ -117,6 +127,7 @@ export const customersRouter = router({
           g.overdueBalance += outstanding(inv);
           g.overdueCount += 1;
         }
+        if (inv.dueDate <= eom) g.overdueEomBalance += outstanding(inv);
       }
     }
     return Array.from(groups.values())

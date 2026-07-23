@@ -134,6 +134,12 @@
 - [x] Smart Forecast: sortable AI Suggested column (click header, asc/desc with arrow)
 - [x] Smart Forecast: sortable Expected, Collected, Remaining columns
 
+## Customers page: overdue end-of-month + sorting (user request 23/7)
+- [x] Backend: customers.groups & customers list return "overdue end of month" (outstanding of invoices due on or before last day of current month) in EUR
+- [x] Customers page Groups view: new "Overdue EOM" column + TOTAL cell
+- [x] Customers page Companies view: new "Overdue EOM" column + TOTAL cell
+- [x] Customers page: sortable amount columns (both views) with asc/desc arrows
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)
