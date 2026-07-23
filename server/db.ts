@@ -384,7 +384,13 @@ export async function upsertForecastEntry(data: InsertForecastEntry) {
   const existing = await db
     .select()
     .from(forecastEntries)
-    .where(and(eq(forecastEntries.year, data.year), eq(forecastEntries.month, data.month), eq(forecastEntries.customerId, data.customerId)))
+    .where(
+      and(
+        eq(forecastEntries.year, data.year),
+        eq(forecastEntries.month, data.month),
+        data.customerGroup ? eq(forecastEntries.customerGroup, data.customerGroup) : eq(forecastEntries.customerId, data.customerId),
+      ),
+    )
     .limit(1);
   if (existing.length > 0) {
     // Preserve user adjustments on regeneration: only refresh due/AI fields.
@@ -392,6 +398,8 @@ export async function upsertForecastEntry(data: InsertForecastEntry) {
     await db
       .update(forecastEntries)
       .set({
+        customerId: data.customerId,
+        customerGroup: data.customerGroup,
         dueAmount: data.dueAmount,
         overdueAmount: data.overdueAmount,
         aiSuggestedAmount: data.aiSuggestedAmount,

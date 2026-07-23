@@ -655,18 +655,18 @@ export const forecastRouter = router({
       return { success: true };
     }),
 
-  /** Generate (or refresh) the smart per-customer forecast for a month. */
+  /** Generate (or refresh) the smart per-GROUP forecast for a month (manual Refresh only). */
   generateSmart: protectedProcedure
     .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12), useAi: z.boolean().default(true) }))
     .mutation(async ({ ctx, input }) => {
       const role = await getAppRole(ctx.user.id);
       requireRole(role, ["Administrator", "Management", "Credit Controller", "Accounting"]);
       const result = await generateMonthlyForecast(input.year, input.month, { useAi: input.useAi });
-      await audit(ctx, "Generate Smart Forecast", "forecast", `${input.year}-${input.month}`, `${result.customers} customers (${result.aiCount} AI, ${result.heuristicCount} heuristic)`);
+      await audit(ctx, "Generate Smart Forecast", "forecast", `${input.year}-${input.month}`, `${result.groups} groups (${result.aiCount} AI, ${result.heuristicCount} heuristic)`);
       return result;
     }),
 
-  /** Per-customer forecast entries for a month, with live collected amounts. */
+  /** Per-GROUP forecast entries for a month, with live collected amounts (EUR). */
   smartEntries: protectedProcedure
     .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12) }))
     .query(async ({ input }) => {
@@ -679,6 +679,14 @@ export const forecastRouter = router({
       const byId = new Map(customers.map(c => [c.id, c]));
       const behaviorByCustomer = new Map(behaviorRows.map(r => [r.customerId, r]));
       const groupStats = aggregateGroupBehavior(behaviorRows as BehaviorRow[]);
+      // Map group key -> member customer ids (single companies group under their own name).
+      const memberIds = new Map<string, number[]>();
+      for (const c of customers) {
+        const key = c.customerGroup?.trim() ? c.customerGroup.trim() : c.name;
+        const arr = memberIds.get(key);
+        if (arr) arr.push(c.id);
+        else memberIds.set(key, [c.id]);
+      }
       const { start, end } = monthRange(input.year, input.month);
       const collectedByCustomer = new Map<number, number>();
       for (const r of receipts) {
@@ -687,15 +695,19 @@ export const forecastRouter = router({
         }
       }
       const rows = entries.map(e => {
-        const collected = collectedByCustomer.get(e.customerId) ?? 0;
         const cust = byId.get(e.customerId);
+        const groupKey = e.customerGroup ?? (cust?.customerGroup?.trim() ? cust.customerGroup.trim() : cust?.name ?? "—");
+        const ids = memberIds.get(groupKey) ?? [e.customerId];
+        // Collected in-month across ALL member companies of the group (EUR).
+        const collected = ids.reduce((s, id) => s + (collectedByCustomer.get(id) ?? 0), 0);
         const hist = behaviorByCustomer.get(e.customerId) ?? null;
-        const gb = cust?.customerGroup ? groupStats.get(cust.customerGroup.trim()) ?? null : null;
+        const gb = groupStats.get(groupKey) ?? null;
         return {
           ...e,
-          customerName: cust?.name ?? "—",
+          customerName: groupKey,
           customerTier: cust?.tier ?? "New",
-          customerGroup: cust?.customerGroup ?? null,
+          customerGroup: groupKey,
+          companiesCount: ids.length,
           avgDaysLate: hist?.avgDaysLate ?? null,
           medianDaysLate: hist?.medianDaysLate ?? null,
           historyPayments: hist?.payments ?? 0,

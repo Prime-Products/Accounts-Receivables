@@ -1,0 +1,1 @@
+ALTER TABLE `forecast_entries` ADD `customerGroup` varchar(255);

@@ -212,6 +212,8 @@ export const forecastEntries = mysqlTable("forecast_entries", {
   year: int("year").notNull(),
   month: int("month").notNull(),
   customerId: int("customerId").notNull(),
+  /** Customer group key — forecast is generated per group; customerId keeps the largest-exposure member for navigation. */
+  customerGroup: varchar("customerGroup", { length: 255 }),
   /** Total open amount due within the month (incl. already-overdue), EUR. */
   dueAmount: decimal("dueAmount", { precision: 14, scale: 2 }).default("0").notNull(),
   /** Of which already overdue at generation time, EUR. */

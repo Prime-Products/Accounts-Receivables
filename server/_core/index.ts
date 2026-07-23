@@ -8,7 +8,6 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { generateForecastHandler } from "../scheduledForecast";
 import { getSetting } from "../db";
 import { setFxRates } from "../lib/arLogic";
 
@@ -54,7 +53,6 @@ async function startServer() {
     })
   );
   // Heartbeat scheduled callbacks (must be registered before the Vite/static fallthrough)
-  app.post("/api/scheduled/generateForecast", generateForecastHandler);
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

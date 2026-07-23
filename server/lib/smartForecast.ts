@@ -1,11 +1,12 @@
 /**
  * Smart Monthly Collection Forecast engine.
  *
- * At the start of each month (or on demand) it scans all customers with open
- * invoices due within the month (plus already-overdue balances), builds a
- * payment behavior profile per customer, asks the built-in LLM for an
- * expected-collection suggestion (falling back to a statistical heuristic),
- * and upserts one forecast entry per customer. User adjustments are preserved.
+ * Generated on demand (Refresh button). It scans all CUSTOMER GROUPS with open
+ * invoices due within the month (plus already-overdue balances) across every
+ * member company, builds a payment behavior profile per group, asks the
+ * built-in LLM for an expected-collection suggestion (falling back to a
+ * statistical heuristic), and upserts one forecast entry per group.
+ * All amounts are in EUR. User adjustments are preserved on regeneration.
  */
 import { invokeLLM } from "../_core/llm";
 import * as db from "../db";
@@ -24,12 +25,17 @@ import {
 const eur = (n: number) => (Math.round(n * 100) / 100).toFixed(2);
 
 export interface CustomerForecastInput {
+  /** Group key (customerGroup or single-company name). */
+  groupKey: string;
+  /** Representative member (largest exposure) for navigation/back-compat. */
   customerId: number;
   customerName: string;
+  /** Number of member companies aggregated into this row. */
+  companiesCount: number;
   dueThisMonth: number;
   overdue: number;
   profile: PaymentBehaviorProfile;
-  /** Historical stats from last-year payment allocations (customer level). */
+  /** Historical stats from last-year payment allocations (group level preferred). */
   history?: { avgDaysLate: number; medianDaysLate: number; payments: number } | null;
   /** Group-level behavior (avg/median days late across the customer group). */
   groupBehavior?: GroupBehavior | null;
@@ -49,7 +55,8 @@ async function aiSuggestBatch(inputs: CustomerForecastInput[], year: number, mon
   const lines = inputs.map(c =>
     JSON.stringify({
       customerId: c.customerId,
-      name: c.customerName,
+      name: c.groupKey,
+      companies: c.companiesCount,
       dueThisMonthEur: Math.round(c.dueThisMonth),
       overdueEur: Math.round(c.overdue),
       avgDelayDays: c.profile.avgDelayDays,
@@ -72,16 +79,16 @@ async function aiSuggestBatch(inputs: CustomerForecastInput[], year: number, mon
         role: "system",
         content:
           "You are a senior credit controller forecasting monthly cash collections for an accounts receivable department. " +
-          "For each customer you receive the amount falling due this month (EUR), the already-overdue balance (EUR), and payment-behavior statistics. " +
+          "Each line is a CUSTOMER GROUP (its companies' exposures are already aggregated). You receive the amount falling due this month (EUR), the already-overdue balance (EUR), and payment-behavior statistics. " +
           "lastYearMedianDaysLate/lastYearAvgDaysLate come from real payment allocations of the last 12 months (negative = pays before due date); " +
-          "groupMedianDaysLate is the behavior of the customer's whole group — prefer these real statistics when present. " +
-          "Estimate realistically how much the company will actually collect from each customer during the month. " +
-          "Customers with long average delays or low collection rates typically pay only a fraction of what they owe. " +
-          "Never exceed dueThisMonthEur + overdueEur for a customer. Reply in JSON only.",
+          "groupMedianDaysLate is the behavior of the whole group — prefer these real statistics when present. " +
+          "Estimate realistically how much the company will actually collect from each group during the month. " +
+          "Groups with long average delays or low collection rates typically pay only a fraction of what they owe. " +
+          "Never exceed dueThisMonthEur + overdueEur for a group. Reply in JSON only.",
       },
       {
         role: "user",
-        content: `Forecast month: ${year}-${String(month).padStart(2, "0")}\nCustomers (one JSON object per line):\n${lines.join("\n")}`,
+        content: `Forecast month: ${year}-${String(month).padStart(2, "0")}\nCustomer groups (one JSON object per line):\n${lines.join("\n")}`,
       },
     ],
     response_format: {
@@ -156,7 +163,7 @@ async function aiSuggestChunked(inputs: CustomerForecastInput[], year: number, m
 }
 
 /**
- * Generate (or refresh) the per-customer forecast for a month.
+ * Generate (or refresh) the per-GROUP forecast for a month (all amounts EUR).
  * Idempotent: existing user-adjusted amounts are preserved.
  */
 export async function generateMonthlyForecast(year: number, month: number, opts?: { useAi?: boolean }) {
@@ -173,30 +180,59 @@ export async function generateMonthlyForecast(year: number, month: number, opts?
   const behaviorByCustomer = new Map(behaviorRows.map(r => [r.customerId, r]));
   const groupStats = aggregateGroupBehavior(behaviorRows as BehaviorRow[]);
 
-  const inputs: CustomerForecastInput[] = [];
+  // Group member companies by customerGroup (single companies form their own group).
+  const groupKeyOf = (c: (typeof customers)[number]) => (c.customerGroup?.trim() ? c.customerGroup.trim() : c.name);
+  const members = new Map<string, typeof customers>();
   for (const c of customers) {
-    const custInvoices = invoices.filter(i => i.customerId === c.id);
-    const open = custInvoices.filter(isOpenInvoice);
+    const key = groupKeyOf(c);
+    const arr = members.get(key);
+    if (arr) arr.push(c);
+    else members.set(key, [c]);
+  }
+
+  const inputs: CustomerForecastInput[] = [];
+  for (const [groupKey, groupCustomers] of Array.from(members.entries())) {
+    const ids = new Set(groupCustomers.map(c => c.id));
+    const grpInvoices = invoices.filter(i => ids.has(i.customerId));
+    const open = grpInvoices.filter(isOpenInvoice);
     if (open.length === 0) continue;
-    // Due within the forecast month (not yet overdue at month start) + already overdue before month start.
+    // EUR amounts: due within the forecast month + already overdue before month start.
     const dueThisMonth = open.filter(i => i.dueDate >= start && i.dueDate < end).reduce((s, i) => s + outstanding(i), 0);
     const overdue = open.filter(i => i.dueDate < start).reduce((s, i) => s + outstanding(i), 0);
     if (dueThisMonth + overdue < 0.01) continue;
     const profile = buildBehaviorProfile(
-      custInvoices,
-      receipts.filter(r => r.customerId === c.id),
-      promises.filter(p => p.customerId === c.id),
+      grpInvoices,
+      receipts.filter(r => ids.has(r.customerId)),
+      promises.filter(p => ids.has(p.customerId)),
       now,
     );
-    const hist = behaviorByCustomer.get(c.id) ?? null;
-    const gb = c.customerGroup ? groupStats.get(c.customerGroup.trim()) ?? null : null;
+    // Representative member = largest open exposure (for navigation links).
+    let repId = groupCustomers[0].id;
+    let repMax = -1;
+    for (const c of groupCustomers) {
+      const exp = open.filter(i => i.customerId === c.id).reduce((s, i) => s + outstanding(i), 0);
+      if (exp > repMax) {
+        repMax = exp;
+        repId = c.id;
+      }
+    }
+    // Group behavior stats; fall back to the representative member's own history.
+    const gb = groupStats.get(groupKey) ?? null;
+    const repHist = behaviorByCustomer.get(repId) ?? null;
+    const history = gb
+      ? { avgDaysLate: gb.avgDaysLate, medianDaysLate: gb.medianDaysLate, payments: gb.payments }
+      : repHist
+        ? { avgDaysLate: repHist.avgDaysLate, medianDaysLate: repHist.medianDaysLate, payments: repHist.payments }
+        : null;
     inputs.push({
-      customerId: c.id,
-      customerName: c.name,
+      groupKey,
+      customerId: repId,
+      customerName: groupKey,
+      companiesCount: groupCustomers.length,
       dueThisMonth,
       overdue,
       profile,
-      history: hist ? { avgDaysLate: hist.avgDaysLate, medianDaysLate: hist.medianDaysLate, payments: hist.payments } : null,
+      history,
       groupBehavior: gb,
     });
   }
@@ -214,20 +250,15 @@ export async function generateMonthlyForecast(year: number, month: number, opts?
   let created = 0;
   for (const input of inputs) {
     const ai = aiResults.get(input.customerId);
-    // Fall back to group-level history when the customer has none of its own.
-    const effectiveHistory =
-      input.history ??
-      (input.groupBehavior
-        ? { avgDaysLate: input.groupBehavior.avgDaysLate, medianDaysLate: input.groupBehavior.medianDaysLate, payments: input.groupBehavior.payments }
-        : null);
     const suggestion: ForecastSuggestion = ai ?? {
-      ...heuristicWithHistory(input.dueThisMonth, input.overdue, input.profile, effectiveHistory),
+      ...heuristicWithHistory(input.dueThisMonth, input.overdue, input.profile, input.history ?? null),
       source: "heuristic" as const,
     };
     await db.upsertForecastEntry({
       year,
       month,
       customerId: input.customerId,
+      customerGroup: input.groupKey,
       dueAmount: eur(input.dueThisMonth + input.overdue),
       overdueAmount: eur(input.overdue),
       aiSuggestedAmount: eur(suggestion.amount),
@@ -237,5 +268,5 @@ export async function generateMonthlyForecast(year: number, month: number, opts?
     created += 1;
   }
 
-  return { customers: created, aiCount: aiResults.size, heuristicCount: created - aiResults.size };
+  return { customers: created, groups: created, aiCount: aiResults.size, heuristicCount: created - aiResults.size };
 }

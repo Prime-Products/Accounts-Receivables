@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { downloadBase64, fmtDate, fmtEur, monthName } from "@/lib/format";
+import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Check, FileDown, Info, Pencil, Plus, RotateCcw, Sparkles, TrendingUp, X } from "lucide-react";
 import { useState } from "react";
@@ -70,7 +71,7 @@ function SmartForecastSection() {
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" /> Smart Forecast per Customer — AI suggestion, user-adjustable
+            <Sparkles className="h-4 w-4 text-primary" /> Smart Forecast per Customer Group — AI suggestion, user-adjustable (all amounts EUR)
           </CardTitle>
           <div className="flex items-center gap-2">
             <Select
@@ -108,9 +109,9 @@ function SmartForecastSection() {
           </div>
         ) : (data?.entries.length ?? 0) === 0 ? (
           <div className="p-8 text-center text-muted-foreground text-sm">
-            No smart forecast for {monthName(sel.month)} {sel.year} yet. Click "Generate Forecast" — the system scans invoices due in the month
-            (plus overdue balances), profiles each customer's payment behavior and suggests the expected collection per customer.
-            The forecast is also generated automatically at the start of every month.
+            No smart forecast for {monthName(sel.month)} {sel.year} yet. Click "Refresh Forecast" — the system scans invoices due in the month
+            (plus overdue balances) across all companies of each customer group, profiles the group's payment behavior and suggests the
+            expected collection per group in EUR. The forecast is generated only when you press the button.
           </div>
         ) : (
           <>
@@ -140,7 +141,7 @@ function SmartForecastSection() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Customer</TableHead>
+                    <TableHead>Customer Group</TableHead>
                     <TableHead className="text-right">Behavior (days)</TableHead>
                     <TableHead className="text-right">Due (month)</TableHead>
                     <TableHead className="text-right">Overdue</TableHead>
@@ -157,7 +158,14 @@ function SmartForecastSection() {
                     return (
                       <TableRow key={e.id}>
                         <TableCell className="font-medium max-w-56">
-                          <div className="truncate" title={e.customerName}>{e.customerName}</div>
+                          <Link href={`/groups/${encodeURIComponent(e.customerGroup ?? e.customerName)}`}>
+                            <div className="truncate hover:underline cursor-pointer" title={e.customerName}>{e.customerName}</div>
+                          </Link>
+                          {(e.companiesCount ?? 1) > 1 && (
+                            <Badge variant="outline" className="mt-0.5 text-[10px]">
+                              {e.companiesCount} companies
+                            </Badge>
+                          )}
                           {e.userAdjusted === 1 && (
                             <Badge variant="outline" className="mt-0.5 text-[10px] bg-amber-50 text-amber-800 border-amber-200">
                               User adjusted

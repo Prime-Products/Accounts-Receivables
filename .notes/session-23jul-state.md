@@ -101,4 +101,24 @@
 - routers/ar.ts: smartEntries returns avgDaysLate/medianDaysLate/historyPayments/groupAvg/groupMedian/customerGroup per row; groupDetail returns behavior (group-level) + per-company avg/median/historyPayments
 - Forecast.tsx: "Behavior (days)" column (med Xd colored, tooltip w/ full stats, grp fallback)
 - GroupDetail.tsx: KPI card "Payment Behavior (last year)" (median colored + avg + payments), Behavior column in companies table
-- DONE 12:10: behavior.test.ts (10 tests, 55/55 total pass); AI batching fixed (chunked 20/batch + truncated-JSON salvage) — July regen: 485 customers, 40 AI + 445 heuristic; screenshots OK (Forecast behavior column w/ tooltip, ELETSON group card behavior KPI +185d median, per-company med 381d/185d); one-off scripts removed. Remaining: todo ticks + checkpoint + Greek delivery
+- DONE 12:10: behavior.test.ts (10 tests, 55/55 total pass); AI batching fixed (chunked 20/batch + truncated-JSON salvage) — July regen: 485 customers, 40 AI + 445 heuristic; screenshots OK (Forecast behavior column w/ tooltip, ELETSON group card behavior KPI +185d median, per-company med 381d/185d); one-off scripts removed. Checkpoint e320369d delivered.
+
+## NEW REQUEST (23/7 ~12:20): Forecast per GROUP + manual only
+- User: forecast ανά group πελάτη (όχι ανά εταιρεία), όλα τα ποσά σε EUR, ΚΑΙ όχι αυτόματα 1η του μήνα — μόνο με Refresh button (υπολογίζει τον επιλεγμένο μήνα)
+- Sandbox was RESET; project restored at e320369d; new preview URL. Site IS published: ar-accounts-evjqbcnz.manus.space
+- Heartbeat cron exists: task_uid HeeWvn3uGNohbSoCakYup7 (monthly-forecast, cron 0 0 5 1 * *) → DELETE via `manus-heartbeat delete --task-uid HeeWvn3uGNohbSoCakYup7` (check CLI syntax)
+- Scheduled handler: server/scheduledForecast.ts + mounted in server/_core/index.ts line 11 + 57 → remove both
+- PLAN: (1) smartForecast.ts: group customers by customerGroup (trim || name), aggregate dueThisMonth/overdue via outstandingEur (import from arLogic), one entry per group. Store: forecast_entries needs group key — reuse customerId of the "primary" member? NO — cleaner: add `customerGroup` varchar column to forecast_entries, make customerId nullable or keep primary member id for FK/links. Decision: keep customerId = member with largest exposure (for navigation), add customerGroup column + unique index (year,month,customerGroup)
+- (2) smartEntries: one row per group; collected = receipts of ALL member companies in month (EUR); behavior = group stats
+- (3) LLM prompt: per-group lines w/ group behavior; heuristicWithHistory w/ group history
+- (4) Forecast.tsx: show group name + N companies badge; link to /groups/:group; remove "generated automatically at the start of every month" wording
+- (5) app_settings key forecast_cron_task_uid exists in DB — delete row after removing cron
+- (6) tests: adapt smartForecast-related tests if any reference per-customer; run pnpm test
+- fmtEur exists in client/src/lib/format.ts; outstandingEur in arLogic
+
+### PROGRESS (14:00)
+- DONE backend: schema customerGroup col added (migration 0006 applied + fe_group_idx); smartForecast.ts groups by customerGroup||name, EUR via outstanding(), rep member = largest exposure, group behavior preferred; upsertForecastEntry keys on customerGroup w/ legacy fallback; smartEntries returns group rows (collected summed across member ids, companiesCount); generateSmart audit wording
+- DONE: heartbeat cron DELETED (HeeWvn3uGNohbSoCakYup7); server/scheduledForecast.ts removed + unmounted from _core/index.ts; old per-customer entries deleted (customerGroup IS NULL); app_settings forecast_cron_task_uid row deleted
+- DONE frontend: Forecast.tsx header "per Customer Group (all amounts EUR)", empty-state manual-only wording, group name links to /groups/:key, N companies badge, Link import added
+- REMAINING: check "Refresh Forecast" button label (was maybe "Generate"), regen July via UI-equivalent script or trpc, verify screenshot, pnpm test (fix smartForecast-related tests if broken), tick todos, checkpoint, Greek delivery. Note: behavior.test.ts heuristicWithHistory tests unaffected.
+- Button label check: line ~70-100 Forecast.tsx has "Refresh Forecast" button + "Generate Forecast" text in empty state (updated to say Refresh)
