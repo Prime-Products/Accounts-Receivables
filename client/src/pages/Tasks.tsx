@@ -12,21 +12,24 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import NewTaskDialog, { TASK_TYPES } from "@/components/NewTaskDialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fmtDate, taskStatusColors, taskTypeColors } from "@/lib/format";
+import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, ListChecks, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, HandCoins, ListChecks, RefreshCw, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Link } from "wouter";
 
 export default function Tasks() {
   const { data: tasks, isLoading } = trpc.tasks.list.useQuery();
   const utils = trpc.useUtils();
   const [statusFilter, setStatusFilter] = useState<string>("Pending");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [openTaskId, setOpenTaskId] = useState<number | null>(null);
 
   const runEngine = trpc.tasks.runEngine.useMutation({
     onSuccess: r => {
@@ -42,6 +45,14 @@ export default function Tasks() {
     onError: e => toast.error(e.message),
   });
 
+  const setPromiseStatus = trpc.forecast.updatePromise.useMutation({
+    onSuccess: (_r, vars) => {
+      toast.success(`Promise marked ${vars.status} — follow-up task completed`);
+      utils.tasks.list.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+
   const filtered = useMemo(() => {
     if (!tasks) return [];
     return tasks.filter(t => {
@@ -50,6 +61,13 @@ export default function Tasks() {
       return true;
     });
   }, [tasks, statusFilter, typeFilter]);
+
+  const openTask = useMemo(() => (tasks ?? []).find(t => t.id === openTaskId) ?? null, [tasks, openTaskId]);
+  const promiseStatusColors: Record<string, string> = {
+    Pending: "bg-amber-100 text-amber-700 border-amber-200",
+    Kept: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    Broken: "bg-red-100 text-red-700 border-red-200",
+  };
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -142,11 +160,16 @@ export default function Tasks() {
               </TableHeader>
               <TableBody>
                 {filtered.map(t => (
-                  <TableRow key={t.id}>
+                  <TableRow key={t.id} className="cursor-pointer" onClick={() => setOpenTaskId(t.id)}>
                     <TableCell>
                       <Badge variant="outline" className={taskTypeColors[t.type] ?? ""}>
                         {t.type}
                       </Badge>
+                      {t.promise && (
+                        <Badge variant="outline" className="ml-1 bg-blue-50 text-blue-700 border-blue-200 text-[10px]">
+                          Promise
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell className="font-medium">{t.customerName ?? "—"}</TableCell>
                     <TableCell className="text-sm max-w-md">
@@ -160,7 +183,7 @@ export default function Tasks() {
                         {t.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                       {(t.status === "Pending" || t.status === "In Progress") && (
                         <div className="flex gap-1 justify-end">
                           <Button
@@ -189,6 +212,137 @@ export default function Tasks() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={openTask !== null} onOpenChange={o => !o && setOpenTaskId(null)}>
+        <DialogContent className="sm:max-w-lg">
+          {openTask && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="pr-6">{openTask.title}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className={taskTypeColors[openTask.type] ?? ""}>{openTask.type}</Badge>
+                  <Badge variant="outline" className={taskStatusColors[openTask.status] ?? ""}>{openTask.status}</Badge>
+                  {openTask.promise && (
+                    <Badge variant="outline" className={promiseStatusColors[openTask.promise.status] ?? ""}>
+                      Promise {openTask.promise.status}
+                    </Badge>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Customer</div>
+                    <Link
+                      href={`/customers/${openTask.customerId}`}
+                      className="font-medium text-primary hover:underline"
+                      onClick={() => setOpenTaskId(null)}
+                    >
+                      {openTask.customerName}
+                    </Link>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Due date</div>
+                    <div className="font-medium">{fmtDate(openTask.dueDate)}</div>
+                  </div>
+                  {openTask.invoiceNumber && (
+                    <div>
+                      <div className="text-xs text-muted-foreground">Invoice</div>
+                      <div className="font-mono">{openTask.invoiceNumber}</div>
+                    </div>
+                  )}
+                  {openTask.completedAt && (
+                    <div>
+                      <div className="text-xs text-muted-foreground">Completed</div>
+                      <div>{fmtDate(openTask.completedAt)}</div>
+                    </div>
+                  )}
+                </div>
+                {openTask.description && (
+                  <div className="text-sm text-muted-foreground bg-muted/40 rounded-md p-3 whitespace-pre-wrap">
+                    {openTask.description}
+                  </div>
+                )}
+                {openTask.completionNotes && (
+                  <div className="text-sm">
+                    <div className="text-xs text-muted-foreground">Completion notes</div>
+                    <div>{openTask.completionNotes}</div>
+                  </div>
+                )}
+
+                {openTask.promise && (
+                  <div className="rounded-md border p-3 space-y-2">
+                    <div className="text-sm font-medium flex items-center gap-1.5">
+                      <HandCoins className="h-4 w-4" /> Promise-to-Pay
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Amount</div>
+                        <div className="font-mono font-semibold">{fmtEurFull(openTask.promise.amount)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Promised date</div>
+                        <div>{fmtDate(openTask.promise.promisedDate)}</div>
+                      </div>
+                    </div>
+                    {openTask.promise.notes && (
+                      <div className="text-xs text-muted-foreground">{openTask.promise.notes}</div>
+                    )}
+                    {openTask.promise.status === "Pending" && (
+                      <div className="flex gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                          disabled={setPromiseStatus.isPending}
+                          onClick={() => setPromiseStatus.mutate({ id: openTask.promise!.id, status: "Kept" })}
+                        >
+                          <ThumbsUp className="h-4 w-4" /> Kept
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="gap-1"
+                          disabled={setPromiseStatus.isPending}
+                          onClick={() => setPromiseStatus.mutate({ id: openTask.promise!.id, status: "Broken" })}
+                        >
+                          <ThumbsDown className="h-4 w-4" /> Broken
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(openTask.status === "Pending" || openTask.status === "In Progress") && (
+                  <div className="flex gap-2 justify-end pt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 text-emerald-700"
+                      onClick={() => {
+                        setStatus.mutate({ id: openTask.id, status: "Completed" });
+                        setOpenTaskId(null);
+                      }}
+                    >
+                      <CheckCircle2 className="h-4 w-4" /> Mark Done
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 text-muted-foreground"
+                      onClick={() => {
+                        setStatus.mutate({ id: openTask.id, status: "Cancelled" });
+                        setOpenTaskId(null);
+                      }}
+                    >
+                      <XCircle className="h-4 w-4" /> Cancel Task
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

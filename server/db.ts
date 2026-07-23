@@ -497,6 +497,12 @@ export async function createPromise(data: typeof promisesToPay.$inferInsert) {
   return Number((res as any)[0].insertId);
 }
 
+export async function getPromise(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(promisesToPay).where(eq(promisesToPay.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
 export async function updatePromise(id: number, data: Partial<typeof promisesToPay.$inferInsert>) {
   const db = await requireDb();
   await db.update(promisesToPay).set(data).where(eq(promisesToPay.id, id));

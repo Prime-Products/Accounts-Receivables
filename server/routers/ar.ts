@@ -406,6 +406,38 @@ export const customersRouter = router({
     const names = new Map(users.map(u => [u.id, u.name ?? "—"]));
     return notes.map(n => ({ ...n, authorName: names.get(n.createdBy) ?? "—" }));
   }),
+  /** Current-month Smart Forecast entry for a group, with live collected across member companies (EUR). */
+  groupForecast: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
+    const now = new Date();
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth() + 1;
+    const entries = await db.listForecastEntries(year, month);
+    const entry = entries.find(e => (e.customerGroup ?? "").trim() === input.group);
+    if (!entry) return null;
+    const customers = await db.listCustomers();
+    const memberIds = new Set(
+      customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group).map(c => c.id),
+    );
+    const receipts = await db.listReceipts();
+    const start = Date.UTC(year, month - 1, 1);
+    const end = Date.UTC(year, month, 1);
+    const collected = receipts
+      .filter(r => memberIds.has(r.customerId) && r.receiptDate >= start && r.receiptDate < end)
+      .reduce((s, r) => s + Number(r.amount), 0);
+    return {
+      year,
+      month,
+      dueAmount: Number(entry.dueAmount),
+      overdueAmount: Number(entry.overdueAmount),
+      aiSuggestedAmount: Number(entry.aiSuggestedAmount),
+      aiReasoning: entry.aiReasoning,
+      expectedAmount: Number(entry.expectedAmount),
+      userAdjusted: entry.userAdjusted,
+      adjustmentNote: entry.adjustmentNote,
+      collected,
+      remaining: Math.max(0, Number(entry.expectedAmount) - collected),
+    };
+  }),
   addGroupNote: protectedProcedure
     .input(z.object({ group: z.string().min(1), content: z.string().min(1).max(5000) }))
     .mutation(async ({ ctx, input }) => {
@@ -832,11 +864,22 @@ export const tasksRouter = router({
       const byId = new Map(customers.map(c => [c.id, c]));
       const invoices = await db.listInvoices();
       const invById = new Map(invoices.map(i => [i.id, i]));
-      return rows.map(t => ({
-        ...t,
-        customerName: byId.get(t.customerId)?.name ?? "—",
-        invoiceNumber: t.invoiceId ? invById.get(t.invoiceId)?.invoiceNumber : undefined,
-      }));
+      const allPromises = await db.listPromises();
+      const promById = new Map(allPromises.map(p => [p.id, p]));
+      return rows.map(t => {
+        // Promise follow-up tasks embed "(Promise #<id>)" in their description.
+        const m = t.description?.match(/\(Promise #(\d+)\)/);
+        const promise = m ? promById.get(Number(m[1])) : undefined;
+        return {
+          ...t,
+          customerName: byId.get(t.customerId)?.name ?? "—",
+          invoiceNumber: t.invoiceId ? invById.get(t.invoiceId)?.invoiceNumber : undefined,
+          promiseId: promise?.id,
+          promise: promise
+            ? { id: promise.id, promisedDate: promise.promisedDate, amount: promise.amount, status: promise.status, notes: promise.notes }
+            : undefined,
+        };
+      });
     }),
   updateStatus: protectedProcedure
     .input(z.object({ id: z.number(), status: z.enum(taskStatuses), completionNotes: z.string().optional() }))
@@ -1011,6 +1054,33 @@ export const forecastRouter = router({
     .mutation(async ({ ctx, input }) => {
       await db.updatePromise(input.id, { status: input.status });
       await audit(ctx, `Promise ${input.status}`, "promiseToPay", input.id);
+      if (input.status === "Kept" || input.status === "Broken") {
+        const promise = await db.getPromise(input.id);
+        const cust = promise ? await db.getCustomer(promise.customerId) : null;
+        if (promise && cust) {
+          const groupKey = cust.customerGroup?.trim() ? cust.customerGroup.trim() : cust.name;
+          const dateStr = new Date(promise.promisedDate).toLocaleDateString("en-GB");
+          await db.createGroupNote({
+            groupName: groupKey,
+            content: `Promise-to-Pay ${input.status.toUpperCase()}: ${cust.name} — €${Number(promise.amount).toLocaleString()} promised by ${dateStr}.`,
+            createdBy: ctx.user.id,
+            createdAt: Date.now(),
+          });
+          // Auto-complete the follow-up task linked to this promise, if still open.
+          const tasks = await db.listTasks({ customerId: promise.customerId });
+          const followUp = tasks.find(
+            t => (t.status === "Pending" || t.status === "In Progress") && t.description?.includes(`(Promise #${input.id})`),
+          );
+          if (followUp) {
+            await db.updateTask(followUp.id, {
+              status: "Completed",
+              completionNotes: `Promise marked ${input.status}`,
+              completedAt: Date.now(),
+            });
+            await audit(ctx, "Task Completed", "task", followUp.id, `Auto-completed: promise #${input.id} marked ${input.status}`);
+          }
+        }
+      }
       return { success: true };
     }),
 

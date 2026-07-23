@@ -192,6 +192,7 @@ export default function GroupDetail() {
     [group, companyId, branch, agingFilter],
   );
   const { data, isLoading } = trpc.customers.groupDetail.useQuery(query, { enabled: !!group });
+  const { data: groupForecast } = trpc.customers.groupForecast.useQuery({ group }, { enabled: !!group });
 
   const exportSoa = trpc.reports.export.useMutation({
     onSuccess: r => {
@@ -371,9 +372,19 @@ export default function GroupDetail() {
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-xs text-muted-foreground">Open Invoices</div>
-                <div className="text-xl font-bold font-mono">{data.totals.openCount}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">{data.companies.length} companies in group</div>
+                <div className="text-xs text-muted-foreground">AI Forecast (this month)</div>
+                {groupForecast ? (
+                  <>
+                    <div className="text-xl font-bold font-mono text-emerald-700" title={groupForecast.aiReasoning ?? undefined}>
+                      {fmtEur(groupForecast.expectedAmount)}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
+                      collected {fmtEur(groupForecast.collected)} · remaining {fmtEur(groupForecast.remaining)}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-muted-foreground mt-1">No forecast this month</div>
+                )}
               </CardContent>
             </Card>
             <Card>
@@ -577,7 +588,6 @@ export default function GroupDetail() {
 
           {/* Promises-to-pay, Notes & AI summary */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <GroupPromisesCard group={group} />
             <GroupAiSummaryCard group={group} />
           </div>
 
@@ -588,12 +598,6 @@ export default function GroupDetail() {
     </div>
   );
 }
-
-const promiseStatusColors: Record<string, string> = {
-  Pending: "bg-amber-50 text-amber-700 border-amber-200",
-  Kept: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  Broken: "bg-red-50 text-red-700 border-red-200",
-};
 
 const taskStatusColors: Record<string, string> = {
   Pending: "bg-amber-50 text-amber-700 border-amber-200",
@@ -742,89 +746,3 @@ function GroupActivityTabs({ group }: { group: string }) {
   );
 }
 
-function GroupPromisesCard({ group }: { group: string }) {
-  const utils = trpc.useUtils();
-  const { data: promises, isLoading } = trpc.customers.groupPromises.useQuery({ group });
-  const update = trpc.forecast.updatePromise.useMutation({
-    onSuccess: () => {
-      toast.success("Promise updated");
-      utils.customers.groupPromises.invalidate({ group });
-    },
-    onError: e => toast.error(e.message),
-  });
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
-          <HandCoins className="h-4 w-4" /> Promises-to-Pay
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        {isLoading ? (
-          <div className="p-4">
-            <Skeleton className="h-24" />
-          </div>
-        ) : !promises || promises.length === 0 ? (
-          <p className="text-sm text-muted-foreground p-4">No promises recorded for this group yet. Use the "Promise-to-Pay" button above.</p>
-        ) : (
-          <div className="max-h-72 overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Promised date</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-32" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {promises.map(p => (
-                  <TableRow key={p.id}>
-                    <TableCell className="text-sm max-w-44">
-                      <div className="truncate" title={p.customerName}>{p.customerName}</div>
-                      {p.notes && (
-                        <div className="text-[11px] text-muted-foreground truncate" title={p.notes}>
-                          {p.notes}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm whitespace-nowrap">{fmtDate(p.promisedDate)}</TableCell>
-                    <TableCell className="text-right font-mono text-sm">{fmtEur(Number(p.amount))}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={`text-[10px] ${promiseStatusColors[p.status] ?? ""}`}>{p.status}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      {p.status === "Pending" && (
-                        <div className="flex gap-1 justify-end">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs text-emerald-700"
-                            disabled={update.isPending}
-                            onClick={() => update.mutate({ id: p.id, status: "Kept" })}
-                          >
-                            Kept
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs text-red-700"
-                            disabled={update.isPending}
-                            onClick={() => update.mutate({ id: p.id, status: "Broken" })}
-                          >
-                            Broken
-                          </Button>
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}

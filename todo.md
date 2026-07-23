@@ -207,6 +207,16 @@
 - [x] Customers list: filter by watch status (Problematic / On Watch / Normal)
 - [x] Customers list: filter by credit rating (A-E)
 
+## Task detail dialog + promise actions (user request 23/7)
+- [x] Backend: link promise-to-pay follow-up tasks to their promise (promiseId on task or lookup) and expose promise info on task fetch
+- [x] Tasks page: click a task row to open a detail dialog (title, customer, type, due date, description, status)
+- [x] Detail dialog: for promise follow-up tasks show promise details and Kept/Broken buttons updating the promise status (and auto note)
+- [x] Marking promise Kept/Broken from the dialog also completes the follow-up task
+
+## Cards: replace Promises section with AI Forecast (user request 23/7)
+- [x] Remove Promises-to-Pay section from GroupDetail and CustomerDetail cards
+- [x] Replace the "Open Invoices" KPI card with an "AI Forecast (this month)" KPI card (expected amount + collected/remaining subline) on GroupDetail and CustomerDetail
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)

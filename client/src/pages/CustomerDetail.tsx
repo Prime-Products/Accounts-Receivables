@@ -26,6 +26,10 @@ export default function CustomerDetail() {
   const [, navigate] = useLocation();
   const { data, isLoading } = trpc.customers.get360.useQuery({ id }, { enabled: !isNaN(id) });
   const utils = trpc.useUtils();
+  const { data: groupForecast } = trpc.customers.groupForecast.useQuery(
+    { group: (data as any)?.groupKey ?? "" },
+    { enabled: !!(data as any)?.groupKey },
+  );
 
   const [promiseOpen, setPromiseOpen] = useState(false);
   const [promiseForm, setPromiseForm] = useState({ amount: "", date: "", notes: "" });
@@ -305,6 +309,23 @@ export default function CustomerDetail() {
         </Card>
         <Card>
           <CardContent className="pt-4">
+            <div className="text-xs text-muted-foreground">AI Forecast (this month)</div>
+            {groupForecast ? (
+              <>
+                <div className="text-xl font-bold font-mono text-emerald-700" title={groupForecast.aiReasoning ?? undefined}>
+                  {fmtEur(groupForecast.expectedAmount)}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
+                  collected {fmtEur(groupForecast.collected)} · remaining {fmtEur(groupForecast.remaining)}
+                </div>
+              </>
+            ) : (
+              <div className="text-sm text-muted-foreground mt-1">No forecast this month</div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Payment Behavior</div>
             <div className="text-xl font-bold font-mono">
               {data.behavior && data.behavior.payments > 0 ? `${Math.round(data.behavior.medianDaysLate)}d` : "—"}
@@ -380,7 +401,6 @@ export default function CustomerDetail() {
           <TabsTrigger value="invoices">Invoices ({invoices.length})</TabsTrigger>
           <TabsTrigger value="receipts">Payment History ({receipts.length})</TabsTrigger>
           <TabsTrigger value="contracts">Contracts ({contracts.length})</TabsTrigger>
-          <TabsTrigger value="promises">Promises ({promises.length})</TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
         </TabsList>
 
@@ -556,50 +576,6 @@ export default function CustomerDetail() {
               })
             )}
           </div>
-        </TabsContent>
-
-        <TabsContent value="promises">
-          <Card>
-            <CardContent className="p-0">
-              {promises.length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground">No promises-to-pay recorded.</div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Promised Date</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Notes</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {promises.map(p => (
-                      <TableRow key={p.id}>
-                        <TableCell>{fmtDate(p.promisedDate)}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={
-                              p.status === "Kept"
-                                ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-                                : p.status === "Broken"
-                                  ? "bg-red-100 text-red-700 border-red-200"
-                                  : "bg-sky-100 text-sky-800 border-sky-200"
-                            }
-                          >
-                            {p.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{p.notes || "—"}</TableCell>
-                        <TableCell className="text-right font-mono">{fmtEur(p.amount)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
         </TabsContent>
 
         <TabsContent value="tasks">
