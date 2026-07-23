@@ -122,3 +122,7 @@
 - DONE frontend: Forecast.tsx header "per Customer Group (all amounts EUR)", empty-state manual-only wording, group name links to /groups/:key, N companies badge, Link import added
 - REMAINING: check "Refresh Forecast" button label (was maybe "Generate"), regen July via UI-equivalent script or trpc, verify screenshot, pnpm test (fix smartForecast-related tests if broken), tick todos, checkpoint, Greek delivery. Note: behavior.test.ts heuristicWithHistory tests unaffected.
 - Button label check: line ~70-100 Forecast.tsx has "Refresh Forecast" button + "Generate Forecast" text in empty state (updated to say Refresh)
+
+## Column totals (23/7 latest)
+- Customers.tsx: TOTAL rows in Groups + Companies views (respect filters); creditLimit decimal string -> Number()
+- Forecast.tsx: sticky TOTAL row for visible rows (due/overdue/ai/expected/collected/remaining)

@@ -373,6 +373,17 @@ export async function listForecastEntries(year: number, month: number) {
     .orderBy(desc(forecastEntries.expectedAmount));
 }
 
+/** Sum of expected (user-adjusted) forecast amounts for a month — the unified monthly target. */
+export async function sumForecastExpected(year: number, month: number) {
+  const db = await requireDb();
+  const rows = await db
+    .select({ expectedAmount: forecastEntries.expectedAmount })
+    .from(forecastEntries)
+    .where(and(eq(forecastEntries.year, year), eq(forecastEntries.month, month)));
+  if (rows.length === 0) return null;
+  return rows.reduce((s, r) => s + Number(r.expectedAmount), 0);
+}
+
 export async function getForecastEntry(id: number) {
   const db = await requireDb();
   const r = await db.select().from(forecastEntries).where(eq(forecastEntries.id, id)).limit(1);

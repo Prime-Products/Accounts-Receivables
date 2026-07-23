@@ -115,6 +115,17 @@
 - [x] Search field filtering forecast rows by group name
 - [x] Sortable Due (month) and Overdue columns (click header toggles asc/desc)
 
+## Column totals (user request 23/7)
+- [x] Customers page (Groups view): TOTAL row summing each amount column, respecting search/filters
+- [x] Customers page (Companies view): TOTAL row summing each amount column, respecting search/filters
+- [x] Smart Forecast table: TOTAL row for Due, Overdue, AI Suggested, Expected, Collected, Remaining (visible/filtered rows, sticky bottom)
+
+## Unify monthly target with Smart Forecast (user request 23/7)
+- [x] Remove "Set Monthly Target" button/dialog from Forecast page (and Dashboard dialog → link to Forecast)
+- [x] Monthly Targets card replaced: Target = Smart Forecast Expected (with user adjustments) per month, Actual = collected
+- [x] Backend: forecast.dashboard / plans derive target from forecast_entries expected sums (setTarget procedure removed)
+- [x] Dashboard page: monthly-target KPI reads the forecast-derived target
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)

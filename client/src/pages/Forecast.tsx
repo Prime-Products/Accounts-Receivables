@@ -46,6 +46,22 @@ function SmartForecastSection() {
     return rows;
   }, [data?.entries, search, sort]);
 
+  const visibleTotals = useMemo(
+    () =>
+      visibleRows.reduce<{ due: number; overdue: number; ai: number; expected: number; collected: number; remaining: number }>(
+        (t, e) => ({
+          due: t.due + Number(e.dueAmount),
+          overdue: t.overdue + Number(e.overdueAmount),
+          ai: t.ai + Number(e.aiSuggestedAmount),
+          expected: t.expected + Number(e.expectedAmount),
+          collected: t.collected + e.collected,
+          remaining: t.remaining + e.remaining,
+        }),
+        { due: 0, overdue: 0, ai: 0, expected: 0, collected: 0, remaining: 0 }
+      ),
+    [visibleRows]
+  );
+
   const generate = trpc.forecast.generateSmart.useMutation({
     onSuccess: r => {
       toast.success(`Forecast generated for ${r.customers} customers (${r.aiCount} AI, ${r.heuristicCount} statistical)`);
@@ -347,6 +363,19 @@ function SmartForecastSection() {
                       </TableRow>
                     );
                   })}
+                  {visibleRows.length > 0 && (
+                    <TableRow className="bg-muted/60 font-semibold border-t-2 hover:bg-muted/60 sticky bottom-0">
+                      <TableCell>TOTAL ({visibleRows.length} groups)</TableCell>
+                      <TableCell />
+                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.due)}</TableCell>
+                      <TableCell className="text-right font-mono text-red-600">{fmtEur(visibleTotals.overdue)}</TableCell>
+                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.ai)}</TableCell>
+                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.expected)}</TableCell>
+                      <TableCell className="text-right font-mono text-emerald-700">{fmtEur(visibleTotals.collected)}</TableCell>
+                      <TableCell className="text-right font-mono">{fmtEur(visibleTotals.remaining)}</TableCell>
+                      <TableCell />
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </div>
@@ -364,23 +393,9 @@ export default function Forecast() {
   const utils = trpc.useUtils();
 
   const now = new Date();
-  const [targetOpen, setTargetOpen] = useState(false);
-  const [tYear, setTYear] = useState(now.getUTCFullYear());
-  const [tMonth, setTMonth] = useState(now.getUTCMonth() + 1);
-  const [tAmount, setTAmount] = useState("");
 
   const exportPlan = trpc.reports.export.useMutation({
     onSuccess: r => downloadBase64(r.filename, r.mimeType, r.base64),
-    onError: e => toast.error(e.message),
-  });
-
-  const setTarget = trpc.forecast.setTarget.useMutation({
-    onSuccess: () => {
-      toast.success("Monthly target saved");
-      utils.forecast.invalidate();
-      setTargetOpen(false);
-      setTAmount("");
-    },
     onError: e => toast.error(e.message),
   });
 
@@ -400,44 +415,10 @@ export default function Forecast() {
             <TrendingUp className="h-6 w-6" /> Collection Forecast Plan
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Monthly Target vs Actual tracking, promise-to-pay follow-up and plan exports
+            Target derives from the Smart Forecast (Expected) — vs Actual tracking, promise-to-pay follow-up and exports
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Dialog open={targetOpen} onOpenChange={setTargetOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="gap-1.5">
-                <Plus className="h-4 w-4" /> Set Monthly Target
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Set Monthly Collection Target</DialogTitle>
-              </DialogHeader>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Year</Label>
-                  <Input type="number" value={tYear} onChange={e => setTYear(Number(e.target.value))} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Month (1-12)</Label>
-                  <Input type="number" min={1} max={12} value={tMonth} onChange={e => setTMonth(Number(e.target.value))} />
-                </div>
-                <div className="space-y-1.5 col-span-2">
-                  <Label>Target amount (€)</Label>
-                  <Input type="number" min={0} value={tAmount} onChange={e => setTAmount(e.target.value)} placeholder="e.g. 500000" />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  disabled={setTarget.isPending || !tAmount}
-                  onClick={() => setTarget.mutate({ year: tYear, month: tMonth, targetAmount: Number(tAmount) })}
-                >
-                  Save Target
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => exportPlan.mutate({ report: "forecast", format: "xlsx" })} disabled={exportPlan.isPending}>
             <FileDown className="h-4 w-4" /> Export Excel
           </Button>
@@ -489,7 +470,7 @@ export default function Forecast() {
       ) : (plans ?? []).length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center text-muted-foreground">
-            No monthly targets set yet. Use "Set Monthly Target" to create the collection plan.
+            No forecast months yet. Use "Refresh Forecast" above — the monthly target derives automatically from the Smart Forecast.
           </CardContent>
         </Card>
       ) : (

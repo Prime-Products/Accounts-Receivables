@@ -67,6 +67,33 @@ export default function Customers() {
     return groups.filter(g => g.group.toLowerCase().includes(search.toLowerCase()));
   }, [groups, search]);
 
+  const groupTotals = useMemo(
+    () =>
+      filteredGroups.reduce(
+        (t: { companies: number; open: number; overdue: number; overdueCount: number }, g) => ({
+          companies: t.companies + g.companyCount,
+          open: t.open + g.openBalance,
+          overdue: t.overdue + g.overdueBalance,
+          overdueCount: t.overdueCount + g.overdueCount,
+        }),
+        { companies: 0, open: 0, overdue: 0, overdueCount: 0 }
+      ),
+    [filteredGroups]
+  );
+
+  const companyTotals = useMemo(
+    () =>
+      filtered.reduce<{ open: number; overdue: number; credit: number }>(
+        (t, c) => ({
+          open: t.open + c.openBalance,
+          overdue: t.overdue + c.overdueBalance,
+          credit: t.credit + Number(c.creditLimit),
+        }),
+        { open: 0, overdue: 0, credit: 0 }
+      ),
+    [filtered]
+  );
+
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -249,6 +276,15 @@ export default function Customers() {
                       <TableCell className="text-right font-mono">{g.overdueCount}</TableCell>
                     </TableRow>
                   ))}
+                  <TableRow className="bg-muted/60 font-semibold border-t-2 hover:bg-muted/60">
+                    <TableCell>TOTAL ({filteredGroups.length} groups)</TableCell>
+                    <TableCell className="text-right font-mono">{groupTotals.companies}</TableCell>
+                    <TableCell className="text-right font-mono">{fmtEur(groupTotals.open)}</TableCell>
+                    <TableCell className={`text-right font-mono ${groupTotals.overdue > 0 ? "text-red-600" : ""}`}>
+                      {fmtEur(groupTotals.overdue)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">{groupTotals.overdueCount}</TableCell>
+                  </TableRow>
                 </TableBody>
               </Table>
             )
@@ -297,6 +333,14 @@ export default function Customers() {
                     <TableCell className="text-right font-mono">{fmtEur(c.creditLimit)}</TableCell>
                   </TableRow>
                 ))}
+                <TableRow className="bg-muted/60 font-semibold border-t-2 hover:bg-muted/60">
+                  <TableCell colSpan={4}>TOTAL ({filtered.length} companies)</TableCell>
+                  <TableCell className="text-right font-mono">{fmtEur(companyTotals.open)}</TableCell>
+                  <TableCell className={`text-right font-mono ${companyTotals.overdue > 0 ? "text-red-600" : ""}`}>
+                    {fmtEur(companyTotals.overdue)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">{fmtEur(companyTotals.credit)}</TableCell>
+                </TableRow>
               </TableBody>
             </Table>
           )}

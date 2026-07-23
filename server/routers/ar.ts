@@ -584,10 +584,10 @@ export const forecastRouter = router({
     const year = nowDate.getUTCFullYear();
     const month = nowDate.getUTCMonth() + 1;
     const { start, end } = monthRange(year, month);
-    const [invoices, installments, plan, collectedThisMonth, tasksPending, proposals] = await Promise.all([
+    const [invoices, installments, forecastTarget, collectedThisMonth, tasksPending, proposals] = await Promise.all([
       db.listInvoices(),
       db.listInstallments(),
-      db.getPlan(year, month),
+      db.sumForecastExpected(year, month),
       db.sumReceiptsInRange(start, end),
       db.listTasks({ statuses: ["Pending", "In Progress"] }),
       db.listOnHoldProposals(),
@@ -602,7 +602,7 @@ export const forecastRouter = router({
     return {
       year,
       month,
-      target: plan ? Number(plan.targetAmount) : null,
+      target: forecastTarget,
       collected: collectedThisMonth,
       totalOverdue: aging.totalOverdue,
       overdueCount: Object.values(aging.buckets).reduce((s, b) => s + b.count, 0),
@@ -615,22 +615,14 @@ export const forecastRouter = router({
       onHoldPending: underReview,
     };
   }),
-  setTarget: protectedProcedure
-    .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12), targetAmount: z.number().nonnegative(), notes: z.string().optional() }))
-    .mutation(async ({ ctx, input }) => {
-      const role = await getAppRole(ctx.user.id);
-      requireRole(role, ["Administrator", "Management", "Credit Controller"]);
-      await db.upsertPlan(input.year, input.month, eur(input.targetAmount), ctx.user.id, input.notes);
-      await audit(ctx, "Set Collection Target", "collectionPlan", `${input.year}-${input.month}`, `Target €${eur(input.targetAmount)}`);
-      return { success: true };
-    }),
   plans: protectedProcedure.query(async () => {
-    const plans = await db.listPlans();
-    const results = [];
-    for (const p of plans) {
-      const { start, end } = monthRange(p.year, p.month);
+    // Unified with Smart Forecast: target = sum of expected amounts (user-adjusted) per forecast month.
+    const months = await db.listForecastMonths();
+    const results = [] as { year: number; month: number; targetAmount: string; actual: number }[];
+    for (const m of months) {
+      const [target, { start, end }] = [await db.sumForecastExpected(m.year, m.month), monthRange(m.year, m.month)];
       const actual = await db.sumReceiptsInRange(start, end);
-      results.push({ ...p, actual });
+      results.push({ year: m.year, month: m.month, targetAmount: String(target ?? 0), actual });
     }
     return results;
   }),

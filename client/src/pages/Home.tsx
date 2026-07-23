@@ -33,19 +33,7 @@ import { useLocation } from "wouter";
 
 export default function Home() {
   const { data, isLoading } = trpc.forecast.dashboard.useQuery();
-  const utils = trpc.useUtils();
   const [, navigate] = useLocation();
-  const [targetOpen, setTargetOpen] = useState(false);
-  const [targetVal, setTargetVal] = useState("");
-  const setTarget = trpc.forecast.setTarget.useMutation({
-    onSuccess: () => {
-      toast.success("Monthly collection target saved");
-      utils.forecast.dashboard.invalidate();
-      utils.forecast.plans.invalidate();
-      setTargetOpen(false);
-    },
-    onError: e => toast.error(e.message),
-  });
 
   if (isLoading || !data) {
     return (
@@ -77,41 +65,9 @@ export default function Home() {
             {monthName(data.month)} {data.year} — live collection status
           </p>
         </div>
-        <Dialog open={targetOpen} onOpenChange={setTargetOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" className="gap-2">
-              <Target className="h-4 w-4" /> Set Monthly Target
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                Collection Target — {monthName(data.month)} {data.year}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-2">
-              <Label htmlFor="target">Target amount (€)</Label>
-              <Input
-                id="target"
-                type="number"
-                min="0"
-                value={targetVal}
-                onChange={e => setTargetVal(e.target.value)}
-                placeholder="e.g. 500000"
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                onClick={() =>
-                  setTarget.mutate({ year: data.year, month: data.month, targetAmount: Number(targetVal || 0) })
-                }
-                disabled={setTarget.isPending || targetVal === ""}
-              >
-                Save Target
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <Button variant="outline" className="gap-2" onClick={() => navigate("/forecast")}>
+          <Target className="h-4 w-4" /> Monthly Target (from Forecast)
+        </Button>
       </div>
 
       {/* KPI cards */}
@@ -124,7 +80,9 @@ export default function Home() {
           <CardContent>
             <div className="text-2xl font-bold font-mono">{data.target !== null ? fmtEur(data.target) : "—"}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {data.target !== null ? `Target for ${monthName(data.month)} ${data.year}` : "No target set yet"}
+              {data.target !== null
+                ? `From Smart Forecast — ${monthName(data.month)} ${data.year}`
+                : "No forecast yet — use Refresh Forecast"}
             </p>
           </CardContent>
         </Card>
