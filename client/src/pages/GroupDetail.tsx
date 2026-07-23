@@ -83,7 +83,6 @@ function GroupPromiseDialog({ companies, defaultCustomerId }: { companies: { id:
           <DialogTitle>Record Promise-to-Pay</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <CompanyPicker companies={companies} value={customerId} onChange={setCustomerId} />
           <div className="space-y-1.5">
             <Label>Amount (€)</Label>
             <Input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
@@ -283,6 +282,7 @@ export default function GroupDetail() {
                 key={companyId}
                 customerIds={data.companies.map(c => c.id)}
                 defaultCustomerId={defaultActionCustomerId}
+                hideCustomerPicker
                 trigger={
                   <Button size="sm" className="gap-1.5">
                     <Plus className="h-4 w-4" /> New Task

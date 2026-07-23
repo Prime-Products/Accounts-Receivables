@@ -17,15 +17,18 @@ export const TASK_TYPES = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA",
  * Reusable customer-level task creation dialog.
  * - `defaultCustomerId`: preselect a customer (e.g. from Customer 360).
  * - `customerIds`: restrict the pickable customers (e.g. member companies of a group).
+ * - `hideCustomerPicker`: hide the customer selector entirely (e.g. group card — task is recorded against the group's primary member).
  * - `trigger`: custom trigger element; defaults to a "New Task" button.
  */
 export default function NewTaskDialog({
   defaultCustomerId,
   customerIds,
+  hideCustomerPicker,
   trigger,
 }: {
   defaultCustomerId?: number;
   customerIds?: number[];
+  hideCustomerPicker?: boolean;
   trigger?: ReactNode;
 }) {
   const utils = trpc.useUtils();
@@ -89,7 +92,7 @@ export default function NewTaskDialog({
           <DialogTitle>New Task</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="space-y-1.5">
+          <div className={hideCustomerPicker ? "hidden" : "space-y-1.5"}>
             <Label>Customer</Label>
             <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
               <PopoverTrigger asChild>

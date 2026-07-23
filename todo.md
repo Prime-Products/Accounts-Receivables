@@ -251,6 +251,9 @@
 - [x] Vitest coverage for the search endpoint
 - [x] Remove 61-90d, Coverage, and Rating columns from the Call List table
 
+## Group card quick actions to group (user request 24/7)
+- [x] GroupDetail: remove company selection from Add Task and Promise-to-Pay dialogs; record against the group (primary member internally)
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)
