@@ -259,6 +259,14 @@
 
 ## Tasks list cleanup (user request 24/7)
 - [x] Tasks list: don't show the full description under the task title — only the "Promise to Pay" indicator where applicable
+- [x] Promise task title: show only "Promise to Pay — <amount>" without the "Check promise-to-pay:" prefix and company name
+
+## Call List columns (user request 24/7)
+- [x] Call List: add "Overdue EOM" column (overdue by end of month)
+- [x] Call List: add "AI Forecast" column (expected collection this month)
+
+## Invoices: per-group summary (user request 24/7)
+- [x] Invoices page: when filtering (e.g., aging 120+), show a "By group" summary view with each group and its total amount
 
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)

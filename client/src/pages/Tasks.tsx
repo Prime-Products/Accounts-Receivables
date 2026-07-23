@@ -174,7 +174,6 @@ export default function Tasks() {
                     <TableCell className="font-medium">{t.customerName ?? "—"}</TableCell>
                     <TableCell className="text-sm max-w-md">
                       <div>{t.title}</div>
-                      {t.promise && <div className="text-xs text-muted-foreground">Promise to Pay</div>}
                     </TableCell>
                     <TableCell className="text-sm font-mono">{t.invoiceNumber ?? "—"}</TableCell>
                     <TableCell className="text-sm">{fmtDate(t.dueDate)}</TableCell>

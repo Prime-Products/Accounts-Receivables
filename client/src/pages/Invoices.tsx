@@ -10,7 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { FileDown, FileText, HandCoins, Plus } from "lucide-react";
+import { Link } from "wouter";
+import { ChevronRight, FileDown, FileText, HandCoins, Plus, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -25,8 +26,16 @@ export default function Invoices() {
   const utils = trpc.useUtils();
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [bucketFilter, setBucketFilter] = useState<(typeof BUCKETS)[number]>("all");
+  const [bucketFilter, setBucketFilter] = useState<(typeof BUCKETS)[number]>(() => {
+    if (typeof window === "undefined") return "all";
+    const b = new URLSearchParams(window.location.search).get("bucket");
+    return b && (BUCKETS as readonly string[]).includes(b) ? (b as (typeof BUCKETS)[number]) : "all";
+  });
   const [branchFilter, setBranchFilter] = useState<string>("all");
+  const [groupView, setGroupView] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("view") === "group";
+  });
   const [search, setSearch] = useState(() => {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("q") ?? "";
@@ -105,6 +114,25 @@ export default function Invoices() {
       byCur[cur] = (byCur[cur] ?? 0) + (Number(i.amount) - Number(i.paidAmount));
     }
     return { eurTotal, byCur, count: filtered.length };
+  }, [filtered]);
+
+  /** Per-group aggregation of the currently filtered invoices (e.g. all 120+ invoices grouped by customer group). */
+  const byGroup = useMemo(() => {
+    const map = new Map<string, { group: string; outstanding: number; count: number; byCur: Record<string, number> }>();
+    for (const i of filtered) {
+      if (i.status === "Paid") continue;
+      const key = (i as any).customerGroup ?? i.customerName;
+      let g = map.get(key);
+      if (!g) {
+        g = { group: key, outstanding: 0, count: 0, byCur: {} };
+        map.set(key, g);
+      }
+      g.outstanding += i.outstanding;
+      g.count += 1;
+      const cur = (i.currency ?? "EUR").toUpperCase();
+      g.byCur[cur] = (g.byCur[cur] ?? 0) + (Number(i.amount) - Number(i.paidAmount));
+    }
+    return Array.from(map.values()).sort((a, b) => b.outstanding - a.outstanding);
   }, [filtered]);
 
   return (
@@ -364,6 +392,14 @@ export default function Invoices() {
               Per currency: <span className="font-mono">{fmtByCurrency(filteredTotals.byCur)}</span>
             </span>
           )}
+          <Button
+            variant={groupView ? "default" : "outline"}
+            size="sm"
+            className="ml-auto gap-1.5 h-7"
+            onClick={() => setGroupView(v => !v)}
+          >
+            <Users className="h-3.5 w-3.5" /> By group
+          </Button>
         </div>
       )}
 
@@ -377,6 +413,46 @@ export default function Invoices() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="p-10 text-center text-muted-foreground">No invoices match the current filters.</div>
+          ) : groupView ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">#</TableHead>
+                  <TableHead>Group</TableHead>
+                  <TableHead className="text-right">Invoices</TableHead>
+                  <TableHead className="text-right">Outstanding</TableHead>
+                  <TableHead className="text-right">% of total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow className="bg-muted/40 font-semibold">
+                  <TableCell />
+                  <TableCell>TOTAL — {byGroup.length} group(s)</TableCell>
+                  <TableCell className="text-right font-mono">{byGroup.reduce((s, g) => s + g.count, 0)}</TableCell>
+                  <TableCell className="text-right font-mono">{fmtEur(byGroup.reduce((s, g) => s + g.outstanding, 0))}</TableCell>
+                  <TableCell className="text-right font-mono">100%</TableCell>
+                </TableRow>
+                {byGroup.map((g, idx) => (
+                  <TableRow key={g.group}>
+                    <TableCell className="font-mono text-muted-foreground">{idx + 1}</TableCell>
+                    <TableCell>
+                      <Link href={`/groups/${encodeURIComponent(g.group)}`} className="font-medium hover:underline inline-flex items-center gap-1">
+                        {g.group}
+                        <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                      </Link>
+                      {fmtByCurrency(g.byCur, { skipEurOnly: true }) && (
+                        <div className="text-[11px] text-muted-foreground font-mono">{fmtByCurrency(g.byCur)}</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">{g.count}</TableCell>
+                    <TableCell className="text-right font-mono font-semibold">{fmtEur(g.outstanding)}</TableCell>
+                    <TableCell className="text-right font-mono text-muted-foreground">
+                      {filteredTotals.eurTotal > 0 ? `${((g.outstanding / filteredTotals.eurTotal) * 100).toFixed(1)}%` : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           ) : (
             <Table>
               <TableHeader>

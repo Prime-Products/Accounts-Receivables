@@ -98,6 +98,8 @@ export default function CallList() {
                     <TableHead className="w-10">#</TableHead>
                     <TableHead>Group</TableHead>
                     <TableHead className="text-right">Overdue</TableHead>
+                    <TableHead className="text-right">Overdue EOM</TableHead>
+                    <TableHead className="text-right">AI Forecast</TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -116,6 +118,12 @@ export default function CallList() {
                       <TableCell className="text-right font-mono text-red-600 font-semibold">
                         {fmtEur(r.overdueBalance)}
                         <div className="text-[10px] font-normal text-muted-foreground">{r.overdueCount} inv.</div>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-orange-600">
+                        {fmtEur(r.overdueEomBalance)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-emerald-700">
+                        {r.forecastExpected > 0 ? fmtEur(r.forecastExpected) : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="max-w-44">
                         {r.contacts.length === 0 ? (

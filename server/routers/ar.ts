@@ -450,14 +450,15 @@ export const customersRouter = router({
           group: g.group,
           score: priority.score,
           reasons: priority.reasons,
-          rating: rating.rating,
-          ratingScore: rating.score,
-          overdueBalance: g.overdueBalance,
-          overdue6190: g.overdue6190,
-          overdue90Plus: g.overdue90Plus,
-          overdueCount: g.overdueCount,
-          openBalance: g.openBalance,
-          forecastExpected: expected,
+         rating: rating.rating,
+         ratingScore: rating.score,
+         overdueBalance: g.overdueBalance,
+          overdueEomBalance: g.overdueEom,
+         overdue6190: g.overdue6190,
+         overdue90Plus: g.overdue90Plus,
+         overdueCount: g.overdueCount,
+         openBalance: g.openBalance,
+         forecastExpected: expected,
           forecastCoverage: coverage,
           promisesBroken: g.promisesBroken,
           promisesOverduePending: g.promisesOverduePending,
@@ -892,13 +893,14 @@ export const invoicesRouter = router({
       const customers = await db.listCustomers();
       const byId = new Map(customers.map(c => [c.id, c]));
       const now = Date.now();
-      return invoices.map(i => ({
-        ...i,
-        customerName: byId.get(i.customerId)?.name ?? "—",
-        customerTier: byId.get(i.customerId)?.tier ?? "New",
-        outstanding: outstanding(i),
-        daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, now) : 0,
-      }));
+     return invoices.map(i => ({
+       ...i,
+       customerName: byId.get(i.customerId)?.name ?? "—",
+       customerTier: byId.get(i.customerId)?.tier ?? "New",
+        customerGroup: (byId.get(i.customerId)?.customerGroup ?? "").trim() || (byId.get(i.customerId)?.name ?? "—"),
+       outstanding: outstanding(i),
+       daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, now) : 0,
+     }));
     }),
   aging: protectedProcedure.query(async () => {
     const invoices = await db.listInvoices();
@@ -1281,7 +1283,7 @@ export const forecastRouter = router({
         const taskId = await db.createTask({
           customerId: input.customerId,
           type: "Manual",
-          title: `Check promise-to-pay: ${cust.name} — €${Number(eur(input.amount)).toLocaleString()}`,
+          title: `Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
           description: `Verify that ${cust.name} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${dateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
           dueDate: input.promisedDate,
           invoiceId: input.invoiceId,

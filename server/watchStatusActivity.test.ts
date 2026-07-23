@@ -104,7 +104,7 @@ describe("forecast.addPromise side effects", () => {
     // Follow-up task auto-created, due on the promised date
     const tasks = await db.listTasks({});
     const task = tasks.find(
-      t => t.customerId === cust.id && t.title.startsWith("Check promise-to-pay:") && t.description?.includes(`(Promise #${id})`),
+      t => t.customerId === cust.id && t.title.startsWith("Promise to Pay") && t.description?.includes(`(Promise #${id})`),
     );
     expect(task).toBeTruthy();
     expect(task?.dueDate).toBe(promisedDate);
