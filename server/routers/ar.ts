@@ -122,14 +122,19 @@ export const customersRouter = router({
   groups: protectedProcedure.query(async () => {
     const now = Date.now();
     const today = new Date();
-    const [customers, invoices, forecastRows, behavior, allPromises] = await Promise.all([
+    const [customers, invoices, forecastRows, behavior, allPromises, watchRows] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
       db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
       db.listPaymentBehaviorWithGroup().catch(() => []),
       db.listPromises(),
+      db.listGroupWatchStatuses().catch(() => []),
     ]);
     const eom = endOfCurrentMonth();
+    const watchByGroup = new Map<string, string>();
+    for (const w of watchRows) {
+      if (w.status !== "Auto") watchByGroup.set(w.groupName, w.status);
+    }
     const forecastByGroup = new Map<string, number>();
     for (const f of forecastRows) {
       const key = (f.customerGroup ?? "").trim();
@@ -213,7 +218,11 @@ export const customersRouter = router({
         const forecastExpected = forecastByGroup.get(g.group) ?? 0;
         // Business rule: problematic when the month's forecast covers < 80% of what will be overdue by EOM.
         const hasForecast = forecastByGroup.has(g.group);
-        const problematic = hasForecast && g.overdueEomBalance > 0 && forecastExpected < 0.8 * g.overdueEomBalance;
+        const autoProblematic = hasForecast && g.overdueEomBalance > 0 && forecastExpected < 0.8 * g.overdueEomBalance;
+        // Manual override: "Problematic" or "On Watch" replaces the automatic verdict.
+        const watchOverride = watchByGroup.get(g.group) ?? null;
+        const watchStatus = watchOverride ?? (autoProblematic ? "Problematic" : null);
+        const problematic = watchStatus === "Problematic";
         const { overdue90Plus, promisesKept, promisesBroken, worstHold, ...rest } = g;
         return {
           ...rest,
@@ -221,6 +230,8 @@ export const customersRouter = router({
           forecastExpected,
           forecastCoverage: g.overdueEomBalance > 0 ? forecastExpected / g.overdueEomBalance : null,
           problematic,
+          watchStatus,
+          watchOverride,
           rating: ratingResult.rating,
           ratingScore: ratingResult.score,
           ratingFactors: ratingResult.factors,
@@ -300,6 +311,9 @@ export const customersRouter = router({
       const groupForecast = forecastRows.filter(f => (f.customerGroup ?? "").trim() === input.group).reduce((s, f) => s + Number(f.expectedAmount), 0);
       const hasForecast = forecastRows.some(f => (f.customerGroup ?? "").trim() === input.group);
       const problematic = hasForecast && gOverdueEom > 0 && groupForecast < 0.8 * gOverdueEom;
+      const watchRow = await db.getGroupWatchStatus(input.group).catch(() => null);
+      const watchOverride = watchRow && watchRow.status !== "Auto" ? watchRow.status : null;
+      const watchStatus = watchOverride ?? (problematic ? "Problematic" : null);
       const companies = members
         .map(m => {
           const mine = branchScoped.filter(i => i.customerId === m.id);
@@ -329,7 +343,10 @@ export const customersRouter = router({
         aging,
         behavior: groupBehavior,
         rating: ratingResult,
-        problematic,
+        problematic: watchStatus === "Problematic",
+        autoProblematic: problematic,
+        watchStatus,
+        watchOverride,
         forecastExpected: groupForecast,
         overdueEomBalance: gOverdueEom,
         totals: {
@@ -354,6 +371,33 @@ export const customersRouter = router({
     return all
       .filter(p => memberIds.has(p.customerId))
       .map(p => ({ ...p, customerName: names.get(p.customerId) ?? "—" }));
+  }),
+  /** Payment history, contracts, and tasks aggregated across the member companies of a group (unified card tabs). */
+  groupActivity: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
+    const customers = await db.listCustomers();
+    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+    const memberIds = new Set(members.map(m => m.id));
+    const names = new Map(members.map(m => [m.id, m.name]));
+    const [receipts, contracts, tasks] = await Promise.all([
+      db.listReceipts().catch(() => []),
+      db.listContracts().catch(() => []),
+      db.listTasks({}).catch(() => []),
+    ]);
+    return {
+      receipts: receipts
+        .filter(r => memberIds.has(r.customerId))
+        .sort((a, b) => b.receiptDate - a.receiptDate)
+        .slice(0, 300)
+        .map(r => ({ ...r, customerName: names.get(r.customerId) ?? "—" })),
+      contracts: contracts
+        .filter(c => memberIds.has(c.customerId))
+        .map(c => ({ ...c, customerName: names.get(c.customerId) ?? "—" })),
+      tasks: tasks
+        .filter(t => memberIds.has(t.customerId))
+        .sort((a, b) => (b.dueDate ?? 0) - (a.dueDate ?? 0))
+        .slice(0, 300)
+        .map(t => ({ ...t, customerName: names.get(t.customerId) ?? "—" })),
+    };
   }),
   /** Notes attached to a group. */
   groupNotes: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
@@ -384,6 +428,20 @@ export const customersRouter = router({
     .mutation(async ({ ctx, input }) => {
       await db.updateGroupNote(input.id, input.content);
       await audit(ctx, "Update Group Note", "groupNote", input.id);
+      return { success: true };
+    }),
+  /** Manual watch-status override: Problematic ↔ On Watch ↔ Auto (follow the forecast rule). */
+  setWatchStatus: protectedProcedure
+    .input(z.object({ group: z.string().min(1), status: z.enum(["Auto", "Problematic", "On Watch"]) }))
+    .mutation(async ({ ctx, input }) => {
+      await db.setGroupWatchStatus(input.group, input.status, ctx.user.id);
+      await audit(ctx, "Set Watch Status", "group", input.group, `Status → ${input.status}`);
+      await db.createGroupNote({
+        groupName: input.group,
+        content: `Watch status changed to "${input.status === "Auto" ? "Auto (forecast rule)" : input.status}" by ${ctx.user.name ?? "user"}.`,
+        createdBy: ctx.user.id,
+        createdAt: Date.now(),
+      });
       return { success: true };
     }),
   /** AI-generated snapshot of the group: balances, behavior, promises, tasks, notes. */
@@ -474,7 +532,43 @@ export const customersRouter = router({
       promisesBroken: promises.filter(p => p.status === "Broken").length,
       onHoldStatus: customer.onHoldStatus,
     });
-    return { customer, invoices, receipts, contracts, installments, promises, tasks, aging, rating: ratingResult };
+    // Group-level watch status & forecast coverage (customer belongs to a group; watch status lives on the group)
+    const groupKey = (customer.customerGroup ?? "").trim() || customer.name;
+    const eomTs = endOfCurrentMonth();
+    const overdueEomBalance = openInv.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
+    const todayD = new Date();
+    const [watchRow, forecastRows] = await Promise.all([
+      db.getGroupWatchStatus(groupKey).catch(() => null),
+      db.listForecastEntries(todayD.getUTCFullYear(), todayD.getUTCMonth() + 1).catch(() => []),
+    ]);
+    const groupForecast = forecastRows.filter(f => (f.customerGroup ?? "").trim() === groupKey).reduce((s, f) => s + Number(f.expectedAmount), 0);
+    const hasForecast = forecastRows.some(f => (f.customerGroup ?? "").trim() === groupKey);
+    // Group-level EOM for the auto rule (the rule is group-scoped)
+    const groupCustomers = (await db.listCustomers()).filter(c => ((c.customerGroup ?? "").trim() || c.name) === groupKey);
+    const groupIds = new Set(groupCustomers.map(c => c.id));
+    const groupInvoices = (await db.listInvoices()).filter(i => groupIds.has(i.customerId) && isOpenInvoice(i));
+    const groupOverdueEom = groupInvoices.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
+    const autoProblematic = hasForecast && groupOverdueEom > 0 && groupForecast < 0.8 * groupOverdueEom;
+    const watchOverride = watchRow && watchRow.status !== "Auto" ? watchRow.status : null;
+    const watchStatus = watchOverride ?? (autoProblematic ? "Problematic" : null);
+    return {
+      customer,
+      invoices,
+      receipts,
+      contracts,
+      installments,
+      promises,
+      tasks,
+      aging,
+      rating: ratingResult,
+      behavior: behaviorRow,
+      groupKey,
+      overdueEomBalance,
+      watchStatus,
+      watchOverride,
+      autoProblematic,
+      forecastExpected: groupForecast,
+    };
   }),
   create: protectedProcedure
     .input(z.object({
@@ -897,6 +991,18 @@ export const forecastRouter = router({
           createdBy: ctx.user.id,
           createdAt: Date.now(),
         });
+        // Create a follow-up task due on the promised date so the team checks whether the company paid.
+        const taskId = await db.createTask({
+          customerId: input.customerId,
+          type: "Manual",
+          title: `Check promise-to-pay: ${cust.name} — €${Number(eur(input.amount)).toLocaleString()}`,
+          description: `Verify that ${cust.name} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${dateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
+          dueDate: input.promisedDate,
+          invoiceId: input.invoiceId,
+          status: "Pending",
+          assignedTo: ctx.user.id,
+        });
+        await audit(ctx, "Create Task", "task", taskId, `Auto follow-up for promise #${id} (${cust.name})`);
       }
       return { id };
     }),

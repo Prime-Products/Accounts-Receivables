@@ -194,6 +194,19 @@
 - [x] After forecast: mark group as Problematic when Expected < 80% of Overdue EOM (computed live from forecast entries)
 - [x] Problematic badge visible on Customers list (Groups view) and group card header
 
+## Manual status + unified card (user request 23/7)
+- [x] Backend: watch-status override (Problematic ↔ On Watch ↔ Auto) stored per group, with audit log; effective status = override ?? automatic forecast rule
+- [x] Compare Customer 360 vs group card and list all field/section differences
+- [x] Unified card: Customer 360 gets all group-card sections (promises, notes, AI summary, aging cards, SOA scope filters where applicable)
+- [x] Unified card: group card gets all Customer 360 sections (payment history, contracts, tasks tabs)
+- [x] Watch-status dropdown editable on both cards and visible on Customers list
+- [x] Promise-to-pay auto-creates a follow-up task due on the promised date ("check if company paid")
+- [x] Group card: show Overdue EOM inside the Overdue KPI card
+
+## Customers list filters (user request 23/7)
+- [x] Customers list: filter by watch status (Problematic / On Watch / Normal)
+- [x] Customers list: filter by credit rating (A-E)
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)

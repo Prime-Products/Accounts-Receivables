@@ -9,6 +9,7 @@ import {
   customers,
   forecastEntries,
   groupNotes,
+  groupWatchStatus,
   InsertContract,
   InsertCustomer,
   InsertForecastEntry,
@@ -518,6 +519,24 @@ export async function updateGroupNote(id: number, content: string) {
 export async function deleteGroupNote(id: number) {
   const db = await requireDb();
   await db.delete(groupNotes).where(eq(groupNotes.id, id));
+}
+
+// ---------- Group watch status (manual Problematic / On Watch override) ----------
+export async function listGroupWatchStatuses() {
+  const db = await requireDb();
+  return db.select().from(groupWatchStatus);
+}
+export async function getGroupWatchStatus(groupName: string) {
+  const db = await requireDb();
+  const rows = await db.select().from(groupWatchStatus).where(eq(groupWatchStatus.groupName, groupName)).limit(1);
+  return rows[0] ?? null;
+}
+export async function setGroupWatchStatus(groupName: string, status: "Auto" | "Problematic" | "On Watch", updatedBy: number | null) {
+  const db = await requireDb();
+  await db
+    .insert(groupWatchStatus)
+    .values({ groupName, status, updatedBy, updatedAt: Date.now() })
+    .onDuplicateKeyUpdate({ set: { status, updatedBy, updatedAt: Date.now() } });
 }
 
 // ---------- Audit & sync logs ----------

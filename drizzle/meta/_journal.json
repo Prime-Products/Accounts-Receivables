@@ -64,6 +64,13 @@
       "when": 1784827980876,
       "tag": "0008_fluffy_snowbird",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1784831160272,
+      "tag": "0009_furry_princess_powerful",
+      "breakpoints": true
     }
   ]
 }

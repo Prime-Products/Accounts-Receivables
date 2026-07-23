@@ -1,5 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
+import GroupAiSummaryCard from "@/components/GroupAiSummaryCard";
+import GroupNotesDialog from "@/components/GroupNotesDialog";
+import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -8,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
@@ -254,6 +258,12 @@ export default function GroupDetail() {
                   Problematic
                 </Badge>
               )}
+              {!data?.problematic && data?.watchStatus === "On Watch" && (
+                <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200" title="Manually set to On Watch">
+                  On Watch
+                </Badge>
+              )}
+              {data && <WatchStatusSelect group={group} value={data.watchOverride ?? null} />}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               Group card — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}
@@ -354,6 +364,9 @@ export default function GroupDetail() {
                   {fmtEur(data.totals.overdueBalance)}
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-0.5">{data.totals.overdueCount} overdue invoice(s)</div>
+                <div className="text-[11px] font-mono mt-0.5 text-orange-600" title="Overdue by end of the current month (today's overdue + invoices falling due until month end)">
+                  EOM: {fmtEur(data.overdueEomBalance)}
+                </div>
               </CardContent>
             </Card>
             <Card>
@@ -567,6 +580,9 @@ export default function GroupDetail() {
             <GroupPromisesCard group={group} />
             <GroupAiSummaryCard group={group} />
           </div>
+
+          {/* Payment history, contracts & tasks across the group (unified card) */}
+          <GroupActivityTabs group={group} />
         </>
       )}
     </div>
@@ -578,6 +594,153 @@ const promiseStatusColors: Record<string, string> = {
   Kept: "bg-emerald-50 text-emerald-700 border-emerald-200",
   Broken: "bg-red-50 text-red-700 border-red-200",
 };
+
+const taskStatusColors: Record<string, string> = {
+  Pending: "bg-amber-50 text-amber-700 border-amber-200",
+  "In Progress": "bg-blue-50 text-blue-700 border-blue-200",
+  Completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  Cancelled: "bg-slate-50 text-slate-500 border-slate-200",
+};
+
+/** Payment history, contracts, and tasks aggregated across the member companies (unified card tabs). */
+function GroupActivityTabs({ group }: { group: string }) {
+  const { data, isLoading } = trpc.customers.groupActivity.useQuery({ group });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Group activity</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Tabs defaultValue="receipts">
+          <TabsList>
+            <TabsTrigger value="receipts">Payment History{data ? ` (${data.receipts.length})` : ""}</TabsTrigger>
+            <TabsTrigger value="contracts">Contracts{data ? ` (${data.contracts.length})` : ""}</TabsTrigger>
+            <TabsTrigger value="tasks">Tasks{data ? ` (${data.tasks.length})` : ""}</TabsTrigger>
+          </TabsList>
+          {isLoading || !data ? (
+            <Skeleton className="h-40 mt-3" />
+          ) : (
+            <>
+              <TabsContent value="receipts">
+                <div className="max-h-80 overflow-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Reference</TableHead>
+                        <TableHead>Method</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.receipts.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">
+                            No payments recorded
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {data.receipts.map(r => (
+                        <TableRow key={r.id}>
+                          <TableCell className="text-sm whitespace-nowrap">{fmtDate(r.receiptDate)}</TableCell>
+                          <TableCell className="text-sm max-w-52">
+                            <div className="truncate" title={r.customerName}>{r.customerName}</div>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{r.receiptNumber || "—"}</TableCell>
+                          <TableCell className="text-sm">{r.method || "—"}</TableCell>
+                          <TableCell className="text-right font-mono text-sm">{fmtEur(Number(r.amount))}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+              <TabsContent value="contracts">
+                <div className="max-h-80 overflow-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Contract</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Start</TableHead>
+                        <TableHead>End</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.contracts.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-6">
+                            No contracts
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {data.contracts.map(c => (
+                        <TableRow key={c.id}>
+                          <TableCell className="font-mono text-xs">{c.contractNumber}</TableCell>
+                          <TableCell className="text-sm max-w-52">
+                            <div className="truncate" title={c.customerName}>{c.customerName}</div>
+                          </TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">{fmtDate(c.startDate)}</TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">{c.endDate ? fmtDate(c.endDate) : "—"}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[10px]">{c.status}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-sm">{fmtEur(Number(c.totalValue))}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+              <TabsContent value="tasks">
+                <div className="max-h-80 overflow-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Task</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Due</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.tasks.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">
+                            No tasks
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {data.tasks.map(t => (
+                        <TableRow key={t.id}>
+                          <TableCell className="text-sm max-w-72">
+                            <div className="truncate" title={t.title}>{t.title}</div>
+                          </TableCell>
+                          <TableCell className="text-sm max-w-52">
+                            <div className="truncate" title={t.customerName}>{t.customerName}</div>
+                          </TableCell>
+                          <TableCell className="text-xs">{t.type}</TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">{t.dueDate ? fmtDate(t.dueDate) : "—"}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={`text-[10px] ${taskStatusColors[t.status] ?? ""}`}>{t.status}</Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+            </>
+          )}
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
+}
 
 function GroupPromisesCard({ group }: { group: string }) {
   const utils = trpc.useUtils();
@@ -660,170 +823,6 @@ function GroupPromisesCard({ group }: { group: string }) {
               </TableBody>
             </Table>
           </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function GroupNotesDialog({ group }: { group: string }) {
-  const [open, setOpen] = useState(false);
-  const utils = trpc.useUtils();
-  const [content, setContent] = useState("");
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editContent, setEditContent] = useState("");
-  const { data: notes, isLoading } = trpc.customers.groupNotes.useQuery({ group }, { enabled: open });
-  const noteCount = trpc.customers.groupNotes.useQuery({ group }, { enabled: !open }).data?.length;
-  const add = trpc.customers.addGroupNote.useMutation({
-    onSuccess: () => {
-      setContent("");
-      toast.success("Note added");
-      utils.customers.groupNotes.invalidate({ group });
-    },
-    onError: e => toast.error(e.message),
-  });
-  const update = trpc.customers.updateGroupNote.useMutation({
-    onSuccess: () => {
-      setEditingId(null);
-      utils.customers.groupNotes.invalidate({ group });
-    },
-    onError: e => toast.error(e.message),
-  });
-  const del = trpc.customers.deleteGroupNote.useMutation({
-    onSuccess: () => utils.customers.groupNotes.invalidate({ group }),
-    onError: e => toast.error(e.message),
-  });
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="gap-1.5">
-          <StickyNote className="h-4 w-4" /> New Note
-          {typeof noteCount === "number" && noteCount > 0 && (
-            <Badge variant="secondary" className="ml-0.5 h-4 px-1 text-[10px]">{noteCount}</Badge>
-          )}
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <StickyNote className="h-4 w-4" /> Group Notes — {group}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-        <div className="flex gap-2">
-          <Textarea
-            value={content}
-            onChange={e => setContent(e.target.value)}
-            placeholder="Add a note about this group (calls, agreements, context)…"
-            className="min-h-16"
-          />
-          <Button
-            size="sm"
-            className="self-end"
-            disabled={!content.trim() || add.isPending}
-            onClick={() => add.mutate({ group, content: content.trim() })}
-          >
-            Add
-          </Button>
-        </div>
-        {isLoading ? (
-          <Skeleton className="h-20" />
-        ) : !notes || notes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No notes yet.</p>
-        ) : (
-          <div className="space-y-2 max-h-72 overflow-auto pr-1">
-            {notes.map(n => (
-              <div key={n.id} className="rounded-md border p-2.5 text-sm">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <span className="text-[11px] text-muted-foreground">
-                    {n.authorName} · {new Date(n.createdAt).toLocaleString()}
-                  </span>
-                  <div className="flex gap-0.5">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0 text-muted-foreground"
-                      onClick={() => {
-                        setEditingId(n.id);
-                        setEditContent(n.content);
-                      }}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0 text-muted-foreground hover:text-red-600"
-                      onClick={() => del.mutate({ id: n.id })}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-                {editingId === n.id ? (
-                  <div className="space-y-2">
-                    <Textarea value={editContent} onChange={e => setEditContent(e.target.value)} className="min-h-16" />
-                    <div className="flex gap-2 justify-end">
-                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setEditingId(null)}>
-                        Cancel
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="h-7 text-xs"
-                        disabled={!editContent.trim() || update.isPending}
-                        onClick={() => update.mutate({ id: n.id, content: editContent.trim() })}
-                      >
-                        Save
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="whitespace-pre-wrap">{n.content}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function GroupAiSummaryCard({ group }: { group: string }) {
-  const [summary, setSummary] = useState<{ text: string; at: number } | null>(null);
-  const gen = trpc.customers.groupAiSummary.useMutation({
-    onSuccess: r => setSummary({ text: r.summary, at: r.generatedAt }),
-    onError: e => toast.error(e.message),
-  });
-  return (
-    <Card>
-      <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Sparkles className="h-4 w-4" /> AI Summary
-        </CardTitle>
-        <Button size="sm" variant="outline" className="gap-1.5" disabled={gen.isPending} onClick={() => gen.mutate({ group })}>
-          {gen.isPending ? <Spinner className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-          {gen.isPending ? "Analyzing…" : summary ? "Regenerate" : "Generate Summary"}
-        </Button>
-      </CardHeader>
-      <CardContent>
-        {gen.isPending ? (
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-5/6" />
-          </div>
-        ) : summary ? (
-          <div>
-            <div className="text-sm whitespace-pre-wrap leading-relaxed">{summary.text}</div>
-            <p className="text-[11px] text-muted-foreground mt-2">Generated {new Date(summary.at).toLocaleString()}</p>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Generate an AI snapshot of this group: exposure, overdue risk, payment behavior, promises, open tasks and notes — useful before a
-            collection call.
-          </p>
         )}
       </CardContent>
     </Card>

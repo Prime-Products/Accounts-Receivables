@@ -1,5 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
+import GroupAiSummaryCard from "@/components/GroupAiSummaryCard";
+import GroupNotesDialog from "@/components/GroupNotesDialog";
+import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -128,6 +131,21 @@ export default function CustomerDetail() {
             <Badge variant="outline" className={onHoldStatusColors[customer.onHoldStatus] ?? ""}>
               {customer.onHoldStatus}
             </Badge>
+            {data.watchStatus === "Problematic" && (
+              <Badge
+                variant="outline"
+                className="bg-red-100 text-red-700 border-red-200"
+                title={data.autoProblematic && !data.watchOverride ? `Group forecast ${fmtEur(data.forecastExpected)} covers less than 80% of the group's overdue end-of-month` : "Manually set to Problematic"}
+              >
+                Problematic
+              </Badge>
+            )}
+            {data.watchStatus === "On Watch" && (
+              <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200" title="Manually set to On Watch">
+                On Watch
+              </Badge>
+            )}
+            <WatchStatusSelect group={data.groupKey} value={data.watchOverride ?? null} />
             {customer.customerGroup && (
               <Badge
                 variant="outline"
@@ -153,6 +171,7 @@ export default function CustomerDetail() {
               </Button>
             }
           />
+          <GroupNotesDialog group={data.groupKey} />
           <Button
             variant="outline"
             size="sm"
@@ -248,8 +267,18 @@ export default function CustomerDetail() {
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <Card>
           <CardContent className="pt-4">
+            <div className="text-xs text-muted-foreground">Open Balance</div>
+            <div className="text-xl font-bold font-mono">{fmtEur(aging.current + aging.totalOverdue)}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">{openInvoices.length} open invoice(s)</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Total Overdue</div>
             <div className="text-xl font-bold font-mono text-red-600">{fmtEur(aging.totalOverdue)}</div>
+            <div className="text-[11px] font-mono mt-0.5 text-orange-600" title="Overdue by end of the current month (today's overdue + invoices falling due until month end)">
+              EOM: {fmtEur(data.overdueEomBalance)}
+            </div>
             {fmtByCurrency(agingAny.totalByCurrency, { skipEurOnly: true }) && (
               <div className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate" title={fmtByCurrency(agingAny.totalByCurrency)}>
                 {fmtByCurrency(agingAny.totalByCurrency)}
@@ -272,6 +301,19 @@ export default function CustomerDetail() {
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Credit Limit</div>
             <div className="text-xl font-bold font-mono">{fmtEur(customer.creditLimit)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="text-xs text-muted-foreground">Payment Behavior</div>
+            <div className="text-xl font-bold font-mono">
+              {data.behavior && data.behavior.payments > 0 ? `${Math.round(data.behavior.medianDaysLate)}d` : "—"}
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              {data.behavior && data.behavior.payments > 0
+                ? `median days late · ${data.behavior.payments} payment(s)`
+                : "no payment history"}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -306,6 +348,31 @@ export default function CustomerDetail() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* Aging buckets (same layout as the group card) */}
+      <div>
+        <div className="text-sm font-semibold mb-2">Aging</div>
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+          {(
+            [
+              ["Current (not due)", aging.current, null],
+              ["0-30 days overdue", aging.buckets["0-30"].amount, aging.buckets["0-30"].count],
+              ["31-60 days overdue", aging.buckets["31-60"].amount, aging.buckets["31-60"].count],
+              ["61-90 days overdue", aging.buckets["61-90"].amount, aging.buckets["61-90"].count],
+              ["91-120 days overdue", aging.buckets["91-120"].amount, aging.buckets["91-120"].count],
+              ["120+ days overdue", aging.buckets["120+"].amount, aging.buckets["120+"].count],
+            ] as [string, number, number | null][]
+          ).map(([label, amount, count]) => (
+            <Card key={label}>
+              <CardContent className="pt-4">
+                <div className="text-xs text-muted-foreground">{label}</div>
+                <div className="text-lg font-bold font-mono">{fmtEur(amount)}</div>
+                {count != null && <div className="text-[11px] text-muted-foreground mt-0.5">{count} inv.</div>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
 
       <Tabs defaultValue="invoices">
@@ -574,6 +641,8 @@ export default function CustomerDetail() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <GroupAiSummaryCard group={data.groupKey} />
     </div>
   );
 }

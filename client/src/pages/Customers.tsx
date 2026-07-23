@@ -59,6 +59,8 @@ export default function Customers() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [ratingFilter, setRatingFilter] = useState<string>("all");
   const [open, setOpen] = useState(false);
   const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
   const [companySort, setCompanySort] = useState<{ key: CompanySortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
@@ -96,7 +98,8 @@ export default function Customers() {
         c.name.toLowerCase().includes(search.toLowerCase()) ||
         c.code.toLowerCase().includes(search.toLowerCase());
       const matchesTier = tierFilter === "all" || c.tier === tierFilter;
-      return matchesSearch && matchesTier;
+      const matchesRating = ratingFilter === "all" || c.rating === ratingFilter;
+      return matchesSearch && matchesTier && matchesRating;
     });
     if (companySort.key) {
       const getVal = (c: (typeof rows)[number]): number => {
@@ -121,11 +124,20 @@ export default function Customers() {
       });
     }
     return rows;
-  }, [data, search, tierFilter, companySort]);
+  }, [data, search, tierFilter, ratingFilter, companySort]);
 
   const filteredGroups = useMemo(() => {
     if (!groups) return [];
-    let rows = search ? groups.filter(g => g.group.toLowerCase().includes(search.toLowerCase())) : groups;
+    let rows = groups.filter(g => {
+      const matchesSearch = !search || g.group.toLowerCase().includes(search.toLowerCase());
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "problematic" && g.watchStatus === "Problematic") ||
+        (statusFilter === "onwatch" && g.watchStatus === "On Watch") ||
+        (statusFilter === "normal" && g.watchStatus !== "Problematic" && g.watchStatus !== "On Watch");
+      const matchesRating = ratingFilter === "all" || g.rating === ratingFilter;
+      return matchesSearch && matchesStatus && matchesRating;
+    });
     if (groupSort.key) {
       const getVal = (g: (typeof rows)[number]): number => {
         switch (groupSort.key) {
@@ -153,7 +165,7 @@ export default function Customers() {
       });
     }
     return rows;
-  }, [groups, search, groupSort]);
+  }, [groups, search, statusFilter, ratingFilter, groupSort]);
 
   const groupTotals = useMemo(
     () =>
@@ -305,6 +317,32 @@ export default function Customers() {
             onChange={e => setSearch(e.target.value)}
           />
         </div>
+        {view === "groups" && (
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="problematic">Problematic</SelectItem>
+              <SelectItem value="onwatch">On Watch</SelectItem>
+              <SelectItem value="normal">Normal</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        <Select value={ratingFilter} onValueChange={setRatingFilter}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="Rating" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All ratings</SelectItem>
+            {["A", "B", "C", "D", "E"].map(r => (
+              <SelectItem key={r} value={r}>
+                Rating {r}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {view === "companies" && (
           <Select value={tierFilter} onValueChange={setTierFilter}>
             <SelectTrigger className="w-40">
@@ -376,6 +414,11 @@ export default function Customers() {
                           {g.problematic && (
                             <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200 text-[10px] shrink-0" title="Forecast covers less than 80% of overdue end-of-month">
                               Problematic
+                            </Badge>
+                          )}
+                          {g.watchStatus === "On Watch" && (
+                            <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] shrink-0" title="Manually set to On Watch">
+                              On Watch
                             </Badge>
                           )}
                         </div>
