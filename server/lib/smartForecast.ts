@@ -10,8 +10,11 @@
 import { invokeLLM } from "../_core/llm";
 import * as db from "../db";
 import {
+  aggregateGroupBehavior,
+  BehaviorRow,
   buildBehaviorProfile,
-  heuristicExpectedAmount,
+  GroupBehavior,
+  heuristicWithHistory,
   isOpenInvoice,
   monthRange,
   outstanding,
@@ -26,6 +29,10 @@ export interface CustomerForecastInput {
   dueThisMonth: number;
   overdue: number;
   profile: PaymentBehaviorProfile;
+  /** Historical stats from last-year payment allocations (customer level). */
+  history?: { avgDaysLate: number; medianDaysLate: number; payments: number } | null;
+  /** Group-level behavior (avg/median days late across the customer group). */
+  groupBehavior?: GroupBehavior | null;
 }
 
 export interface ForecastSuggestion {
@@ -51,6 +58,11 @@ async function aiSuggestBatch(inputs: CustomerForecastInput[], year: number, mon
       promiseReliabilityPct: c.profile.promiseReliability === null ? null : Math.round(c.profile.promiseReliability * 100),
       paidInvoices: c.profile.paidInvoiceCount,
       openInvoices: c.profile.openInvoiceCount,
+      lastYearAvgDaysLate: c.history ? c.history.avgDaysLate : null,
+      lastYearMedianDaysLate: c.history ? c.history.medianDaysLate : null,
+      lastYearPayments: c.history ? c.history.payments : null,
+      groupAvgDaysLate: c.groupBehavior ? c.groupBehavior.avgDaysLate : null,
+      groupMedianDaysLate: c.groupBehavior ? c.groupBehavior.medianDaysLate : null,
     }),
   );
 
@@ -61,6 +73,8 @@ async function aiSuggestBatch(inputs: CustomerForecastInput[], year: number, mon
         content:
           "You are a senior credit controller forecasting monthly cash collections for an accounts receivable department. " +
           "For each customer you receive the amount falling due this month (EUR), the already-overdue balance (EUR), and payment-behavior statistics. " +
+          "lastYearMedianDaysLate/lastYearAvgDaysLate come from real payment allocations of the last 12 months (negative = pays before due date); " +
+          "groupMedianDaysLate is the behavior of the customer's whole group — prefer these real statistics when present. " +
           "Estimate realistically how much the company will actually collect from each customer during the month. " +
           "Customers with long average delays or low collection rates typically pay only a fraction of what they owe. " +
           "Never exceed dueThisMonthEur + overdueEur for a customer. Reply in JSON only.",
@@ -101,7 +115,20 @@ async function aiSuggestBatch(inputs: CustomerForecastInput[], year: number, mon
 
   const content = response.choices?.[0]?.message?.content;
   const text = typeof content === "string" ? content : "";
-  const parsed = JSON.parse(text) as { forecasts: { customerId: number; expectedEur: number; reasoning: string }[] };
+  let parsed: { forecasts: { customerId: number; expectedEur: number; reasoning: string }[] };
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Truncated output: salvage complete objects from the array.
+    const salvaged: { customerId: number; expectedEur: number; reasoning: string }[] = [];
+    const re = /\{[^{}]*"customerId"\s*:\s*(\d+)[^{}]*"expectedEur"\s*:\s*([\d.]+)[^{}]*"reasoning"\s*:\s*"((?:[^"\\]|\\.)*)"[^{}]*\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      salvaged.push({ customerId: Number(m[1]), expectedEur: Number(m[2]), reasoning: m[3] });
+    }
+    if (salvaged.length === 0) throw new Error("AI response unparsable and no objects salvageable");
+    parsed = { forecasts: salvaged };
+  }
   for (const f of parsed.forecasts) {
     const input = inputs.find(i => i.customerId === f.customerId);
     if (!input) continue;
@@ -112,6 +139,22 @@ async function aiSuggestBatch(inputs: CustomerForecastInput[], year: number, mon
   return result;
 }
 
+/** Run AI suggestions in small batches so responses stay within token limits. */
+async function aiSuggestChunked(inputs: CustomerForecastInput[], year: number, month: number): Promise<Map<number, ForecastSuggestion>> {
+  const out = new Map<number, ForecastSuggestion>();
+  const BATCH = 20;
+  for (let i = 0; i < inputs.length; i += BATCH) {
+    const chunk = inputs.slice(i, i + BATCH);
+    try {
+      const res = await aiSuggestBatch(chunk, year, month);
+      for (const [k, v] of Array.from(res.entries())) out.set(k, v);
+    } catch (e) {
+      console.warn(`[SmartForecast] AI batch ${i / BATCH + 1} failed, heuristic fallback for ${chunk.length} customers:`, e);
+    }
+  }
+  return out;
+}
+
 /**
  * Generate (or refresh) the per-customer forecast for a month.
  * Idempotent: existing user-adjusted amounts are preserved.
@@ -119,12 +162,16 @@ async function aiSuggestBatch(inputs: CustomerForecastInput[], year: number, mon
 export async function generateMonthlyForecast(year: number, month: number, opts?: { useAi?: boolean }) {
   const now = Date.now();
   const { start, end } = monthRange(year, month);
-  const [customers, invoices, receipts, promises] = await Promise.all([
+  const [customers, invoices, receipts, promises, behaviorRows] = await Promise.all([
     db.listCustomers(),
     db.listInvoices(),
     db.listReceipts(),
     db.listPromises(),
+    db.listPaymentBehaviorWithGroup().catch(() => [] as Awaited<ReturnType<typeof db.listPaymentBehaviorWithGroup>>),
   ]);
+
+  const behaviorByCustomer = new Map(behaviorRows.map(r => [r.customerId, r]));
+  const groupStats = aggregateGroupBehavior(behaviorRows as BehaviorRow[]);
 
   const inputs: CustomerForecastInput[] = [];
   for (const c of customers) {
@@ -141,7 +188,17 @@ export async function generateMonthlyForecast(year: number, month: number, opts?
       promises.filter(p => p.customerId === c.id),
       now,
     );
-    inputs.push({ customerId: c.id, customerName: c.name, dueThisMonth, overdue, profile });
+    const hist = behaviorByCustomer.get(c.id) ?? null;
+    const gb = c.customerGroup ? groupStats.get(c.customerGroup.trim()) ?? null : null;
+    inputs.push({
+      customerId: c.id,
+      customerName: c.name,
+      dueThisMonth,
+      overdue,
+      profile,
+      history: hist ? { avgDaysLate: hist.avgDaysLate, medianDaysLate: hist.medianDaysLate, payments: hist.payments } : null,
+      groupBehavior: gb,
+    });
   }
 
   // Rank by exposure and use AI for the top customers (cost control); heuristic for the rest.
@@ -151,18 +208,20 @@ export async function generateMonthlyForecast(year: number, month: number, opts?
 
   let aiResults = new Map<number, ForecastSuggestion>();
   if (aiTargets.length > 0) {
-    try {
-      aiResults = await aiSuggestBatch(aiTargets, year, month);
-    } catch (e) {
-      console.warn("[SmartForecast] AI suggestion failed, using heuristic for all:", e);
-    }
+    aiResults = await aiSuggestChunked(aiTargets, year, month);
   }
 
   let created = 0;
   for (const input of inputs) {
     const ai = aiResults.get(input.customerId);
+    // Fall back to group-level history when the customer has none of its own.
+    const effectiveHistory =
+      input.history ??
+      (input.groupBehavior
+        ? { avgDaysLate: input.groupBehavior.avgDaysLate, medianDaysLate: input.groupBehavior.medianDaysLate, payments: input.groupBehavior.payments }
+        : null);
     const suggestion: ForecastSuggestion = ai ?? {
-      ...heuristicExpectedAmount(input.dueThisMonth, input.overdue, input.profile),
+      ...heuristicWithHistory(input.dueThisMonth, input.overdue, input.profile, effectiveHistory),
       source: "heuristic" as const,
     };
     await db.upsertForecastEntry({

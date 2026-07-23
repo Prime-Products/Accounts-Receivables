@@ -366,3 +366,101 @@ export function heuristicExpectedAmount(
     `collection rate ${(profile.collectionRate * 100).toFixed(0)}%); reliability blend ${(blend).toFixed(2)}.`;
   return { amount, reasoning };
 }
+
+// ---------- Historical payment behavior (from imported payment allocations) ----------
+
+export interface BehaviorRow {
+  customerId: number;
+  payments: number;
+  totalPaid: number;
+  avgDaysLate: number;
+  medianDaysLate: number;
+  avgDaysFromInvoice: number;
+  medianDaysFromInvoice: number;
+  customerGroup?: string | null;
+  customerName?: string | null;
+}
+
+export interface GroupBehavior {
+  group: string;
+  companies: number;
+  payments: number;
+  totalPaid: number;
+  avgDaysLate: number;
+  medianDaysLate: number;
+  avgDaysFromInvoice: number;
+  medianDaysFromInvoice: number;
+}
+
+/** Weighted median: values weighted by payment counts. */
+export function weightedMedian(pairs: Array<[value: number, weight: number]>): number {
+  const valid = pairs.filter(([, w]) => w > 0).sort((a, b) => a[0] - b[0]);
+  if (valid.length === 0) return 0;
+  const total = valid.reduce((s, [, w]) => s + w, 0);
+  let acc = 0;
+  for (const [v, w] of valid) {
+    acc += w;
+    if (acc >= total / 2) return v;
+  }
+  return valid[valid.length - 1][0];
+}
+
+/**
+ * Aggregate per-customer behavior stats into group-level stats.
+ * Averages weighted by payment count; medians via weighted median of
+ * per-company medians (payments as weights).
+ */
+export function aggregateGroupBehavior(rows: BehaviorRow[]): Map<string, GroupBehavior> {
+  const byGroup = new Map<string, BehaviorRow[]>();
+  for (const r of rows) {
+    const g = (r.customerGroup || r.customerName || `#${r.customerId}`).trim();
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g)!.push(r);
+  }
+  const out = new Map<string, GroupBehavior>();
+  for (const [g, items] of Array.from(byGroup.entries())) {
+    const payments = items.reduce((s, r) => s + r.payments, 0);
+    const totalPaid = items.reduce((s, r) => s + r.totalPaid, 0);
+    const w = payments || 1;
+    out.set(g, {
+      group: g,
+      companies: items.length,
+      payments,
+      totalPaid: Math.round(totalPaid * 100) / 100,
+      avgDaysLate: Math.round((items.reduce((s, r) => s + r.avgDaysLate * r.payments, 0) / w) * 10) / 10,
+      medianDaysLate: weightedMedian(items.map(r => [r.medianDaysLate, r.payments])),
+      avgDaysFromInvoice: Math.round((items.reduce((s, r) => s + r.avgDaysFromInvoice * r.payments, 0) / w) * 10) / 10,
+      medianDaysFromInvoice: weightedMedian(items.map(r => [r.medianDaysFromInvoice, r.payments])),
+    });
+  }
+  return out;
+}
+
+/**
+ * Refine the heuristic using real historical behavior (median days late from
+ * last-year payment allocations). Falls back to the base heuristic when no
+ * history exists for the customer or its group.
+ */
+export function heuristicWithHistory(
+  dueThisMonth: number,
+  overdue: number,
+  profile: PaymentBehaviorProfile,
+  history?: { avgDaysLate: number; medianDaysLate: number; payments: number } | null,
+): { amount: number; reasoning: string } {
+  const base = heuristicExpectedAmount(dueThisMonth, overdue, profile);
+  if (!history || history.payments < 2) return base;
+  const med = history.medianDaysLate;
+  // Median days late → on-time factor from real behavior.
+  const onTimeFactor = med <= 0 ? 0.95 : med <= 7 ? 0.85 : med <= 30 ? 0.6 : med <= 60 ? 0.4 : 0.2;
+  // Overdue recovery: customers who historically settle (even late) recover more.
+  const overdueFactor = med <= 30 ? 0.5 : med <= 60 ? 0.35 : 0.2;
+  const histExpected = Math.min(dueThisMonth * onTimeFactor + overdue * overdueFactor, dueThisMonth + overdue);
+  // Blend: history dominates (70%) when we have enough payments.
+  const weight = Math.min(0.7, 0.3 + history.payments / 100);
+  const amount = Math.round((histExpected * weight + base.amount * (1 - weight)) * 100) / 100;
+  const reasoning =
+    `History: median ${med}d late, avg ${history.avgDaysLate}d over ${history.payments} payments (last year) → ` +
+    `on-time ${onTimeFactor}, overdue recovery ${overdueFactor}, blend ${(weight * 100).toFixed(0)}% history. ` +
+    base.reasoning;
+  return { amount, reasoning };
+}

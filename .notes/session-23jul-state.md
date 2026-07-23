@@ -77,3 +77,28 @@
 - Consider: remove/deprioritize "Run Task Engine Now" button? User wants manual tasks first; keep engine but maybe confirm dialog. NOT done.
 - Memory pressure earlier: killed stray esbuild; dev server restarted OK.
 - Remaining todos: vitest for task creation validation, tier editor todo item, final delete verification, checkpoint, Greek delivery.
+
+## Manual tasks + tier: DONE (checkpoint f9204472, 44/44 tests, tasks table emptied 11:34)
+
+## NEW REQUEST: group payment behavior for forecast (Excel: /home/ubuntu/upload/allcustomersreceivables.xlsx)
+- Excel sheets: "Print" (25044 rows x 17 cols, PAYMENT allocations) + "Sheet1" (509 rows, purchases/reconciliation — ignore)
+- "Print" header row 0: 0=Εταιρεία(branch), 1=Τύπος απαίτησης, 2=Module (e.g. "Customer Wire transfers"), 3=Ημερ/νία παραστ.(payment doc date), 4=Name (customer short), 5=Συναλλασόμενος (customer full), 6=Ενότητα Κάλυψης (Sales), 7=Παραστατικό Κάλυψης (covered invoice number), 8=Ημερ/νία Παρ.Κάλυψης (invoice date), 9=Ημερ.πληρωμής παρ.καλ. (invoice DUE date), 10=Αξία Παρ.Κάλυψης (invoice value), 11=Document (payment doc e.g. ΕΜΒ0000592), 12=Ημερ.πληρωμής (payment date), 13=Αξία(Ξ.Ν.) (allocated amount), 16=Συναλλασόμενος Παρ.Κάλυψης
+- days-to-pay = payment date (col 12) − invoice due date (col 9); also days from invoice date (col 8)
+- Group mapping: customers table has customerGroup; match Excel customer name (col 5/4) to customers.name
+- Plan: compute per-customer avg/median days late (vs due) from these real payments, aggregate per group; store in DB (new table group_behavior or customer columns); integrate into smartForecast; show in Forecast UI + group card
+
+## Behavior import DONE (11:58)
+- payment_behavior table created (migration 0005): customerId unique, payments, totalPaid, avgDaysLate, medianDaysLate, avgDaysFromInvoice, medianDaysFromInvoice
+- 614 customers imported (dedupe merged fuzzy matches, weighted avg), window 2025-08-31→2026-08-31, 23425 payment allocations
+- Overall: avg 15.2 days late, median 2.0. MSC: median -4 (pays early vs due), Pantheon group median 38, Dynacom group 62.5
+- Scripts: /home/ubuntu/analyze_payments.py, /home/ubuntu/match_behavior.py, ar_app/scripts/import-behavior.mjs, ar_app/scripts/dump-customers.mjs
+- NEXT: (a) db.ts helpers getPaymentBehavior/getGroupBehavior; (b) smartForecast.ts: use behavior medianDaysLate to shift expected collection (invoice due + median days late falls in month?) + include stats in LLM prompt; (c) Forecast UI: show avg/median per customer row tooltip/column; (d) group card: behavior card with avg/median days; (e) regenerate July forecast; tests
+
+## Behavior integration DONE (12:05, TS clean)
+- db.ts: listPaymentBehavior, getPaymentBehavior, listPaymentBehaviorWithGroup (join customers for group)
+- arLogic.ts: BehaviorRow, GroupBehavior, weightedMedian, aggregateGroupBehavior (weighted avg + weighted median), heuristicWithHistory (blend history 30-70% by payment count; med<=0→0.95 factor etc.)
+- smartForecast.ts: loads behavior + group stats; passes lastYearAvgDaysLate/median + groupAvg/Median to LLM prompt; heuristic uses history w/ group fallback
+- routers/ar.ts: smartEntries returns avgDaysLate/medianDaysLate/historyPayments/groupAvg/groupMedian/customerGroup per row; groupDetail returns behavior (group-level) + per-company avg/median/historyPayments
+- Forecast.tsx: "Behavior (days)" column (med Xd colored, tooltip w/ full stats, grp fallback)
+- GroupDetail.tsx: KPI card "Payment Behavior (last year)" (median colored + avg + payments), Behavior column in companies table
+- DONE 12:10: behavior.test.ts (10 tests, 55/55 total pass); AI batching fixed (chunked 20/batch + truncated-JSON salvage) — July regen: 485 customers, 40 AI + 445 heuristic; screenshots OK (Forecast behavior column w/ tooltip, ELETSON group card behavior KPI +185d median, per-company med 381d/185d); one-off scripts removed. Remaining: todo ticks + checkpoint + Greek delivery

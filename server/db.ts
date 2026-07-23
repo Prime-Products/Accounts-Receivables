@@ -18,6 +18,7 @@ import {
   InsertUser,
   invoices,
   onHoldProposals,
+  paymentBehavior,
   promisesToPay,
   receiptAllocations,
   receipts,
@@ -422,6 +423,37 @@ export async function getSetting(key: string) {
   const db = await requireDb();
   const r = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1);
   return r[0]?.value;
+}
+
+// ---------- Payment behavior (historical days-to-pay stats) ----------
+export async function listPaymentBehavior() {
+  const db = await requireDb();
+  return db.select().from(paymentBehavior);
+}
+
+export async function getPaymentBehavior(customerId: number) {
+  const db = await requireDb();
+  const r = await db.select().from(paymentBehavior).where(eq(paymentBehavior.customerId, customerId)).limit(1);
+  return r[0];
+}
+
+/** Behavior rows joined with customer group, for group-level aggregation. */
+export async function listPaymentBehaviorWithGroup() {
+  const db = await requireDb();
+  return db
+    .select({
+      customerId: paymentBehavior.customerId,
+      payments: paymentBehavior.payments,
+      totalPaid: paymentBehavior.totalPaid,
+      avgDaysLate: paymentBehavior.avgDaysLate,
+      medianDaysLate: paymentBehavior.medianDaysLate,
+      avgDaysFromInvoice: paymentBehavior.avgDaysFromInvoice,
+      medianDaysFromInvoice: paymentBehavior.medianDaysFromInvoice,
+      customerName: customers.name,
+      customerGroup: customers.customerGroup,
+    })
+    .from(paymentBehavior)
+    .innerJoin(customers, eq(paymentBehavior.customerId, customers.id));
 }
 
 export async function setSetting(key: string, value: string, updatedBy?: number) {

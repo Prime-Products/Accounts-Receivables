@@ -159,12 +159,28 @@ export default function GroupDetail() {
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Open Invoices</div>
                 <div className="text-xl font-bold font-mono">{data.totals.openCount}</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">{data.companies.length} companies in group</div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-xs text-muted-foreground">Companies in group</div>
-                <div className="text-xl font-bold font-mono">{data.companies.length}</div>
+                <div className="text-xs text-muted-foreground">Payment Behavior (last year)</div>
+                {data.behavior ? (
+                  <>
+                    <div
+                      className={`text-xl font-bold font-mono ${
+                        data.behavior.medianDaysLate > 30 ? "text-red-600" : data.behavior.medianDaysLate > 7 ? "text-amber-600" : "text-emerald-700"
+                      }`}
+                    >
+                      {data.behavior.medianDaysLate > 0 ? `+${data.behavior.medianDaysLate}` : data.behavior.medianDaysLate}d median
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                      avg {data.behavior.avgDaysLate}d vs due date · {data.behavior.payments} payments
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-muted-foreground mt-1">No payment history</div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -209,6 +225,7 @@ export default function GroupDetail() {
                   <TableRow>
                     <TableHead>Company</TableHead>
                     <TableHead>Tier</TableHead>
+                    <TableHead className="text-right">Behavior</TableHead>
                     <TableHead className="text-right">Open Balance</TableHead>
                     <TableHead className="text-right">Overdue</TableHead>
                     <TableHead className="text-right">Open Inv.</TableHead>
@@ -227,6 +244,20 @@ export default function GroupDetail() {
                         <Badge variant="outline" className={tierColors[c.tier] ?? ""}>
                           {c.tier}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {c.medianDaysLate !== null ? (
+                          <span
+                            className={`font-mono text-xs ${
+                              Number(c.medianDaysLate) > 30 ? "text-red-600" : Number(c.medianDaysLate) > 7 ? "text-amber-600" : "text-emerald-700"
+                            }`}
+                            title={`Last year: median ${c.medianDaysLate}d / avg ${c.avgDaysLate}d late (${c.historyPayments} payments)`}
+                          >
+                            med {c.medianDaysLate}d
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right font-mono">{fmtEur(c.openBalance)}</TableCell>
                       <TableCell className={`text-right font-mono ${c.overdueBalance > 0 ? "text-red-600" : ""}`}>

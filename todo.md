@@ -97,6 +97,13 @@
 - [x] Customer 360: editable Tier (dropdown on the tier badge) wired to customers.update
 - [x] Confirmation dialog on "Run Task Engine Now" to prevent accidental bulk generation
 
+## Group payment behavior in forecast (new Excel: allcustomersreceivables.xlsx)
+- [x] Analyze uploaded Excel: payment history (last year) per customer/group
+- [x] Compute avg & median days-to-pay per customer group from last-year payments (614 customers imported to payment_behavior, 82.8% value coverage)
+- [x] Backend: group behavior stats endpoint + integrate into smart forecast suggestions
+- [x] Frontend: show avg/median days per group in Forecast page (and group card)
+- [x] Regenerate current-month forecast with group behavior; tests + checkpoint
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)

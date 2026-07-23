@@ -141,6 +141,7 @@ function SmartForecastSection() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Customer</TableHead>
+                    <TableHead className="text-right">Behavior (days)</TableHead>
                     <TableHead className="text-right">Due (month)</TableHead>
                     <TableHead className="text-right">Overdue</TableHead>
                     <TableHead className="text-right">AI Suggested</TableHead>
@@ -161,6 +162,44 @@ function SmartForecastSection() {
                             <Badge variant="outline" className="mt-0.5 text-[10px] bg-amber-50 text-amber-800 border-amber-200">
                               User adjusted
                             </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {e.medianDaysLate !== null || e.groupMedianDaysLate !== null ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex flex-col items-end cursor-help">
+                                  {e.medianDaysLate !== null && (
+                                    <span
+                                      className={`font-mono text-xs ${
+                                        Number(e.medianDaysLate) > 30 ? "text-red-600" : Number(e.medianDaysLate) > 7 ? "text-amber-600" : "text-emerald-700"
+                                      }`}
+                                    >
+                                      med {e.medianDaysLate}
+                                    </span>
+                                  )}
+                                  {e.groupMedianDaysLate !== null && (
+                                    <span
+                                      className={`font-mono text-[10px] ${
+                                        Number(e.groupMedianDaysLate) > 30 ? "text-red-600/80" : Number(e.groupMedianDaysLate) > 7 ? "text-amber-600/80" : "text-emerald-700/80"
+                                      }`}
+                                    >
+                                      grp {e.groupMedianDaysLate}
+                                    </span>
+                                  )}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-64 text-xs">
+                                {e.medianDaysLate !== null
+                                  ? `Customer last year: median ${e.medianDaysLate}d / avg ${e.avgDaysLate}d late vs due date (${e.historyPayments} payments). `
+                                  : "No own payment history. "}
+                                {e.groupMedianDaysLate !== null && e.customerGroup
+                                  ? `Group "${e.customerGroup}": median ${e.groupMedianDaysLate}d / avg ${e.groupAvgDaysLate}d late.`
+                                  : ""}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right font-mono">{fmtEur(Number(e.dueAmount))}</TableCell>

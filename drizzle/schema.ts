@@ -1,4 +1,4 @@
-import { bigint, decimal, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { bigint, decimal, double, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -37,6 +37,23 @@ export const userProfiles = mysqlTable("user_profiles", {
 });
 
 export const customerTiers = ["Platinum", "Gold", "Silver", "Bronze", "New"] as const;
+
+/**
+ * Historical payment behavior per customer, computed from imported payment allocations
+ * (last-year window). Used by the smart forecast for avg/median days-to-pay.
+ */
+export const paymentBehavior = mysqlTable("payment_behavior", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull().unique(),
+  payments: int("payments").notNull().default(0),
+  totalPaid: double("totalPaid").notNull().default(0),
+  avgDaysLate: double("avgDaysLate").notNull().default(0),
+  medianDaysLate: double("medianDaysLate").notNull().default(0),
+  avgDaysFromInvoice: double("avgDaysFromInvoice").notNull().default(0),
+  medianDaysFromInvoice: double("medianDaysFromInvoice").notNull().default(0),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type PaymentBehavior = typeof paymentBehavior.$inferSelect;
 
 export const customers = mysqlTable("customers", {
   id: int("id").autoincrement().primaryKey(),

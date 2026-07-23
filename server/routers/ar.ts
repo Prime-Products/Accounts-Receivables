@@ -19,6 +19,8 @@ import {
   daysOverdue,
   DEFAULT_FX_RATES,
   deriveInvoiceStatus,
+  aggregateGroupBehavior,
+  BehaviorRow,
   getFxRates,
   isOpenInvoice,
   monthRange,
@@ -136,7 +138,10 @@ export const customersRouter = router({
       const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
       if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
       const memberIds = new Set(members.map(m => m.id));
-      const allInvoices = await db.listInvoices();
+      const [allInvoices, allBehavior] = await Promise.all([
+        db.listInvoices(),
+        db.listPaymentBehaviorWithGroup().catch(() => []),
+      ]);
       const now = Date.now();
       // Full group scope (for the branch list and per-company summary regardless of filters)
       const groupInvoices = allInvoices.filter(i => memberIds.has(i.customerId));
@@ -162,11 +167,17 @@ export const customersRouter = router({
           (input.branch === undefined || i.company === input.branch) &&
           (input.minDaysOverdue === undefined || (isOpenInvoice(i) && now > i.dueDate && daysOverdue(i.dueDate, now) >= input.minDaysOverdue)),
       );
+      const memberBehavior = allBehavior.filter(b => memberIds.has(b.customerId));
+      const behaviorByCustomer = new Map(memberBehavior.map(b => [b.customerId, b]));
+      const groupBehavior = memberBehavior.length > 0
+        ? Array.from(aggregateGroupBehavior(memberBehavior.map(b => ({ ...b, customerGroup: input.group })) as BehaviorRow[]).values())[0] ?? null
+        : null;
       const companies = members
         .map(m => {
           const mine = branchScoped.filter(i => i.customerId === m.id);
           const mOpen = mine.filter(isOpenInvoice);
           const mOverdue = mOpen.filter(i => now > i.dueDate);
+          const beh = behaviorByCustomer.get(m.id);
           return {
             id: m.id,
             name: m.name,
@@ -175,6 +186,9 @@ export const customersRouter = router({
             openBalance: mOpen.reduce((s, i) => s + outstanding(i), 0),
             overdueBalance: mOverdue.reduce((s, i) => s + outstanding(i), 0),
             invoiceCount: mOpen.length,
+            avgDaysLate: beh?.avgDaysLate ?? null,
+            medianDaysLate: beh?.medianDaysLate ?? null,
+            historyPayments: beh?.payments ?? 0,
           };
         })
         .sort((a, b) => b.openBalance - a.openBalance);
@@ -185,6 +199,7 @@ export const customersRouter = router({
         companies,
         branches,
         aging,
+        behavior: groupBehavior,
         totals: {
           openBalance: open.reduce((s, i) => s + outstanding(i), 0),
           overdueBalance: overdue.reduce((s, i) => s + outstanding(i), 0),
@@ -655,12 +670,15 @@ export const forecastRouter = router({
   smartEntries: protectedProcedure
     .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12) }))
     .query(async ({ input }) => {
-      const [entries, customers, receipts] = await Promise.all([
+      const [entries, customers, receipts, behaviorRows] = await Promise.all([
         db.listForecastEntries(input.year, input.month),
         db.listCustomers(),
         db.listReceipts(),
+        db.listPaymentBehaviorWithGroup().catch(() => []),
       ]);
       const byId = new Map(customers.map(c => [c.id, c]));
+      const behaviorByCustomer = new Map(behaviorRows.map(r => [r.customerId, r]));
+      const groupStats = aggregateGroupBehavior(behaviorRows as BehaviorRow[]);
       const { start, end } = monthRange(input.year, input.month);
       const collectedByCustomer = new Map<number, number>();
       for (const r of receipts) {
@@ -670,10 +688,19 @@ export const forecastRouter = router({
       }
       const rows = entries.map(e => {
         const collected = collectedByCustomer.get(e.customerId) ?? 0;
+        const cust = byId.get(e.customerId);
+        const hist = behaviorByCustomer.get(e.customerId) ?? null;
+        const gb = cust?.customerGroup ? groupStats.get(cust.customerGroup.trim()) ?? null : null;
         return {
           ...e,
-          customerName: byId.get(e.customerId)?.name ?? "—",
-          customerTier: byId.get(e.customerId)?.tier ?? "New",
+          customerName: cust?.name ?? "—",
+          customerTier: cust?.tier ?? "New",
+          customerGroup: cust?.customerGroup ?? null,
+          avgDaysLate: hist?.avgDaysLate ?? null,
+          medianDaysLate: hist?.medianDaysLate ?? null,
+          historyPayments: hist?.payments ?? 0,
+          groupAvgDaysLate: gb?.avgDaysLate ?? null,
+          groupMedianDaysLate: gb?.medianDaysLate ?? null,
           collected,
           remaining: Math.max(0, Number(e.expectedAmount) - collected),
         };
