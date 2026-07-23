@@ -8,14 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fmtByCurrency, fmtEur, onHoldStatusColors, ratingColors, tierColors } from "@/lib/format";
+import { fmtByCurrency, fmtEur, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowDown, ArrowUp, ArrowUpDown, Layers, Plus, Search, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
-
-const TIERS = ["Platinum", "Gold", "Silver", "Bronze", "New"] as const;
 
 type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "overdueCount" | "rating";
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "rating";
@@ -58,7 +56,6 @@ export default function Customers() {
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
-  const [tierFilter, setTierFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [ratingFilter, setRatingFilter] = useState<string>("all");
   const [open, setOpen] = useState(false);
@@ -76,7 +73,6 @@ export default function Customers() {
     email: "",
     phone: "",
     contactPerson: "",
-    tier: "New" as (typeof TIERS)[number],
     creditLimit: "0",
     paymentTermsDays: "30",
   });
@@ -97,9 +93,8 @@ export default function Customers() {
         !search ||
         c.name.toLowerCase().includes(search.toLowerCase()) ||
         c.code.toLowerCase().includes(search.toLowerCase());
-      const matchesTier = tierFilter === "all" || c.tier === tierFilter;
       const matchesRating = ratingFilter === "all" || c.rating === ratingFilter;
-      return matchesSearch && matchesTier && matchesRating;
+      return matchesSearch && matchesRating;
     });
     if (companySort.key) {
       const getVal = (c: (typeof rows)[number]): number => {
@@ -124,7 +119,7 @@ export default function Customers() {
       });
     }
     return rows;
-  }, [data, search, tierFilter, ratingFilter, companySort]);
+  }, [data, search, ratingFilter, companySort]);
 
   const filteredGroups = useMemo(() => {
     if (!groups) return [];
@@ -207,7 +202,7 @@ export default function Customers() {
           <p className="text-sm text-muted-foreground mt-1">
             {view === "groups"
               ? "Group tracking — click a group for its card with member companies"
-              : "Tiers: Platinum / Gold / Silver / Bronze / New — click a row for the Customer 360 View"}
+              : "Click a row for the Customer 360 View"}
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
@@ -232,21 +227,6 @@ export default function Customers() {
               <div className="space-y-1.5">
                 <Label>VAT Number</Label>
                 <Input value={form.vatNumber} onChange={e => setForm({ ...form, vatNumber: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Tier</Label>
-                <Select value={form.tier} onValueChange={v => setForm({ ...form, tier: v as any })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIERS.map(t => (
-                      <SelectItem key={t} value={t}>
-                        {t}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>Email</Label>
@@ -284,7 +264,6 @@ export default function Customers() {
                     email: form.email || undefined,
                     phone: form.phone || undefined,
                     contactPerson: form.contactPerson || undefined,
-                    tier: form.tier,
                     creditLimit: Number(form.creditLimit || 0),
                     paymentTermsDays: Number(form.paymentTermsDays || 30),
                   })
@@ -343,21 +322,6 @@ export default function Customers() {
             ))}
           </SelectContent>
         </Select>
-        {view === "companies" && (
-          <Select value={tierFilter} onValueChange={setTierFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Tier" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All tiers</SelectItem>
-              {TIERS.map(t => (
-                <SelectItem key={t} value={t}>
-                  {t}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
       </div>
 
       <Card>
@@ -471,7 +435,6 @@ export default function Customers() {
                   <TableHead>Code</TableHead>
                   <TableHead>Name</TableHead>
                   <SortableHead label="Rating" active={companySort.key === "rating"} dir={companySort.dir} onClick={() => toggleCompanySort("rating")} />
-                  <TableHead>Tier</TableHead>
                   <TableHead>Status</TableHead>
                   <SortableHead label="Open Balance" active={companySort.key === "open"} dir={companySort.dir} onClick={() => toggleCompanySort("open")} />
                   <SortableHead label="Overdue" active={companySort.key === "overdue"} dir={companySort.dir} onClick={() => toggleCompanySort("overdue")} />
@@ -481,7 +444,7 @@ export default function Customers() {
               </TableHeader>
               <TableBody>
                 <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
-                  <TableCell colSpan={5}>TOTAL ({filtered.length} companies)</TableCell>
+                  <TableCell colSpan={4}>TOTAL ({filtered.length} companies)</TableCell>
                   <TableCell className="text-right font-mono">{fmtEur(companyTotals.open)}</TableCell>
                   <TableCell className={`text-right font-mono ${companyTotals.overdue > 0 ? "text-red-600" : ""}`}>
                     {fmtEur(companyTotals.overdue)}
@@ -505,14 +468,13 @@ export default function Customers() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={tierColors[c.tier]}>
-                        {c.tier}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={onHoldStatusColors[c.onHoldStatus] ?? ""}>
-                        {c.onHoldStatus}
-                      </Badge>
+                      {c.onHoldStatus !== "Active" ? (
+                        <Badge variant="outline" className={onHoldStatusColors[c.onHoldStatus] ?? ""}>
+                          {c.onHoldStatus}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right font-mono">{fmtEur(c.openBalance)}</TableCell>
                     <TableCell className={`text-right font-mono ${c.overdueBalance > 0 ? "text-red-600 font-semibold" : ""}`}>

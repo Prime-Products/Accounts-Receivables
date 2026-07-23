@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeCreditRating } from "./lib/arLogic";
+import { computeCreditRating, computeCallPriority } from "./lib/arLogic";
 
 describe("computeCreditRating", () => {
   it("gives A to a clean payer with no overdue", () => {
@@ -11,6 +11,8 @@ describe("computeCreditRating", () => {
       promisesKept: 2,
       promisesBroken: 0,
       onHoldStatus: "Active",
+      turnoverYtd: 500_000,
+      turnoverLastYear: 600_000,
     });
     expect(r.rating).toBe("A");
     expect(r.score).toBe(100);
@@ -40,9 +42,9 @@ describe("computeCreditRating", () => {
       promisesBroken: 0,
       onHoldStatus: "Active",
     });
-    // 21 + 30 + 15 + 7 + 10 = 83 → B
+    // 18 + 25 + 12 + 6 + 5 + 6 + 6 = 78 → B
     expect(r.rating).toBe("B");
-    expect(r.score).toBe(83);
+    expect(r.score).toBe(78);
   });
 
   it("penalizes on-hold status and broken promises", () => {
@@ -70,8 +72,103 @@ describe("computeCreditRating", () => {
       promisesBroken: 1,
       onHoldStatus: "Under Review",
     });
-    expect(r.factors).toHaveLength(5);
+    expect(r.factors).toHaveLength(7);
     expect(r.factors.reduce((s, f) => s + f.points, 0)).toBe(r.score);
+  });
+
+  it("penalizes turnover decline and high overdue-to-turnover exposure", () => {
+    const base = {
+      daysLate: 10,
+      openBalance: 100_000,
+      overdueBalance: 50_000,
+      overdue90Plus: 0,
+      promisesKept: 1,
+      promisesBroken: 0,
+      onHoldStatus: "Active",
+    };
+    // Healthy turnover: large and stable.
+    const healthy = computeCreditRating({ ...base, turnoverYtd: 900_000, turnoverLastYear: 1_000_000 });
+    // Declining turnover and small size relative to the overdue exposure.
+    const declining = computeCreditRating({ ...base, turnoverYtd: 30_000, turnoverLastYear: 1_000_000 });
+    expect(declining.score).toBeLessThan(healthy.score);
+    const trend = declining.factors.find(f => f.label === "Turnover trend");
+    expect(trend).toBeTruthy();
+    expect(trend!.points).toBeLessThan(10);
+    // Exposure factor: overdue 50k vs turnover 100k (50% > 40% cap) → 0 pts.
+    const exposed = computeCreditRating({ ...base, turnoverYtd: 100_000, turnoverLastYear: 100_000 });
+    const exp = exposed.factors.find(f => f.label === "Overdue vs turnover");
+    expect(exp!.points).toBe(0);
+  });
+
+  it("is neutral on turnover factors when no turnover data", () => {
+    const r = computeCreditRating({
+      daysLate: 0,
+      openBalance: 10_000,
+      overdueBalance: 0,
+      overdue90Plus: 0,
+      promisesKept: 0,
+      promisesBroken: 0,
+      onHoldStatus: "Active",
+    });
+    expect(r.factors.find(f => f.label === "Turnover trend")!.detail).toContain("neutral");
+    expect(r.factors.find(f => f.label === "Overdue vs turnover")!.detail).toContain("neutral");
+  });
+});
+
+describe("computeCallPriority", () => {
+  it("ranks broken promises above similar overdue without breaks", () => {
+    const base = {
+      overdueBalance: 50_000,
+      overdue6190: 10_000,
+      overdue90Plus: 5_000,
+      rating: "C" as const,
+      promisesBroken: 0,
+      forecastCoverage: null,
+    };
+    const clean = computeCallPriority(base);
+    const broken = computeCallPriority({ ...base, promisesBroken: 2 });
+    expect(broken.score).toBeGreaterThan(clean.score);
+    expect(broken.reasons).toContain("Broken promise");
+  });
+
+  it("weights rating: E scores higher than A for the same amounts", () => {
+    const base = {
+      overdueBalance: 30_000,
+      overdue6190: 5_000,
+      overdue90Plus: 0,
+      promisesBroken: 0,
+      forecastCoverage: null,
+    };
+    const a = computeCallPriority({ ...base, rating: "A" });
+    const e = computeCallPriority({ ...base, rating: "E" });
+    expect(e.score).toBeGreaterThan(a.score);
+    expect(e.reasons).toContain("Rating E");
+  });
+
+  it("boosts low forecast coverage and flags the reason", () => {
+    const base = {
+      overdueBalance: 40_000,
+      overdue6190: 0,
+      overdue90Plus: 0,
+      rating: "B" as const,
+      promisesBroken: 0,
+    };
+    const covered = computeCallPriority({ ...base, forecastCoverage: 1.0 });
+    const uncovered = computeCallPriority({ ...base, forecastCoverage: 0.4 });
+    expect(uncovered.score).toBeGreaterThan(covered.score);
+    expect(uncovered.reasons).toContain("Low coverage");
+  });
+
+  it("returns zero-ish score when nothing overdue", () => {
+    const r = computeCallPriority({
+      overdueBalance: 0,
+      overdue6190: 0,
+      overdue90Plus: 0,
+      rating: "A",
+      promisesBroken: 0,
+      forecastCoverage: null,
+    });
+    expect(r.score).toBe(0);
   });
 });
 

@@ -85,7 +85,6 @@ export default function OnHold() {
                   <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
                     <span className="flex items-center gap-2">
                       {p.customerName}
-                      <Badge variant="secondary">{p.customerTier}</Badge>
                       <Badge variant="outline" className={onHoldStatusColors[p.status] ?? ""}>
                         {p.status}
                       </Badge>

@@ -366,6 +366,10 @@ export interface RatingInput {
   promisesBroken: number;
   /** On-hold status of the customer (worst of members for a group). */
   onHoldStatus: string | null;
+  /** Turnover EUR year-to-date (sum for groups). Null/undefined when unknown. */
+  turnoverYtd?: number | null;
+  /** Turnover EUR last full year (sum for groups). Null/undefined when unknown. */
+  turnoverLastYear?: number | null;
 }
 
 export interface RatingResult {
@@ -378,63 +382,175 @@ export interface RatingResult {
 
 /**
  * Deterministic 0-100 score → A-E rating.
- * Weights: payment delay 35, overdue ratio 30, aging severity 15, promises 10, on-hold 10.
+ * Weights: payment delay 30, overdue ratio 25, aging severity 12, promises 8, on-hold 5,
+ * turnover trend 10, overdue-vs-turnover exposure 10.
  */
 export function computeCreditRating(input: RatingInput): RatingResult {
   const factors: RatingResult["factors"] = [];
 
-  // 1. Payment delay (35 pts): 0d late → full, 90+d → 0.
+  // 1. Payment delay (30 pts): 0d late → full, 90+d → 0.
   const dl = input.daysLate;
   let delayPts: number;
   let delayDetail: string;
   if (dl === null) {
-    delayPts = 21; // neutral 60% when no history
+    delayPts = 18; // neutral 60% when no history
     delayDetail = "No payment history — neutral";
   } else {
     const clamped = Math.max(0, Math.min(90, dl));
-    delayPts = Math.round(35 * (1 - clamped / 90));
+    delayPts = Math.round(30 * (1 - clamped / 90));
     delayDetail = `${dl}d avg/median late`;
   }
-  factors.push({ label: "Payment delay", points: delayPts, max: 35, detail: delayDetail });
+  factors.push({ label: "Payment delay", points: delayPts, max: 30, detail: delayDetail });
 
-  // 2. Overdue ratio (30 pts): overdue / open balance. 0% → full, 60%+ → 0.
+  // 2. Overdue ratio (25 pts): overdue / open balance. 0% → full, 60%+ → 0.
   const ratio = input.openBalance > 0 ? input.overdueBalance / input.openBalance : 0;
-  const ratioPts = Math.round(30 * (1 - Math.max(0, Math.min(0.6, ratio)) / 0.6));
+  const ratioPts = Math.round(25 * (1 - Math.max(0, Math.min(0.6, ratio)) / 0.6));
   factors.push({
     label: "Overdue ratio",
     points: ratioPts,
-    max: 30,
+    max: 25,
     detail: `${Math.round(ratio * 100)}% of open balance is overdue`,
   });
 
-  // 3. Aging severity (15 pts): share of overdue older than 90 days. 0% → full, 50%+ → 0.
+  // 3. Aging severity (12 pts): share of overdue older than 90 days. 0% → full, 50%+ → 0.
   const oldShare = input.overdueBalance > 0 ? input.overdue90Plus / input.overdueBalance : 0;
-  const agingPts = Math.round(15 * (1 - Math.max(0, Math.min(0.5, oldShare)) / 0.5));
+  const agingPts = Math.round(12 * (1 - Math.max(0, Math.min(0.5, oldShare)) / 0.5));
   factors.push({
     label: "Aging severity",
     points: agingPts,
-    max: 15,
+    max: 12,
     detail: `${Math.round(oldShare * 100)}% of overdue is older than 90 days`,
   });
 
-  // 4. Promise reliability (10 pts): kept / (kept+broken); no promises → neutral 70%.
+  // 4. Promise reliability (8 pts): kept / (kept+broken); no promises → neutral 75%.
   const totalPromises = input.promisesKept + input.promisesBroken;
-  const promisePts = totalPromises > 0 ? Math.round(10 * (input.promisesKept / totalPromises)) : 7;
+  const promisePts = totalPromises > 0 ? Math.round(8 * (input.promisesKept / totalPromises)) : 6;
   factors.push({
     label: "Promise reliability",
     points: promisePts,
-    max: 10,
+    max: 8,
     detail: totalPromises > 0 ? `${input.promisesKept} kept / ${input.promisesBroken} broken` : "No promises recorded — neutral",
   });
 
-  // 5. On-hold status (10 pts): Active → full; Under Review/Eligible → 5; On Hold → 2; Legal → 0.
+  // 5. On-hold status (5 pts): Active → full; Under Review/Eligible → 3; On Hold → 1; Legal → 0.
   const st = input.onHoldStatus ?? "Active";
-  const holdPts = st === "Active" || st === "Resolved" ? 10 : st === "Under Review" || st === "Eligible for On Hold" ? 5 : st === "On Hold" ? 2 : 0;
-  factors.push({ label: "On-hold status", points: holdPts, max: 10, detail: st });
+  const holdPts = st === "Active" || st === "Resolved" ? 5 : st === "Under Review" || st === "Eligible for On Hold" ? 3 : st === "On Hold" ? 1 : 0;
+  factors.push({ label: "On-hold status", points: holdPts, max: 5, detail: st });
+
+  // 6. Turnover trend (10 pts): annualized YTD vs last year. Stable/growth (≥ -20%) → full;
+  //    decline scales linearly to 0 at -60%. No turnover data → neutral 60%.
+  const ty = input.turnoverYtd ?? null;
+  const tl = input.turnoverLastYear ?? null;
+  let trendPts: number;
+  let trendDetail: string;
+  if (ty === null || tl === null || tl <= 0) {
+    trendPts = 6;
+    trendDetail = "No turnover data — neutral";
+  } else {
+    // Annualize YTD by the elapsed share of the year so mid-year comparisons are fair.
+    const nowD = new Date();
+    const startOfYear = Date.UTC(nowD.getUTCFullYear(), 0, 1);
+    const elapsed = Math.max(0.08, (Date.now() - startOfYear) / (365 * DAY_MS));
+    const annualized = ty / elapsed;
+    const change = annualized / tl - 1; // e.g. -0.3 = 30% decline
+    if (change >= -0.2) {
+      trendPts = 10;
+    } else {
+      const declineBeyond = Math.min(0.4, -change - 0.2); // -20%→-60% maps 10→0
+      trendPts = Math.round(10 * (1 - declineBeyond / 0.4));
+    }
+    trendDetail = `${change >= 0 ? "+" : ""}${Math.round(change * 100)}% annualized vs last year`;
+  }
+  factors.push({ label: "Turnover trend", points: trendPts, max: 10, detail: trendDetail });
+
+  // 7. Overdue exposure vs turnover (10 pts): overdue / annual turnover. 0% → full, 40%+ → 0.
+  //    Size reference = max(last-year turnover, YTD turnover). No turnover data → neutral 60%.
+  const sizeRef = Math.max(tl ?? 0, ty ?? 0);
+  let expPts: number;
+  let expDetail: string;
+  if (sizeRef <= 0) {
+    expPts = 6;
+    expDetail = "No turnover data — neutral";
+  } else {
+    const expRatio = input.overdueBalance / sizeRef;
+    expPts = Math.round(10 * (1 - Math.max(0, Math.min(0.4, expRatio)) / 0.4));
+    expDetail = `Overdue is ${Math.round(expRatio * 100)}% of annual turnover`;
+  }
+  factors.push({ label: "Overdue vs turnover", points: expPts, max: 10, detail: expDetail });
 
   const score = factors.reduce((s, f) => s + f.points, 0);
   const rating: CreditRating = score >= 85 ? "A" : score >= 70 ? "B" : score >= 50 ? "C" : score >= 30 ? "D" : "E";
   return { rating, score, factors };
+}
+
+/* ------------------------------------------------------------------ */
+/* Collection call prioritization                                      */
+/* ------------------------------------------------------------------ */
+
+export interface CallPriorityInput {
+  /** Overdue EUR today. */
+  overdueBalance: number;
+  /** Overdue EUR in the critical 61-90 day window. */
+  overdue6190: number;
+  /** Overdue EUR older than 90 days. */
+  overdue90Plus: number;
+  /** Credit rating A-E. */
+  rating: CreditRating;
+  /** Count of broken promises (all time). */
+  promisesBroken: number;
+  /** Count of pending promises whose promised date has passed (implicitly broken). */
+  promisesOverduePending?: number;
+  /** Forecast coverage: expected / overdue-by-EOM. Null when no forecast. */
+  forecastCoverage: number | null;
+  /** Days since last payment received; null when unknown. */
+  daysSinceLastPayment?: number | null;
+}
+
+export interface CallPriorityResult {
+  /** Higher = call first. */
+  score: number;
+  /** Human-readable reasons driving the priority. */
+  reasons: string[];
+}
+
+/**
+ * Deterministic call-priority score. Blends amount at risk with risk multipliers:
+ *   base   = overdue amount, with the 61-90d window weighted extra (critical recovery zone)
+ *   ×rating multiplier (E=2.0 … A=0.6)
+ *   +boosts for broken promises and low forecast coverage
+ * 120+ amounts count at reduced weight (separate legal/on-hold flow handles them).
+ */
+export function computeCallPriority(input: CallPriorityInput): CallPriorityResult {
+  const reasons: string[] = [];
+  // Amount at risk: standard overdue + extra weight for the 61-90 window, reduced for 120+ leftovers.
+  const critical = input.overdue6190;
+  const base = input.overdueBalance + 0.8 * critical - 0.4 * input.overdue90Plus;
+  if (critical > 0) reasons.push("Aging 61-90");
+
+  const ratingMult: Record<CreditRating, number> = { A: 0.6, B: 0.8, C: 1.0, D: 1.5, E: 2.0 };
+  const mult = ratingMult[input.rating] ?? 1;
+  if (input.rating === "D" || input.rating === "E") reasons.push(`Rating ${input.rating}`);
+
+  let score = Math.max(0, base) * mult;
+
+  const brokenTotal = input.promisesBroken + (input.promisesOverduePending ?? 0);
+  if (brokenTotal > 0) {
+    // Broken promises jump the queue: flat boost plus 10% per break (capped at 50%).
+    score = score * (1 + Math.min(0.5, 0.1 * brokenTotal)) + 5000;
+    reasons.push("Broken promise");
+  }
+
+  if (input.forecastCoverage !== null && input.forecastCoverage < 0.8) {
+    score *= 1.25;
+    reasons.push("Low coverage");
+  }
+
+  if ((input.daysSinceLastPayment ?? 0) > 90 && input.overdueBalance > 0) {
+    score *= 1.15;
+    reasons.push("No recent payment");
+  }
+
+  return { score: Math.round(score), reasons };
 }
 
 /**

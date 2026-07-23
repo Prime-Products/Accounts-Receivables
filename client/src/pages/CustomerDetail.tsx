@@ -45,14 +45,6 @@ export default function CustomerDetail() {
   const [onHoldOpen, setOnHoldOpen] = useState(false);
   const [onHoldReason, setOnHoldReason] = useState("");
   const [agingFilter, setAgingFilter] = useState<string>("all");
-  const updateTier = trpc.customers.update.useMutation({
-    onSuccess: () => {
-      toast.success("Tier updated");
-      utils.customers.get360.invalidate({ id });
-      utils.customers.list.invalidate();
-    },
-    onError: e => toast.error(e.message),
-  });
   const submitOnHold = trpc.onHold.submit.useMutation({
     onSuccess: () => {
       toast.success("On-Hold proposal submitted — status: Under Review");
@@ -83,7 +75,6 @@ export default function CustomerDetail() {
 
   const { customer, invoices, receipts, contracts, installments, promises, tasks, aging } = data;
   const openInvoices = invoices.filter(i => i.status !== "Paid");
-  const TIERS = ["Platinum", "Gold", "Silver", "Bronze", "New"] as const;
   const agingAny = aging as any;
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
@@ -114,27 +105,11 @@ export default function CustomerDetail() {
                 {data.rating.rating} · {data.rating.score}
               </Badge>
             )}
-            <Select
-              value={customer.tier}
-              onValueChange={v => updateTier.mutate({ id: customer.id, tier: v as (typeof TIERS)[number] })}
-            >
-              <SelectTrigger
-                className={`h-6 gap-1 rounded-full border px-2.5 text-xs font-semibold w-auto ${tierColors[customer.tier] ?? ""}`}
-                title="Change customer tier"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TIERS.map(t => (
-                  <SelectItem key={t} value={t}>
-                    {t}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Badge variant="outline" className={onHoldStatusColors[customer.onHoldStatus] ?? ""}>
-              {customer.onHoldStatus}
-            </Badge>
+            {customer.onHoldStatus !== "Active" && (
+              <Badge variant="outline" className={onHoldStatusColors[customer.onHoldStatus] ?? ""}>
+                {customer.onHoldStatus}
+              </Badge>
+            )}
             {data.watchStatus === "Problematic" && (
               <Badge
                 variant="outline"
@@ -273,38 +248,21 @@ export default function CustomerDetail() {
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Open Balance</div>
             <div className="text-xl font-bold font-mono">{fmtEur(aging.current + aging.totalOverdue)}</div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">{openInvoices.length} open invoice(s)</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              {fmtByCurrency(agingAny.totalByCurrency, { skipEurOnly: true }) || `${openInvoices.length} open invoice(s)`}
+            </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground">Total Overdue</div>
-            <div className="text-xl font-bold font-mono text-red-600">{fmtEur(aging.totalOverdue)}</div>
+            <div className="text-xs text-muted-foreground">Overdue</div>
+            <div className={`text-xl font-bold font-mono ${aging.totalOverdue > 0 ? "text-red-600" : ""}`}>{fmtEur(aging.totalOverdue)}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              {openInvoices.filter(i => now > i.dueDate).length} overdue invoice(s)
+            </div>
             <div className="text-[11px] font-mono mt-0.5 text-orange-600" title="Overdue by end of the current month (today's overdue + invoices falling due until month end)">
               EOM: {fmtEur(data.overdueEomBalance)}
             </div>
-            {fmtByCurrency(agingAny.totalByCurrency, { skipEurOnly: true }) && (
-              <div className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate" title={fmtByCurrency(agingAny.totalByCurrency)}>
-                {fmtByCurrency(agingAny.totalByCurrency)}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground">Current (not due)</div>
-            <div className="text-xl font-bold font-mono">{fmtEur(aging.current)}</div>
-            {fmtByCurrency(agingAny.currentByCurrency, { skipEurOnly: true }) && (
-              <div className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate" title={fmtByCurrency(agingAny.currentByCurrency)}>
-                {fmtByCurrency(agingAny.currentByCurrency)}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground">Credit Limit</div>
-            <div className="text-xl font-bold font-mono">{fmtEur(customer.creditLimit)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -326,26 +284,23 @@ export default function CustomerDetail() {
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground">Payment Behavior</div>
-            <div className="text-xl font-bold font-mono">
-              {data.behavior && data.behavior.payments > 0 ? `${Math.round(data.behavior.medianDaysLate)}d` : "—"}
-            </div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">
-              {data.behavior && data.behavior.payments > 0
-                ? `median days late · ${data.behavior.payments} payment(s)`
-                : "no payment history"}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground">Aging 90+ (91-120 & 120+)</div>
-            <div className="text-xl font-bold font-mono">
-              {fmtEur(aging.buckets["91-120"].amount + aging.buckets["120+"].amount)}
-            </div>
-            <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-              91-120: {fmtEur(aging.buckets["91-120"].amount)} · 120+: {fmtEur(aging.buckets["120+"].amount)}
-            </div>
+            <div className="text-xs text-muted-foreground">Payment Behavior (last year)</div>
+            {data.behavior && data.behavior.payments > 0 ? (
+              <>
+                <div
+                  className={`text-xl font-bold font-mono ${
+                    data.behavior.medianDaysLate > 30 ? "text-red-600" : data.behavior.medianDaysLate > 7 ? "text-amber-600" : "text-emerald-700"
+                  }`}
+                >
+                  {data.behavior.medianDaysLate > 0 ? `+${Math.round(data.behavior.medianDaysLate)}` : Math.round(data.behavior.medianDaysLate)}d median
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">
+                  avg {Math.round(data.behavior.avgDaysLate)}d vs due date · {data.behavior.payments} payments
+                </div>
+              </>
+            ) : (
+              <div className="text-sm text-muted-foreground mt-1">No payment history</div>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -354,6 +309,7 @@ export default function CustomerDetail() {
             <div className="text-xl font-bold font-mono text-blue-700">
               {customer.turnoverYtd != null ? fmtEur(customer.turnoverYtd) : "—"}
             </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">credit limit {fmtEur(customer.creditLimit)}</div>
           </CardContent>
         </Card>
         <Card>
@@ -371,30 +327,27 @@ export default function CustomerDetail() {
         </Card>
       </div>
 
-      {/* Aging buckets (same layout as the group card) */}
-      <div>
-        <div className="text-sm font-semibold mb-2">Aging</div>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-          {(
-            [
-              ["Current (not due)", aging.current, null],
-              ["0-30 days overdue", aging.buckets["0-30"].amount, aging.buckets["0-30"].count],
-              ["31-60 days overdue", aging.buckets["31-60"].amount, aging.buckets["31-60"].count],
-              ["61-90 days overdue", aging.buckets["61-90"].amount, aging.buckets["61-90"].count],
-              ["91-120 days overdue", aging.buckets["91-120"].amount, aging.buckets["91-120"].count],
-              ["120+ days overdue", aging.buckets["120+"].amount, aging.buckets["120+"].count],
-            ] as [string, number, number | null][]
-          ).map(([label, amount, count]) => (
-            <Card key={label}>
-              <CardContent className="pt-4">
-                <div className="text-xs text-muted-foreground">{label}</div>
-                <div className="text-lg font-bold font-mono">{fmtEur(amount)}</div>
-                {count != null && <div className="text-[11px] text-muted-foreground mt-0.5">{count} inv.</div>}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
+      {/* Aging — same card style as the group view */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Aging</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="rounded-md border bg-muted/40 px-3 py-2">
+              <div className="text-[11px] text-muted-foreground">Current (not due)</div>
+              <div className="text-sm font-bold font-mono">{fmtEur(aging.current)}</div>
+            </div>
+            {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
+              <div key={b} className="rounded-md border bg-muted/40 px-3 py-2">
+                <div className="text-[11px] text-muted-foreground">{b} days overdue</div>
+                <div className="text-sm font-bold font-mono">{fmtEur(aging.buckets[b].amount)}</div>
+                <div className="text-[10px] text-muted-foreground">{aging.buckets[b].count} inv.</div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="invoices">
         <TabsList>

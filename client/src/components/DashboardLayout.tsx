@@ -30,6 +30,7 @@ import {
   LogOut,
   PanelLeft,
   PauseCircle,
+  Phone,
   ScrollText,
   Settings,
   TrendingUp,
@@ -48,6 +49,7 @@ const menuItems = [
   { icon: ListChecks, label: "Tasks", path: "/tasks" },
   { icon: PauseCircle, label: "On-Hold", path: "/on-hold" },
   { icon: TrendingUp, label: "Forecast", path: "/forecast" },
+  { icon: Phone, label: "Call List", path: "/call-list" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];

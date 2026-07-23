@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, tierColors } from "@/lib/format";
+import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Building2, FileDown, Filter, HandCoins, Layers, PauseCircle, Pencil, Plus, Sparkles, StickyNote, Trash2 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
@@ -259,6 +259,11 @@ export default function GroupDetail() {
                   Problematic
                 </Badge>
               )}
+              {data?.holdStatus && data.holdStatus !== "Active" && (
+                <Badge variant="outline" className={onHoldStatusColors[data.holdStatus] ?? ""} title="Worst on-hold status among group members">
+                  {data.holdStatus}
+                </Badge>
+              )}
               {!data?.problematic && data?.watchStatus === "On Watch" && (
                 <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200" title="Manually set to On Watch">
                   On Watch
@@ -471,7 +476,7 @@ export default function GroupDetail() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Company</TableHead>
-                    <TableHead>Tier</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead className="text-right">Behavior</TableHead>
                     <TableHead className="text-right">Open Balance</TableHead>
                     <TableHead className="text-right">Overdue</TableHead>
@@ -488,9 +493,13 @@ export default function GroupDetail() {
                     >
                       <TableCell className="font-medium">{c.name}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={tierColors[c.tier] ?? ""}>
-                          {c.tier}
-                        </Badge>
+                        {c.onHoldStatus && c.onHoldStatus !== "Active" ? (
+                          <Badge variant="outline" className={onHoldStatusColors[c.onHoldStatus] ?? ""}>
+                            {c.onHoldStatus}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         {c.medianDaysLate !== null ? (
@@ -745,4 +754,3 @@ function GroupActivityTabs({ group }: { group: string }) {
     </Card>
   );
 }
-

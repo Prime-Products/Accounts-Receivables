@@ -217,6 +217,23 @@
 - [x] Remove Promises-to-Pay section from GroupDetail and CustomerDetail cards
 - [x] Replace the "Open Invoices" KPI card with an "AI Forecast (this month)" KPI card (expected amount + collected/remaining subline) on GroupDetail and CustomerDetail
 
+## Rating: turnover criteria (user request 23/7)
+- [x] Rating engine: add turnover trend penalty (YTD vs last year decline >20%) ~10% weight
+- [x] Rating engine: add overdue/turnover exposure ratio penalty ~10% weight
+- [x] Update rating explanation/tooltip UI to show the new criteria breakdown (tooltips render all factors dynamically)
+- [x] Vitest coverage for the new rating factors
+## Call List: collection call prioritization (user request 23/7)
+- [x] Backend: callList endpoint — per-group priority score from overdue amount × aging factor × rating factor + broken-promise boost + low forecast-coverage boost
+- [x] Frontend: Call List page — ranked table with score, reasons badges (Broken promise / Aging 61-90 / Rating D-E / Low coverage), contact info, link to group card
+- [x] Quick actions from Call List rows: new note, promise-to-pay, task
+- [x] Sidebar navigation entry for Call List
+- [x] Vitest coverage for the priority score logic
+## Status badge & tier removal (user request 23/7)
+- [x] Hide "Active" on-hold badge when status is default Active; show badge only when status differs
+- [x] Show on-hold status consistently on both Customer 360 and Group card (group shows worst member status)
+- [x] Remove Tier (Platinum/Gold/Silver/Bronze/New) from all UI: Customers list, Customer 360, GroupDetail companies table, dialogs/forms
+- [x] Customer 360 mirrors group card exactly: same KPI cards, sections, and layout (user request 23/7)
+
 ## Customer Group hierarchy (user request 23 Jul)
 - [x] Inspect Excel to confirm group → member companies structure (363 groups / 811 companies; customerGroup already populated in DB for all customers)
 - [x] Backend: customers.groups endpoint — aggregated totals per group (outstanding EUR + per-currency, overdue, company count)
