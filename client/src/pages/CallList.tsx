@@ -9,7 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Phone, ChevronRight } from "lucide-react";
-import { CustomerDetailsModal } from "@/components/CustomerDetailsModal";
 
 const statusBadge: Record<string, string> = {
   Problematic: "border-amber-300 bg-amber-50 text-amber-800",
@@ -25,8 +24,6 @@ type CallRow = inferRouterOutputs<AppRouter>["customers"]["callList"][number];
 export default function CallList() {
   const { data, isLoading } = trpc.customers.callList.useQuery();
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [showDetails, setShowDetails] = useState(false);
-  const [selectedGroup, setSelectedGroup] = useState<CallRow | null>(null);
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -40,7 +37,6 @@ export default function CallList() {
   const flaggedCount = useMemo(() => (data ?? []).filter(r => r.tier > 0).length, [data]);
 
   return (
-    <>
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -99,10 +95,7 @@ export default function CallList() {
                 </TableHeader>
                 <TableBody>
                   {rows.map((r, idx) => (
-                    <TableRow key={r.group} className="cursor-pointer hover:bg-muted/50" onClick={() => {
-                      setSelectedGroup(r);
-                      setShowDetails(true);
-                    }}>
+                    <TableRow key={r.group}>
                       <TableCell className="font-mono text-muted-foreground">{idx + 1}</TableCell>
                       <TableCell>
                         <Link href={`/groups/${encodeURIComponent(r.group)}`} className="font-medium hover:underline inline-flex items-center gap-1">
@@ -154,21 +147,5 @@ export default function CallList() {
         </CardContent>
       </Card>
     </div>
-
-    {selectedGroup && (
-      <CustomerDetailsModal
-        open={showDetails}
-        onOpenChange={setShowDetails}
-        group={{
-          name: selectedGroup.group,
-          overdue: selectedGroup.overdueBalance,
-          overdueEom: selectedGroup.overdueEomBalance,
-          forecast: selectedGroup.forecastExpected,
-          status: selectedGroup.watchStatus ?? undefined,
-          contacts: selectedGroup.contacts,
-        }}
-      />
-    )}
-    </>
   );
 }
