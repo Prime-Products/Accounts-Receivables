@@ -648,30 +648,28 @@ export const customersRouter = router({
     const names = new Map(users.map(u => [u.id, u.name ?? "—"]));
     return notes.map(n => ({ ...n, authorName: names.get(n.createdBy) ?? "—" }));
   }),
- /** Current-month Smart Forecast entry for a group, with live collected across member companies (EUR). */
- groupForecast: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
-   const now = new Date();
-   const year = now.getUTCFullYear();
-   const month = now.getUTCMonth() + 1;
-   const entries = await db.listForecastEntries(year, month);
-   const entry = entries.find(e => (e.customerGroup ?? "").trim() === input.group);
-   if (!entry) return null;
-   const entryId = entry.id;
-   const customers = await db.listCustomers();
-   const memberIds = new Set(
-     customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group).map(c => c.id),
-   );
-   const receipts = await db.listReceipts();
-   const start = Date.UTC(year, month - 1, 1);
-   const end = Date.UTC(year, month, 1);
-   const collected = receipts
-     .filter(r => memberIds.has(r.customerId) && r.receiptDate >= start && r.receiptDate < end)
-     .reduce((s, r) => s + Number(r.amount), 0);
-   return {
-     entryId,
-     year,
-     month,
-     dueAmount: Number(entry.dueAmount),
+  /** Current-month Smart Forecast entry for a group, with live collected across member companies (EUR). */
+  groupForecast: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
+    const now = new Date();
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth() + 1;
+    const entries = await db.listForecastEntries(year, month);
+    const entry = entries.find(e => (e.customerGroup ?? "").trim() === input.group);
+    if (!entry) return null;
+    const customers = await db.listCustomers();
+    const memberIds = new Set(
+      customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group).map(c => c.id),
+    );
+    const receipts = await db.listReceipts();
+    const start = Date.UTC(year, month - 1, 1);
+    const end = Date.UTC(year, month, 1);
+    const collected = receipts
+      .filter(r => memberIds.has(r.customerId) && r.receiptDate >= start && r.receiptDate < end)
+      .reduce((s, r) => s + Number(r.amount), 0);
+    return {
+      year,
+      month,
+      dueAmount: Number(entry.dueAmount),
       overdueAmount: Number(entry.overdueAmount),
       aiSuggestedAmount: Number(entry.aiSuggestedAmount),
       aiReasoning: entry.aiReasoning,

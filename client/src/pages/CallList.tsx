@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { fmtEur } from "@/lib/format";
@@ -13,8 +13,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Phone, StickyNote, HandCoins, ListPlus, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
-import CollectionWorkspace from "@/components/CollectionWorkspace";
-import { useLocation } from "wouter";
 
 const reasonColors: Record<string, string> = {
   "Broken promise": "border-red-300 bg-red-50 text-red-700",
@@ -34,20 +32,9 @@ type CallRow = inferRouterOutputs<AppRouter>["customers"]["callList"][number];
 type QuickAction = { row: CallRow; kind: "note" | "promise" | "task" } | null;
 
 export default function CallList() {
-  const [, navigate] = useLocation();
   const { data, isLoading } = trpc.customers.callList.useQuery();
   const [reasonFilter, setReasonFilter] = useState<string>("all");
   const [action, setAction] = useState<QuickAction>(null);
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [selectedGroup, setSelectedGroup] = useState<string>("");
-  // Deep-link support: /call-list?ws=<group> opens the workspace directly.
-  useEffect(() => {
-    const p = new URLSearchParams(window.location.search).get("ws");
-    if (p) {
-      setSelectedGroup(p);
-      setWorkspaceOpen(true);
-    }
-  }, []);
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -122,16 +109,10 @@ export default function CallList() {
                     <TableRow key={r.group}>
                       <TableCell className="font-mono text-muted-foreground">{idx + 1}</TableCell>
                       <TableCell>
-                        <button
-                          onClick={() => {
-                            setSelectedGroup(r.group);
-                            setWorkspaceOpen(true);
-                          }}
-                          className="font-medium hover:underline inline-flex items-center gap-1 text-blue-600"
-                        >
+                        <Link href={`/groups/${encodeURIComponent(r.group)}`} className="font-medium hover:underline inline-flex items-center gap-1">
                           {r.group}
                           <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                        </button>
+                        </Link>
                         <div className="text-[10px] text-muted-foreground font-mono">score {r.score.toLocaleString()}</div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-red-600 font-semibold">
@@ -182,16 +163,6 @@ export default function CallList() {
       </Card>
 
       {action && <QuickActionDialog action={action} onClose={() => setAction(null)} />}
-      
-      <CollectionWorkspace
-        group={selectedGroup}
-        isOpen={workspaceOpen}
-        onClose={() => setWorkspaceOpen(false)}
-        onOpenFullCard={() => {
-          setWorkspaceOpen(false);
-          navigate(`/groups/${encodeURIComponent(selectedGroup)}`);
-        }}
-      />
     </div>
   );
 }
