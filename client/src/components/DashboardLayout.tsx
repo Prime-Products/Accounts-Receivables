@@ -42,12 +42,11 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-  { icon: Users, label: "Customers", path: "/customers" },
+  { icon: Users, label: "Control Panel", path: "/customers" },
   { icon: FileText, label: "Invoices", path: "/invoices" },
   { icon: ScrollText, label: "Contracts", path: "/contracts" },
   { icon: ListChecks, label: "Tasks", path: "/tasks" },
   { icon: TrendingUp, label: "Forecast", path: "/forecast" },
-  { icon: Phone, label: "Call List", path: "/call-list" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
