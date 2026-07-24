@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
+  activityLog,
   appSettings,
   auditLogs,
   collectionPlans,
@@ -11,6 +12,7 @@ import {
   forecastEntries,
   groupNotes,
   groupWatchStatus,
+  InsertActivityLog,
   InsertContract,
   InsertCustomer,
   InsertEmailHistory,
@@ -623,6 +625,28 @@ export async function listEmailHistory(customerId: number, limit = 50) {
 export async function getEmailHistory(id: number) {
   const db = await requireDb();
   return db.select().from(emailHistory).where(eq(emailHistory.id, id)).limit(1);
+}
+
+// ---------- Activity Log ----------
+export async function addActivityLog(entry: InsertActivityLog) {
+  const db = await requireDb();
+  const res = await db.insert(activityLog).values(entry);
+  return Number((res as any)[0].insertId);
+}
+
+export async function listActivityLog(groupName: string, limit = 100) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(activityLog)
+    .where(eq(activityLog.groupName, groupName))
+    .orderBy(desc(activityLog.createdAt))
+    .limit(limit);
+}
+
+export async function getActivityLog(id: number) {
+  const db = await requireDb();
+  return db.select().from(activityLog).where(eq(activityLog.id, id)).limit(1);
 }
 
 // ---------- Aggregations ----------

@@ -3,6 +3,7 @@ import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
+import { ActivityLog } from "@/components/ActivityLog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Plus, Sparkles, StickyNote, Trash2 } from "lucide-react";
+import { ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Plus, Sparkles, StickyNote, Trash2, History } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -610,6 +611,9 @@ export default function GroupDetail() {
             </CardContent>
             )}
           </Card>
+
+          {/* Unified Activity Log */}
+          {data?.activityLogs && <ActivityLog activities={data.activityLogs} />}
 
           {/* Payment history, contracts & tasks across the group (unified card) */}
           <GroupActivityTabs group={group} />

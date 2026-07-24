@@ -333,3 +333,15 @@
 - [x] Add "Emails" tab to GroupActivityTabs showing email history with status badges
 - [x] Create vitest tests for email sending (4 tests, all passing)
 - [x] All 106 tests passing
+
+## Unified Activity Log (user request 24/7)
+- [x] Create activity_log table to track all interactions (type: note/task/promise/email/call, customerId, groupName, description, metadata, createdBy, createdAt)
+- [x] Create database functions (addActivityLog, listActivityLog)
+- [x] Create backend procedure to retrieve unified activity log for a group (added to groupDetail query)
+- [x] Build ActivityLog UI component showing all activities in chronological order with icons/colors per type
+- [x] Integrate ActivityLog into GroupDetail page (prominent section showing all interactions)
+- [x] Update group notes creation to log to activity_log
+- [x] Update promise-to-pay creation to log to activity_log
+- [x] Update email sending to log to activity_log
+- [x] Update promise status changes (Kept/Broken) to log to activity_log
+- [x] Test and verify all activities are logged (all 106 tests passing)

@@ -596,6 +596,7 @@ export const customersRouter = router({
         (worst, m) => ((DETAIL_HOLD_SEVERITY[m.onHoldStatus] ?? 0) > (DETAIL_HOLD_SEVERITY[worst] ?? 0) ? m.onHoldStatus : worst),
         "Active" as string,
       );
+      const activityLogs = await db.listActivityLog(input.group, 200).catch(() => []);
       return {
         group: input.group,
         companies,
@@ -620,6 +621,7 @@ export const customersRouter = router({
           turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
         },
         invoices: sortedInvoices.slice(0, 500).map(i => ({ ...i, customerName: customerNames.get(i.customerId) ?? "" })),
+        activityLogs,
       };
     }),
   /** All promises-to-pay for the member companies of a group. */
@@ -715,6 +717,14 @@ export const customersRouter = router({
         createdAt: Date.now(),
       });
       await audit(ctx, "Add Group Note", "groupNote", id, `Group ${input.group}`);
+      await db.addActivityLog({
+        groupName: input.group,
+        activityType: "note",
+        title: "Note added",
+        description: input.content.substring(0, 200),
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      }).catch(() => {});
       return { id };
     }),
   deleteGroupNote: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
@@ -1314,6 +1324,16 @@ export const forecastRouter = router({
           createdBy: ctx.user.id,
           createdAt: Date.now(),
         });
+        // Log to activity log
+        await db.addActivityLog({
+          groupName: groupKey,
+          customerId: input.customerId,
+          activityType: "promise",
+          title: `Promise-to-Pay: €${Number(eur(input.amount)).toLocaleString()} by ${dateStr}`,
+          description: `${cust.name}${input.notes ? ` — ${input.notes}` : ""}`,
+          createdBy: ctx.user.id,
+          createdAt: new Date(),
+        }).catch(() => {});
         // Create a follow-up task due on the promised date so the team checks whether the company paid.
         const taskId = await db.createTask({
           customerId: input.customerId,
@@ -1346,6 +1366,16 @@ export const forecastRouter = router({
             createdBy: ctx.user.id,
             createdAt: Date.now(),
           });
+          // Log to activity log
+          await db.addActivityLog({
+            groupName: groupKey,
+            customerId: promise.customerId,
+            activityType: "promise",
+            title: `Promise marked ${input.status}`,
+            description: `${cust.name} — €${Number(promise.amount).toLocaleString()}`,
+            createdBy: ctx.user.id,
+            createdAt: new Date(),
+          }).catch(() => {});
           // Auto-complete the follow-up task linked to this promise, if still open.
           const tasks = await db.listTasks({ customerId: promise.customerId });
           const followUp = tasks.find(
@@ -1857,6 +1887,18 @@ export const callsRouter = router({
           input.customerId,
           `To: ${input.recipientEmail}, Template: ${input.templateType}`
         );
+
+        // Log to activity log
+        const groupKey = customer.customerGroup || customer.name;
+        await db.addActivityLog({
+          groupName: groupKey,
+          customerId: input.customerId,
+          activityType: "email",
+          title: `Email sent: ${input.subject}`,
+          description: `To: ${input.recipientEmail} (${input.templateType})`,
+          createdBy: ctx.user.id,
+          createdAt: new Date(),
+        }).catch(() => {});
 
         return {
           success: true,
