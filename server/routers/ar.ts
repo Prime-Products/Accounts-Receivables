@@ -314,7 +314,7 @@ export const customersRouter = router({
   callList: protectedProcedure.query(async () => {
     const now = Date.now();
     const today = new Date();
-    const [customers, invoices, forecastRows, behavior, allPromises, receipts, openTasks, watchRows] = await Promise.all([
+    const [customers, invoices, forecastRows, behavior, allPromises, receipts, openTasks] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
       db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
@@ -322,13 +322,8 @@ export const customersRouter = router({
       db.listPromises(),
       db.listReceipts(),
       db.listTasks({ statuses: ["Pending", "In Progress"] }),
-      db.listGroupWatchStatuses().catch(() => []),
     ]);
     const eom = endOfCurrentMonth();
-    const watchByGroup = new Map<string, string>();
-    for (const w of watchRows) {
-      if (w.status !== "Auto") watchByGroup.set(w.groupName, w.status);
-    }
     const day61 = 61 * 24 * 60 * 60 * 1000;
     const day90 = 90 * 24 * 60 * 60 * 1000;
     const forecastByGroup = new Map<string, number>();
@@ -441,11 +436,6 @@ export const customersRouter = router({
         const expected = forecastByGroup.get(g.group) ?? 0;
         const coverage = forecastGroups.has(g.group) && g.overdueEom > 0 ? expected / g.overdueEom : null;
         const daysSinceLastPayment = g.lastPaymentTs !== null ? Math.floor((now - g.lastPaymentTs) / (24 * 60 * 60 * 1000)) : null;
-        // watchStatus: manual override or auto-problematic
-        const hasForecast = forecastGroups.has(g.group);
-        const autoProblematic = hasForecast && g.overdueEom > 0 && expected < 0.8 * g.overdueEom;
-        const watchOverride = watchByGroup.get(g.group) ?? null;
-        const watchStatus = watchOverride ?? (autoProblematic ? "Problematic" : null);
         const priority = computeCallPriority({
           overdueBalance: g.overdueBalance,
           overdue6190: g.overdue6190,
@@ -478,8 +468,6 @@ export const customersRouter = router({
           memberIds: g.memberIds,
           contacted: g.followUpTs !== null,
           followUpDate: g.followUpTs,
-          onHoldStatus: g.worstHold,
-          watchStatus,
         };
       })
       .sort((a, b) => b.score - a.score);
@@ -943,15 +931,6 @@ export const invoicesRouter = router({
     await audit(ctx, input.disputed ? "Mark Disputed" : "Clear Dispute", "invoice", input.id);
     return { success: true };
   }),
-  updateStatus: protectedProcedure
-    .input(z.object({ id: z.number(), status: z.enum(invoiceStatuses) }))
-    .mutation(async ({ ctx, input }) => {
-      const inv = await db.getInvoice(input.id);
-      if (!inv) throw new TRPCError({ code: "NOT_FOUND" });
-      await db.updateInvoice(input.id, { status: input.status });
-      await audit(ctx, "Update Invoice Status", "invoice", input.id, `Status changed to ${input.status}`);
-      return { success: true };
-    }),
 });
 
 export const receiptsRouter = router({

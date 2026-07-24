@@ -1,12 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -14,7 +12,6 @@ import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDa
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { ChevronRight, FileDown, FileText, HandCoins, Plus, Users } from "lucide-react";
-import { StickyNote, ListPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -51,21 +48,6 @@ export default function Invoices() {
 
   // New invoice dialog
   const [invOpen, setInvOpen] = useState(false);
-  const [invoiceAction, setInvoiceAction] = useState<{ invoiceId: number; customerId: number; kind: "note" | "promise" | "task" } | null>(null);
-  const updateInvoiceStatus = trpc.invoices.updateStatus.useMutation({
-    onSuccess: () => {
-      utils.invoices.list.invalidate();
-      toast.success("Status updated");
-    },
-    onError: (e) => toast.error(e.message),
-  });
-  const setGroupWatchStatus = trpc.customers.setWatchStatus.useMutation({
-    onSuccess: () => {
-      utils.invoices.list.invalidate();
-      toast.success("Group status updated");
-    },
-    onError: (e) => toast.error(e.message),
-  });
   const [invForm, setInvForm] = useState({ customerId: "", invoiceNumber: "", issueDate: "", dueDate: "", amount: "" });
   const createInvoice = trpc.invoices.create.useMutation({
     onSuccess: () => {
@@ -409,40 +391,19 @@ export default function Invoices() {
         <div className="rounded-lg border bg-muted/30 px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <span className="text-muted-foreground">{filteredTotals.count} invoice(s) shown</span>
           {groupDrill && (
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30 max-w-64">
-                <span className="truncate" title={groupDrill}>{groupDrill}</span>
-                <button
-                  className="ml-0.5 text-muted-foreground hover:text-foreground"
-                  title="Clear group filter"
-                  onClick={() => {
-                    setGroupDrill(null);
-                    setGroupView(true);
-                  }}
-                >
-                  ×
-                </button>
-              </Badge>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="text-xs">
-                    Group Status
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem onClick={() => {
-                    setGroupWatchStatus.mutate({ group: groupDrill, status: "Auto" });
-                  }}>
-                    Normal (Active)
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => {
-                    setGroupWatchStatus.mutate({ group: groupDrill, status: "Problematic" });
-                  }}>
-                    Problematic (On Watch)
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+            <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30 max-w-64">
+              <span className="truncate" title={groupDrill}>{groupDrill}</span>
+              <button
+                className="ml-0.5 text-muted-foreground hover:text-foreground"
+                title="Clear group filter"
+                onClick={() => {
+                  setGroupDrill(null);
+                  setGroupView(true);
+                }}
+              >
+                ×
+              </button>
+            </Badge>
           )}
           <span>
             Outstanding total: <span className="font-mono font-semibold">{fmtEur(filteredTotals.eurTotal)}</span>
@@ -533,7 +494,6 @@ export default function Invoices() {
               </TableBody>
             </Table>
           ) : (
-            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -545,7 +505,6 @@ export default function Invoices() {
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead className="text-right">Outstanding</TableHead>
                   <TableHead className="text-right">Days Overdue</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -562,20 +521,9 @@ export default function Invoices() {
                     </TableCell>
                     <TableCell className="text-sm">{fmtDate(i.dueDate)}</TableCell>
                     <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Badge variant="outline" className={`${invoiceStatusColors[i.status]} cursor-pointer hover:opacity-80`}>
-                            {i.status}
-                          </Badge>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start">
-                          {STATUSES.map(s => (
-                            <DropdownMenuItem key={s} onClick={() => updateInvoiceStatus.mutate({ id: i.id, status: s as any })}>
-                              {s}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <Badge variant="outline" className={invoiceStatusColors[i.status]}>
+                        {i.status}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       {i.currency && i.currency !== "EUR" ? (
@@ -600,116 +548,13 @@ export default function Invoices() {
                     <TableCell className={`text-right font-mono ${i.daysOverdue > 0 ? "text-red-600 font-semibold" : ""}`}>
                       {i.daysOverdue > 0 ? i.daysOverdue : "—"}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button size="icon" variant="ghost" className="h-7 w-7" title="Add note" onClick={() => setInvoiceAction({ invoiceId: i.id, customerId: i.customerId, kind: "note" })}>
-                          <StickyNote className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" title="Promise-to-pay" onClick={() => setInvoiceAction({ invoiceId: i.id, customerId: i.customerId, kind: "promise" })}>
-                          <HandCoins className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" title="New task" onClick={() => setInvoiceAction({ invoiceId: i.id, customerId: i.customerId, kind: "task" })}>
-                          <ListPlus className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-            </div>
           )}
-       </CardContent>
-     </Card>
-
-      {invoiceAction && <InvoiceQuickActionDialog action={invoiceAction} onClose={() => setInvoiceAction(null)} />}
+        </CardContent>
+      </Card>
     </div>
-  );
-}
-
-function InvoiceQuickActionDialog({ action, onClose }: { action: { invoiceId: number; customerId: number; kind: "note" | "promise" | "task" }; onClose: () => void }) {
-  const utils = trpc.useUtils();
-  const [text, setText] = useState("");
-  const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(() => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
-
-  const done = (msg: string) => {
-    toast.success(msg);
-    utils.invoices.list.invalidate();
-    onClose();
-  };
-
-  const addNote = trpc.customers.addGroupNote.useMutation({ onSuccess: () => done("Note added"), onError: e => toast.error(e.message) });
-  const addPromise = trpc.forecast.addPromise.useMutation({ onSuccess: () => done("Promise recorded"), onError: e => toast.error(e.message) });
-  const createTask = trpc.tasks.create.useMutation({ onSuccess: () => done("Task created"), onError: e => toast.error(e.message) });
-
-  const pending = addNote.isPending || addPromise.isPending || createTask.isPending;
-  const canSubmit =
-    !pending &&
-    (action.kind !== "note" || text.trim().length > 0) &&
-    (action.kind !== "promise" || (amount !== "" && Number(amount) > 0)) &&
-    (action.kind !== "task" || text.trim().length > 0);
-
-  const submit = () => {
-    if (action.kind === "note") {
-      addNote.mutate({ group: "Invoice", content: text.trim() });
-    } else if (action.kind === "promise") {
-      addPromise.mutate({
-        customerId: action.customerId,
-        amount: Number(amount),
-        promisedDate: new Date(date).getTime(),
-      });
-    } else if (action.kind === "task") {
-      createTask.mutate({
-        customerId: action.customerId,
-        title: text.trim(),
-        type: "Follow-up +2",
-        dueDate: new Date(date).getTime(),
-      });
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {action.kind === "note" && "Add Note"}
-            {action.kind === "promise" && "Record Promise to Pay"}
-            {action.kind === "task" && "Create Task"}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          {(action.kind === "note" || action.kind === "task") && (
-            <div>
-              <Label>{action.kind === "note" ? "Note" : "Task Title"}</Label>
-              <Input value={text} onChange={e => setText(e.target.value)} placeholder={action.kind === "note" ? "Enter note..." : "Enter task title..."} />
-            </div>
-          )}
-          {action.kind === "promise" && (
-            <>
-              <div>
-                <Label>Amount (€)</Label>
-                <Input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" step="0.01" />
-              </div>
-              <div>
-                <Label>Promised Date</Label>
-                <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
-              </div>
-            </>
-          )}
-          {action.kind === "task" && (
-            <div>
-              <Label>Due Date</Label>
-              <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={!canSubmit}>{pending ? "Saving..." : "Save"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
