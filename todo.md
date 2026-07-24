@@ -301,3 +301,7 @@
 - [x] Companies section on GroupDetail folded by default with expand/collapse toggle (click header, chevron + count)
 - [x] Move Companies section below the Invoices table on GroupDetail
 - [x] AI Summary: card removed from page flow; "AI Summary" toolbar button (top) opens a dialog with auto-generation — on both GroupDetail and Customer 360
+
+## Group card: invoices grouped by branch (user request 24/7)
+- [x] GroupDetail Invoices: "By branch" toggle — summary rows per Prime branch (outstanding total, invoice count, % of total) like the Invoices "By group" view
+- [x] Clicking a branch row drills into that branch's invoices (sets the branch filter, switches back to list)

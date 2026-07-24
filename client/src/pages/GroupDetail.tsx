@@ -124,6 +124,7 @@ export default function GroupDetail() {
   const [branch, setBranch] = useState<string>("all");
   const [agingFilter, setAgingFilter] = useState<string>("all");
   const [companiesOpen, setCompaniesOpen] = useState(false);
+  const [invoiceView, setInvoiceView] = useState<"list" | "byBranch">("list");
 
   const query = useMemo(
     () => ({
@@ -386,10 +387,83 @@ export default function GroupDetail() {
 
           {/* Invoices for current scope */}
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Invoices ({scopeLabel})</CardTitle>
+              <div className="flex items-center rounded-md border p-0.5">
+                <Button
+                  size="sm"
+                  variant={invoiceView === "list" ? "secondary" : "ghost"}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setInvoiceView("list")}
+                >
+                  List
+                </Button>
+                <Button
+                  size="sm"
+                  variant={invoiceView === "byBranch" ? "secondary" : "ghost"}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setInvoiceView("byBranch")}
+                >
+                  By branch
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
+              {invoiceView === "byBranch" ? (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Branch</TableHead>
+                        <TableHead className="text-right">Invoices</TableHead>
+                        <TableHead className="text-right">Outstanding (EUR)</TableHead>
+                        <TableHead className="text-right">% of total</TableHead>
+                        <TableHead className="text-right"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(() => {
+                        const byBranch = new Map<string, { count: number; totalEur: number }>();
+                        for (const i of data.invoices) {
+                          const key = branchShort(i.company);
+                          const cur = byBranch.get(key) ?? { count: 0, totalEur: 0 };
+                          cur.count += 1;
+                          cur.totalEur += Number(i.amountEur ?? i.amount ?? 0);
+                          byBranch.set(key, cur);
+                        }
+                        const grand = Array.from(byBranch.values()).reduce((s, b) => s + b.totalEur, 0);
+                        const rows = Array.from(byBranch.entries()).sort((a, b) => b[1].totalEur - a[1].totalEur);
+                        return rows.map(([b, v]) => (
+                          <TableRow
+                            key={b}
+                            className="cursor-pointer"
+                            onClick={() => {
+                              const full = (data.branches ?? []).find(x => branchShort(x) === b);
+                              setBranch(full && branchShort(branch) !== b ? full : "all");
+                              setInvoiceView("list");
+                            }}
+                          >
+                            <TableCell>
+                              <Badge variant="outline" className={`text-[11px] ${branchColors[b] ?? ""}`}>
+                                {b}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right font-mono">{v.count}</TableCell>
+                            <TableCell className="text-right font-mono font-semibold">{fmtEur(v.totalEur)}</TableCell>
+                            <TableCell className="text-right font-mono text-sm text-muted-foreground">
+                              {grand > 0 ? `${((v.totalEur / grand) * 100).toFixed(1)}%` : "—"}
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-muted-foreground">View invoices →</TableCell>
+                          </TableRow>
+                        ));
+                      })()}
+                    </TableBody>
+                  </Table>
+                  <p className="px-4 py-2 text-[11px] text-muted-foreground">
+                    Open invoices in the current scope, grouped per Prime branch (non-EUR converted to EUR). Click a branch to see its invoices.
+                  </p>
+                </>
+              ) : (
               <div className="max-h-[480px] overflow-auto">
                 <Table>
                   <TableHeader>
@@ -433,6 +507,7 @@ export default function GroupDetail() {
                   </TableBody>
                 </Table>
               </div>
+              )}
             </CardContent>
           </Card>
 
