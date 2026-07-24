@@ -379,3 +379,8 @@
 
 ## Customers list: compact watch-status indicator (user request 25/7)
 - [x] Replace large "Problematic" badge in Customers groups list with a small red "P" circle (C for Critical, L for Legal), tooltip preserved
+## GroupDetail KPI cards restructure (user request 25/7)
+- [x] Merge "Turnover (up to day)" and "Turnover Last Year" into a single Turnover card (YTD + last year + % comparison)
+- [x] Remove "Payment Behavior (last year)" card
+- [x] Add "Paid" card (collected this month)
+- [x] Add "Remain to Collect" card (remaining to collect this month)

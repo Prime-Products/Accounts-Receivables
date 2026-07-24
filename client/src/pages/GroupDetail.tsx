@@ -397,23 +397,20 @@ export default function GroupDetail() {
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-xs text-muted-foreground">Payment Behavior (last year)</div>
-                {data.behavior ? (
-                  <>
-                    <div
-                      className={`text-xl font-bold font-mono ${
-                        data.behavior.medianDaysLate > 30 ? "text-red-600" : data.behavior.medianDaysLate > 7 ? "text-amber-600" : "text-emerald-700"
-                      }`}
-                    >
-                      {data.behavior.medianDaysLate > 0 ? `+${data.behavior.medianDaysLate}` : data.behavior.medianDaysLate}d median
-                    </div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">
-                      avg {data.behavior.avgDaysLate}d vs due date · {data.behavior.payments} payments
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-sm text-muted-foreground mt-1">No payment history</div>
-                )}
+                <div className="text-xs text-muted-foreground">Paid (this month)</div>
+                <div className="text-xl font-bold font-mono text-emerald-700">
+                  {groupForecast ? fmtEur(groupForecast.collected) : "—"}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">collected within current month</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-xs text-muted-foreground">Remain to Collect (this month)</div>
+                <div className={`text-xl font-bold font-mono ${groupForecast && groupForecast.remaining > 0 ? "text-amber-600" : ""}`}>
+                  {groupForecast ? fmtEur(groupForecast.remaining) : "—"}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">vs forecast expected this month</div>
               </CardContent>
             </Card>
             <Card>
@@ -422,20 +419,14 @@ export default function GroupDetail() {
                 <div className="text-xl font-bold font-mono text-blue-700">
                   {data.totals.turnoverYtd > 0 ? fmtEur(data.totals.turnoverYtd) : "—"}
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">sum of member companies</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4">
-                <div className="text-xs text-muted-foreground">Turnover Last Year</div>
-                <div className="text-xl font-bold font-mono">
-                  {data.totals.turnoverLastYear > 0 ? fmtEur(data.totals.turnoverLastYear) : "—"}
+                <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
+                  last year: {data.totals.turnoverLastYear > 0 ? fmtEur(data.totals.turnoverLastYear) : "—"}
+                  {data.totals.turnoverYtd > 0 && data.totals.turnoverLastYear > 0 && (
+                    <span className={data.totals.turnoverYtd >= data.totals.turnoverLastYear ? "text-emerald-600" : "text-amber-600"}>
+                      {" "}· {((data.totals.turnoverYtd / data.totals.turnoverLastYear - 1) * 100).toFixed(0)}%
+                    </span>
+                  )}
                 </div>
-                {data.totals.turnoverYtd > 0 && data.totals.turnoverLastYear > 0 && (
-                  <div className={`text-[11px] font-mono mt-0.5 ${data.totals.turnoverYtd >= data.totals.turnoverLastYear ? "text-emerald-600" : "text-amber-600"}`}>
-                    {((data.totals.turnoverYtd / data.totals.turnoverLastYear - 1) * 100).toFixed(0)}% vs last year
-                  </div>
-                )}
               </CardContent>
             </Card>
           </div>
