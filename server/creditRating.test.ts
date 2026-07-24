@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeCreditRating, computeCallPriority } from "./lib/arLogic";
+import { computeCreditRating, computeCallPriority, statusTier } from "./lib/arLogic";
 
 describe("computeCreditRating", () => {
   it("gives A to a clean payer with no overdue", () => {
@@ -169,6 +169,56 @@ describe("computeCallPriority", () => {
       forecastCoverage: null,
     });
     expect(r.score).toBe(0);
+  });
+});
+
+describe("status-first Call List ordering (tier)", () => {
+  const base = {
+    overdue6190: 0,
+    overdue90Plus: 0,
+    rating: "C" as const,
+    promisesBroken: 0,
+    forecastCoverage: null,
+  };
+  const byCallOrder = (a: { tier: number; score: number }, b: { tier: number; score: number }) =>
+    b.tier - a.tier || b.score - a.score;
+
+  it("maps statuses to tiers: Critical/Legal=2, Problematic=1, Normal/Resolved=0", () => {
+    expect(statusTier("Critical")).toBe(2);
+    expect(statusTier("Legal")).toBe(2);
+    expect(statusTier("Problematic")).toBe(1);
+    expect(statusTier("Resolved")).toBe(0);
+    expect(statusTier(null)).toBe(0);
+    expect(statusTier(undefined)).toBe(0);
+  });
+
+  it("a small Problematic group outranks a huge Normal group", () => {
+    const problematicSmall = computeCallPriority({ ...base, overdueBalance: 5_000, groupStatus: "Problematic" });
+    const normalHuge = computeCallPriority({ ...base, overdueBalance: 200_000, groupStatus: null });
+    const ordered = [normalHuge, problematicSmall].sort(byCallOrder);
+    expect(ordered[0]).toBe(problematicSmall);
+    expect(problematicSmall.reasons).toContain("Problematic");
+  });
+
+  it("Critical outranks Problematic regardless of amounts", () => {
+    const critical = computeCallPriority({ ...base, overdueBalance: 1_000, groupStatus: "Critical" });
+    const problematic = computeCallPriority({ ...base, overdueBalance: 500_000, groupStatus: "Problematic" });
+    const ordered = [problematic, critical].sort(byCallOrder);
+    expect(ordered[0]).toBe(critical);
+    expect(critical.reasons).toContain("Critical");
+  });
+
+  it("within the same tier the financial score decides the order", () => {
+    const big = computeCallPriority({ ...base, overdueBalance: 100_000, groupStatus: "Problematic" });
+    const small = computeCallPriority({ ...base, overdueBalance: 10_000, groupStatus: "Problematic" });
+    expect(big.tier).toBe(small.tier);
+    expect(big.score).toBeGreaterThan(small.score);
+  });
+
+  it("Legal is flagged in reasons and shares the top tier", () => {
+    const legal = computeCallPriority({ ...base, overdueBalance: 2_000, groupStatus: "Legal" });
+    expect(legal.tier).toBe(2);
+    expect(legal.reasons).toContain("Legal");
   });
 });
 

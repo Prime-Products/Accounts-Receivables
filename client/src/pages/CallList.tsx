@@ -23,6 +23,12 @@ const reasonColors: Record<string, string> = {
   "Rating E": "border-red-300 bg-red-50 text-red-700",
 };
 
+const statusBadge: Record<string, string> = {
+  Problematic: "border-amber-300 bg-amber-50 text-amber-800",
+  Critical: "border-red-300 bg-red-50 text-red-700",
+  Legal: "border-purple-300 bg-purple-50 text-purple-700",
+};
+
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../server/routers";
 
@@ -33,17 +39,19 @@ type QuickAction = { row: CallRow; kind: "note" | "promise" | "task" } | null;
 
 export default function CallList() {
   const { data, isLoading } = trpc.customers.callList.useQuery();
-  const [reasonFilter, setReasonFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [action, setAction] = useState<QuickAction>(null);
 
   const rows = useMemo(() => {
     if (!data) return [];
     let list = data;
-    if (reasonFilter !== "all") list = list.filter(r => r.reasons.includes(reasonFilter));
+    if (statusFilter === "flagged") list = list.filter(r => r.tier > 0);
+    else if (statusFilter !== "all") list = list.filter(r => (r.watchStatus ?? "Normal") === statusFilter);
     return list;
-  }, [data, reasonFilter]);
+  }, [data, statusFilter]);
 
   const totalOverdue = useMemo(() => (data ?? []).reduce((s, r) => s + r.overdueBalance, 0), [data]);
+  const flaggedCount = useMemo(() => (data ?? []).filter(r => r.tier > 0).length, [data]);
 
   return (
     <div className="space-y-6">
@@ -53,23 +61,21 @@ export default function CallList() {
             <Phone className="h-6 w-6" /> Call List
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Who to phone first, ranked by amount at risk × aging × rating, boosted by broken promises and low forecast coverage.
+            Status first: Critical &amp; Legal on top, then Problematic, then the rest — ordered by amount at risk within each tier.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Label className="text-xs text-muted-foreground">Reason</Label>
-          <Select value={reasonFilter} onValueChange={setReasonFilter}>
+          <Label className="text-xs text-muted-foreground">Status</Label>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-44 bg-background">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All reasons</SelectItem>
-              <SelectItem value="Broken promise">Broken promise</SelectItem>
-              <SelectItem value="Aging 61-90">Aging 61-90</SelectItem>
-              <SelectItem value="Low coverage">Low coverage</SelectItem>
-              <SelectItem value="Rating E">Rating E</SelectItem>
-              <SelectItem value="Rating D">Rating D</SelectItem>
-              <SelectItem value="No recent payment">No recent payment</SelectItem>
+              <SelectItem value="all">All groups</SelectItem>
+              <SelectItem value="flagged">Problematic &amp; Critical{flaggedCount > 0 ? ` (${flaggedCount})` : ""}</SelectItem>
+              <SelectItem value="Critical">Critical only</SelectItem>
+              <SelectItem value="Problematic">Problematic only</SelectItem>
+              <SelectItem value="Legal">Legal only</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -97,6 +103,7 @@ export default function CallList() {
                   <TableRow>
                     <TableHead className="w-10">#</TableHead>
                     <TableHead>Group</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead className="text-right">Overdue</TableHead>
                     <TableHead className="text-right">Overdue EOM</TableHead>
                     <TableHead className="text-right">AI Forecast</TableHead>
@@ -114,6 +121,15 @@ export default function CallList() {
                           <ChevronRight className="h-3 w-3 text-muted-foreground" />
                         </Link>
                         <div className="text-[10px] text-muted-foreground font-mono">score {r.score.toLocaleString()}</div>
+                      </TableCell>
+                      <TableCell>
+                        {r.watchStatus ? (
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusBadge[r.watchStatus] ?? "border-slate-300 bg-slate-50 text-slate-600"}`}>
+                            {r.watchStatus}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right font-mono text-red-600 font-semibold">
                         {fmtEur(r.overdueBalance)}

@@ -317,7 +317,7 @@ export const customersRouter = router({
   callList: protectedProcedure.query(async () => {
     const now = Date.now();
     const today = new Date();
-    const [customers, invoices, forecastRows, behavior, allPromises, receipts, openTasks] = await Promise.all([
+    const [customers, invoices, forecastRows, behavior, allPromises, receipts, openTasks, watchRowsCl] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
       db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
@@ -325,10 +325,15 @@ export const customersRouter = router({
       db.listPromises(),
       db.listReceipts(),
       db.listTasks({ statuses: ["Pending", "In Progress"] }),
+      db.listGroupWatchStatuses().catch(() => []),
     ]);
     const eom = endOfCurrentMonth();
     const day61 = 61 * 24 * 60 * 60 * 1000;
     const day90 = 90 * 24 * 60 * 60 * 1000;
+    const watchByGroupCl = new Map<string, { status: string; problematicSince: number | null }>();
+    for (const w of watchRowsCl) {
+      watchByGroupCl.set(w.groupName, { status: w.status, problematicSince: w.problematicSince ?? null });
+    }
     const forecastByGroup = new Map<string, number>();
     const forecastGroups = new Set<string>();
     for (const f of forecastRows) {
@@ -439,6 +444,9 @@ export const customersRouter = router({
         const expected = forecastByGroup.get(g.group) ?? 0;
         const coverage = forecastGroups.has(g.group) && g.overdueEom > 0 ? expected / g.overdueEom : null;
         const daysSinceLastPayment = g.lastPaymentTs !== null ? Math.floor((now - g.lastPaymentTs) / (24 * 60 * 60 * 1000)) : null;
+        // Unified status: manual/auto Problematic → Critical after 30 days; drives the tier.
+        const autoProblematic = forecastGroups.has(g.group) && g.overdueEom > 0 && expected < 0.8 * g.overdueEom;
+        const resolvedStatus = resolveGroupStatus(watchByGroupCl.get(g.group) ?? null, autoProblematic, now);
         const priority = computeCallPriority({
           overdueBalance: g.overdueBalance,
           overdue6190: g.overdue6190,
@@ -448,11 +456,14 @@ export const customersRouter = router({
           promisesOverduePending: g.promisesOverduePending,
           forecastCoverage: coverage,
           daysSinceLastPayment,
+          groupStatus: resolvedStatus.status,
         });
         return {
           group: g.group,
           score: priority.score,
           reasons: priority.reasons,
+          tier: priority.tier,
+          watchStatus: resolvedStatus.status,
          rating: rating.rating,
          ratingScore: rating.score,
          overdueBalance: g.overdueBalance,
@@ -473,7 +484,8 @@ export const customersRouter = router({
           followUpDate: g.followUpTs,
         };
       })
-      .sort((a, b) => b.score - a.score);
+      // Status-first: Critical/Legal, then Problematic, then Normal; score orders within each tier.
+      .sort((a, b) => (b.tier - a.tier) || (b.score - a.score));
     return rows;
   }),
   /** Group card: aggregates + invoices, scoped by optional member company and/or Prime Branch. */

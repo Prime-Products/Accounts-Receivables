@@ -290,3 +290,9 @@
 - [x] Remove On-Hold page entirely (menu, route, dashboard KPI card replaced with Critical groups, Propose On-Hold buttons removed, OnHold.tsx deleted)
 - [x] Update rating/priority logic that referenced onHoldStatus to use the new status (kept legacy customer-level onHoldStatus in rating for now — no behavior change)
 - [x] Tests for auto-escalation and status transitions (statusWorkflow.test.ts, 11 cases)
+
+## Call List: status-first prioritization (user request 24/7)
+- [x] Call List ordering: status tiers first (Legal/Critical → Problematic → Normal), financial priority score orders within each tier
+- [x] Status badge/column visible on every Call List row
+- [x] Status filter in Call List header (All / Problematic & Critical / per-status)
+- [x] Vitest coverage for tiered ordering (5 new specs, 102 total passing)
