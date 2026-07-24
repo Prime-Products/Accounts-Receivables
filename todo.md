@@ -321,3 +321,11 @@
 
 ## Forecast: remove confirmation popup (user request 24/7)
 - [x] Remove the "Are you sure?" confirmation dialog from Refresh Forecast button (no longer needed since initialForecast is locked)
+
+## Call Management Modal (user request 24/7)
+- [x] Create CallManagementModal component with contact info, call log, group summary, quick actions
+- [x] Integrate modal into Call List: row click opens modal, pass group data
+- [x] Create backend endpoint to fetch call history (tasks, notes, promises per group)
+- [x] Display call log in modal (date, type, outcome, notes)
+- [x] Wire quick action buttons: Add Task, Promise-to-Pay, Add Note
+- [x] Test and verify modal workflow
