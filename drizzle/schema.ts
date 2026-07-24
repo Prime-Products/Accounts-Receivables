@@ -332,7 +332,6 @@ export const emailHistory = mysqlTable("email_history", {
   status: mysqlEnum("status", ["Sent", "Failed", "Pending"]).default("Pending").notNull(),
   sentAt: bigint("sentAt", { mode: "number" }),
   errorMessage: text("errorMessage"),
-  attachmentUrl: varchar("attachmentUrl", { length: 2048 }),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
@@ -372,7 +371,7 @@ export type PromiseToPay = typeof promisesToPay.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type SyncLog = typeof syncLogs.$inferSelect;
 export type EmailHistory = typeof emailHistory.$inferSelect;
-export type InsertEmailHistory = typeof emailHistory.$inferInsert & { attachmentUrl?: string | null };
+export type InsertEmailHistory = typeof emailHistory.$inferInsert;
 export type ActivityLog = typeof activityLog.$inferSelect;
 export type InsertActivityLog = typeof activityLog.$inferInsert;
 
