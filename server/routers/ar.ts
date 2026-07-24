@@ -693,6 +693,7 @@ export const customersRouter = router({
       aiSuggestedAmount: Number(entry.aiSuggestedAmount),
       aiReasoning: entry.aiReasoning,
       expectedAmount: Number(entry.expectedAmount),
+      initialForecast: Number(entry.initialForecast ?? 0),
       userAdjusted: entry.userAdjusted,
       adjustmentNote: entry.adjustmentNote,
       collected,
@@ -1426,12 +1427,13 @@ export const forecastRouter = router({
           acc.overdue += Number(r.overdueAmount);
           acc.aiSuggested += Number(r.aiSuggestedAmount);
           acc.expected += Number(r.expectedAmount);
+          acc.initial += Number(r.initialForecast ?? 0);
           acc.collected += r.collected;
           return acc;
         },
-        { due: 0, overdue: 0, aiSuggested: 0, expected: 0, collected: 0 },
+        { due: 0, overdue: 0, aiSuggested: 0, expected: 0, initial: 0, collected: 0 },
       );
-      return { entries: rows, totals: { ...totals, remaining: Math.max(0, totals.expected - totals.collected) } };
+      return { entries: rows, totals: { ...totals, remaining: Math.max(0, totals.expected - totals.collected), initial: totals.initial } };
     }),
 
   /** Months that have a generated smart forecast. */

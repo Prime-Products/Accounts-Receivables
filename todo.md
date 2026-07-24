@@ -315,6 +315,6 @@
 ## Forecast: track initial forecast and remaining amounts (user request 24/7)
 - [x] Add initialForecast column to database schema
 - [x] Update upsertForecastEntry to preserve initialForecast on first entry
-- [ ] Update backend API (trpc.forecast.smartEntries) to return initialForecast and totals.initial
-- [ ] Complete UI update on Forecast page to display Initial column
-- [ ] Add Initial forecast display to group card
+- [x] Update backend API (trpc.forecast.smartEntries) to return initialForecast and totals.initial
+- [x] Complete UI update on Forecast page to display Initial column
+- [x] Add Initial forecast display to group card

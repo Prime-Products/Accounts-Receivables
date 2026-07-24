@@ -306,6 +306,9 @@ export default function GroupDetail() {
                 <div className="text-xs text-muted-foreground">AI Forecast (this month)</div>
                 {groupForecast ? (
                   <>
+                    <div className="text-[11px] text-muted-foreground font-mono mb-1">
+                      Initial: {fmtEur(groupForecast.initialForecast ?? 0)} · Current: {fmtEur(groupForecast.expectedAmount)}
+                    </div>
                     <div className="text-xl font-bold font-mono text-emerald-700" title={groupForecast.aiReasoning ?? undefined}>
                       {fmtEur(groupForecast.expectedAmount)}
                     </div>
