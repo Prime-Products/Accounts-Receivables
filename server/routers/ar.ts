@@ -1920,3 +1920,74 @@ export const callsRouter = router({
       return db.listEmailHistory(input.customerId, input.limit);
     }),
 });
+
+
+export const paymentContactsRouter = router({
+  list: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .query(async ({ input }) => {
+      return db.listPaymentContacts(input.customerId);
+    }),
+  add: protectedProcedure
+    .input(
+      z.object({
+        customerId: z.number(),
+        name: z.string().min(1).max(255),
+        email: z.string().email(),
+        phone: z.string().max(20).optional(),
+        title: z.string().max(255).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const customer = await db.getCustomer(input.customerId);
+      if (!customer) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+      }
+      const id = await db.addPaymentContact({
+        customerId: input.customerId,
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        title: input.title,
+      });
+      await audit(ctx, "Add Payment Contact", "paymentContact", id, `${input.name} - ${input.email}`);
+      return { id, ...input };
+    }),
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        customerId: z.number(),
+        name: z.string().min(1).max(255).optional(),
+        email: z.string().email().optional(),
+        phone: z.string().max(20).optional(),
+        title: z.string().max(255).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const contact = await db.getPaymentContact(input.id);
+      if (!contact || contact[0]?.customerId !== input.customerId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Payment contact not found" });
+      }
+      const updates = {
+        ...(input.name && { name: input.name }),
+        ...(input.email && { email: input.email }),
+        ...(input.phone !== undefined && { phone: input.phone }),
+        ...(input.title !== undefined && { title: input.title }),
+      };
+      await db.updatePaymentContact(input.id, updates);
+      await audit(ctx, "Update Payment Contact", "paymentContact", input.id, JSON.stringify(updates));
+      return { id: input.id, ...updates };
+    }),
+  delete: protectedProcedure
+    .input(z.object({ id: z.number(), customerId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const contact = await db.getPaymentContact(input.id);
+      if (!contact || contact[0]?.customerId !== input.customerId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Payment contact not found" });
+      }
+      await db.deletePaymentContact(input.id);
+      await audit(ctx, "Delete Payment Contact", "paymentContact", input.id);
+      return { success: true };
+    }),
+});

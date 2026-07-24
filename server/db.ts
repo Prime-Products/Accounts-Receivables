@@ -19,12 +19,14 @@ import {
   InsertForecastEntry,
   InsertInvoice,
   InsertOnHoldProposal,
+  InsertPaymentContact,
   InsertReceipt,
   InsertTask,
   InsertUser,
   invoices,
   onHoldProposals,
   paymentBehavior,
+  paymentContacts,
   promisesToPay,
   receiptAllocations,
   receipts,
@@ -647,6 +649,37 @@ export async function listActivityLog(groupName: string, limit = 100) {
 export async function getActivityLog(id: number) {
   const db = await requireDb();
   return db.select().from(activityLog).where(eq(activityLog.id, id)).limit(1);
+}
+
+// ---------- Payment Contacts ----------
+export async function addPaymentContact(contact: InsertPaymentContact) {
+  const db = await requireDb();
+  const result = await db.insert(paymentContacts).values(contact);
+  return result[0].insertId;
+}
+
+export async function listPaymentContacts(customerId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(paymentContacts)
+    .where(eq(paymentContacts.customerId, customerId))
+    .orderBy(desc(paymentContacts.createdAt));
+}
+
+export async function getPaymentContact(id: number) {
+  const db = await requireDb();
+  return db.select().from(paymentContacts).where(eq(paymentContacts.id, id)).limit(1);
+}
+
+export async function updatePaymentContact(id: number, updates: Partial<InsertPaymentContact>) {
+  const db = await requireDb();
+  return db.update(paymentContacts).set(updates).where(eq(paymentContacts.id, id));
+}
+
+export async function deletePaymentContact(id: number) {
+  const db = await requireDb();
+  return db.delete(paymentContacts).where(eq(paymentContacts.id, id));
 }
 
 // ---------- Aggregations ----------

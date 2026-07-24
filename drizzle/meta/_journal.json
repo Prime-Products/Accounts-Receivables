@@ -92,6 +92,13 @@
       "when": 1784924120018,
       "tag": "0012_abandoned_pixie",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1784927094720,
+      "tag": "0013_last_major_mapleleaf",
+      "breakpoints": true
     }
   ]
 }

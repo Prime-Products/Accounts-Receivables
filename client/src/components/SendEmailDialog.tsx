@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { Mail } from "lucide-react";
+import { Mail, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -43,6 +43,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
     }
   };
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
+  const [selectedContactId, setSelectedContactId] = useState<number | null>(null);
   const [recipientEmail, setRecipientEmail] = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [templateType, setTemplateType] = useState<"Friendly Reminder" | "Final Notice" | "Statement" | "Custom">(
@@ -50,6 +51,16 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
   );
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [addingContact, setAddingContact] = useState(false);
+  const [newContactName, setNewContactName] = useState("");
+  const [newContactEmail, setNewContactEmail] = useState("");
+  const [newContactPhone, setNewContactPhone] = useState("");
+  const [newContactTitle, setNewContactTitle] = useState("");
+
+  const { data: paymentContacts } = trpc.paymentContacts.list.useQuery(
+    { customerId: customerId! },
+    { enabled: !!customerId }
+  );
 
   const sendEmail = trpc.calls.sendGroupEmail.useMutation({
     onSuccess: () => {
@@ -61,8 +72,22 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
     onError: e => toast.error(e.message),
   });
 
+  const addPaymentContact = trpc.paymentContacts.add.useMutation({
+    onSuccess: () => {
+      toast.success("Payment contact added");
+      utils.paymentContacts.invalidate();
+      setAddingContact(false);
+      setNewContactName("");
+      setNewContactEmail("");
+      setNewContactPhone("");
+      setNewContactTitle("");
+    },
+    onError: e => toast.error(e.message),
+  });
+
   const resetForm = () => {
     setCustomerId(defaultCustomerId ?? null);
+    setSelectedContactId(null);
     setRecipientEmail("");
     setRecipientName("");
     setTemplateType("Friendly Reminder");
@@ -81,11 +106,35 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
 
   const handleCustomerChange = (id: number) => {
     setCustomerId(id);
+    setSelectedContactId(null);
     const company = companies.find(c => c.id === id);
     if (company) {
       setRecipientEmail(company.email || "");
       setRecipientName(company.contactPerson || company.name);
     }
+  };
+
+  const handleSelectContact = (contactId: number) => {
+    const contact = paymentContacts?.find(c => c.id === contactId);
+    if (contact) {
+      setSelectedContactId(contactId);
+      setRecipientEmail(contact.email);
+      setRecipientName(contact.name);
+    }
+  };
+
+  const handleAddContact = () => {
+    if (!customerId || !newContactName || !newContactEmail) {
+      toast.error("Please fill in required fields (name and email)");
+      return;
+    }
+    addPaymentContact.mutate({
+      customerId,
+      name: newContactName,
+      email: newContactEmail,
+      phone: newContactPhone || undefined,
+      title: newContactTitle || undefined,
+    });
   };
 
   const isFormValid = customerId && recipientEmail && subject && body;
@@ -105,7 +154,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Send Email to Customer</DialogTitle>
         </DialogHeader>
@@ -126,6 +175,95 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
               </SelectContent>
             </Select>
           </div>
+
+          {/* Payment Contacts Section */}
+          {customerId && (
+            <div className="space-y-2 p-3 bg-muted rounded-lg">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-semibold">Payment Contacts</Label>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1"
+                  onClick={() => setAddingContact(!addingContact)}
+                >
+                  <Plus className="h-3 w-3" /> Add Contact
+                </Button>
+              </div>
+
+              {/* Add Contact Form */}
+              {addingContact && (
+                <div className="space-y-2 p-2 bg-background rounded border">
+                  <Input
+                    placeholder="Contact name"
+                    value={newContactName}
+                    onChange={e => setNewContactName(e.target.value)}
+                    className="text-sm"
+                  />
+                  <Input
+                    type="email"
+                    placeholder="Email"
+                    value={newContactEmail}
+                    onChange={e => setNewContactEmail(e.target.value)}
+                    className="text-sm"
+                  />
+                  <Input
+                    placeholder="Phone (optional)"
+                    value={newContactPhone}
+                    onChange={e => setNewContactPhone(e.target.value)}
+                    className="text-sm"
+                  />
+                  <Input
+                    placeholder="Title (optional)"
+                    value={newContactTitle}
+                    onChange={e => setNewContactTitle(e.target.value)}
+                    className="text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={handleAddContact}
+                      disabled={addPaymentContact.isPending}
+                      className="text-xs"
+                    >
+                      {addPaymentContact.isPending ? "Adding…" : "Add"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setAddingContact(false)}
+                      className="text-xs"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Contacts List */}
+              {paymentContacts && paymentContacts.length > 0 ? (
+                <div className="space-y-1">
+                  {paymentContacts.map(contact => (
+                    <button
+                      key={contact.id}
+                      onClick={() => handleSelectContact(contact.id)}
+                      className={`w-full text-left p-2 rounded text-sm transition-colors ${
+                        selectedContactId === contact.id
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background hover:bg-muted"
+                      }`}
+                    >
+                      <div className="font-medium">{contact.name}</div>
+                      <div className="text-xs opacity-75">{contact.email}</div>
+                      {contact.title && <div className="text-xs opacity-75">{contact.title}</div>}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground p-2">No payment contacts yet</div>
+              )}
+            </div>
+          )}
 
           {/* Recipient Email */}
           <div className="space-y-1.5">
@@ -183,7 +321,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
               placeholder="Email body"
               value={body}
               onChange={e => setBody(e.target.value)}
-              rows={8}
+              rows={6}
               className="resize-none"
             />
           </div>

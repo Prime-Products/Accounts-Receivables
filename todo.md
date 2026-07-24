@@ -354,3 +354,12 @@
 ## UI/UX Improvements (user request 24/7)
 - [x] Consolidate action buttons (New Task, Promise, Email, Note) into single "Actions" dropdown menu
 - [x] Display turnover fields prominently (already visible in KPI cards - YTD and Last Year with comparison)
+
+## Payment Contacts Management (user request 24/7)
+- [ ] Create paymentContacts table (customerId, name, email, phone, title)
+- [ ] Add database functions for CRUD operations on payment contacts
+- [ ] Create backend procedures for managing payment contacts
+- [ ] Update SendEmailDialog to display payment contacts for selected customer
+- [ ] Add "Add Contact" button in SendEmailDialog to create new payment contacts
+- [ ] Update email sending to use selected payment contact
+- [ ] Test payment contacts workflow
