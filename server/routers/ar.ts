@@ -284,7 +284,8 @@ export const customersRouter = router({
         const forecastExpected = forecastByGroup.get(g.group) ?? 0;
         // Business rule: problematic when the month's forecast covers < 80% of what will be overdue by EOM.
         const hasForecast = forecastByGroup.has(g.group);
-        const autoProblematic = hasForecast && g.overdueEomBalance > 0 && forecastExpected < 0.8 * g.overdueEomBalance;
+        const forecastForRule = hasForecast ? forecastExpected : 0;
+        const autoProblematic = g.overdueEomBalance > 0 && forecastForRule < 0.8 * g.overdueEomBalance;
         // Unified workflow: Normal → Problematic → Critical (auto after 30 days) → Legal / Resolved.
         const row = watchByGroup.get(g.group) ?? null;
         const resolved = resolveGroupStatus(row, autoProblematic);
@@ -445,7 +446,8 @@ export const customersRouter = router({
         const coverage = forecastGroups.has(g.group) && g.overdueEom > 0 ? expected / g.overdueEom : null;
         const daysSinceLastPayment = g.lastPaymentTs !== null ? Math.floor((now - g.lastPaymentTs) / (24 * 60 * 60 * 1000)) : null;
         // Unified status: manual/auto Problematic → Critical after 30 days; drives the tier.
-        const autoProblematic = forecastGroups.has(g.group) && g.overdueEom > 0 && expected < 0.8 * g.overdueEom;
+        const expectedForRule = forecastGroups.has(g.group) ? expected : 0;
+        const autoProblematic = g.overdueEom > 0 && expectedForRule < 0.8 * g.overdueEom;
         const resolvedStatus = resolveGroupStatus(watchByGroupCl.get(g.group) ?? null, autoProblematic, now);
         const priority = computeCallPriority({
           overdueBalance: g.overdueBalance,
@@ -561,7 +563,8 @@ export const customersRouter = router({
       const forecastRows = await db.listForecastEntries(todayD.getUTCFullYear(), todayD.getUTCMonth() + 1);
       const groupForecast = forecastRows.filter(f => (f.customerGroup ?? "").trim() === input.group).reduce((s, f) => s + Number(f.expectedAmount), 0);
       const hasForecast = forecastRows.some(f => (f.customerGroup ?? "").trim() === input.group);
-      const problematic = hasForecast && gOverdueEom > 0 && groupForecast < 0.8 * gOverdueEom;
+      const forecastForRule = hasForecast ? groupForecast : 0;
+      const problematic = gOverdueEom > 0 && forecastForRule < 0.8 * gOverdueEom;
       const watchRow = await db.getGroupWatchStatus(input.group).catch(() => null);
       const resolvedDetail = resolveGroupStatus(watchRow, problematic);
       const watchStatus = resolvedDetail.status;
@@ -840,7 +843,8 @@ export const customersRouter = router({
     const groupIds = new Set(groupCustomers.map(c => c.id));
     const groupInvoices = (await db.listInvoices()).filter(i => groupIds.has(i.customerId) && isOpenInvoice(i));
     const groupOverdueEom = groupInvoices.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
-    const autoProblematic = hasForecast && groupOverdueEom > 0 && groupForecast < 0.8 * groupOverdueEom;
+    const forecastForRule = hasForecast ? groupForecast : 0;
+    const autoProblematic = groupOverdueEom > 0 && forecastForRule < 0.8 * groupOverdueEom;
     const resolvedCd = resolveGroupStatus(watchRow, autoProblematic);
     const watchStatus = resolvedCd.status;
     const watchOverride = watchRow && watchRow.status !== "Auto" ? (watchRow.status === "On Watch" ? "Problematic" : watchRow.status) : null;

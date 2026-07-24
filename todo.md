@@ -308,3 +308,6 @@
 
 ## Call List: remove Actions column (user request 24/7)
 - [x] Remove the Actions column (note/promise/task quick actions) from the Call List table
+
+## Forecast: change auto-problematic rule (user request 24/7)
+- [x] Change auto-problematic rule: if NO forecast exists for a group, treat forecast as 0 → auto-flag as Problematic
