@@ -537,7 +537,7 @@ export async function getGroupWatchStatus(groupName: string) {
   const rows = await db.select().from(groupWatchStatus).where(eq(groupWatchStatus.groupName, groupName)).limit(1);
   return rows[0] ?? null;
 }
-export async function setGroupWatchStatus(groupName: string, status: "Auto" | "Problematic" | "On Watch", updatedBy: number | null) {
+export async function setGroupWatchStatus(groupName: string, status: "Auto" | "Problematic" | "On Watch" | "Normal", updatedBy: number | null) {
   const db = await requireDb();
   await db
     .insert(groupWatchStatus)

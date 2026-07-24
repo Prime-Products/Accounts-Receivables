@@ -24,19 +24,27 @@ describe("customers.setWatchStatus", () => {
     expect(groups.length).toBeGreaterThan(0);
     const g = groups[0].group;
 
-    await caller.customers.setWatchStatus({ group: g, status: "On Watch" });
+    await caller.customers.setWatchStatus({ group: g, status: "Problematic" });
     const stored = await db.getGroupWatchStatus(g);
-    expect(stored?.status).toBe("On Watch");
+    expect(stored?.status).toBe("Problematic");
 
     // The groups list must surface the manual override
     const refreshed = await caller.customers.groups({});
     const row = refreshed.find(r => r.group === g);
-    expect(row?.watchStatus).toBe("On Watch");
+    expect(row?.watchStatus).toBe("Problematic");
+    expect(row?.problematic).toBe(true);
 
     // A note documenting the change is auto-created
     const notes = await caller.customers.groupNotes({ group: g });
-    const note = notes.find(n => n.content.includes('Watch status changed to "On Watch"'));
+    const note = notes.find(n => n.content.includes('Status changed to "Problematic"'));
     expect(note).toBeTruthy();
+
+    // "Normal" clears the Problematic flag even if the rule would set it
+    await caller.customers.setWatchStatus({ group: g, status: "Normal" });
+    const normalized = await caller.customers.groups({});
+    const normalRow = normalized.find(r => r.group === g);
+    expect(normalRow?.watchStatus ?? null).toBeNull();
+    expect(normalRow?.problematic).toBe(false);
 
     // Reset back to Auto (follow the forecast rule)
     await caller.customers.setWatchStatus({ group: g, status: "Auto" });
@@ -45,7 +53,7 @@ describe("customers.setWatchStatus", () => {
 
     // Clean up the auto-created notes
     const allNotes = await caller.customers.groupNotes({ group: g });
-    for (const n of allNotes.filter(n => n.content.startsWith("Watch status changed"))) {
+    for (const n of allNotes.filter(n => n.content.startsWith("Status changed"))) {
       await caller.customers.deleteGroupNote({ id: n.id });
     }
   });

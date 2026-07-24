@@ -249,7 +249,7 @@ export default function GroupDetail() {
                   {data.rating.rating} · {data.rating.score}
                 </Badge>
               )}
-              {data && <WatchStatusSelect group={group} value={data.watchOverride ?? null} />}
+              {data && <WatchStatusSelect group={group} effective={data.watchStatus ?? null} />}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               Group card — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}

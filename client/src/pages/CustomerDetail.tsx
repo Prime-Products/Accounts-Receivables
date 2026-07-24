@@ -110,21 +110,7 @@ export default function CustomerDetail() {
                 {customer.onHoldStatus}
               </Badge>
             )}
-            {data.watchStatus === "Problematic" && (
-              <Badge
-                variant="outline"
-                className="bg-red-100 text-red-700 border-red-200"
-                title={data.autoProblematic && !data.watchOverride ? `Group forecast ${fmtEur(data.forecastExpected)} covers less than 80% of the group's overdue end-of-month` : "Manually set to Problematic"}
-              >
-                Problematic
-              </Badge>
-            )}
-            {data.watchStatus === "On Watch" && (
-              <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200" title="Manually set to On Watch">
-                On Watch
-              </Badge>
-            )}
-            <WatchStatusSelect group={data.groupKey} value={data.watchOverride ?? null} />
+            <WatchStatusSelect group={data.groupKey} effective={data.watchStatus ?? null} />
             {customer.customerGroup && (
               <Badge
                 variant="outline"

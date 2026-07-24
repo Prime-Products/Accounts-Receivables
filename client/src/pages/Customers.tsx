@@ -128,8 +128,7 @@ export default function Customers() {
       const matchesStatus =
         statusFilter === "all" ||
         (statusFilter === "problematic" && g.watchStatus === "Problematic") ||
-        (statusFilter === "onwatch" && g.watchStatus === "On Watch") ||
-        (statusFilter === "normal" && g.watchStatus !== "Problematic" && g.watchStatus !== "On Watch");
+        (statusFilter === "normal" && g.watchStatus !== "Problematic");
       const matchesRating = ratingFilter === "all" || g.rating === ratingFilter;
       return matchesSearch && matchesStatus && matchesRating;
     });
@@ -304,7 +303,6 @@ export default function Customers() {
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
               <SelectItem value="problematic">Problematic</SelectItem>
-              <SelectItem value="onwatch">On Watch</SelectItem>
               <SelectItem value="normal">Normal</SelectItem>
             </SelectContent>
           </Select>
@@ -376,13 +374,8 @@ export default function Customers() {
                         <div className="flex items-center gap-1.5">
                           <div className="truncate" title={g.group}>{g.group}</div>
                           {g.problematic && (
-                            <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200 text-[10px] shrink-0" title="Forecast covers less than 80% of overdue end-of-month">
+                            <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200 text-[10px] shrink-0" title={g.watchOverride === "Problematic" ? "Manually set to Problematic" : "Forecast covers less than 80% of overdue end-of-month"}>
                               Problematic
-                            </Badge>
-                          )}
-                          {g.watchStatus === "On Watch" && (
-                            <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] shrink-0" title="Manually set to On Watch">
-                              On Watch
                             </Badge>
                           )}
                         </div>

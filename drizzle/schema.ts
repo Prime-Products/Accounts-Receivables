@@ -257,8 +257,13 @@ export const groupNotes = mysqlTable("group_notes", {
 });
 export type GroupNote = typeof groupNotes.$inferSelect;
 
-/** Manual watch-status override per customer group: Auto (follow forecast rule), Problematic, or On Watch. */
-export const watchStatuses = ["Auto", "Problematic", "On Watch"] as const;
+/**
+ * Manual watch-status override per customer group.
+ * "Auto" follows the forecast rule; "Problematic" forces the flag;
+ * "Normal" clears it even when the rule would flag the group.
+ * ("On Watch" is legacy and treated as "Problematic" in business logic.)
+ */
+export const watchStatuses = ["Auto", "Problematic", "On Watch", "Normal"] as const;
 export type WatchStatus = (typeof watchStatuses)[number];
 export const groupWatchStatus = mysqlTable("group_watch_status", {
   id: int("id").autoincrement().primaryKey(),

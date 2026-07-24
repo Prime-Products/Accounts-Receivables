@@ -278,3 +278,7 @@
 - [x] Customer 360: group badge in header linking to the group card
 - [x] Vitest coverage for group aggregation scoping (37/37 tests passing)
 - [x] Vitest coverage for behavior profiling and forecast heuristic (32/32 tests passing)
+
+## Watch status fixes (user request 24/7)
+- [x] Fix mismatch: group card status dropdown must show the same effective status as the customers list (e.g., DYNACOM Problematic) — dropdown now shows the EFFECTIVE status (auto rule or manual override)
+- [x] Simplify watch statuses to two: Problematic and Normal (remove "On Watch"/"Auto" from the UI) — "Normal" clears the flag even when the rule would set it; legacy "On Watch" rows migrated to "Problematic"

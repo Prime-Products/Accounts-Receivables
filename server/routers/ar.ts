@@ -284,9 +284,11 @@ export const customersRouter = router({
         // Business rule: problematic when the month's forecast covers < 80% of what will be overdue by EOM.
         const hasForecast = forecastByGroup.has(g.group);
         const autoProblematic = hasForecast && g.overdueEomBalance > 0 && forecastExpected < 0.8 * g.overdueEomBalance;
-        // Manual override: "Problematic" or "On Watch" replaces the automatic verdict.
-        const watchOverride = watchByGroup.get(g.group) ?? null;
-        const watchStatus = watchOverride ?? (autoProblematic ? "Problematic" : null);
+        // Manual override replaces the automatic verdict; "Normal" clears the flag,
+        // legacy "On Watch" counts as "Problematic".
+        const rawOverride = watchByGroup.get(g.group) ?? null;
+        const watchOverride = rawOverride === "On Watch" ? "Problematic" : rawOverride;
+        const watchStatus = watchOverride === "Normal" ? null : (watchOverride ?? (autoProblematic ? "Problematic" : null));
         const problematic = watchStatus === "Problematic";
         const { overdue90Plus, promisesKept, promisesBroken, worstHold, turnoverYtd, turnoverLastYear, ...rest } = g;
         return {
@@ -548,8 +550,9 @@ export const customersRouter = router({
       const hasForecast = forecastRows.some(f => (f.customerGroup ?? "").trim() === input.group);
       const problematic = hasForecast && gOverdueEom > 0 && groupForecast < 0.8 * gOverdueEom;
       const watchRow = await db.getGroupWatchStatus(input.group).catch(() => null);
-      const watchOverride = watchRow && watchRow.status !== "Auto" ? watchRow.status : null;
-      const watchStatus = watchOverride ?? (problematic ? "Problematic" : null);
+      const rawOverride = watchRow && watchRow.status !== "Auto" ? watchRow.status : null;
+      const watchOverride = rawOverride === "On Watch" ? "Problematic" : rawOverride;
+      const watchStatus = watchOverride === "Normal" ? null : (watchOverride ?? (problematic ? "Problematic" : null));
       const companies = members
         .map(m => {
           const mine = branchScoped.filter(i => i.customerId === m.id);
@@ -704,15 +707,15 @@ export const customersRouter = router({
       await audit(ctx, "Update Group Note", "groupNote", input.id);
       return { success: true };
     }),
-  /** Manual watch-status override: Problematic ↔ On Watch ↔ Auto (follow the forecast rule). */
+  /** Manual watch-status override: Problematic forces the flag, Normal clears it, Auto follows the forecast rule. */
   setWatchStatus: protectedProcedure
-    .input(z.object({ group: z.string().min(1), status: z.enum(["Auto", "Problematic", "On Watch"]) }))
+    .input(z.object({ group: z.string().min(1), status: z.enum(["Auto", "Problematic", "Normal"]) }))
     .mutation(async ({ ctx, input }) => {
       await db.setGroupWatchStatus(input.group, input.status, ctx.user.id);
       await audit(ctx, "Set Watch Status", "group", input.group, `Status → ${input.status}`);
       await db.createGroupNote({
         groupName: input.group,
-        content: `Watch status changed to "${input.status === "Auto" ? "Auto (forecast rule)" : input.status}" by ${ctx.user.name ?? "user"}.`,
+        content: `Status changed to "${input.status === "Auto" ? "Auto (forecast rule)" : input.status}" by ${ctx.user.name ?? "user"}.`,
         createdBy: ctx.user.id,
         createdAt: Date.now(),
       });
@@ -825,8 +828,9 @@ export const customersRouter = router({
     const groupInvoices = (await db.listInvoices()).filter(i => groupIds.has(i.customerId) && isOpenInvoice(i));
     const groupOverdueEom = groupInvoices.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
     const autoProblematic = hasForecast && groupOverdueEom > 0 && groupForecast < 0.8 * groupOverdueEom;
-    const watchOverride = watchRow && watchRow.status !== "Auto" ? watchRow.status : null;
-    const watchStatus = watchOverride ?? (autoProblematic ? "Problematic" : null);
+    const rawDetailOverride = watchRow && watchRow.status !== "Auto" ? watchRow.status : null;
+    const watchOverride = rawDetailOverride === "On Watch" ? "Problematic" : rawDetailOverride;
+    const watchStatus = watchOverride === "Normal" ? null : (watchOverride ?? (autoProblematic ? "Problematic" : null));
     return {
       customer,
       invoices,
