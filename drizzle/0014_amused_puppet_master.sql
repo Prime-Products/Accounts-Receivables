@@ -1,0 +1,1 @@
+ALTER TABLE `email_history` ADD `attachmentUrl` varchar(2048);

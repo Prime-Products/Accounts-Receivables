@@ -51,6 +51,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
   );
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [attachStatement, setAttachStatement] = useState(false);
   const [addingContact, setAddingContact] = useState(false);
   const [newContactName, setNewContactName] = useState("");
   const [newContactEmail, setNewContactEmail] = useState("");
@@ -93,6 +94,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
     setTemplateType("Friendly Reminder");
     setSubject("");
     setBody("");
+    setAttachStatement(false);
   };
 
   const handleTemplateChange = (template: string) => {
@@ -102,6 +104,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
       setSubject(t.subject);
       setBody(t.body);
     }
+    setAttachStatement(template === "Statement");
   };
 
   const handleCustomerChange = (id: number) => {
@@ -137,7 +140,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
     });
   };
 
-  const isFormValid = customerId && recipientEmail && subject && body;
+  const isFormValid = customerId && recipientEmail && subject && (body || attachStatement);
 
   return (
     <Dialog
@@ -267,6 +270,15 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
 
           {/* Template Selection */}
           <div className="space-y-1.5">
+            <Label>Attach Statement PDF</Label>
+            <input
+              type="checkbox"
+              checked={attachStatement}
+              onChange={e => setAttachStatement(e.target.checked)}
+              disabled={templateType !== "Statement"}
+            />
+          </div>
+          <div className="space-y-1.5">
             <Label>Template</Label>
             <Select value={templateType} onValueChange={handleTemplateChange}>
               <SelectTrigger className="w-full">
@@ -309,7 +321,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
             Cancel
           </Button>
           <Button disabled={!isFormValid || sendEmail.isPending} onClick={() => {
-            if (customerId && recipientEmail && subject && body) {
+            if (customerId && recipientEmail && subject && (body || attachStatement)) {
               sendEmail.mutate({
                 customerId,
                 recipientEmail,
@@ -317,6 +329,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
                 templateType,
                 subject,
                 body,
+                attachStatement: templateType === "Statement" && attachStatement,
               });
             }
           }}>

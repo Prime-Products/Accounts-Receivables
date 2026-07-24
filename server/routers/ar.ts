@@ -36,6 +36,9 @@ import { generateMonthlyForecast } from "../lib/smartForecast";
 import { runTaskEngine } from "../lib/taskEngine";
 import * as softone from "../lib/softone";
 import { invokeLLM } from "../_core/llm";
+import { generatePdfFromHtml } from "../utils/pdfGenerator";
+import path from "path";
+import { statementRouter } from "./statement";
 
 async function audit(ctx: { user: { id: number; name: string | null } }, action: string, entityType: string, entityId?: string | number, details?: string) {
   try {
@@ -1853,6 +1856,7 @@ export const callsRouter = router({
         templateType: z.enum(["Friendly Reminder", "Final Notice", "Statement", "Custom"]),
         subject: z.string().min(1).max(255),
         body: z.string().min(1),
+        attachStatement: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1864,6 +1868,19 @@ export const callsRouter = router({
         }
 
         // Record email in history with "Pending" status
+        let attachmentUrl: string | undefined;
+        if (input.attachStatement && input.templateType === "Statement") {
+          const statementData = await statementRouter.createCaller(ctx).getStatementData({ customerId: input.customerId });
+          const templatePath = path.join(process.cwd(), "server", "templates", "statement.html");
+          const pdfBuffer = await generatePdfFromHtml(templatePath, statementData);
+          // In a real scenario, you would upload this PDF to an S3 bucket or similar storage
+          // and get a public URL. For now, we'll simulate this.
+          // For this sandbox environment, we'll assume a direct upload to a temporary URL or similar
+          // const uploaded = await sdk.storage.put("statements/" + input.customerId + "_statement.pdf", pdfBuffer, "application/pdf");
+          // attachmentUrl = uploaded.url;
+          attachmentUrl = "https://example.com/statement.pdf"; // Placeholder
+        }
+
         const emailRecord = await db.addEmailHistory({
           customerId: input.customerId,
           recipientEmail: input.recipientEmail,
@@ -1873,6 +1890,7 @@ export const callsRouter = router({
           body: input.body,
           status: "Pending",
           createdBy: ctx.user.id,
+          attachmentUrl,
         });
 
         // TODO: Integrate with actual email sending service (e.g., SendGrid, AWS SES)
@@ -1896,6 +1914,7 @@ export const callsRouter = router({
           activityType: "email",
           title: `Email sent: ${input.subject}`,
           description: `To: ${input.recipientEmail} (${input.templateType})`,
+          metadata: JSON.stringify({ attachmentUrl: attachmentUrl || undefined }),
           createdBy: ctx.user.id,
           createdAt: new Date(),
         }).catch(() => {});

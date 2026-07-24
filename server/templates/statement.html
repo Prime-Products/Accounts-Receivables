@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Statement of Account</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            font-size: 10px;
+        }
+        .container {
+            width: 100%;
+            margin: 0 auto;
+            border: 1px solid #ccc;
+            padding: 20px;
+        }
+        .header,
+        .footer {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 20px;
+        }
+        .address-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .customer-info,
+        .company-info {
+            width: 48%;
+        }
+        .section-title {
+            font-weight: bold;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        table th,
+        table td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: left;
+        }
+        .summary-table th,
+        .summary-table td {
+            text-align: right;
+        }
+        .bank-details {
+            margin-top: 20px;
+            border-top: 1px solid #ccc;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Statement of Account</h1>
+            <p>Date: {{currentDate}}</p>
+        </div>
+
+        <div class="address-info">
+            <div class="customer-info">
+                <strong>Customer:</strong><br>
+                {{customer.name}}<br>
+                {{customer.address}}<br>
+                Payment Terms: {{customer.paymentTerms}}
+            </div>
+            <div class="company-info">
+                <strong>Company:</strong><br>
+                PRIME PRODUCTS LTD<br>
+                123 Business Road<br>
+                Athens, Greece
+            </div>
+        </div>
+
+        <div class="section-title">Summary</div>
+        <table class="summary-table">
+            <thead>
+                <tr>
+                    <th>Company</th>
+                    <th>Currency</th>
+                    <th>Balance</th>
+                    <th>Unpaid Documents</th>
+                    <th>Overdue Documents</th>
+                    <th>Upcoming (This Month)</th>
+                    <th>Upcoming (Next Month)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{#each totalAmountsSummary}}
+                <tr>
+                    <td>{{this.company}}</td>
+                    <td>{{this.currency}}</td>
+                    <td>{{this.balance}}</td>
+                    <td>{{this.unpaidDocuments}}</td>
+                    <td>{{this.overdueDocuments}}</td>
+                    <td>{{this.upcomingWithinMonth}}</td>
+                    <td>{{this.upcomingNextMonth}}</td>
+                </tr>
+                {{/each}}
+            </tbody>
+        </table>
+
+        <div class="section-title">Analysis</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Doc Date</th>
+                    <th>Documents</th>
+                    <th>Doc Amount</th>
+                    <th>Open Doc Amount</th>
+                    <th>Overdue (Days)</th>
+                    <th>Vessel</th>
+                    <th>Comments</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{#each analysisSection}}
+                <tr>
+                    <td>{{this.docDate}}</td>
+                    <td>{{this.documents}}</td>
+                    <td>{{this.docAmount}}</td>
+                    <td>{{this.openDocAmount}}</td>
+                    <td>{{this.overdue}}</td>
+                    <td>{{this.vessel}}</td>
+                    <td>{{this.comments}}</td>
+                </tr>
+                {{/each}}
+            </tbody>
+        </table>
+
+        <div class="bank-details">
+            <strong>Bank Details:</strong><br>
+            Beneficiary Name: {{bankDetails.beneficiaryName}}<br>
+            IBAN: {{bankDetails.iban}}<br>
+            SWIFT: {{bankDetails.swift}}
+        </div>
+
+        <div class="footer">
+            <p>&copy; {{currentYear}} PRIME PRODUCTS LTD. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
