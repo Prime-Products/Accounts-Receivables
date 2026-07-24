@@ -296,3 +296,8 @@
 - [x] Status badge/column visible on every Call List row
 - [x] Status filter in Call List header (All / Problematic & Critical / per-status)
 - [x] Vitest coverage for tiered ordering (5 new specs, 102 total passing)
+
+## Group card: collapsible companies section (user request 24/7)
+- [x] Companies section on GroupDetail folded by default with expand/collapse toggle (click header, chevron + count)
+- [x] Move Companies section below the Invoices table on GroupDetail
+- [x] AI Summary: card removed from page flow; "AI Summary" toolbar button (top) opens a dialog with auto-generation — on both GroupDetail and Customer 360

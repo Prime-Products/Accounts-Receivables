@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
-import GroupAiSummaryCard from "@/components/GroupAiSummaryCard";
+import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { Button } from "@/components/ui/button";
@@ -126,6 +126,7 @@ export default function CustomerDetail() {
             }
           />
           <GroupNotesDialog group={data.groupKey} />
+          <GroupAiSummaryDialog group={data.groupKey} />
           <Button
             variant="outline"
             size="sm"
@@ -516,8 +517,6 @@ export default function CustomerDetail() {
           </Card>
         </TabsContent>
       </Tabs>
-
-      <GroupAiSummaryCard group={data.groupKey} />
     </div>
   );
 }

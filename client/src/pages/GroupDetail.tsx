@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
-import GroupAiSummaryCard from "@/components/GroupAiSummaryCard";
+import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, FileDown, Filter, HandCoins, Layers, Pencil, Plus, Sparkles, StickyNote, Trash2 } from "lucide-react";
+import { ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Plus, Sparkles, StickyNote, Trash2 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -123,6 +123,7 @@ export default function GroupDetail() {
   const [companyId, setCompanyId] = useState<string>("all");
   const [branch, setBranch] = useState<string>("all");
   const [agingFilter, setAgingFilter] = useState<string>("all");
+  const [companiesOpen, setCompaniesOpen] = useState(false);
 
   const query = useMemo(
     () => ({
@@ -215,6 +216,7 @@ export default function GroupDetail() {
               />
               <GroupPromiseDialog key={`ptp-${companyId}`} companies={data.companies} defaultCustomerId={defaultActionCustomerId} />
               <GroupNotesDialog group={group} />
+              <GroupAiSummaryDialog group={group} />
             </>
           )}
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => doExport("pdf")} disabled={exportSoa.isPending}>
@@ -382,18 +384,80 @@ export default function GroupDetail() {
             </CardContent>
           </Card>
 
-          {/* Member companies */}
+          {/* Invoices for current scope */}
           <Card>
             <CardHeader className="pb-2">
+              <CardTitle className="text-base">Invoices ({scopeLabel})</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="max-h-[480px] overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Document</TableHead>
+                      <TableHead>Company</TableHead>
+                      <TableHead>Branch</TableHead>
+                      <TableHead>Doc. Date</TableHead>
+                      <TableHead>Due Date</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.invoices.map(i => (
+                      <TableRow key={i.id}>
+                        <TableCell className="font-mono text-xs">{i.invoiceNumber}</TableCell>
+                        <TableCell className="text-sm max-w-52">
+                          <div className="truncate" title={i.customerName}>{i.customerName}</div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={`text-[10px] ${branchColors[branchShort(i.company)] ?? ""}`}>
+                            {branchShort(i.company)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm whitespace-nowrap">{fmtDate(i.issueDate)}</TableCell>
+                        <TableCell className="text-sm whitespace-nowrap">{fmtDate(i.dueDate)}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={`text-[10px] ${invoiceStatusColors[i.status] ?? ""}`}>
+                            {i.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm">
+                          {fmtCur(Number(i.amount), i.currency ?? "EUR")}
+                          {i.currency && i.currency !== "EUR" && i.amountEur != null && (
+                            <div className="text-[10px] text-muted-foreground">≈ {fmtEur(Number(i.amountEur))}</div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Member companies (folded by default) */}
+          <Card>
+            <CardHeader
+              className="pb-2 cursor-pointer select-none"
+              onClick={() => setCompaniesOpen(o => !o)}
+              role="button"
+              aria-expanded={companiesOpen}
+            >
               <CardTitle className="text-base flex items-center gap-2">
                 <Building2 className="h-4 w-4" /> Companies of the group
+                <span className="text-xs font-normal text-muted-foreground">({data.companies.length})</span>
                 {branch !== "all" && (
                   <Badge variant="outline" className={branchColors[branchShort(branch)] ?? ""}>
                     {branchShort(branch)} only
                   </Badge>
                 )}
+                <ChevronDown
+                  className={`ml-auto h-4 w-4 text-muted-foreground transition-transform duration-200 ${companiesOpen ? "rotate-180" : ""}`}
+                />
               </CardTitle>
             </CardHeader>
+            {companiesOpen && (
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
@@ -464,64 +528,8 @@ export default function GroupDetail() {
                 Click a company row to scope all data above to that company; click again to return to the whole group.
               </p>
             </CardContent>
+            )}
           </Card>
-
-          {/* Invoices for current scope */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Invoices ({scopeLabel})</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="max-h-[480px] overflow-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Document</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Branch</TableHead>
-                      <TableHead>Doc. Date</TableHead>
-                      <TableHead>Due Date</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.invoices.map(i => (
-                      <TableRow key={i.id}>
-                        <TableCell className="font-mono text-xs">{i.invoiceNumber}</TableCell>
-                        <TableCell className="text-sm max-w-52">
-                          <div className="truncate" title={i.customerName}>{i.customerName}</div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={`text-[10px] ${branchColors[branchShort(i.company)] ?? ""}`}>
-                            {branchShort(i.company)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">{fmtDate(i.issueDate)}</TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">{fmtDate(i.dueDate)}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={`text-[10px] ${invoiceStatusColors[i.status] ?? ""}`}>
-                            {i.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {fmtCur(Number(i.amount), i.currency ?? "EUR")}
-                          {i.currency && i.currency !== "EUR" && i.amountEur != null && (
-                            <div className="text-[10px] text-muted-foreground">≈ {fmtEur(Number(i.amountEur))}</div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Promises-to-pay, Notes & AI summary */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <GroupAiSummaryCard group={group} />
-          </div>
 
           {/* Payment history, contracts & tasks across the group (unified card) */}
           <GroupActivityTabs group={group} />
