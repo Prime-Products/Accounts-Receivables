@@ -390,3 +390,6 @@
 - [x] Add "Log Call" item to Actions menu in GroupDetail
 - [x] Customers list (Groups view): per-row Actions dropdown (Log Call, New Task, Add Note)
 - [x] Tests for logCall procedure (108 tests passing)
+## Customers list: Collected & Remaining columns (user request 25/7)
+- [x] Backend: customers.groups returns collected (current-month receipts) and remaining (forecast − collected) per group
+- [x] Frontend: Collected and Remaining columns after AI Forecast (sortable) + TOTAL cells

@@ -17,7 +17,7 @@ import LogCallDialog from "@/components/LogCallDialog";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
 
-type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "overdueCount";
+type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "collected" | "remaining" | "overdueCount";
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
 
 /** Per-row quick actions dropdown for the Customers groups list. */
@@ -214,6 +214,10 @@ export default function Customers() {
             return g.overdueEomBalance;
           case "forecast":
             return g.forecastExpected;
+          case "collected":
+            return g.collected;
+          case "remaining":
+            return g.remaining;
           case "overdueCount":
             return g.overdueCount;
           default:
@@ -231,15 +235,17 @@ export default function Customers() {
   const groupTotals = useMemo(
     () =>
       filteredGroups.reduce(
-        (t: { companies: number; open: number; overdue: number; overdueEom: number; forecast: number; overdueCount: number }, g) => ({
+        (t: { companies: number; open: number; overdue: number; overdueEom: number; forecast: number; collected: number; remaining: number; overdueCount: number }, g) => ({
           companies: t.companies + g.companyCount,
           open: t.open + g.openBalance,
           overdue: t.overdue + g.overdueBalance,
           overdueEom: t.overdueEom + g.overdueEomBalance,
           forecast: t.forecast + g.forecastExpected,
+          collected: t.collected + g.collected,
+          remaining: t.remaining + g.remaining,
           overdueCount: t.overdueCount + g.overdueCount,
         }),
-        { companies: 0, open: 0, overdue: 0, overdueEom: 0, forecast: 0, overdueCount: 0 }
+        { companies: 0, open: 0, overdue: 0, overdueEom: 0, forecast: 0, collected: 0, remaining: 0, overdueCount: 0 }
       ),
     [filteredGroups]
   );
@@ -353,6 +359,8 @@ export default function Customers() {
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
                     <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} />
                     <SortableHead label="AI Forecast" active={groupSort.key === "forecast"} dir={groupSort.dir} onClick={() => toggleGroupSort("forecast")} />
+                    <SortableHead label="Collected" active={groupSort.key === "collected"} dir={groupSort.dir} onClick={() => toggleGroupSort("collected")} />
+                    <SortableHead label="Remaining" active={groupSort.key === "remaining"} dir={groupSort.dir} onClick={() => toggleGroupSort("remaining")} />
                     <TableHead className="w-10"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -368,6 +376,12 @@ export default function Customers() {
                     </TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.forecast > 0 ? "text-emerald-700" : ""}`}>
                       {fmtEur(groupTotals.forecast)}
+                    </TableCell>
+                    <TableCell className={`text-right font-mono ${groupTotals.collected > 0 ? "text-emerald-700" : ""}`}>
+                      {fmtEur(groupTotals.collected)}
+                    </TableCell>
+                    <TableCell className={`text-right font-mono ${groupTotals.remaining > 0 ? "text-amber-600" : ""}`}>
+                      {fmtEur(groupTotals.remaining)}
                     </TableCell>
                     <TableCell></TableCell>
                   </TableRow>
@@ -415,6 +429,12 @@ export default function Customers() {
                       </TableCell>
                       <TableCell className={`text-right font-mono ${g.forecastExpected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                         {fmtEur(g.forecastExpected)}
+                      </TableCell>
+                      <TableCell className={`text-right font-mono ${g.collected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
+                        {fmtEur(g.collected)}
+                      </TableCell>
+                      <TableCell className={`text-right font-mono ${g.remaining > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
+                        {fmtEur(g.remaining)}
                       </TableCell>
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                         <GroupRowActions group={g.group} />

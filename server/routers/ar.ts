@@ -182,15 +182,25 @@ export const customersRouter = router({
   groups: protectedProcedure.query(async () => {
     const now = Date.now();
     const today = new Date();
-    const [customers, invoices, forecastRows, behavior, allPromises, watchRows] = await Promise.all([
+    const [customers, invoices, forecastRows, behavior, allPromises, watchRows, receipts] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
       db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
       db.listPaymentBehaviorWithGroup().catch(() => []),
       db.listPromises(),
       db.listGroupWatchStatuses().catch(() => []),
+      db.listReceipts(),
     ]);
     const eom = endOfCurrentMonth();
+    // Current-month collected per customer (EUR), then rolled up per group below.
+    const monthStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1);
+    const monthEnd = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1);
+    const collectedByCustomer = new Map<number, number>();
+    for (const r of receipts) {
+      if (r.receiptDate >= monthStart && r.receiptDate < monthEnd) {
+        collectedByCustomer.set(r.customerId, (collectedByCustomer.get(r.customerId) ?? 0) + Number(r.amount));
+      }
+    }
     const watchByGroup = new Map<string, { status: string; problematicSince: number | null }>();
     for (const w of watchRows) {
       watchByGroup.set(w.groupName, { status: w.status, problematicSince: w.problematicSince ?? null });
@@ -235,18 +245,20 @@ export const customersRouter = router({
         worstHold: string;
         turnoverYtd: number;
         turnoverLastYear: number;
+        collected: number;
       }
     >();
     for (const c of customers) {
       const key = (c.customerGroup ?? "").trim() || c.name;
       let g = groups.get(key);
       if (!g) {
-        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set(), overdue90Plus: 0, promisesKept: 0, promisesBroken: 0, worstHold: "Active", turnoverYtd: 0, turnoverLastYear: 0 };
+        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set(), overdue90Plus: 0, promisesKept: 0, promisesBroken: 0, worstHold: "Active", turnoverYtd: 0, turnoverLastYear: 0, collected: 0 };
         groups.set(key, g);
       }
       g.companyCount += 1;
       g.turnoverYtd += c.turnoverYtd ? Number(c.turnoverYtd) : 0;
       g.turnoverLastYear += c.turnoverLastYear ? Number(c.turnoverLastYear) : 0;
+      g.collected += collectedByCustomer.get(c.id) ?? 0;
       const prom = promisesByCustomer.get(c.id);
       if (prom) {
         g.promisesKept += prom.kept;
@@ -292,13 +304,15 @@ export const customersRouter = router({
         const watchStatus = resolved.status;
         const watchOverride = row && row.status !== "Auto" ? (row.status === "On Watch" ? "Problematic" : row.status) : null;
         const problematic = watchStatus === "Problematic" || watchStatus === "Critical";
-        const { overdue90Plus, promisesKept, promisesBroken, worstHold, turnoverYtd, turnoverLastYear, ...rest } = g;
+        const { overdue90Plus, promisesKept, promisesBroken, worstHold, turnoverYtd, turnoverLastYear, collected, ...rest } = g;
         return {
           ...rest,
           turnoverYtd,
           turnoverLastYear,
           branches: Array.from(g.branches).sort(),
           forecastExpected,
+          collected,
+          remaining: Math.max(0, forecastExpected - collected),
           forecastCoverage: g.overdueEomBalance > 0 ? forecastExpected / g.overdueEomBalance : null,
           problematic,
           watchStatus,
