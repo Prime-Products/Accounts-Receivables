@@ -12,6 +12,8 @@ import { toast } from "sonner";
 interface SendEmailDialogProps {
   companies: { id: number; name: string; email?: string | null; contactPerson?: string | null }[];
   defaultCustomerId?: number;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const emailTemplates = {
@@ -29,9 +31,17 @@ const emailTemplates = {
   },
 };
 
-export default function SendEmailDialog({ companies, defaultCustomerId }: SendEmailDialogProps) {
+export default function SendEmailDialog({ companies, defaultCustomerId, open: externalOpen, onOpenChange }: SendEmailDialogProps) {
   const utils = trpc.useUtils();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = externalOpen !== undefined ? externalOpen : internalOpen;
+  const setOpen = (newOpen: boolean) => {
+    if (externalOpen !== undefined) {
+      onOpenChange?.(newOpen);
+    } else {
+      setInternalOpen(newOpen);
+    }
+  };
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
   const [recipientEmail, setRecipientEmail] = useState("");
   const [recipientName, setRecipientName] = useState("");
@@ -88,11 +98,13 @@ export default function SendEmailDialog({ companies, defaultCustomerId }: SendEm
         if (!o) resetForm();
       }}
     >
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5">
-          <Mail className="h-4 w-4" /> Send Email
-        </Button>
-      </DialogTrigger>
+      {externalOpen === undefined && (
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm" className="gap-1.5">
+            <Mail className="h-4 w-4" /> Send Email
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Send Email to Customer</DialogTitle>

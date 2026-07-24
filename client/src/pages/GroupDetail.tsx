@@ -79,12 +79,12 @@ function ActionsMenu({
         />
       )}
 
-      {emailOpen && (
-        <SendEmailDialog
-          companies={companies}
-          defaultCustomerId={defaultCustomerId}
-        />
-      )}
+      <SendEmailDialog
+        companies={companies}
+        defaultCustomerId={defaultCustomerId}
+        open={emailOpen}
+        onOpenChange={setEmailOpen}
+      />
 
       {noteOpen && <GroupNotesDialog group={group} />}
     </>
