@@ -8,13 +8,91 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtEur, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowDown, ArrowUp, ArrowUpDown, Layers, Search, Sparkles, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, HandCoins, Layers, MoreHorizontal, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import LogCallDialog from "@/components/LogCallDialog";
+import NewTaskDialog from "@/components/NewTaskDialog";
+import GroupNotesDialog from "@/components/GroupNotesDialog";
 
 type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "overdueCount";
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
+
+/** Per-row quick actions dropdown for the Customers groups list. */
+function GroupRowActions({ group }: { group: string }) {
+  const [callOpen, setCallOpen] = useState(false);
+  const [taskOpen, setTaskOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [loadMembers, setLoadMembers] = useState(false);
+  // Load member companies lazily (only when Log Call / New Task requested)
+  const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: loadMembers });
+  const members = useMemo(
+    () =>
+      (allCustomers ?? [])
+        .filter(c => ((c.customerGroup ?? "").trim() || c.name) === group)
+        .map(c => ({ id: c.id, name: c.name, openBalance: c.openBalance })),
+    [allCustomers, group]
+  );
+  const defaultCustomerId = useMemo(
+    () => (members.length > 0 ? [...members].sort((a, b) => b.openBalance - a.openBalance)[0].id : undefined),
+    [members]
+  );
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-7 w-7">
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onClick={() => {
+              setLoadMembers(true);
+              setCallOpen(true);
+            }}
+          >
+            <Phone className="h-4 w-4 mr-2" /> Log Call
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => {
+              setLoadMembers(true);
+              setTaskOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-2" /> New Task
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setNoteOpen(true)}>
+            <StickyNote className="h-4 w-4 mr-2" /> Add Note
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {callOpen && (
+        <LogCallDialog
+          group={group}
+          companies={members}
+          defaultCustomerId={defaultCustomerId}
+          open={callOpen}
+          onOpenChange={setCallOpen}
+        />
+      )}
+      {taskOpen && (
+        <NewTaskDialog
+          customerIds={members.map(m => m.id)}
+          defaultCustomerId={defaultCustomerId}
+          trigger={<span className="hidden" />}
+          open={taskOpen}
+          onOpenChange={setTaskOpen}
+        />
+      )}
+      {noteOpen && <GroupNotesDialog group={group} open={noteOpen} onOpenChange={setNoteOpen} />}
+    </>
+  );
+}
 
 function SortableHead({
   label,
@@ -275,6 +353,7 @@ export default function Customers() {
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
                     <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} />
                     <SortableHead label="AI Forecast" active={groupSort.key === "forecast"} dir={groupSort.dir} onClick={() => toggleGroupSort("forecast")} />
+                    <TableHead className="w-10"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -290,6 +369,7 @@ export default function Customers() {
                     <TableCell className={`text-right font-mono ${groupTotals.forecast > 0 ? "text-emerald-700" : ""}`}>
                       {fmtEur(groupTotals.forecast)}
                     </TableCell>
+                    <TableCell></TableCell>
                   </TableRow>
                   {filteredGroups.map(g => (
                     <TableRow
@@ -336,7 +416,9 @@ export default function Customers() {
                       <TableCell className={`text-right font-mono ${g.forecastExpected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                         {fmtEur(g.forecastExpected)}
                       </TableCell>
-                      <TableCell className="text-right font-mono">{g.overdueCount}</TableCell>
+                      <TableCell className="text-right" onClick={e => e.stopPropagation()}>
+                        <GroupRowActions group={g.group} />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

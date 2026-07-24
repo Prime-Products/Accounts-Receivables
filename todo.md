@@ -384,3 +384,9 @@
 - [x] Remove "Payment Behavior (last year)" card
 - [x] Add "Paid" card (collected this month)
 - [x] Add "Remain to Collect" card (remaining to collect this month)
+## Log Call + Actions in Customers list (user request 25/7)
+- [x] Backend: logCall procedure recording a call (contact, outcome, notes) into activity_log
+- [x] LogCallDialog component (company select, contact name, outcome, notes)
+- [x] Add "Log Call" item to Actions menu in GroupDetail
+- [x] Customers list (Groups view): per-row Actions dropdown (Log Call, New Task, Add Note)
+- [x] Tests for logCall procedure (108 tests passing)

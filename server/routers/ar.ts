@@ -1906,6 +1906,32 @@ export const callsRouter = router({
     .query(async ({ input }) => {
       return db.listEmailHistory(input.customerId, input.limit);
     }),
+  logCall: protectedProcedure
+    .input(
+      z.object({
+        group: z.string().min(1).max(255),
+        customerId: z.number().optional(),
+        contactName: z.string().max(255).optional(),
+        outcome: z.enum(["Reached", "No Answer", "Voicemail", "Promised Payment", "Dispute", "Other"]),
+        notes: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const parts: string[] = [];
+      if (input.contactName) parts.push(`Contact: ${input.contactName}`);
+      if (input.notes) parts.push(input.notes);
+      await db.addActivityLog({
+        groupName: input.group,
+        customerId: input.customerId,
+        activityType: "call",
+        title: `Call logged — ${input.outcome}`,
+        description: parts.length > 0 ? parts.join(" · ") : undefined,
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      });
+      await audit(ctx, "Log Call", "call", input.customerId, `${input.group}: ${input.outcome}`);
+      return { success: true };
+    }),
 });
 
 

@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
+import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
 import { ActivityLog } from "@/components/ActivityLog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
@@ -18,7 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
+import { ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -38,6 +39,7 @@ function ActionsMenu({
   const [promiseOpen, setPromiseOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
 
   return (
     <>
@@ -59,6 +61,9 @@ function ActionsMenu({
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setNoteOpen(true)}>
             <StickyNote className="h-4 w-4 mr-2" /> Add Note
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setCallOpen(true)}>
+            <Phone className="h-4 w-4 mr-2" /> Log Call
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -87,6 +92,14 @@ function ActionsMenu({
       />
 
       <GroupNotesDialog group={group} open={noteOpen} onOpenChange={setNoteOpen} />
+
+      <LogCallDialog
+        group={group}
+        companies={companies}
+        defaultCustomerId={defaultCustomerId}
+        open={callOpen}
+        onOpenChange={setCallOpen}
+      />
     </>
   );
 }
