@@ -318,3 +318,6 @@
 - [x] Update backend API (trpc.forecast.smartEntries) to return initialForecast and totals.initial
 - [x] Complete UI update on Forecast page to display Initial column
 - [x] Add Initial forecast display to group card
+
+## Forecast: remove confirmation popup (user request 24/7)
+- [x] Remove the "Are you sure?" confirmation dialog from Refresh Forecast button (no longer needed since initialForecast is locked)

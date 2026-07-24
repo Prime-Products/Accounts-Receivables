@@ -37,7 +37,6 @@ function SmartForecastSection() {
   const [editAmount, setEditAmount] = useState("");
   const [editNote, setEditNote] = useState("");
   const [search, setSearch] = useState("");
-  const [confirmRerun, setConfirmRerun] = useState(false);
   type SortKey = "due" | "overdue" | "ai" | "expected" | "initial" | "collected" | "remaining";
   const [sort, setSort] = useState<{ key: SortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
 
@@ -135,8 +134,7 @@ function SmartForecastSection() {
   const hasExistingForecast = (data?.entries.length ?? 0) > 0;
 
   const handleGenerateClick = () => {
-    if (hasExistingForecast) setConfirmRerun(true);
-    else generate.mutate({ ...sel, useAi: true });
+    generate.mutate({ ...sel, useAi: true });
   };
 
   return (
@@ -178,32 +176,6 @@ function SmartForecastSection() {
               <Sparkles className="h-4 w-4" />
               {generate.isPending ? "Generating…" : (data?.entries.length ?? 0) > 0 ? "Refresh Forecast" : "Generate Forecast"}
             </Button>
-            <AlertDialog open={confirmRerun} onOpenChange={setConfirmRerun}>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Forecast for {monthName(sel.month)} {sel.year} has already run
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    The forecast for this month already exists ({data?.entries.length ?? 0} groups, expected{" "}
-                    {fmtEur(totals?.expected ?? 0)}). Re-running will recalculate Due / Overdue / AI Suggested based on the
-                    invoices that are open right now — the AI amounts will be overwritten. Your manual adjustments are kept.
-                    Collected and Remaining always update live and do not require a re-run. Are you sure you want to re-run it?
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => {
-                      setConfirmRerun(false);
-                      generate.mutate({ ...sel, useAi: true });
-                    }}
-                  >
-                    Yes, re-run forecast
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
           </div>
         </div>
         {generate.isPending && (
