@@ -399,7 +399,7 @@ export default function Customers() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-amber-600 font-semibold">
-                        {Math.round(g.ratingScore ?? 0)}
+                        <div>{g.rating} · {Math.round(g.ratingScore ?? 0)}</div>
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {fmtEur(g.openBalance)}
