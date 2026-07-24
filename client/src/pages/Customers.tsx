@@ -15,8 +15,8 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "overdueCount" | "rating";
-type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "rating";
+type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "overdueCount" | "score";
+type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
 
 function SortableHead({
   label,
@@ -107,7 +107,7 @@ export default function Customers() {
             return c.overdueEomBalance;
           case "credit":
             return Number(c.creditLimit);
-          case "rating":
+          case "score":
             return c.ratingScore;
           default:
             return 0;
@@ -150,8 +150,8 @@ export default function Customers() {
             return g.forecastExpected;
           case "overdueCount":
             return g.overdueCount;
-          case "rating":
-            return g.ratingScore;
+          case "score":
+            return g.ratingScore ?? 0;
           default:
             return 0;
         }
@@ -344,20 +344,17 @@ export default function Customers() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Group</TableHead>
-                    <SortableHead label="Rating" active={groupSort.key === "rating"} dir={groupSort.dir} onClick={() => toggleGroupSort("rating")} />
-                    <SortableHead label="Companies" active={groupSort.key === "companies"} dir={groupSort.dir} onClick={() => toggleGroupSort("companies")} />
+                    <SortableHead label="Score" active={groupSort.key === "score"} dir={groupSort.dir} onClick={() => toggleGroupSort("score")} />
                     <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} />
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
                     <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} />
                     <SortableHead label="AI Forecast" active={groupSort.key === "forecast"} dir={groupSort.dir} onClick={() => toggleGroupSort("forecast")} />
-                    <SortableHead label="Overdue Inv." active={groupSort.key === "overdueCount"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueCount")} />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
                     <TableCell>TOTAL ({filteredGroups.length} groups)</TableCell>
                     <TableCell />
-                    <TableCell className="text-right font-mono">{groupTotals.companies}</TableCell>
                     <TableCell className="text-right font-mono">{fmtEur(groupTotals.open)}</TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.overdue > 0 ? "text-red-600" : ""}`}>
                       {fmtEur(groupTotals.overdue)}
@@ -368,7 +365,6 @@ export default function Customers() {
                     <TableCell className={`text-right font-mono ${groupTotals.forecast > 0 ? "text-emerald-700" : ""}`}>
                       {fmtEur(groupTotals.forecast)}
                     </TableCell>
-                    <TableCell className="text-right font-mono">{groupTotals.overdueCount}</TableCell>
                   </TableRow>
                   {filteredGroups.map(g => (
                     <TableRow
@@ -402,16 +398,9 @@ export default function Customers() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="text-right">
-                        <Badge
-                          variant="outline"
-                          className={`${ratingColors[g.rating] ?? ""} font-mono`}
-                          title={`Credit score ${g.ratingScore}/100${g.ratingFactors ? `\n${g.ratingFactors.map(f => `${f.label}: ${f.points}/${f.max} (${f.detail})`).join("\n")}` : ""}`}
-                        >
-                          {g.rating}
-                        </Badge>
+                      <TableCell className="text-right font-mono text-amber-600 font-semibold">
+                        {Math.round((g.ratingScore ?? 0) / 10)}
                       </TableCell>
-                      <TableCell className="text-right font-mono">{g.companyCount}</TableCell>
                       <TableCell className="text-right font-mono">
                         {fmtEur(g.openBalance)}
                         <div className="text-[10px] text-muted-foreground">
@@ -449,7 +438,6 @@ export default function Customers() {
                 <TableRow>
                   <TableHead>Code</TableHead>
                   <TableHead>Name</TableHead>
-                  <SortableHead label="Rating" active={companySort.key === "rating"} dir={companySort.dir} onClick={() => toggleCompanySort("rating")} />
                   <TableHead>Status</TableHead>
                   <SortableHead label="Open Balance" active={companySort.key === "open"} dir={companySort.dir} onClick={() => toggleCompanySort("open")} />
                   <SortableHead label="Overdue" active={companySort.key === "overdue"} dir={companySort.dir} onClick={() => toggleCompanySort("overdue")} />

@@ -13,7 +13,6 @@ import Invoices from "./pages/Invoices";
 import Contracts from "./pages/Contracts";
 import Tasks from "./pages/Tasks";
 import Forecast from "./pages/Forecast";
-import CallList from "./pages/CallList";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 
@@ -29,7 +28,6 @@ function Router() {
         <Route path={"/contracts"} component={Contracts} />
         <Route path={"/tasks"} component={Tasks} />
         <Route path={"/forecast"} component={Forecast} />
-        <Route path={"/call-list"} component={CallList} />
         <Route path={"/reports"} component={Reports} />
         <Route path={"/settings"} component={Settings} />
         <Route path={"/404"} component={NotFound} />
