@@ -278,3 +278,14 @@
 - [x] Customer 360: group badge in header linking to the group card
 - [x] Vitest coverage for group aggregation scoping (37/37 tests passing)
 - [x] Vitest coverage for behavior profiling and forecast heuristic (32/32 tests passing)
+
+
+## Collection Workspace Redesign (user request 24/7)
+- [ ] Create CollectionWorkspace component with side panel/drawer UI
+- [ ] Add Group Overview section (name, AI description, watch status, rating, overdue EOM, forecast, collected, remaining, last contact, tasks, promises)
+- [ ] Add "What Should I Do Next?" AI recommendation section
+- [ ] Add Quick Actions buttons (Record Call Outcome, Create Promise, Create Task, Update Forecast, Add Note)
+- [ ] Implement Call Outcome workflow with predefined outcomes (No Answer, Contacted, Forecast Confirmed, Forecast Reduced, Promise Received, Escalation Needed)
+- [ ] Add "Open Full Customer Card" button for analysis workflows
+- [ ] Integrate Collection Workspace into Call List (click group → open workspace instead of full card)
+- [ ] Enable sequential processing (collector can process groups one after another without leaving Call List)
