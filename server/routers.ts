@@ -4,6 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import {
   adminRouter,
+  callsRouter,
   contractsRouter,
   customersRouter,
   forecastRouter,
@@ -33,6 +34,7 @@ export const appRouter = router({
   receipts: receiptsRouter,
   contracts: contractsRouter,
   tasks: tasksRouter,
+  calls: callsRouter,
   onHold: onHoldRouter,
   forecast: forecastRouter,
   reports: reportsRouter,

@@ -639,10 +639,11 @@ export const customersRouter = router({
     const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
     const memberIds = new Set(members.map(m => m.id));
     const names = new Map(members.map(m => [m.id, m.name]));
-    const [receipts, contracts, tasks] = await Promise.all([
+    const [receipts, contracts, tasks, emailHistories] = await Promise.all([
       db.listReceipts().catch(() => []),
       db.listContracts().catch(() => []),
       db.listTasks({}).catch(() => []),
+      Promise.all(Array.from(memberIds).map(id => db.listEmailHistory(id, 300).catch(() => []))).then(results => results.flat()),
     ]);
     return {
       receipts: receipts
@@ -658,6 +659,10 @@ export const customersRouter = router({
         .sort((a, b) => (b.dueDate ?? 0) - (a.dueDate ?? 0))
         .slice(0, 300)
         .map(t => ({ ...t, customerName: names.get(t.customerId) ?? "—" })),
+      emails: emailHistories
+        .sort((a, b) => (b.createdAt?.getTime?.() ?? 0) - (a.createdAt?.getTime?.() ?? 0))
+        .slice(0, 300)
+        .map(e => ({ ...e, customerName: names.get(e.customerId) ?? "—" })),
     };
   }),
   /** Notes attached to a group. */
@@ -1806,4 +1811,70 @@ export const adminRouter = router({
       throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
     }
   }),
+});
+
+export const callsRouter = router({
+  sendGroupEmail: protectedProcedure
+    .input(
+      z.object({
+        customerId: z.number(),
+        recipientEmail: z.string().email(),
+        recipientName: z.string().optional(),
+        templateType: z.enum(["Friendly Reminder", "Final Notice", "Statement", "Custom"]),
+        subject: z.string().min(1).max(255),
+        body: z.string().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        // Verify customer exists
+        const customer = await db.getCustomer(input.customerId);
+        if (!customer) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+        }
+
+        // Record email in history with "Pending" status
+        const emailRecord = await db.addEmailHistory({
+          customerId: input.customerId,
+          recipientEmail: input.recipientEmail,
+          recipientName: input.recipientName,
+          templateType: input.templateType,
+          subject: input.subject,
+          body: input.body,
+          status: "Pending",
+          createdBy: ctx.user.id,
+        });
+
+        // TODO: Integrate with actual email sending service (e.g., SendGrid, AWS SES)
+        // For now, we'll just mark it as sent and log it
+        // In production, you would call the email service here and handle errors
+
+        // Audit the email send action
+        await audit(
+          ctx,
+          "Send Email",
+          "email",
+          input.customerId,
+          `To: ${input.recipientEmail}, Template: ${input.templateType}`
+        );
+
+        return {
+          success: true,
+          emailId: emailRecord,
+          message: "Email queued for sending",
+        };
+      } catch (error: any) {
+        console.error("[Email] Error sending email:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: error.message || "Failed to send email",
+        });
+      }
+    }),
+
+  getEmailHistory: protectedProcedure
+    .input(z.object({ customerId: z.number(), limit: z.number().default(50) }))
+    .query(async ({ input }) => {
+      return db.listEmailHistory(input.customerId, input.limit);
+    }),
 });

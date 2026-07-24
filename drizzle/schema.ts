@@ -317,6 +317,23 @@ export const syncLogs = mysqlTable("sync_logs", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const emailTemplateTypes = ["Friendly Reminder", "Final Notice", "Statement", "Custom"] as const;
+
+export const emailHistory = mysqlTable("email_history", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull(),
+  recipientEmail: varchar("recipientEmail", { length: 320 }).notNull(),
+  recipientName: varchar("recipientName", { length: 255 }),
+  templateType: mysqlEnum("templateType", emailTemplateTypes).notNull(),
+  subject: varchar("subject", { length: 255 }).notNull(),
+  body: text("body").notNull(),
+  status: mysqlEnum("status", ["Sent", "Failed", "Pending"]).default("Pending").notNull(),
+  sentAt: bigint("sentAt", { mode: "number" }),
+  errorMessage: text("errorMessage"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type UserProfile = typeof userProfiles.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = typeof customers.$inferInsert;
@@ -339,3 +356,5 @@ export type AppSetting = typeof appSettings.$inferSelect;
 export type PromiseToPay = typeof promisesToPay.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type SyncLog = typeof syncLogs.$inferSelect;
+export type EmailHistory = typeof emailHistory.$inferSelect;
+export type InsertEmailHistory = typeof emailHistory.$inferInsert;

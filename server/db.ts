@@ -7,11 +7,13 @@ import {
   contractInstallments,
   contracts,
   customers,
+  emailHistory,
   forecastEntries,
   groupNotes,
   groupWatchStatus,
   InsertContract,
   InsertCustomer,
+  InsertEmailHistory,
   InsertForecastEntry,
   InsertInvoice,
   InsertOnHoldProposal,
@@ -599,6 +601,28 @@ export async function addSyncLog(entry: typeof syncLogs.$inferInsert) {
 export async function listSyncLogs(limit = 50) {
   const db = await requireDb();
   return db.select().from(syncLogs).orderBy(desc(syncLogs.createdAt)).limit(limit);
+}
+
+// ---------- Email history ----------
+export async function addEmailHistory(entry: InsertEmailHistory) {
+  const db = await requireDb();
+  const result = await db.insert(emailHistory).values(entry);
+  return Number((result as any)[0].insertId);
+}
+
+export async function listEmailHistory(customerId: number, limit = 50) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(emailHistory)
+    .where(eq(emailHistory.customerId, customerId))
+    .orderBy(desc(emailHistory.createdAt))
+    .limit(limit);
+}
+
+export async function getEmailHistory(id: number) {
+  const db = await requireDb();
+  return db.select().from(emailHistory).where(eq(emailHistory.id, id)).limit(1);
 }
 
 // ---------- Aggregations ----------

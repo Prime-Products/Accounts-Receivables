@@ -78,6 +78,13 @@
       "when": 1784894920208,
       "tag": "0010_sharp_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1784920631188,
+      "tag": "0011_glossy_freak",
+      "breakpoints": true
     }
   ]
 }

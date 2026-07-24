@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
+import SendEmailDialog from "@/components/SendEmailDialog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -216,6 +217,7 @@ export default function GroupDetail() {
                 }
               />
               <GroupPromiseDialog key={`ptp-${companyId}`} companies={data.companies} defaultCustomerId={defaultActionCustomerId} />
+              <SendEmailDialog key={`email-${companyId}`} companies={data.companies} defaultCustomerId={defaultActionCustomerId} />
               <GroupNotesDialog group={group} />
               <GroupAiSummaryDialog group={group} />
             </>
@@ -638,6 +640,7 @@ function GroupActivityTabs({ group }: { group: string }) {
             <TabsTrigger value="receipts">Payment History{data ? ` (${data.receipts.length})` : ""}</TabsTrigger>
             <TabsTrigger value="contracts">Contracts{data ? ` (${data.contracts.length})` : ""}</TabsTrigger>
             <TabsTrigger value="tasks">Tasks{data ? ` (${data.tasks.length})` : ""}</TabsTrigger>
+            <TabsTrigger value="emails">Emails{data ? ` (${data.emails?.length ?? 0})` : ""}</TabsTrigger>
           </TabsList>
           {isLoading || !data ? (
             <Skeleton className="h-40 mt-3" />
@@ -749,6 +752,49 @@ function GroupActivityTabs({ group }: { group: string }) {
                           <TableCell className="text-sm whitespace-nowrap">{t.dueDate ? fmtDate(t.dueDate) : "—"}</TableCell>
                           <TableCell>
                             <Badge variant="outline" className={`text-[10px] ${taskStatusColors[t.status] ?? ""}`}>{t.status}</Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+              <TabsContent value="emails">
+                <div className="max-h-80 overflow-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>To</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Subject</TableHead>
+                        <TableHead>Template</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.emails.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-6">
+                            No emails sent
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {data.emails.map(e => (
+                        <TableRow key={e.id}>
+                          <TableCell className="text-sm whitespace-nowrap">{fmtDate(e.createdAt instanceof Date ? e.createdAt.getTime() : e.createdAt)}</TableCell>
+                          <TableCell className="text-sm max-w-48">
+                            <div className="truncate" title={e.recipientEmail}>{e.recipientEmail}</div>
+                          </TableCell>
+                          <TableCell className="text-sm max-w-52">
+                            <div className="truncate" title={e.customerName}>{e.customerName}</div>
+                          </TableCell>
+                          <TableCell className="text-sm max-w-64">
+                            <div className="truncate" title={e.subject}>{e.subject}</div>
+                          </TableCell>
+                          <TableCell className="text-xs">{e.templateType}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={`text-[10px] ${e.status === "Sent" ? "bg-green-50 text-green-700 border-green-200" : e.status === "Failed" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>{e.status}</Badge>
                           </TableCell>
                         </TableRow>
                       ))}

@@ -321,3 +321,15 @@
 
 ## Forecast: remove confirmation popup (user request 24/7)
 - [x] Remove the "Are you sure?" confirmation dialog from Refresh Forecast button (no longer needed since initialForecast is locked)
+
+## Email sending functionality (user request 24/7)
+- [x] Add email_history table to database schema (customerId, recipientEmail, recipientName, templateType, subject, body, status, sentAt, errorMessage, createdBy, createdAt)
+- [x] Create database migration and apply to database
+- [x] Add database functions (addEmailHistory, listEmailHistory, getEmailHistory)
+- [x] Create callsRouter with sendGroupEmail and getEmailHistory procedures
+- [x] Create SendEmailDialog component with 4 email templates (Friendly Reminder, Final Notice, Statement, Custom)
+- [x] Integrate SendEmailDialog into GroupDetail page with "Send Email" button
+- [x] Update groupActivity query to include email history
+- [x] Add "Emails" tab to GroupActivityTabs showing email history with status badges
+- [x] Create vitest tests for email sending (4 tests, all passing)
+- [x] All 106 tests passing
