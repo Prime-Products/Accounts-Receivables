@@ -345,3 +345,8 @@
 - [x] Update email sending to log to activity_log
 - [x] Update promise status changes (Kept/Broken) to log to activity_log
 - [x] Test and verify all activities are logged (all 106 tests passing)
+
+## Turnover Display (user request 24/7)
+- [ ] Display turnoverLastYear and turnoverYtd in GroupDetail page
+- [ ] Show turnover values in summary section with formatting (EUR, thousands)
+- [ ] Add year-over-year comparison or growth indicator

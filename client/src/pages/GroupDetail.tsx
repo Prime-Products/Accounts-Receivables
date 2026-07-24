@@ -8,6 +8,7 @@ import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,11 +18,78 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Plus, Sparkles, StickyNote, Trash2, History } from "lucide-react";
+import { ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
+
+/** Actions dropdown menu for group-level interactions */
+function ActionsMenu({
+  companies,
+  defaultCustomerId,
+  group,
+}: {
+  companies: { id: number; name: string }[];
+  defaultCustomerId?: number;
+  group: string;
+}) {
+  const [taskOpen, setTaskOpen] = useState(false);
+  const [promiseOpen, setPromiseOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" className="gap-1.5">
+            <Plus className="h-4 w-4" /> Actions
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setTaskOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" /> New Task
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setPromiseOpen(true)}>
+            <HandCoins className="h-4 w-4 mr-2" /> Promise to Pay
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setEmailOpen(true)}>
+            <StickyNote className="h-4 w-4 mr-2" /> Send Email
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setNoteOpen(true)}>
+            <StickyNote className="h-4 w-4 mr-2" /> Add Note
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {taskOpen && (
+        <NewTaskDialog
+          customerIds={companies.map(c => c.id)}
+          defaultCustomerId={defaultCustomerId}
+          hideCustomerPicker
+          trigger={<Button className="hidden">Hidden</Button>}
+        />
+      )}
+
+      {promiseOpen && (
+        <GroupPromiseDialog
+          companies={companies}
+          defaultCustomerId={defaultCustomerId}
+        />
+      )}
+
+      {emailOpen && (
+        <SendEmailDialog
+          companies={companies}
+          defaultCustomerId={defaultCustomerId}
+        />
+      )}
+
+      {noteOpen && <GroupNotesDialog group={group} />}
+    </>
+  );
+}
 
 /** Shared company picker for group-level action dialogs. */
 function CompanyPicker({
@@ -206,20 +274,13 @@ export default function GroupDetail() {
         <div className="flex items-center gap-2 flex-wrap">
           {data && data.companies.length > 0 && (
             <>
-              <NewTaskDialog
+              {/* Actions Dropdown */}
+              <ActionsMenu
                 key={companyId}
-                customerIds={data.companies.map(c => c.id)}
+                companies={data.companies}
                 defaultCustomerId={defaultActionCustomerId}
-                hideCustomerPicker
-                trigger={
-                  <Button size="sm" className="gap-1.5">
-                    <Plus className="h-4 w-4" /> New Task
-                  </Button>
-                }
+                group={group}
               />
-              <GroupPromiseDialog key={`ptp-${companyId}`} companies={data.companies} defaultCustomerId={defaultActionCustomerId} />
-              <SendEmailDialog key={`email-${companyId}`} companies={data.companies} defaultCustomerId={defaultActionCustomerId} />
-              <GroupNotesDialog group={group} />
               <GroupAiSummaryDialog group={group} />
             </>
           )}
