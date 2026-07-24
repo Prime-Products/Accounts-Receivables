@@ -42,7 +42,7 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-  { icon: Users, label: "Control Panel", path: "/customers" },
+  { icon: Users, label: "Customers", path: "/customers" },
   { icon: FileText, label: "Invoices", path: "/invoices" },
   { icon: ScrollText, label: "Contracts", path: "/contracts" },
   { icon: ListChecks, label: "Tasks", path: "/tasks" },
