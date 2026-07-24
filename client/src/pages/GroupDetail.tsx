@@ -249,25 +249,6 @@ export default function GroupDetail() {
                   {data.rating.rating} · {data.rating.score}
                 </Badge>
               )}
-              {data?.problematic && (
-                <Badge
-                  variant="outline"
-                  className="bg-red-100 text-red-700 border-red-200"
-                  title={`Forecast ${fmtEur(data.forecastExpected)} covers less than 80% of overdue end-of-month ${fmtEur(data.overdueEomBalance)}`}
-                >
-                  Problematic
-                </Badge>
-              )}
-              {data?.holdStatus && data.holdStatus !== "Active" && (
-                <Badge variant="outline" className={onHoldStatusColors[data.holdStatus] ?? ""} title="Worst on-hold status among group members">
-                  {data.holdStatus}
-                </Badge>
-              )}
-              {!data?.problematic && data?.watchStatus === "On Watch" && (
-                <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200" title="Manually set to On Watch">
-                  On Watch
-                </Badge>
-              )}
               {data && <WatchStatusSelect group={group} value={data.watchOverride ?? null} />}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
