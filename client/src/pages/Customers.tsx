@@ -15,7 +15,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "overdueCount" | "score";
+type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "overdueCount";
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
 
 function SortableHead({
@@ -150,8 +150,6 @@ export default function Customers() {
             return g.forecastExpected;
           case "overdueCount":
             return g.overdueCount;
-          case "score":
-            return g.ratingScore ?? 0;
           default:
             return 0;
         }
@@ -344,7 +342,6 @@ export default function Customers() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Group</TableHead>
-                    <SortableHead label="Score" active={groupSort.key === "score"} dir={groupSort.dir} onClick={() => toggleGroupSort("score")} />
                     <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} />
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
                     <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} />
@@ -354,7 +351,6 @@ export default function Customers() {
                 <TableBody>
                   <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
                     <TableCell>TOTAL ({filteredGroups.length} groups)</TableCell>
-                    <TableCell />
                     <TableCell className="text-right font-mono">{fmtEur(groupTotals.open)}</TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.overdue > 0 ? "text-red-600" : ""}`}>
                       {fmtEur(groupTotals.overdue)}
@@ -397,9 +393,6 @@ export default function Customers() {
                             </Badge>
                           )}
                         </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-amber-600 font-semibold">
-                        <div>{g.rating} · {Math.round(g.ratingScore ?? 0)}</div>
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {fmtEur(g.openBalance)}
