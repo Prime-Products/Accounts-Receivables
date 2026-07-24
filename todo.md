@@ -305,3 +305,6 @@
 ## Group card: invoices grouped by branch (user request 24/7)
 - [x] GroupDetail Invoices: "By branch" toggle — summary rows per Prime branch (outstanding total, invoice count, % of total) like the Invoices "By group" view
 - [x] Clicking a branch row drills into that branch's invoices (sets the branch filter, switches back to list)
+
+## Call List: remove Actions column (user request 24/7)
+- [x] Remove the Actions column (note/promise/task quick actions) from the Call List table
