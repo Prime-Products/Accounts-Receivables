@@ -226,6 +226,8 @@ export const forecastEntries = mysqlTable("forecast_entries", {
   aiReasoning: text("aiReasoning"),
   /** Final expected amount — starts equal to AI suggestion, user-editable. */
   expectedAmount: decimal("expectedAmount", { precision: 14, scale: 2 }).default("0").notNull(),
+  /** Initial forecast amount captured on first generation of the month (never changes during the month). */
+  initialForecast: decimal("initialForecast", { precision: 14, scale: 2 }).default("0"),
   /** Whether the user manually adjusted expectedAmount. */
   userAdjusted: int("userAdjusted").default(0).notNull(),
   adjustedBy: int("adjustedBy"),

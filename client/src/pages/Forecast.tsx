@@ -38,7 +38,7 @@ function SmartForecastSection() {
   const [editNote, setEditNote] = useState("");
   const [search, setSearch] = useState("");
   const [confirmRerun, setConfirmRerun] = useState(false);
-  type SortKey = "due" | "overdue" | "ai" | "expected" | "collected" | "remaining";
+  type SortKey = "due" | "overdue" | "ai" | "expected" | "initial" | "collected" | "remaining";
   const [sort, setSort] = useState<{ key: SortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
 
   const toggleSort = (key: SortKey) =>
@@ -59,6 +59,8 @@ function SmartForecastSection() {
             return Number(e.aiSuggestedAmount);
           case "expected":
             return Number(e.expectedAmount);
+          case "initial":
+            return Number(e.initialForecast ?? 0);
           case "collected":
             return e.collected;
           case "remaining":
@@ -77,16 +79,17 @@ function SmartForecastSection() {
 
   const visibleTotals = useMemo(
     () =>
-      visibleRows.reduce<{ due: number; overdue: number; ai: number; expected: number; collected: number; remaining: number }>(
+      visibleRows.reduce<{ due: number; overdue: number; ai: number; expected: number; initial: number; collected: number; remaining: number }>(
         (t, e) => ({
           due: t.due + Number(e.dueAmount),
           overdue: t.overdue + Number(e.overdueAmount),
           ai: t.ai + Number(e.aiSuggestedAmount),
           expected: t.expected + Number(e.expectedAmount),
+          initial: t.initial + Number(e.initialForecast ?? 0),
           collected: t.collected + e.collected,
           remaining: t.remaining + e.remaining,
         }),
-        { due: 0, overdue: 0, ai: 0, expected: 0, collected: 0, remaining: 0 }
+        { due: 0, overdue: 0, ai: 0, expected: 0, initial: 0, collected: 0, remaining: 0 }
       ),
     [visibleRows]
   );
@@ -228,6 +231,7 @@ function SmartForecastSection() {
                   { label: "of which Overdue", value: totals.overdue },
                   { label: "AI Suggested", value: totals.aiSuggested },
                   { label: "Expected (final)", value: totals.expected },
+                  { label: "Initial (month start)", value: totals.initial },
                   { label: "Collected so far", value: totals.collected },
                   { label: "Remaining to collect", value: totals.remaining },
                 ].map(k => (
@@ -250,12 +254,13 @@ function SmartForecastSection() {
                     <TableHead className="text-right">Behavior (days)</TableHead>
                     {(
                       [
-                        ["due", "Due (month)"],
-                        ["overdue", "Overdue"],
-                        ["ai", "AI Suggested"],
-                        ["expected", "Expected"],
-                        ["collected", "Collected"],
-                        ["remaining", "Remaining"],
+                      ["due", "Due (month)"],
+                       ["overdue", "Overdue"],
+                       ["ai", "AI Suggested"],
+                       ["expected", "Expected"],
+                       ["initial", "Initial"],
+                       ["collected", "Collected"],
+                       ["remaining", "Remaining"],
                       ] as [SortKey, string][]
                     ).map(([key, label]) => (
                       <TableHead key={key} className="text-right">
@@ -292,6 +297,7 @@ function SmartForecastSection() {
                       <TableCell className="text-right font-mono text-red-600">{fmtEur(visibleTotals.overdue)}</TableCell>
                       <TableCell className="text-right font-mono">{fmtEur(visibleTotals.ai)}</TableCell>
                       <TableCell className="text-right font-mono">{fmtEur(visibleTotals.expected)}</TableCell>
+                      <TableCell className="text-right font-mono text-blue-600">{fmtEur(visibleTotals.initial)}</TableCell>
                       <TableCell className="text-right font-mono text-emerald-700">{fmtEur(visibleTotals.collected)}</TableCell>
                       <TableCell className="text-right font-mono">{fmtEur(visibleTotals.remaining)}</TableCell>
                       <TableCell />
@@ -386,6 +392,7 @@ function SmartForecastSection() {
                           )}
                         </TableCell>
                         <TableCell className="text-right font-mono text-emerald-700">{fmtEur(e.collected)}</TableCell>
+                        <TableCell className="text-right font-mono text-blue-600">{fmtEur(Number(e.initialForecast ?? 0))}</TableCell>
                         <TableCell className="text-right font-mono">{fmtEur(e.remaining)}</TableCell>
                         <TableCell className="text-right">
                           {isEditing ? (

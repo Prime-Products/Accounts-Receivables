@@ -311,3 +311,10 @@
 
 ## Forecast: change auto-problematic rule (user request 24/7)
 - [x] Change auto-problematic rule: if NO forecast exists for a group, treat forecast as 0 → auto-flag as Problematic
+
+## Forecast: track initial forecast and remaining amounts (user request 24/7)
+- [x] Add initialForecast column to database schema
+- [x] Update upsertForecastEntry to preserve initialForecast on first entry
+- [ ] Update backend API (trpc.forecast.smartEntries) to return initialForecast and totals.initial
+- [ ] Complete UI update on Forecast page to display Initial column
+- [ ] Add Initial forecast display to group card

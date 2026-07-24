@@ -71,6 +71,13 @@
       "when": 1784831160272,
       "tag": "0009_furry_princess_powerful",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1784894920208,
+      "tag": "0010_sharp_living_mummy",
+      "breakpoints": true
     }
   ]
 }

@@ -408,6 +408,8 @@ export async function upsertForecastEntry(data: InsertForecastEntry) {
   if (existing.length > 0) {
     // Preserve user adjustments on regeneration: only refresh due/AI fields.
     const keep = existing[0];
+    // Also preserve initialForecast if it was already set
+    const initialToKeep = keep.initialForecast ?? data.expectedAmount;
     await db
       .update(forecastEntries)
       .set({
@@ -417,12 +419,16 @@ export async function upsertForecastEntry(data: InsertForecastEntry) {
         overdueAmount: data.overdueAmount,
         aiSuggestedAmount: data.aiSuggestedAmount,
         aiReasoning: data.aiReasoning,
+        initialForecast: initialToKeep,
         ...(keep.userAdjusted ? {} : { expectedAmount: data.expectedAmount }),
       })
       .where(eq(forecastEntries.id, keep.id));
     return keep.id;
   }
-  const res = await db.insert(forecastEntries).values(data);
+  const res = await db.insert(forecastEntries).values({
+    ...data,
+    initialForecast: data.expectedAmount,
+  });
   return Number((res as any)[0].insertId);
 }
 
