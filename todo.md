@@ -393,3 +393,7 @@
 ## Customers list: Collected & Remaining columns (user request 25/7)
 - [x] Backend: customers.groups returns collected (current-month receipts) and remaining (forecast − collected) per group
 - [x] Frontend: Collected and Remaining columns after AI Forecast (sortable) + TOTAL cells
+## Customers list: inline forecast editing (user request 25/7)
+- [x] Backend: procedure to update a group's current-month forecast (expectedAmount + initialForecast)
+- [x] Frontend: click-to-edit AI Forecast cell in Customers groups list
+- [x] Test for the update procedure (110 tests passing)

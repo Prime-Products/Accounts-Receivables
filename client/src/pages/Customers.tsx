@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtEur, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowDown, ArrowUp, ArrowUpDown, HandCoins, Layers, MoreHorizontal, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -19,6 +19,65 @@ import GroupNotesDialog from "@/components/GroupNotesDialog";
 
 type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "collected" | "remaining" | "overdueCount";
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
+
+/** Click-to-edit forecast cell. Saving corrects the month's forecast (expected + initial baseline). */
+function EditableForecastCell({ group, value }: { group: string; value: number }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const utils = trpc.useUtils();
+  const setForecast = trpc.forecast.setGroupForecast.useMutation({
+    onSuccess: () => {
+      toast.success(`Forecast updated for ${group}`);
+      utils.customers.groups.invalidate();
+      utils.forecast.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const save = () => {
+    const amount = Number(draft.replace(",", "."));
+    if (isNaN(amount) || amount < 0) {
+      toast.error("Enter a valid non-negative amount");
+      return;
+    }
+    setEditing(false);
+    if (amount !== value) setForecast.mutate({ group, amount });
+  };
+
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        type="text"
+        inputMode="decimal"
+        className="h-7 w-24 ml-auto text-right font-mono text-sm px-1.5"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={e => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") setEditing(false);
+        }}
+      />
+    );
+  }
+
+  return (
+    <button
+      className={`group/fc inline-flex items-center gap-1 font-mono hover:underline decoration-dotted underline-offset-2 ${
+        setForecast.isPending ? "opacity-50" : ""
+      } ${value > 0 ? "text-emerald-700" : "text-muted-foreground"}`}
+      title="Click to correct this month's forecast"
+      onClick={() => {
+        setDraft(value ? String(value) : "");
+        setEditing(true);
+      }}
+    >
+      {fmtEur(value)}
+      <Pencil className="h-3 w-3 opacity-0 group-hover/fc:opacity-60 shrink-0" />
+    </button>
+  );
+}
 
 /** Per-row quick actions dropdown for the Customers groups list. */
 function GroupRowActions({ group }: { group: string }) {
@@ -427,8 +486,8 @@ export default function Customers() {
                       <TableCell className={`text-right font-mono ${g.overdueEomBalance > 0 ? "text-amber-600" : ""}`}>
                         {fmtEur(g.overdueEomBalance)}
                       </TableCell>
-                      <TableCell className={`text-right font-mono ${g.forecastExpected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
-                        {fmtEur(g.forecastExpected)}
+                      <TableCell className="text-right" onClick={e => e.stopPropagation()}>
+                        <EditableForecastCell group={g.group} value={g.forecastExpected} />
                       </TableCell>
                       <TableCell className={`text-right font-mono ${g.collected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                         {fmtEur(g.collected)}

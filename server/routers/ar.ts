@@ -1506,6 +1506,53 @@ export const forecastRouter = router({
       await audit(ctx, "Reset Forecast Entry", "forecastEntry", input.id);
       return { success: true };
     }),
+
+  /** Set (correct) a group's current-month forecast from the Customers list. Updates both expectedAmount and initialForecast — the corrected value becomes the month's baseline. */
+  setGroupForecast: protectedProcedure
+    .input(z.object({ group: z.string().min(1), amount: z.number().nonnegative() }))
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date();
+      const year = now.getUTCFullYear();
+      const month = now.getUTCMonth() + 1;
+      const entries = await db.listForecastEntries(year, month);
+      const entry = entries.find(e => (e.customerGroup ?? "").trim() === input.group);
+      if (entry) {
+        await db.updateForecastEntry(entry.id, {
+          expectedAmount: eur(input.amount),
+          initialForecast: eur(input.amount),
+          userAdjusted: 1,
+          adjustedBy: ctx.user.id,
+          adjustmentNote: "Corrected from Customers list",
+        });
+        await audit(ctx, "Set Group Forecast", "forecastEntry", entry.id, `${input.group}: €${eur(Number(entry.expectedAmount))} → €${eur(input.amount)}`);
+        return { success: true, id: entry.id };
+      }
+      // No entry yet for this month — create one keyed to the group's primary member.
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+      if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+      const primary = members[0];
+      const id = await db.upsertForecastEntry({
+        year,
+        month,
+        customerId: primary.id,
+        customerGroup: input.group,
+        dueAmount: "0.00",
+        overdueAmount: "0.00",
+        aiSuggestedAmount: "0.00",
+        aiReasoning: null,
+        expectedAmount: eur(input.amount),
+      } as any);
+      await db.updateForecastEntry(id, {
+        expectedAmount: eur(input.amount),
+        initialForecast: eur(input.amount),
+        userAdjusted: 1,
+        adjustedBy: ctx.user.id,
+        adjustmentNote: "Set from Customers list",
+      });
+      await audit(ctx, "Set Group Forecast", "forecastEntry", id, `${input.group}: new entry €${eur(input.amount)}`);
+      return { success: true, id };
+    }),
 });
 
 export const reportsRouter = router({
