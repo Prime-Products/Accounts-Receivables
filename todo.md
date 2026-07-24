@@ -372,3 +372,7 @@
 
 ## Customers list: EUR totals only (user request 25/7)
 - [x] Remove per-currency breakdown lines under amount cells in Customers list (Groups & Companies views); show only EUR total
+
+## Customers page: replace New Customer with Refresh Forecast (user request 25/7)
+- [x] Remove "New Customer" button from Customers page header
+- [x] Add "Refresh Forecast" button (triggers Smart Forecast regeneration for current month, refreshes AI Forecast column)

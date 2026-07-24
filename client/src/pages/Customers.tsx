@@ -1,16 +1,14 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtEur, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowDown, ArrowUp, ArrowUpDown, Layers, Plus, Search, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Layers, Search, Sparkles, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -58,7 +56,6 @@ export default function Customers() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [ratingFilter, setRatingFilter] = useState<string>("all");
-  const [open, setOpen] = useState(false);
   const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
   const [companySort, setCompanySort] = useState<{ key: CompanySortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
 
@@ -66,22 +63,13 @@ export default function Customers() {
     setGroupSort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
   const toggleCompanySort = (key: CompanySortKey) =>
     setCompanySort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
-  const [form, setForm] = useState({
-    code: "",
-    name: "",
-    vatNumber: "",
-    email: "",
-    phone: "",
-    contactPerson: "",
-    creditLimit: "0",
-    paymentTermsDays: "30",
-  });
-
-  const create = trpc.customers.create.useMutation({
-    onSuccess: () => {
-      toast.success("Customer created");
-      utils.customers.list.invalidate();
-      setOpen(false);
+  const now = new Date();
+  const generate = trpc.forecast.generateSmart.useMutation({
+    onSuccess: r => {
+      toast.success(`Forecast refreshed for ${r.customers} customers (${r.aiCount} AI, ${r.heuristicCount} statistical)`);
+      utils.customers.groups.invalidate();
+      utils.forecast.smartEntries.invalidate();
+      utils.forecast.smartMonths.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -205,75 +193,16 @@ export default function Customers() {
               : "Click a row for the Customer 360 View"}
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2">
-              <Plus className="h-4 w-4" /> New Customer
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>New Customer</DialogTitle>
-            </DialogHeader>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Code *</Label>
-                <Input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} placeholder="C-001" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Name *</Label>
-                <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>VAT Number</Label>
-                <Input value={form.vatNumber} onChange={e => setForm({ ...form, vatNumber: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Email</Label>
-                <Input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Phone</Label>
-                <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Contact Person</Label>
-                <Input value={form.contactPerson} onChange={e => setForm({ ...form, contactPerson: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Credit Limit (€)</Label>
-                <Input type="number" value={form.creditLimit} onChange={e => setForm({ ...form, creditLimit: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Payment Terms (days)</Label>
-                <Input
-                  type="number"
-                  value={form.paymentTermsDays}
-                  onChange={e => setForm({ ...form, paymentTermsDays: e.target.value })}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                disabled={!form.code || !form.name || create.isPending}
-                onClick={() =>
-                  create.mutate({
-                    code: form.code,
-                    name: form.name,
-                    vatNumber: form.vatNumber || undefined,
-                    email: form.email || undefined,
-                    phone: form.phone || undefined,
-                    contactPerson: form.contactPerson || undefined,
-                    creditLimit: Number(form.creditLimit || 0),
-                    paymentTermsDays: Number(form.paymentTermsDays || 30),
-                  })
-                }
-              >
-                Create
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <Button
+          className="gap-2"
+          disabled={generate.isPending}
+          onClick={() =>
+            generate.mutate({ year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, useAi: true })
+          }
+        >
+          <Sparkles className="h-4 w-4" />
+          {generate.isPending ? "Refreshing…" : "Refresh Forecast"}
+        </Button>
       </div>
 
       <div className="flex flex-wrap gap-3">
