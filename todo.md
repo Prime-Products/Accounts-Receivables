@@ -376,3 +376,6 @@
 ## Customers page: replace New Customer with Refresh Forecast (user request 25/7)
 - [x] Remove "New Customer" button from Customers page header
 - [x] Add "Refresh Forecast" button (triggers Smart Forecast regeneration for current month, refreshes AI Forecast column)
+
+## Customers list: compact watch-status indicator (user request 25/7)
+- [x] Replace large "Problematic" badge in Customers groups list with a small red "P" circle (C for Critical, L for Legal), tooltip preserved

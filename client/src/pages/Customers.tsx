@@ -301,25 +301,26 @@ export default function Customers() {
                         <div className="flex items-center gap-1.5">
                           <div className="truncate" title={g.group}>{g.group}</div>
                           {g.watchStatus && g.watchStatus !== "Resolved" && (
-                            <Badge
-                              variant="outline"
-                              className={`text-[10px] shrink-0 ${
+                            <span
+                              className={`inline-flex items-center justify-center h-4 w-4 rounded-full text-[10px] font-bold shrink-0 ${
                                 g.watchStatus === "Critical"
-                                  ? "bg-red-600 text-white border-red-700"
+                                  ? "bg-red-600 text-white"
                                   : g.watchStatus === "Legal"
-                                    ? "bg-purple-100 text-purple-700 border-purple-200"
-                                    : "bg-red-100 text-red-700 border-red-200"
+                                    ? "bg-purple-100 text-purple-700"
+                                    : "bg-red-100 text-red-700"
                               }`}
                               title={
                                 g.watchStatus === "Critical"
-                                  ? "Problematic for 30+ consecutive days — discuss on-hold / escalation"
-                                  : g.watchOverride
-                                    ? "Manually set"
-                                    : "Forecast covers less than 80% of overdue end-of-month"
+                                  ? "Critical: Problematic for 30+ consecutive days — discuss on-hold / escalation"
+                                  : g.watchStatus === "Legal"
+                                    ? "Legal"
+                                    : g.watchOverride
+                                      ? "Problematic (manually set)"
+                                      : "Problematic: Forecast covers less than 80% of overdue end-of-month"
                               }
                             >
-                              {g.watchStatus}
-                            </Badge>
+                              {g.watchStatus.charAt(0)}
+                            </span>
                           )}
                         </div>
                       </TableCell>
