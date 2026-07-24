@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { fmtEur } from "@/lib/format";
@@ -40,6 +40,14 @@ export default function CallList() {
   const [action, setAction] = useState<QuickAction>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<string>("");
+  // Deep-link support: /call-list?ws=<group> opens the workspace directly.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get("ws");
+    if (p) {
+      setSelectedGroup(p);
+      setWorkspaceOpen(true);
+    }
+  }, []);
 
   const rows = useMemo(() => {
     if (!data) return [];
