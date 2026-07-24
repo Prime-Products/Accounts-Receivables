@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fmtByCurrency, fmtEur, onHoldStatusColors, ratingColors } from "@/lib/format";
+import { fmtEur, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowDown, ArrowUp, ArrowUpDown, Layers, Plus, Search, Users } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -396,9 +396,6 @@ export default function Customers() {
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {fmtEur(g.openBalance)}
-                        <div className="text-[10px] text-muted-foreground">
-                          {fmtByCurrency(g.openByCurrency, { skipEurOnly: true })}
-                        </div>
                       </TableCell>
                       <TableCell className={`text-right font-mono ${g.overdueBalance > 0 ? "text-red-600 font-semibold" : ""}`}>
                         {fmtEur(g.overdueBalance)}

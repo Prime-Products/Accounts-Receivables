@@ -369,3 +369,6 @@
 - [x] Remove auto-created group note when promise status changes (Kept/Broken)
 - [x] Keep promise records in activity log and promises section only
 - [x] Tests still passing after removal (all 106 tests passing)
+
+## Customers list: EUR totals only (user request 25/7)
+- [x] Remove per-currency breakdown lines under amount cells in Customers list (Groups & Companies views); show only EUR total
