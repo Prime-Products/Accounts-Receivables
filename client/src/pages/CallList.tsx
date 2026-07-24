@@ -9,20 +9,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Phone, ChevronRight } from "lucide-react";
-import { GroupWorkspace } from "@/components/GroupWorkspace";
+
 const statusBadge: Record<string, string> = {
   Problematic: "border-amber-300 bg-amber-50 text-amber-800",
   Critical: "border-red-300 bg-red-50 text-red-700",
   Legal: "border-purple-300 bg-purple-50 text-purple-700",
 };
 
-type CallRow = any;
+import type { inferRouterOutputs } from "@trpc/server";
+import type { AppRouter } from "../../../server/routers";
+
+type CallRow = inferRouterOutputs<AppRouter>["customers"]["callList"][number];
 
 export default function CallList() {
   const { data, isLoading } = trpc.customers.callList.useQuery();
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [showWorkspace, setShowWorkspace] = useState(false);
-  const [selectedGroup, setSelectedGroup] = useState<CallRow | null>(null);
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -36,121 +37,115 @@ export default function CallList() {
   const flaggedCount = useMemo(() => (data ?? []).filter(r => r.tier > 0).length, [data]);
 
   return (
-    <>
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-              <Phone className="h-6 w-6" /> Call List
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Status first: Critical & Legal on top, then Problematic, then the rest — ordered by amount at risk within each tier.
-            </p>
-          </div>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <Phone className="h-6 w-6" /> Call List
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Status first: Critical &amp; Legal on top, then Problematic, then the rest — ordered by amount at risk within each tier.
+          </p>
         </div>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>{rows.length} groups with overdue balance · {fmtEur(totalOverdue)} total overdue</CardTitle>
-            </div>
-            <div className="flex gap-2">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="status-filter" className="text-xs font-semibold">Status</Label>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger id="status-filter" className="w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All groups</SelectItem>
-                    <SelectItem value="Critical">Critical</SelectItem>
-                    <SelectItem value="Problematic">Problematic</SelectItem>
-                    <SelectItem value="Normal">Normal</SelectItem>
-                    <SelectItem value="Legal">Legal</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-2">
-                {[...Array(5)].map((_, i) => (
-                  <Skeleton key={i} className="h-12" />
-                ))}
-              </div>
-            ) : (
-              <div className="border border-gray-200 rounded overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-8">#</TableHead>
-                      <TableHead>Group</TableHead>
-                      <TableHead className="w-24">Status</TableHead>
-                      <TableHead className="text-right">Overdue</TableHead>
-                      <TableHead className="text-right">Overdue EOM</TableHead>
-                      <TableHead className="text-right">AI Forecast</TableHead>
-                      <TableHead className="text-center">Contact</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rows.map((r, idx) => (
-                      <TableRow 
-                        key={r.group} 
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => {
-                          setSelectedGroup(r);
-                          setShowWorkspace(true);
-                        }}
-                      >
-                        <TableCell className="font-mono text-muted-foreground">{idx + 1}</TableCell>
-                        <TableCell>
-                          <Link href={`/groups/${encodeURIComponent(r.group)}`} className="font-medium hover:underline inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            {r.group}
-                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                          </Link>
-                          <div className="text-[10px] text-muted-foreground font-mono">score {r.score.toLocaleString()}</div>
-                        </TableCell>
-                        <TableCell>
-                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${statusBadge[r.watchStatus ?? "Normal"] || statusBadge["Normal"]}`}>
-                            {r.watchStatus ?? "Normal"}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right font-bold text-red-600">{fmtEur(r.overdueBalance)}</TableCell>
-                        <TableCell className="text-right font-bold text-orange-600">{fmtEur(r.overdueEomBalance)}</TableCell>
-                        <TableCell className="text-right font-bold text-green-600">{fmtEur(r.forecastExpected ?? 0)}</TableCell>
-                        <TableCell className="text-center">
-                          {r.contacts && r.contacts.length > 0 && (
-                            <a href={`tel:${r.contacts[0].phone}`} className="text-blue-600 hover:underline">
-                              <Phone className="h-4 w-4 inline" />
-                            </a>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground">Status</Label>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-44 bg-background">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All groups</SelectItem>
+              <SelectItem value="flagged">Problematic &amp; Critical{flaggedCount > 0 ? ` (${flaggedCount})` : ""}</SelectItem>
+              <SelectItem value="Critical">Critical only</SelectItem>
+              <SelectItem value="Problematic">Problematic only</SelectItem>
+              <SelectItem value="Legal">Legal only</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      {selectedGroup && (
-        <GroupWorkspace
-          open={showWorkspace}
-          onOpenChange={setShowWorkspace}
-          group={{
-            name: selectedGroup.group,
-            overdue: selectedGroup.overdueBalance,
-            overdueEom: selectedGroup.overdueEomBalance,
-            forecast: selectedGroup.forecastExpected,
-            status: selectedGroup.watchStatus ?? undefined,
-            rating: selectedGroup.rating ?? undefined,
-            contacts: selectedGroup.contacts,
-          }}
-        />
-      )}
-    </>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            {isLoading ? "Loading…" : `${rows.length} groups with overdue balance · ${fmtEur(totalOverdue)} total overdue`}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : rows.length === 0 ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">No groups match — nothing overdue. Well done.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10">#</TableHead>
+                    <TableHead>Group</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Overdue</TableHead>
+                    <TableHead className="text-right">Overdue EOM</TableHead>
+                    <TableHead className="text-right">AI Forecast</TableHead>
+                    <TableHead>Contact</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((r, idx) => (
+                    <TableRow key={r.group}>
+                      <TableCell className="font-mono text-muted-foreground">{idx + 1}</TableCell>
+                      <TableCell>
+                        <Link href={`/groups/${encodeURIComponent(r.group)}`} className="font-medium hover:underline inline-flex items-center gap-1">
+                          {r.group}
+                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                        </Link>
+                        <div className="text-[10px] text-muted-foreground font-mono">score {r.score.toLocaleString()}</div>
+                      </TableCell>
+                      <TableCell>
+                        {r.watchStatus ? (
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusBadge[r.watchStatus] ?? "border-slate-300 bg-slate-50 text-slate-600"}`}>
+                            {r.watchStatus}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-red-600 font-semibold">
+                        {fmtEur(r.overdueBalance)}
+                        <div className="text-[10px] font-normal text-muted-foreground">{r.overdueCount} inv.</div>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-orange-600">
+                        {fmtEur(r.overdueEomBalance)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-emerald-700">
+                        {r.forecastExpected > 0 ? fmtEur(r.forecastExpected) : <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className="max-w-44">
+                        {r.contacts.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : (
+                          <div className="text-xs leading-tight">
+                            {r.contacts[0].contactPerson && <div className="font-medium">{r.contacts[0].contactPerson}</div>}
+                            {r.contacts[0].phone && (
+                              <a href={`tel:${r.contacts[0].phone}`} className="text-blue-600 hover:underline">{r.contacts[0].phone}</a>
+                            )}
+                            {!r.contacts[0].phone && r.contacts[0].email && (
+                              <a href={`mailto:${r.contacts[0].email}`} className="text-blue-600 hover:underline">{r.contacts[0].email}</a>
+                            )}
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

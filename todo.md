@@ -321,12 +321,3 @@
 
 ## Forecast: remove confirmation popup (user request 24/7)
 - [x] Remove the "Are you sure?" confirmation dialog from Refresh Forecast button (no longer needed since initialForecast is locked)
-
-
-## Group Workspace (user request - comprehensive customer management hub)
-- [ ] Create GroupWorkspace component with header, financials, payment history, aging, all invoices with notes
-- [ ] Integrate workspace into Call List: row click opens workspace modal/panel
-- [ ] Add actions hub: Log Call, Send Email, Create Task, Promise-to-Pay, Add Note
-- [ ] Add email templates (Friendly Reminder, Final Notice, Statement, Custom)
-- [ ] Add activity log showing all historical actions (calls, emails, tasks, promises, notes)
-- [ ] Test and verify full workflow
