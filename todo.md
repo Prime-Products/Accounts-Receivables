@@ -347,6 +347,10 @@
 - [x] Test and verify all activities are logged (all 106 tests passing)
 
 ## Turnover Display (user request 24/7)
-- [ ] Display turnoverLastYear and turnoverYtd in GroupDetail page
-- [ ] Show turnover values in summary section with formatting (EUR, thousands)
-- [ ] Add year-over-year comparison or growth indicator
+- [x] Display turnoverLastYear and turnoverYtd in GroupDetail page
+- [x] Show turnover values in summary section with formatting (EUR, thousands)
+- [x] Add year-over-year comparison or growth indicator
+
+## UI/UX Improvements (user request 24/7)
+- [x] Consolidate action buttons (New Task, Promise, Email, Note) into single "Actions" dropdown menu
+- [x] Display turnover fields prominently (already visible in KPI cards - YTD and Last Year with comparison)
