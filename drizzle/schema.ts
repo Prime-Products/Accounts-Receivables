@@ -263,12 +263,19 @@ export type GroupNote = typeof groupNotes.$inferSelect;
  * "Normal" clears it even when the rule would flag the group.
  * ("On Watch" is legacy and treated as "Problematic" in business logic.)
  */
-export const watchStatuses = ["Auto", "Problematic", "On Watch", "Normal"] as const;
+/**
+ * Unified group status workflow: Normal → Problematic → Critical → Legal / Resolved.
+ * "Auto" means "follow the forecast rule" (no manual override). Legacy "On Watch"
+ * remains in the DB enum for backward compatibility and is treated as Problematic.
+ */
+export const watchStatuses = ["Auto", "Problematic", "On Watch", "Normal", "Critical", "Legal", "Resolved"] as const;
 export type WatchStatus = (typeof watchStatuses)[number];
 export const groupWatchStatus = mysqlTable("group_watch_status", {
   id: int("id").autoincrement().primaryKey(),
   groupName: varchar("groupName", { length: 255 }).notNull().unique(),
   status: mysqlEnum("status", watchStatuses).default("Auto").notNull(),
+  /** Epoch ms of when the group first became (and stayed) Problematic; used for auto-escalation to Critical after 30 consecutive days. Null when not problematic. */
+  problematicSince: bigint("problematicSince", { mode: "number" }),
   updatedBy: int("updatedBy"),
   updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),
 });

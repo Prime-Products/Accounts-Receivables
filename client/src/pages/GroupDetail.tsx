@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, FileDown, Filter, HandCoins, Layers, PauseCircle, Pencil, Plus, Sparkles, StickyNote, Trash2 } from "lucide-react";
+import { ArrowLeft, Building2, FileDown, Filter, HandCoins, Layers, Pencil, Plus, Sparkles, StickyNote, Trash2 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -109,63 +109,6 @@ function GroupPromiseDialog({ companies, defaultCustomerId }: { companies: { id:
             }
           >
             Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function GroupOnHoldDialog({ companies, defaultCustomerId }: { companies: { id: number; name: string }[]; defaultCustomerId?: number }) {
-  const utils = trpc.useUtils();
-  const [open, setOpen] = useState(false);
-  const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
-  const [reason, setReason] = useState("");
-  const submit = trpc.onHold.submit.useMutation({
-    onSuccess: () => {
-      toast.success("On-Hold proposal submitted — status: Under Review");
-      utils.customers.invalidate();
-      utils.onHold.list.invalidate();
-      setOpen(false);
-      setReason("");
-    },
-    onError: e => toast.error(e.message),
-  });
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={o => {
-        setOpen(o);
-        if (o) setCustomerId(defaultCustomerId ?? null);
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button variant="destructive" size="sm" className="gap-1.5">
-          <PauseCircle className="h-4 w-4" /> Propose On-Hold
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Submit On-Hold Proposal</DialogTitle>
-        </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          Supporting data (overdue invoices, amounts, days overdue) is aggregated automatically for the selected
-          company. The proposal starts as <strong>Under Review</strong> and Management decides the next step.
-        </p>
-        <div className="space-y-3">
-          <CompanyPicker companies={companies} value={customerId} onChange={setCustomerId} />
-          <div className="space-y-1.5">
-            <Label>Reason *</Label>
-            <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Why should this company be placed on hold?" />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            variant="destructive"
-            disabled={!customerId || !reason || submit.isPending}
-            onClick={() => submit.mutate({ customerId: customerId!, reason })}
-          >
-            Submit Proposal
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -271,7 +214,6 @@ export default function GroupDetail() {
                 }
               />
               <GroupPromiseDialog key={`ptp-${companyId}`} companies={data.companies} defaultCustomerId={defaultActionCustomerId} />
-              <GroupOnHoldDialog key={`oh-${companyId}`} companies={data.companies} defaultCustomerId={defaultActionCustomerId} />
               <GroupNotesDialog group={group} />
             </>
           )}

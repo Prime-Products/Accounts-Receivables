@@ -527,7 +527,7 @@ export async function deleteGroupNote(id: number) {
   await db.delete(groupNotes).where(eq(groupNotes.id, id));
 }
 
-// ---------- Group watch status (manual Problematic / On Watch override) ----------
+// ---------- Group status (unified workflow: Normal → Problematic → Critical → Legal / Resolved) ----------
 export async function listGroupWatchStatuses() {
   const db = await requireDb();
   return db.select().from(groupWatchStatus);
@@ -537,12 +537,41 @@ export async function getGroupWatchStatus(groupName: string) {
   const rows = await db.select().from(groupWatchStatus).where(eq(groupWatchStatus.groupName, groupName)).limit(1);
   return rows[0] ?? null;
 }
-export async function setGroupWatchStatus(groupName: string, status: "Auto" | "Problematic" | "On Watch" | "Normal", updatedBy: number | null) {
+export async function setGroupWatchStatus(
+  groupName: string,
+  status: "Auto" | "Problematic" | "Normal" | "Critical" | "Legal" | "Resolved",
+  updatedBy: number | null,
+) {
   const db = await requireDb();
+  // Manual "Problematic" starts the 30-day escalation clock; any other manual status stops it.
+  const problematicSince = status === "Problematic" ? Date.now() : null;
   await db
     .insert(groupWatchStatus)
-    .values({ groupName, status, updatedBy, updatedAt: Date.now() })
-    .onDuplicateKeyUpdate({ set: { status, updatedBy, updatedAt: Date.now() } });
+    .values({ groupName, status, problematicSince, updatedBy, updatedAt: Date.now() })
+    .onDuplicateKeyUpdate({ set: { status, problematicSince, updatedBy, updatedAt: Date.now() } });
+}
+/**
+ * Ensure the escalation clock is running for a group flagged Problematic by the
+ * automatic forecast rule (row may not exist yet). Never overwrites an existing
+ * manual status other than "Auto"; only stamps problematicSince when missing.
+ */
+export async function ensureProblematicSince(groupName: string, now = Date.now()) {
+  const db = await requireDb();
+  const existing = await getGroupWatchStatus(groupName);
+  if (!existing) {
+    await db.insert(groupWatchStatus).values({ groupName, status: "Auto", problematicSince: now, updatedBy: null, updatedAt: now });
+    return now;
+  }
+  if (existing.problematicSince == null) {
+    await db.update(groupWatchStatus).set({ problematicSince: now, updatedAt: now }).where(eq(groupWatchStatus.groupName, groupName));
+    return now;
+  }
+  return existing.problematicSince;
+}
+/** Clear the escalation clock when a group is no longer problematic (rule stopped firing under Auto). */
+export async function clearProblematicSince(groupName: string) {
+  const db = await requireDb();
+  await db.update(groupWatchStatus).set({ problematicSince: null, updatedAt: Date.now() }).where(eq(groupWatchStatus.groupName, groupName));
 }
 
 // ---------- Audit & sync logs ----------

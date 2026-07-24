@@ -11,6 +11,7 @@ import {
 } from "../../drizzle/schema";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { resolveGroupStatus } from "../lib/statusWorkflow";
 import {
   buildForecast,
   canTransitionOnHold,
@@ -190,9 +191,9 @@ export const customersRouter = router({
       db.listGroupWatchStatuses().catch(() => []),
     ]);
     const eom = endOfCurrentMonth();
-    const watchByGroup = new Map<string, string>();
+    const watchByGroup = new Map<string, { status: string; problematicSince: number | null }>();
     for (const w of watchRows) {
-      if (w.status !== "Auto") watchByGroup.set(w.groupName, w.status);
+      watchByGroup.set(w.groupName, { status: w.status, problematicSince: w.problematicSince ?? null });
     }
     const forecastByGroup = new Map<string, number>();
     for (const f of forecastRows) {
@@ -284,12 +285,12 @@ export const customersRouter = router({
         // Business rule: problematic when the month's forecast covers < 80% of what will be overdue by EOM.
         const hasForecast = forecastByGroup.has(g.group);
         const autoProblematic = hasForecast && g.overdueEomBalance > 0 && forecastExpected < 0.8 * g.overdueEomBalance;
-        // Manual override replaces the automatic verdict; "Normal" clears the flag,
-        // legacy "On Watch" counts as "Problematic".
-        const rawOverride = watchByGroup.get(g.group) ?? null;
-        const watchOverride = rawOverride === "On Watch" ? "Problematic" : rawOverride;
-        const watchStatus = watchOverride === "Normal" ? null : (watchOverride ?? (autoProblematic ? "Problematic" : null));
-        const problematic = watchStatus === "Problematic";
+        // Unified workflow: Normal → Problematic → Critical (auto after 30 days) → Legal / Resolved.
+        const row = watchByGroup.get(g.group) ?? null;
+        const resolved = resolveGroupStatus(row, autoProblematic);
+        const watchStatus = resolved.status;
+        const watchOverride = row && row.status !== "Auto" ? (row.status === "On Watch" ? "Problematic" : row.status) : null;
+        const problematic = watchStatus === "Problematic" || watchStatus === "Critical";
         const { overdue90Plus, promisesKept, promisesBroken, worstHold, turnoverYtd, turnoverLastYear, ...rest } = g;
         return {
           ...rest,
@@ -550,9 +551,9 @@ export const customersRouter = router({
       const hasForecast = forecastRows.some(f => (f.customerGroup ?? "").trim() === input.group);
       const problematic = hasForecast && gOverdueEom > 0 && groupForecast < 0.8 * gOverdueEom;
       const watchRow = await db.getGroupWatchStatus(input.group).catch(() => null);
-      const rawOverride = watchRow && watchRow.status !== "Auto" ? watchRow.status : null;
-      const watchOverride = rawOverride === "On Watch" ? "Problematic" : rawOverride;
-      const watchStatus = watchOverride === "Normal" ? null : (watchOverride ?? (problematic ? "Problematic" : null));
+      const resolvedDetail = resolveGroupStatus(watchRow, problematic);
+      const watchStatus = resolvedDetail.status;
+      const watchOverride = watchRow && watchRow.status !== "Auto" ? (watchRow.status === "On Watch" ? "Problematic" : watchRow.status) : null;
       const companies = members
         .map(m => {
           const mine = branchScoped.filter(i => i.customerId === m.id);
@@ -709,7 +710,7 @@ export const customersRouter = router({
     }),
   /** Manual watch-status override: Problematic forces the flag, Normal clears it, Auto follows the forecast rule. */
   setWatchStatus: protectedProcedure
-    .input(z.object({ group: z.string().min(1), status: z.enum(["Auto", "Problematic", "Normal"]) }))
+    .input(z.object({ group: z.string().min(1), status: z.enum(["Auto", "Normal", "Problematic", "Critical", "Legal", "Resolved"]) }))
     .mutation(async ({ ctx, input }) => {
       await db.setGroupWatchStatus(input.group, input.status, ctx.user.id);
       await audit(ctx, "Set Watch Status", "group", input.group, `Status → ${input.status}`);
@@ -828,9 +829,9 @@ export const customersRouter = router({
     const groupInvoices = (await db.listInvoices()).filter(i => groupIds.has(i.customerId) && isOpenInvoice(i));
     const groupOverdueEom = groupInvoices.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
     const autoProblematic = hasForecast && groupOverdueEom > 0 && groupForecast < 0.8 * groupOverdueEom;
-    const rawDetailOverride = watchRow && watchRow.status !== "Auto" ? watchRow.status : null;
-    const watchOverride = rawDetailOverride === "On Watch" ? "Problematic" : rawDetailOverride;
-    const watchStatus = watchOverride === "Normal" ? null : (watchOverride ?? (autoProblematic ? "Problematic" : null));
+    const resolvedCd = resolveGroupStatus(watchRow, autoProblematic);
+    const watchStatus = resolvedCd.status;
+    const watchOverride = watchRow && watchRow.status !== "Auto" ? (watchRow.status === "On Watch" ? "Problematic" : watchRow.status) : null;
     return {
       customer,
       invoices,
@@ -1234,6 +1235,13 @@ export const forecastRouter = router({
     const forecast = buildForecast(invoices, installments, now, 6);
     const escalations = tasksPending.filter(t => t.type === "Escalation +30").length;
     const underReview = proposals.filter(p => p.status === "Under Review" || p.status === "Eligible for On Hold").length;
+    const watchRowsDash = await db.listGroupWatchStatuses().catch(() => []);
+    const dayMs = 24 * 60 * 60 * 1000;
+    const criticalGroups = watchRowsDash.filter(
+      w =>
+        w.status === "Critical" ||
+        (w.status === "Problematic" && w.problematicSince != null && now - w.problematicSince >= 30 * dayMs)
+    ).length;
     return {
       year,
       month,
@@ -1248,6 +1256,7 @@ export const forecastRouter = router({
       pendingTasks: tasksPending.length,
       escalations,
       onHoldPending: underReview,
+      criticalGroups,
     };
   }),
   plans: protectedProcedure.query(async () => {

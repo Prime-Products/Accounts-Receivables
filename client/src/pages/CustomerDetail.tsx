@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, FileDown, HandCoins, Layers, PauseCircle, Plus } from "lucide-react";
+import { ArrowLeft, FileDown, HandCoins, Layers, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -42,18 +42,7 @@ export default function CustomerDetail() {
     onError: e => toast.error(e.message),
   });
 
-  const [onHoldOpen, setOnHoldOpen] = useState(false);
-  const [onHoldReason, setOnHoldReason] = useState("");
   const [agingFilter, setAgingFilter] = useState<string>("all");
-  const submitOnHold = trpc.onHold.submit.useMutation({
-    onSuccess: () => {
-      toast.success("On-Hold proposal submitted — status: Under Review");
-      utils.customers.get360.invalidate({ id });
-      utils.onHold.list.invalidate();
-      setOnHoldOpen(false);
-    },
-    onError: e => toast.error(e.message),
-  });
 
   const exportSoa = trpc.reports.export.useMutation({
     onSuccess: r => {
@@ -192,35 +181,6 @@ export default function CustomerDetail() {
                   }
                 >
                   Save
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-          <Dialog open={onHoldOpen} onOpenChange={setOnHoldOpen}>
-            <DialogTrigger asChild>
-              <Button variant="destructive" size="sm" className="gap-1.5">
-                <PauseCircle className="h-4 w-4" /> Propose On-Hold
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Submit On-Hold Proposal</DialogTitle>
-              </DialogHeader>
-              <p className="text-sm text-muted-foreground">
-                Supporting data (overdue invoices, amounts, days overdue) is aggregated automatically. The proposal
-                starts as <strong>Under Review</strong> and Management decides the next step.
-              </p>
-              <div className="space-y-1.5">
-                <Label>Reason *</Label>
-                <Textarea value={onHoldReason} onChange={e => setOnHoldReason(e.target.value)} placeholder="Why should this customer be placed on hold?" />
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="destructive"
-                  disabled={!onHoldReason || submitOnHold.isPending}
-                  onClick={() => submitOnHold.mutate({ customerId: id, reason: onHoldReason })}
-                >
-                  Submit Proposal
                 </Button>
               </DialogFooter>
             </DialogContent>

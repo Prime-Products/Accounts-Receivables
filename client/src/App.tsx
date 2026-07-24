@@ -12,7 +12,6 @@ import GroupDetail from "@/pages/GroupDetail";
 import Invoices from "./pages/Invoices";
 import Contracts from "./pages/Contracts";
 import Tasks from "./pages/Tasks";
-import OnHold from "./pages/OnHold";
 import Forecast from "./pages/Forecast";
 import CallList from "./pages/CallList";
 import Reports from "./pages/Reports";
@@ -29,7 +28,6 @@ function Router() {
         <Route path={"/invoices"} component={Invoices} />
         <Route path={"/contracts"} component={Contracts} />
         <Route path={"/tasks"} component={Tasks} />
-        <Route path={"/on-hold"} component={OnHold} />
         <Route path={"/forecast"} component={Forecast} />
         <Route path={"/call-list"} component={CallList} />
         <Route path={"/reports"} component={Reports} />

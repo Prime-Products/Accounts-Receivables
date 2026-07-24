@@ -282,3 +282,11 @@
 ## Watch status fixes (user request 24/7)
 - [x] Fix mismatch: group card status dropdown must show the same effective status as the customers list (e.g., DYNACOM Problematic) — dropdown now shows the EFFECTIVE status (auto rule or manual override)
 - [x] Simplify watch statuses to two: Problematic and Normal (remove "On Watch"/"Auto" from the UI) — "Normal" clears the flag even when the rule would set it; legacy "On Watch" rows migrated to "Problematic"
+
+## Unified status workflow (user request 24/7)
+- [x] Status model: Normal → Problematic → Critical → Legal / Resolved (single dropdown per group)
+- [x] Track "Problematic since" date; auto-escalate to Critical after 30 consecutive Problematic days (resolveGroupStatus)
+- [x] Status dropdown with all five statuses on group card, Customer 360, Customers list filter
+- [x] Remove On-Hold page entirely (menu, route, dashboard KPI card replaced with Critical groups, Propose On-Hold buttons removed, OnHold.tsx deleted)
+- [x] Update rating/priority logic that referenced onHoldStatus to use the new status (kept legacy customer-level onHoldStatus in rating for now — no behavior change)
+- [x] Tests for auto-escalation and status transitions (statusWorkflow.test.ts, 11 cases)

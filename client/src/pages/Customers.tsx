@@ -128,7 +128,10 @@ export default function Customers() {
       const matchesStatus =
         statusFilter === "all" ||
         (statusFilter === "problematic" && g.watchStatus === "Problematic") ||
-        (statusFilter === "normal" && g.watchStatus !== "Problematic");
+        (statusFilter === "critical" && g.watchStatus === "Critical") ||
+        (statusFilter === "legal" && g.watchStatus === "Legal") ||
+        (statusFilter === "resolved" && g.watchStatus === "Resolved") ||
+        (statusFilter === "normal" && !g.watchStatus);
       const matchesRating = ratingFilter === "all" || g.rating === ratingFilter;
       return matchesSearch && matchesStatus && matchesRating;
     });
@@ -303,6 +306,9 @@ export default function Customers() {
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
               <SelectItem value="problematic">Problematic</SelectItem>
+              <SelectItem value="critical">Critical</SelectItem>
+              <SelectItem value="legal">Legal</SelectItem>
+              <SelectItem value="resolved">Resolved</SelectItem>
               <SelectItem value="normal">Normal</SelectItem>
             </SelectContent>
           </Select>
@@ -373,9 +379,25 @@ export default function Customers() {
                       <TableCell className="font-medium max-w-72">
                         <div className="flex items-center gap-1.5">
                           <div className="truncate" title={g.group}>{g.group}</div>
-                          {g.problematic && (
-                            <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200 text-[10px] shrink-0" title={g.watchOverride === "Problematic" ? "Manually set to Problematic" : "Forecast covers less than 80% of overdue end-of-month"}>
-                              Problematic
+                          {g.watchStatus && g.watchStatus !== "Resolved" && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] shrink-0 ${
+                                g.watchStatus === "Critical"
+                                  ? "bg-red-600 text-white border-red-700"
+                                  : g.watchStatus === "Legal"
+                                    ? "bg-purple-100 text-purple-700 border-purple-200"
+                                    : "bg-red-100 text-red-700 border-red-200"
+                              }`}
+                              title={
+                                g.watchStatus === "Critical"
+                                  ? "Problematic for 30+ consecutive days — discuss on-hold / escalation"
+                                  : g.watchOverride
+                                    ? "Manually set"
+                                    : "Forecast covers less than 80% of overdue end-of-month"
+                              }
+                            >
+                              {g.watchStatus}
                             </Badge>
                           )}
                         </div>
