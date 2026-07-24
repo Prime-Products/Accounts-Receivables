@@ -63,21 +63,21 @@ function ActionsMenu({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {taskOpen && (
-        <NewTaskDialog
-          customerIds={companies.map(c => c.id)}
-          defaultCustomerId={defaultCustomerId}
-          hideCustomerPicker
-          trigger={<Button className="hidden">Hidden</Button>}
-        />
-      )}
+      <NewTaskDialog
+        customerIds={companies.map(c => c.id)}
+        defaultCustomerId={defaultCustomerId}
+        hideCustomerPicker
+        trigger={<Button className="hidden">Hidden</Button>}
+        open={taskOpen}
+        onOpenChange={setTaskOpen}
+      />
 
-      {promiseOpen && (
-        <GroupPromiseDialog
-          companies={companies}
-          defaultCustomerId={defaultCustomerId}
-        />
-      )}
+      <GroupPromiseDialog
+        companies={companies}
+        defaultCustomerId={defaultCustomerId}
+        open={promiseOpen}
+        onOpenChange={setPromiseOpen}
+      />
 
       <SendEmailDialog
         companies={companies}
@@ -86,7 +86,7 @@ function ActionsMenu({
         onOpenChange={setEmailOpen}
       />
 
-      {noteOpen && <GroupNotesDialog group={group} />}
+      <GroupNotesDialog group={group} open={noteOpen} onOpenChange={setNoteOpen} />
     </>
   );
 }
@@ -120,9 +120,17 @@ function CompanyPicker({
   );
 }
 
-function GroupPromiseDialog({ companies, defaultCustomerId }: { companies: { id: number; name: string }[]; defaultCustomerId?: number }) {
+function GroupPromiseDialog({ companies, defaultCustomerId, open: externalOpen, onOpenChange }: { companies: { id: number; name: string }[]; defaultCustomerId?: number; open?: boolean; onOpenChange?: (open: boolean) => void }) {
   const utils = trpc.useUtils();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = externalOpen !== undefined ? externalOpen : internalOpen;
+  const setOpen = (newOpen: boolean) => {
+    if (externalOpen !== undefined) {
+      onOpenChange?.(newOpen);
+    } else {
+      setInternalOpen(newOpen);
+    }
+  };
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
   const [form, setForm] = useState({ amount: "", date: "", notes: "" });
   const addPromise = trpc.forecast.addPromise.useMutation({
@@ -143,11 +151,13 @@ function GroupPromiseDialog({ companies, defaultCustomerId }: { companies: { id:
         if (o) setCustomerId(defaultCustomerId ?? null);
       }}
     >
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5">
-          <HandCoins className="h-4 w-4" /> Promise-to-Pay
-        </Button>
-      </DialogTrigger>
+      {externalOpen === undefined && (
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm" className="gap-1.5">
+            <HandCoins className="h-4 w-4" /> Promise-to-Pay
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Record Promise-to-Pay</DialogTitle>

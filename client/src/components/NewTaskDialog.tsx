@@ -25,14 +25,26 @@ export default function NewTaskDialog({
   customerIds,
   hideCustomerPicker,
   trigger,
+  open: externalOpen,
+  onOpenChange,
 }: {
   defaultCustomerId?: number;
   customerIds?: number[];
   hideCustomerPicker?: boolean;
   trigger?: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const utils = trpc.useUtils();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = externalOpen !== undefined ? externalOpen : internalOpen;
+  const setOpen = (newOpen: boolean) => {
+    if (externalOpen !== undefined) {
+      onOpenChange?.(newOpen);
+    } else {
+      setInternalOpen(newOpen);
+    }
+  };
   const [customerOpen, setCustomerOpen] = useState(false);
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
   const [type, setType] = useState<string>("Manual");
@@ -80,13 +92,15 @@ export default function NewTaskDialog({
         if (o) setCustomerId(defaultCustomerId ?? null);
       }}
     >
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button className="gap-2">
-            <Plus className="h-4 w-4" /> New Task
-          </Button>
-        )}
-      </DialogTrigger>
+      {externalOpen === undefined && (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" /> New Task
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>New Task</DialogTitle>
