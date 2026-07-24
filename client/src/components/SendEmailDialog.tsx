@@ -265,28 +265,6 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
             </div>
           )}
 
-          {/* Recipient Email */}
-          <div className="space-y-1.5">
-            <Label>Recipient Email</Label>
-            <Input
-              type="email"
-              placeholder="email@example.com"
-              value={recipientEmail}
-              onChange={e => setRecipientEmail(e.target.value)}
-            />
-          </div>
-
-          {/* Recipient Name */}
-          <div className="space-y-1.5">
-            <Label>Recipient Name (optional)</Label>
-            <Input
-              type="text"
-              placeholder="Contact person name"
-              value={recipientName}
-              onChange={e => setRecipientName(e.target.value)}
-            />
-          </div>
-
           {/* Template Selection */}
           <div className="space-y-1.5">
             <Label>Template</Label>
