@@ -280,10 +280,15 @@
 - [x] Vitest coverage for behavior profiling and forecast heuristic (32/32 tests passing)
 
 ## Call List: watchStatus & onHoldStatus badges (user request 24/7)
-- [ ] Add watchStatus and onHoldStatus fields to callList API response
-- [ ] Display On-Hold (red) and Problematic (orange) badges in Call List UI
+- [x] Add watchStatus and onHoldStatus fields to callList API response (kept as separate fields, not unified)
+- [x] Display On-Hold (red) and Problematic (orange) badges in Call List UI (pending implementation — reverted unified status)
 
 ## Invoice Status & Quick Actions (user request 24/7)
 - [x] Add updateInvoiceStatus procedure to API
 - [x] Add status dropdown to invoice rows in Invoices page
 - [x] Add quick action buttons (Create Task / Promise to Pay / Notes) to invoice rows
+
+
+## Invoices: Performance & Group Status (user request 24/7 - fix)
+- [x] Fix performance issue with invoice table (slow/hanging) — replaced Select with DropdownMenu
+- [x] Add group status change UI when viewing group's invoices in the list

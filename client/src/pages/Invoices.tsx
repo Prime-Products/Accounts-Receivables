@@ -1,10 +1,12 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -54,6 +56,13 @@ export default function Invoices() {
     onSuccess: () => {
       utils.invoices.list.invalidate();
       toast.success("Status updated");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const setGroupWatchStatus = trpc.customers.setWatchStatus.useMutation({
+    onSuccess: () => {
+      utils.invoices.list.invalidate();
+      toast.success("Group status updated");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -400,19 +409,40 @@ export default function Invoices() {
         <div className="rounded-lg border bg-muted/30 px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <span className="text-muted-foreground">{filteredTotals.count} invoice(s) shown</span>
           {groupDrill && (
-            <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30 max-w-64">
-              <span className="truncate" title={groupDrill}>{groupDrill}</span>
-              <button
-                className="ml-0.5 text-muted-foreground hover:text-foreground"
-                title="Clear group filter"
-                onClick={() => {
-                  setGroupDrill(null);
-                  setGroupView(true);
-                }}
-              >
-                ×
-              </button>
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30 max-w-64">
+                <span className="truncate" title={groupDrill}>{groupDrill}</span>
+                <button
+                  className="ml-0.5 text-muted-foreground hover:text-foreground"
+                  title="Clear group filter"
+                  onClick={() => {
+                    setGroupDrill(null);
+                    setGroupView(true);
+                  }}
+                >
+                  ×
+                </button>
+              </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="text-xs">
+                    Group Status
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => {
+                    setGroupWatchStatus.mutate({ group: groupDrill, status: "Auto" });
+                  }}>
+                    Normal (Active)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => {
+                    setGroupWatchStatus.mutate({ group: groupDrill, status: "Problematic" });
+                  }}>
+                    Problematic (On Watch)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           )}
           <span>
             Outstanding total: <span className="font-mono font-semibold">{fmtEur(filteredTotals.eurTotal)}</span>
@@ -532,18 +562,20 @@ export default function Invoices() {
                     </TableCell>
                     <TableCell className="text-sm">{fmtDate(i.dueDate)}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={invoiceStatusColors[i.status]}>
-                        <Select value={i.status} onValueChange={(newStatus) => {
-                          updateInvoiceStatus.mutate({ id: i.id, status: newStatus as any });
-                        }}>
-                          <SelectTrigger className="w-32 h-6 text-xs border-0 bg-transparent">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </Badge>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Badge variant="outline" className={`${invoiceStatusColors[i.status]} cursor-pointer hover:opacity-80`}>
+                            {i.status}
+                          </Badge>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          {STATUSES.map(s => (
+                            <DropdownMenuItem key={s} onClick={() => updateInvoiceStatus.mutate({ id: i.id, status: s as any })}>
+                              {s}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       {i.currency && i.currency !== "EUR" ? (
