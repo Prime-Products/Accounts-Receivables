@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { fmtEur } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -11,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { Phone, StickyNote, HandCoins, ListPlus, ChevronRight } from "lucide-react";
+import { Phone, StickyNote, HandCoins, ListPlus, ChevronRight, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 const reasonColors: Record<string, string> = {
@@ -114,6 +115,19 @@ export default function CallList() {
                           <ChevronRight className="h-3 w-3 text-muted-foreground" />
                         </Link>
                         <div className="text-[10px] text-muted-foreground font-mono">score {r.score.toLocaleString()}</div>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {r.onHoldStatus && r.onHoldStatus !== "Active" && (
+                            <Badge variant="destructive" className="text-[10px] h-5 px-1.5 gap-1">
+                              <AlertTriangle className="h-2.5 w-2.5" />
+                              {r.onHoldStatus}
+                            </Badge>
+                          )}
+                          {r.watchStatus === "Problematic" && (
+                            <Badge variant="outline" className="text-[10px] h-5 px-1.5 bg-orange-50 text-orange-700 border-orange-300">
+                              Problematic
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-red-600 font-semibold">
                         {fmtEur(r.overdueBalance)}

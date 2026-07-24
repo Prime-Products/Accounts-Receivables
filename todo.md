@@ -278,3 +278,12 @@
 - [x] Customer 360: group badge in header linking to the group card
 - [x] Vitest coverage for group aggregation scoping (37/37 tests passing)
 - [x] Vitest coverage for behavior profiling and forecast heuristic (32/32 tests passing)
+
+## Call List: watchStatus & onHoldStatus badges (user request 24/7)
+- [ ] Add watchStatus and onHoldStatus fields to callList API response
+- [ ] Display On-Hold (red) and Problematic (orange) badges in Call List UI
+
+## Invoice Status & Quick Actions (user request 24/7)
+- [x] Add updateInvoiceStatus procedure to API
+- [x] Add status dropdown to invoice rows in Invoices page
+- [x] Add quick action buttons (Create Task / Promise to Pay / Notes) to invoice rows
