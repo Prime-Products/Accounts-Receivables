@@ -1313,17 +1313,10 @@ export const forecastRouter = router({
     .mutation(async ({ ctx, input }) => {
       const id = await db.createPromise({ ...input, amount: eur(input.amount), createdBy: ctx.user.id });
       await audit(ctx, "Record Promise-to-Pay", "promiseToPay", id, `Customer #${input.customerId} promised €${eur(input.amount)} by ${new Date(input.promisedDate).toISOString().slice(0, 10)}`);
-      // Also record the promise as a group note so the full contact history lives in one stream.
       const cust = await db.getCustomer(input.customerId);
       if (cust) {
         const groupKey = cust.customerGroup || cust.name;
         const dateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
-        await db.createGroupNote({
-          groupName: groupKey,
-          content: `Promise-to-Pay: ${cust.name} — €${Number(eur(input.amount)).toLocaleString()} by ${dateStr}${input.notes ? ` — ${input.notes}` : ""}`,
-          createdBy: ctx.user.id,
-          createdAt: Date.now(),
-        });
         // Log to activity log
         await db.addActivityLog({
           groupName: groupKey,
@@ -1360,12 +1353,6 @@ export const forecastRouter = router({
         if (promise && cust) {
           const groupKey = cust.customerGroup?.trim() ? cust.customerGroup.trim() : cust.name;
           const dateStr = new Date(promise.promisedDate).toLocaleDateString("en-GB");
-          await db.createGroupNote({
-            groupName: groupKey,
-            content: `Promise-to-Pay ${input.status.toUpperCase()}: ${cust.name} — €${Number(promise.amount).toLocaleString()} promised by ${dateStr}.`,
-            createdBy: ctx.user.id,
-            createdAt: Date.now(),
-          });
           // Log to activity log
           await db.addActivityLog({
             groupName: groupKey,

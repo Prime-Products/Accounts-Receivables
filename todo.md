@@ -363,3 +363,9 @@
 - [x] Add "Add Contact" button in SendEmailDialog to create new payment contacts
 - [x] Update email sending to use selected payment contact
 - [x] Test payment contacts workflow (all 106 tests passing)
+
+## Promises should not create notes (user request 25/7)
+- [x] Remove auto-created group note when a Promise-to-Pay is recorded
+- [x] Remove auto-created group note when promise status changes (Kept/Broken)
+- [x] Keep promise records in activity log and promises section only
+- [x] Tests still passing after removal (all 106 tests passing)
