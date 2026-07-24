@@ -20,8 +20,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
-import { GroupSidePanel } from "@/components/GroupSidePanel";
-import { ChevronRight as ChevronRightIcon } from "lucide-react";
 
 /** Shared company picker for group-level action dialogs. */
 function CompanyPicker({
@@ -127,7 +125,6 @@ export default function GroupDetail() {
   const [agingFilter, setAgingFilter] = useState<string>("all");
   const [companiesOpen, setCompaniesOpen] = useState(false);
   const [invoiceView, setInvoiceView] = useState<"list" | "byBranch">("list");
-  const [showSidePanel, setShowSidePanel] = useState(false);
 
   const query = useMemo(
     () => ({
@@ -179,8 +176,7 @@ export default function GroupDetail() {
   if (!group) return null;
 
   return (
-    <div className="flex h-screen bg-background">
-      <div className="flex-1 p-2 sm:p-4 space-y-4 overflow-y-auto">
+    <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" className="gap-1" onClick={() => navigate("/customers")}>
@@ -229,14 +225,6 @@ export default function GroupDetail() {
           </Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => doExport("xlsx")} disabled={exportSoa.isPending}>
             <FileDown className="h-4 w-4" /> SOA (Excel)
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 ml-auto"
-            onClick={() => setShowSidePanel(!showSidePanel)}
-          >
-            {showSidePanel ? "Hide" : "Show"} Panel
           </Button>
           <Filter className="h-4 w-4 text-muted-foreground" />
           <Select value={companyId} onValueChange={setCompanyId}>
@@ -624,19 +612,6 @@ export default function GroupDetail() {
           {/* Payment history, contracts & tasks across the group (unified card) */}
           <GroupActivityTabs group={group} />
         </>
-      )}
-      </div>
-
-      {/* Side Panel */}
-      {showSidePanel && data && (
-        <GroupSidePanel
-          groupName={group}
-          overdue={data.companies.reduce((sum, c) => sum + (c.overdueBalance ?? 0), 0)}
-          forecast={groupForecast?.expectedAmount ?? 0}
-          contacts={[]}
-          daysInProblematic={0}
-          paymentTrend={-5}
-        />
       )}
     </div>
   );
