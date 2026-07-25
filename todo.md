@@ -555,3 +555,10 @@
 - [x] Status change to Broken/Not Contacted/Confirmed must cancel ANY open follow-up call task for the group, even if the recorded previous status was not "Pending Follow-up" (e.g. Pending → Confirmed → Broken left the old follow-up task open)
 - [x] Clean up the existing stale MSC follow-up task in the database
 - [x] Add regression test for the Pending → Confirmed → Broken sequence (145/145 passing)
+
+## Month rollover audit (user request 26/7)
+- [x] Audit: forecast is month-scoped (year+month) — new month starts fresh, re-run guard is per month. OK
+- [x] Audit: confirmation statuses had NO month scoping — statuses/amounts leaked into the new month. FIXED: statuses updated in a previous month are treated as Not Contacted (€0) at read time (groups list, group detail, badge/dialog)
+- [x] Audit: Collected/Paid/Remain computed from receipts within the current month window. OK
+- [x] Audit: promises and follow-up tasks keep absolute dates and appear as overdue after rollover (intentional — they need manual resolution)
+- [x] Regression test: Promise to Pay recorded last month → presented as Not Contacted this month, Expected falls back to forecast (146/146 passing)

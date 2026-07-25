@@ -72,6 +72,29 @@ function endOfCurrentMonth(now = new Date()): number {
 }
 
 /**
+ * Confirmation statuses are a *monthly* workflow: a "Promise to Pay" or "Broken"
+ * recorded in July says nothing about August. A status row is considered stale
+ * once the calendar month of its last update differs from the current month —
+ * stale rows are treated as "Not Contacted" (amount 0) everywhere they are read,
+ * so every group starts the new month with a clean slate without losing history.
+ */
+function isConfirmationStale(updatedAt: Date | string | null | undefined, now = new Date()): boolean {
+  if (!updatedAt) return true;
+  const d = updatedAt instanceof Date ? updatedAt : new Date(updatedAt);
+  if (Number.isNaN(d.getTime())) return true;
+  return d.getUTCFullYear() !== now.getUTCFullYear() || d.getUTCMonth() !== now.getUTCMonth();
+}
+
+/** Effective (month-aware) view of a confirmation row: stale → Not Contacted / €0. */
+function effectiveConfirmation<T extends { status: string; amount: string | null; updatedAt: Date | string | null } | null | undefined>(
+  row: T,
+): { status: string; amount: number; stale: boolean } {
+  if (!row) return { status: "Not Contacted", amount: 0, stale: false };
+  if (isConfirmationStale(row.updatedAt)) return { status: "Not Contacted", amount: 0, stale: true };
+  return { status: row.status, amount: row.amount ? Number(row.amount) : 0, stale: false };
+}
+
+/**
  * Create a Promise-to-Pay record for a group (used when a Confirmed status is logged).
  * Resolves the target customer (given id or the group's primary member), creates the promise,
  * logs the activity, and creates a follow-up task on the promised date — same behavior as addPromise.
@@ -540,8 +563,10 @@ export const customersRouter = router({
         const aging = computeAging(groupInvoices.get(g.group) ?? [], now);
         // Expected to Collect: live estimate driven by log calls.
         // Not Contacted → forecast; Confirmed/Pending → confirmation amount; Broken → 0.
-        const confStatus = confirmation?.status ?? "Not Contacted";
-        const confAmount = confirmation?.amount ? Number(confirmation.amount) : 0;
+        // A status recorded in a previous month is stale → treated as Not Contacted.
+        const conf = effectiveConfirmation(confirmation);
+        const confStatus = conf.status;
+        const confAmount = conf.amount;
         const expectedToCollect =
           confStatus === "Not Contacted"
             ? forecastExpected
@@ -865,8 +890,10 @@ export const customersRouter = router({
         "Active" as string,
       );
       const activityLogs = await db.listActivityLog(input.group, 200).catch(() => []);
-      const gConfStatus = confirmation?.status ?? "Not Contacted";
-      const gConfAmount = confirmation?.amount ? Number(confirmation.amount) : 0;
+      // Month-aware: a confirmation from a previous month is stale → Not Contacted.
+      const gConf = effectiveConfirmation(confirmation);
+      const gConfStatus = gConf.status;
+      const gConfAmount = gConf.amount;
       const gExpectedToCollect =
         gConfStatus === "Not Contacted" ? groupForecast : gConfStatus === "Broken" ? 0 : gConfAmount;
       const groupForecastInitial = forecastRows
@@ -2387,7 +2414,14 @@ export const callsRouter = router({
   getConfirmationStatus: protectedProcedure
     .input(z.object({ group: z.string().min(1).max(255) }))
     .query(async ({ input }) => {
-      return db.getGroupConfirmationStatus(input.group);
+      const row = await db.getGroupConfirmationStatus(input.group);
+      if (!row) return null;
+      // Month-aware: statuses reset each month. A row last updated in a previous
+      // month is presented as "Not Contacted" so the badge/dialog start fresh.
+      if (isConfirmationStale(row.updatedAt)) {
+        return { ...row, status: "Not Contacted" as typeof row.status, amount: "0.00", followUpDate: null, notes: null };
+      }
+      return row;
     }),
 
   /** Most recent open (Pending) promise for a group — used by Log Call to offer rescheduling. */

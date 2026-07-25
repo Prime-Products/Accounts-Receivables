@@ -780,3 +780,10 @@ export async function listGroupConfirmationStatuses() {
   const db = await requireDb();
   return db.select().from(groupConfirmationStatus);
 }
+
+/** Test/maintenance helper: overwrite a confirmation row's updatedAt (bypasses onUpdateNow via raw SQL). */
+export async function setGroupConfirmationUpdatedAt(groupName: string, updatedAt: Date) {
+  const db = await requireDb();
+  const ts = updatedAt.toISOString().slice(0, 19).replace("T", " ");
+  await db.execute(sql`UPDATE group_confirmation_status SET updatedAt = ${ts} WHERE groupName = ${groupName}`);
+}
