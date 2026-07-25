@@ -2138,7 +2138,12 @@ export const callsRouter = router({
       if (input.confirmationStatus) {
         await db.upsertGroupConfirmationStatus(input.group, {
           status: input.confirmationStatus,
-          amount: input.confirmationAmount !== undefined ? String(input.confirmationAmount) : undefined,
+          // Amount always follows the new status: reset to 0 for Not Contacted / Broken,
+          // otherwise use the newly entered value (or 0 if none was provided).
+          amount:
+            input.confirmationStatus === "Not Contacted" || input.confirmationStatus === "Broken"
+              ? "0.00"
+              : String(input.confirmationAmount ?? 0),
           // Follow-up date only applies to "Pending Follow-up"; clear it on any other status
           followUpDate: input.confirmationStatus === "Pending Follow-up" ? input.followUpDate : null,
           notes: input.notes,
@@ -2196,7 +2201,12 @@ export const callsRouter = router({
     .mutation(async ({ ctx, input }) => {
       await db.upsertGroupConfirmationStatus(input.group, {
         status: input.status,
-        amount: input.amount !== undefined ? String(input.amount) : undefined,
+        // Amount always follows the new status: reset to 0 for Not Contacted / Broken,
+        // otherwise use the newly entered value (or 0 if none was provided).
+        amount:
+          input.status === "Not Contacted" || input.status === "Broken"
+            ? "0.00"
+            : String(input.amount ?? 0),
         // Follow-up date only applies to "Pending Follow-up"; clear it on any other status
         followUpDate: input.status === "Pending Follow-up" ? input.followUpDate : null,
         notes: input.notes,

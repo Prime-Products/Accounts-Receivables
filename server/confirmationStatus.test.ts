@@ -503,5 +503,56 @@ describe("Confirmation Status Tracking", () => {
       // Cleanup: complete the test task
       await db.updateTask(followUps[0].id, { status: "Completed", completionNotes: "test cleanup", completedAt: Date.now() });
     });
+
+    it("should reset amount when status changes to Not Contacted or Broken", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      const groupName = `trpc-amount-reset-${Date.now()}`;
+
+      // Confirmed with amount
+      await caller.calls.updateConfirmationStatus({
+        group: groupName,
+        status: "Confirmed",
+        amount: 50000,
+      });
+      let result = await db.getGroupConfirmationStatus(groupName);
+      expect(Number(result?.amount)).toBe(50000);
+
+      // Change to Not Contacted → amount must reset to 0
+      await caller.calls.updateConfirmationStatus({
+        group: groupName,
+        status: "Not Contacted",
+      });
+      result = await db.getGroupConfirmationStatus(groupName);
+      expect(result?.status).toBe("Not Contacted");
+      expect(Number(result?.amount)).toBe(0);
+
+      // Pending Follow-up with a new amount → uses the new value
+      await caller.calls.updateConfirmationStatus({
+        group: groupName,
+        status: "Pending Follow-up",
+        amount: 12000,
+        followUpDate: Date.now() + 3 * 24 * 60 * 60 * 1000,
+      });
+      result = await db.getGroupConfirmationStatus(groupName);
+      expect(Number(result?.amount)).toBe(12000);
+
+      // Broken → amount resets to 0
+      await caller.calls.updateConfirmationStatus({
+        group: groupName,
+        status: "Broken",
+      });
+      result = await db.getGroupConfirmationStatus(groupName);
+      expect(Number(result?.amount)).toBe(0);
+      expect(result?.followUpDate).toBeNull();
+
+      // Cleanup any follow-up task created during this test
+      const marker = `(Follow-up: ${groupName})`;
+      const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+      const followUp = openTasks.find(t => t.description?.includes(marker));
+      if (followUp) {
+        await db.updateTask(followUp.id, { status: "Completed", completionNotes: "test cleanup", completedAt: Date.now() });
+      }
+    });
   });
 });

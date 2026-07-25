@@ -485,3 +485,8 @@
 - [x] Log Call becomes a standalone prominent green button next to Actions
 - [x] Removed Promise to Pay from Actions menu (covered by Log Call → Confirmed)
 - [x] Actions menu keeps only: New Task, Add Note, Send Email
+
+## Stale confirmed amount bug (user report 26/7)
+- [x] When status changes to "Not Contacted" or "Broken", amount resets to 0 (logCall + updateConfirmationStatus)
+- [x] When status changes between Confirmed/Pending, amount reflects the newly entered value (or 0 if not provided)
+- [x] Cleaned existing stale amounts in DB for Not Contacted/Broken groups; regression test added (131/131 passing)
