@@ -537,3 +537,6 @@
 - [x] Customers list: sortable "Expected" column per group + TOTAL cell, colored by variance vs forecast
 - [x] Group card: forecast KPI shows Forecast vs Expected vs Variance (colored)
 - [x] Vitest coverage for expected/variance computation (3 new tests; 141/141 passing)
+
+## Customers list: remove Turnover card (user request 26/7)
+- [x] Remove the "Turnover (up to day)" summary card from the Customers list (kept only on the group card)

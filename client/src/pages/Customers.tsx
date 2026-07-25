@@ -347,8 +347,6 @@ export default function Customers() {
       expected: 0,
       collected: 0,
       remaining: 0,
-      turnoverYtd: 0,
-      turnoverLastYear: 0,
       agingCurrent: 0,
       agingCurrentCount: 0,
       buckets: {
@@ -372,8 +370,6 @@ export default function Customers() {
       s.expected += (g as any).expectedToCollect ?? g.forecastExpected;
       s.collected += g.collected;
       s.remaining += g.remaining;
-      s.turnoverYtd += g.turnoverYtd ?? 0;
-      s.turnoverLastYear += g.turnoverLastYear ?? 0;
       const aging = (g as any).aging;
       if (aging) {
         s.agingCurrent += aging.current ?? 0;
@@ -479,7 +475,7 @@ export default function Customers() {
       {view === "groups" && !groupsLoading && (
         <>
           {/* Summary KPI cards — totals across the filtered groups (same layout as group view) */}
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
             <Card>
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Open Balance</div>
@@ -533,22 +529,6 @@ export default function Customers() {
                   {fmtEur(summary.remaining)}
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-0.5">vs forecast expected this month</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4">
-                <div className="text-xs text-muted-foreground">Turnover (up to day)</div>
-                <div className="text-xl font-bold font-mono text-blue-700">
-                  {summary.turnoverYtd > 0 ? fmtEur(summary.turnoverYtd) : "—"}
-                </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
-                  last year: {summary.turnoverLastYear > 0 ? fmtEur(summary.turnoverLastYear) : "—"}
-                  {summary.turnoverYtd > 0 && summary.turnoverLastYear > 0 && (
-                    <span className={summary.turnoverYtd >= summary.turnoverLastYear ? "text-emerald-600" : "text-amber-600"}>
-                      {" "}· {((summary.turnoverYtd / summary.turnoverLastYear - 1) * 100).toFixed(0)}%
-                    </span>
-                  )}
-                </div>
               </CardContent>
             </Card>
           </div>
