@@ -480,3 +480,8 @@
 - [x] When status "Pending Follow-up" is set with a follow-up date, auto-create a task due on that date ("Follow-up call — <group> — expected €X") via logCall and updateConfirmationStatus
 - [x] Avoid duplicate open follow-up tasks for the same group — existing open task is rescheduled/updated instead
 - [x] Test for the Pending → task flow incl. reschedule (130/130 tests passing)
+
+## GroupDetail actions reorganization (user request 26/7)
+- [x] Log Call becomes a standalone prominent green button next to Actions
+- [x] Removed Promise to Pay from Actions menu (covered by Log Call → Confirmed)
+- [x] Actions menu keeps only: New Task, Add Note, Send Email

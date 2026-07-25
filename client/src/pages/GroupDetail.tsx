@@ -39,16 +39,19 @@ function ActionsMenu({
   group: string;
 }) {
   const [taskOpen, setTaskOpen] = useState(false);
-  const [promiseOpen, setPromiseOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
 
   return (
     <>
+      {/* Log Call — primary standalone action */}
+      <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700 text-white" onClick={() => setCallOpen(true)}>
+        <Phone className="h-4 w-4" /> Log Call
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="sm" className="gap-1.5">
+          <Button size="sm" variant="outline" className="gap-1.5">
             <Plus className="h-4 w-4" /> Actions
           </Button>
         </DropdownMenuTrigger>
@@ -56,17 +59,11 @@ function ActionsMenu({
           <DropdownMenuItem onClick={() => setTaskOpen(true)}>
             <Plus className="h-4 w-4 mr-2" /> New Task
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setPromiseOpen(true)}>
-            <HandCoins className="h-4 w-4 mr-2" /> Promise to Pay
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setEmailOpen(true)}>
-            <StickyNote className="h-4 w-4 mr-2" /> Send Email
-          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setNoteOpen(true)}>
             <StickyNote className="h-4 w-4 mr-2" /> Add Note
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setCallOpen(true)}>
-            <Phone className="h-4 w-4 mr-2" /> Log Call
+          <DropdownMenuItem onClick={() => setEmailOpen(true)}>
+            <StickyNote className="h-4 w-4 mr-2" /> Send Email
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -78,13 +75,6 @@ function ActionsMenu({
         trigger={<Button className="hidden">Hidden</Button>}
         open={taskOpen}
         onOpenChange={setTaskOpen}
-      />
-
-      <GroupPromiseDialog
-        companies={companies}
-        defaultCustomerId={defaultCustomerId}
-        open={promiseOpen}
-        onOpenChange={setPromiseOpen}
       />
 
       <SendEmailDialog
