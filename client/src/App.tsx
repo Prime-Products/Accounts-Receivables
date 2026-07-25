@@ -11,6 +11,7 @@ import CustomerDetail from "@/pages/CustomerDetail";
 import GroupDetail from "@/pages/GroupDetail";
 import Invoices from "./pages/Invoices";
 import Contracts from "./pages/Contracts";
+import Contacts from "./pages/Contacts";
 import Tasks from "./pages/Tasks";
 import Forecast from "./pages/Forecast";
 import Reports from "./pages/Reports";
@@ -26,6 +27,7 @@ function Router() {
         <Route path={"/groups/:name"} component={GroupDetail} />
         <Route path={"/invoices"} component={Invoices} />
         <Route path={"/contracts"} component={Contracts} />
+        <Route path={"/contacts"} component={Contacts} />
         <Route path={"/tasks"} component={Tasks} />
         <Route path={"/forecast"} component={Forecast} />
         <Route path={"/reports"} component={Reports} />

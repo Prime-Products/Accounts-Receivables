@@ -506,3 +506,10 @@
 - [x] Backend: paymentContacts.listByGroup — contacts across all companies of a group, with company name
 - [x] LogCallDialog: "Contact person" becomes a dropdown with the group's payment contacts + "Other (type a name)" free-text option
 - [x] When a contact is selected, details card shows name, title, email (mailto), phone (tel) and company
+
+## Contacts management page in menu (user request 26/7)
+- [x] Backend: paymentContacts.listAll (all contacts with company + group); reused existing update/delete
+- [x] Contacts page: searchable table (name, title, email, phone, company, group)
+- [x] Add / Edit / Delete contact dialogs (company picker for new contacts)
+- [x] Register "Contacts" in sidebar navigation and App.tsx route
+- [x] Vitest coverage for listAll procedure

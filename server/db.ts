@@ -706,6 +706,10 @@ export async function listPaymentContacts(customerId: number) {
     .where(eq(paymentContacts.customerId, customerId))
     .orderBy(desc(paymentContacts.createdAt));
 }
+export async function listAllPaymentContacts() {
+  const db = await requireDb();
+  return db.select().from(paymentContacts).orderBy(desc(paymentContacts.createdAt));
+}
 
 export async function getPaymentContact(id: number) {
   const db = await requireDb();

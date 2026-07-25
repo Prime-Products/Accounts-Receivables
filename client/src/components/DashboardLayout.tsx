@@ -23,6 +23,7 @@ import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
   BarChart3,
+  Contact,
   FileSpreadsheet,
   FileText,
   LayoutDashboard,
@@ -43,6 +44,7 @@ import { Button } from "./ui/button";
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Users, label: "Customers", path: "/customers" },
+  { icon: Contact, label: "Contacts", path: "/contacts" },
   { icon: FileText, label: "Invoices", path: "/invoices" },
   { icon: ScrollText, label: "Contracts", path: "/contracts" },
   { icon: ListChecks, label: "Tasks", path: "/tasks" },

@@ -373,6 +373,22 @@ describe("Confirmation Status Tracking", () => {
       expect(result).toEqual([]);
     });
 
+    it("paymentContacts.listAll returns every contact with company and group names", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      const result = await caller.paymentContacts.listAll();
+      expect(Array.isArray(result)).toBe(true);
+      for (const c of result) {
+        expect(c.name).toBeTruthy();
+        expect(c.email).toBeTruthy();
+        expect(c.companyName).toBeTruthy();
+        expect(c.groupName).toBeTruthy();
+      }
+      // sorted alphabetically by name
+      const names = result.map(c => c.name);
+      expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
+    });
+
     it("calls.getConfirmationStatus returns data for a second distinct group", async () => {
       const ctx = createAuthContext();
       const caller = appRouter.createCaller(ctx);

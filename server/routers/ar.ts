@@ -2330,6 +2330,21 @@ export const paymentContactsRouter = router({
         .map(c => ({ ...c, companyName: byId.get(c.customerId) ?? "—" }))
         .sort((a, b) => a.name.localeCompare(b.name));
     }),
+  /** Every payment contact in the system, with company and group names attached (for the Contacts page). */
+  listAll: protectedProcedure.query(async () => {
+    const [contacts, customers] = await Promise.all([db.listAllPaymentContacts(), db.listCustomers()]);
+    const byId = new Map(customers.map(c => [c.id, c]));
+    return contacts
+      .map(c => {
+        const cust = byId.get(c.customerId);
+        return {
+          ...c,
+          companyName: cust?.name ?? "—",
+          groupName: cust ? (cust.customerGroup ?? "").trim() || cust.name : "—",
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }),
   add: protectedProcedure
     .input(
       z.object({
