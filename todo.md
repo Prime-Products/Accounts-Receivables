@@ -397,3 +397,4 @@
 - [x] Backend: procedure to update a group's current-month forecast (expectedAmount + initialForecast)
 - [x] Frontend: click-to-edit AI Forecast cell in Customers groups list
 - [x] Test for the update procedure (110 tests passing)
+## Performance Optimizations (user request 25/7)

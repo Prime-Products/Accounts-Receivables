@@ -10,6 +10,7 @@ import { fmtEur, onHoldStatusColors, ratingColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowDown, ArrowUp, ArrowUpDown, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
 import { useMemo, useState } from "react";
+import { memo } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -21,7 +22,7 @@ type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast"
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
 
 /** Click-to-edit forecast cell. Saving corrects the month's forecast (expected + initial baseline). */
-function EditableForecastCell({ group, value }: { group: string; value: number }) {
+const EditableForecastCell = memo(function EditableForecastCell({ group, value }: { group: string; value: number }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const utils = trpc.useUtils();
@@ -77,10 +78,10 @@ function EditableForecastCell({ group, value }: { group: string; value: number }
       <Pencil className="h-3 w-3 opacity-0 group-hover/fc:opacity-60 shrink-0" />
     </button>
   );
-}
+});
 
 /** Per-row quick actions dropdown for the Customers groups list. */
-function GroupRowActions({ group }: { group: string }) {
+const GroupRowActions = memo(function GroupRowActions({ group }: { group: string }) {
   const [callOpen, setCallOpen] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
@@ -151,7 +152,7 @@ function GroupRowActions({ group }: { group: string }) {
       {noteOpen && <GroupNotesDialog group={group} open={noteOpen} onOpenChange={setNoteOpen} />}
     </>
   );
-}
+});
 
 function SortableHead({
   label,

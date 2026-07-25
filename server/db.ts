@@ -218,6 +218,13 @@ export async function listReceipts(customerId?: number) {
   return customerId ? q.where(eq(receipts.customerId, customerId)).orderBy(desc(receipts.receiptDate)) : q.orderBy(desc(receipts.receiptDate));
 }
 
+export async function listReceiptsInRange(start: number, end: number, customerId?: number) {
+  const db = await requireDb();
+  const conds = [gte(receipts.receiptDate, start), lt(receipts.receiptDate, end)];
+  if (customerId) conds.push(eq(receipts.customerId, customerId));
+  return db.select().from(receipts).where(and(...conds)).orderBy(desc(receipts.receiptDate));
+}
+
 export async function createReceipt(data: InsertReceipt) {
   const db = await requireDb();
   const res = await db.insert(receipts).values(data);

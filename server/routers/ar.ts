@@ -182,6 +182,8 @@ export const customersRouter = router({
   groups: protectedProcedure.query(async () => {
     const now = Date.now();
     const today = new Date();
+    const monthStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1);
+    const monthEnd = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1);
     const [customers, invoices, forecastRows, behavior, allPromises, watchRows, receipts] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
@@ -189,12 +191,9 @@ export const customersRouter = router({
       db.listPaymentBehaviorWithGroup().catch(() => []),
       db.listPromises(),
       db.listGroupWatchStatuses().catch(() => []),
-      db.listReceipts(),
+      db.listReceiptsInRange(monthStart, monthEnd),
     ]);
     const eom = endOfCurrentMonth();
-    // Current-month collected per customer (EUR), then rolled up per group below.
-    const monthStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1);
-    const monthEnd = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1);
     const collectedByCustomer = new Map<number, number>();
     for (const r of receipts) {
       if (r.receiptDate >= monthStart && r.receiptDate < monthEnd) {
