@@ -2316,6 +2316,20 @@ export const paymentContactsRouter = router({
     .query(async ({ input }) => {
       return db.listPaymentContacts(input.customerId);
     }),
+  /** All payment contacts across every company of a group, with the company name attached. */
+  listByGroup: protectedProcedure
+    .input(z.object({ group: z.string().min(1).max(255) }))
+    .query(async ({ input }) => {
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+      if (members.length === 0) return [];
+      const byId = new Map(members.map(m => [m.id, m.name]));
+      const lists = await Promise.all(members.map(m => db.listPaymentContacts(m.id)));
+      return lists
+        .flat()
+        .map(c => ({ ...c, companyName: byId.get(c.customerId) ?? "—" }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }),
   add: protectedProcedure
     .input(
       z.object({

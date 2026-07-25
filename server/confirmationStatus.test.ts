@@ -341,6 +341,58 @@ describe("Confirmation Status Tracking", () => {
       expect(Number(result?.amount)).toBe(50000);
     });
 
+    it("paymentContacts.listByGroup returns group contacts with company names", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+
+      // Use a real customer that has payment contacts
+      const customers = await db.listCustomers();
+      let target: { group: string } | null = null;
+      for (const c of customers.slice(0, 50)) {
+        const contacts = await db.listPaymentContacts(c.id);
+        if (contacts.length > 0) {
+          target = { group: (c.customerGroup ?? "").trim() || c.name };
+          break;
+        }
+      }
+      if (!target) return; // no contacts in DB — nothing to assert
+
+      const result = await caller.paymentContacts.listByGroup({ group: target.group });
+      expect(result.length).toBeGreaterThan(0);
+      for (const contact of result) {
+        expect(contact.name).toBeTruthy();
+        expect(contact.email).toBeTruthy();
+        expect(contact.companyName).toBeTruthy();
+      }
+    });
+
+    it("paymentContacts.listByGroup returns empty array for unknown group", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      const result = await caller.paymentContacts.listByGroup({ group: `no-such-group-${Date.now()}` });
+      expect(result).toEqual([]);
+    });
+
+    it("calls.getConfirmationStatus returns data for a second distinct group", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      const groupName = `trpc-test-${Date.now()}`;
+
+      // Insert confirmation status
+      await db.upsertGroupConfirmationStatus(groupName, {
+        status: "Confirmed",
+        amount: "50000",
+        notes: "Test confirmation",
+        updatedBy: 1,
+      });
+
+      // Query via tRPC
+      const result = await caller.calls.getConfirmationStatus({ group: groupName });
+      expect(result).toBeDefined();
+      expect(result?.status).toBe("Confirmed");
+      expect(Number(result?.amount)).toBe(50000);
+    });
+
     it("calls.updateConfirmationStatus should update status", async () => {
       const ctx = createAuthContext();
       const caller = appRouter.createCaller(ctx);

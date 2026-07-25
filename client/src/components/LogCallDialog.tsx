@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { trpc } from "@/lib/trpc";
-import { Phone } from "lucide-react";
+import { Mail, Phone, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -34,6 +34,7 @@ export default function LogCallDialog({
 }) {
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
   const [contactName, setContactName] = useState("");
+  const [selectedContactId, setSelectedContactId] = useState<string>("");
   const [outcome, setOutcome] = useState<(typeof OUTCOMES)[number]>("Reached");
   const [notes, setNotes] = useState("");
   const [confirmationStatus, setConfirmationStatus] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">("");
@@ -45,11 +46,18 @@ export default function LogCallDialog({
 
   // Existing open promise for this group (offered for rescheduling on Confirmed)
   const { data: openPromise } = trpc.calls.getOpenPromise.useQuery({ group }, { enabled: open });
+  // Payment contacts across all companies of the group
+  const { data: groupContacts } = trpc.paymentContacts.listByGroup.useQuery({ group }, { enabled: open });
+  const selectedContact =
+    selectedContactId && selectedContactId !== "other"
+      ? groupContacts?.find(c => String(c.id) === selectedContactId)
+      : undefined;
 
   useEffect(() => {
     if (open) {
       setCustomerId(defaultCustomerId ?? null);
       setContactName("");
+      setSelectedContactId("");
       setOutcome("Reached");
       setNotes("");
       setConfirmationStatus("");
@@ -145,7 +153,64 @@ export default function LogCallDialog({
           )}
           <div className="space-y-1.5">
             <Label>Contact person (optional)</Label>
-            <Input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Who did you speak with?" />
+            {groupContacts && groupContacts.length > 0 ? (
+              <>
+                <Select
+                  value={selectedContactId || undefined}
+                  onValueChange={v => {
+                    setSelectedContactId(v);
+                    if (v === "other") {
+                      setContactName("");
+                    } else {
+                      const c = groupContacts.find(gc => String(gc.id) === v);
+                      setContactName(c?.name ?? "");
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Who did you speak with?" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groupContacts.map(c => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name}
+                        {c.title ? ` — ${c.title}` : ""}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="other">Other (type a name)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {selectedContact && (
+                  <div className="rounded border bg-muted/40 p-2 text-xs space-y-1 mt-1">
+                    <div className="flex items-center gap-1.5 font-medium">
+                      <User className="h-3 w-3" /> {selectedContact.name}
+                      {selectedContact.title && <span className="text-muted-foreground font-normal">· {selectedContact.title}</span>}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Mail className="h-3 w-3 text-muted-foreground" />
+                      <a className="text-blue-600 hover:underline" href={`mailto:${selectedContact.email}`}>{selectedContact.email}</a>
+                    </div>
+                    {selectedContact.phone && (
+                      <div className="flex items-center gap-1.5">
+                        <Phone className="h-3 w-3 text-muted-foreground" />
+                        <a className="text-blue-600 hover:underline" href={`tel:${selectedContact.phone}`}>{selectedContact.phone}</a>
+                      </div>
+                    )}
+                    <div className="text-muted-foreground">{selectedContact.companyName}</div>
+                  </div>
+                )}
+                {selectedContactId === "other" && (
+                  <Input
+                    className="mt-1"
+                    value={contactName}
+                    onChange={e => setContactName(e.target.value)}
+                    placeholder="Type the contact's name"
+                  />
+                )}
+              </>
+            ) : (
+              <Input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Who did you speak with?" />
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Outcome</Label>

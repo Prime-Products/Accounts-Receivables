@@ -501,3 +501,8 @@
 - [x] LogCallDialog: "Confirmed" option displays as "Promise to Pay" (DB value stays "Confirmed"); amount label now "Promised amount"
 - [x] Customers page: badge + filter label shows "Promise to Pay"; amount column header renamed to "Promised"
 - [x] GroupDetail: shares the same confirmationStatusLabels map (no separate hardcoded label found)
+
+## Log Call: payment contacts dropdown (user request 26/7)
+- [x] Backend: paymentContacts.listByGroup — contacts across all companies of a group, with company name
+- [x] LogCallDialog: "Contact person" becomes a dropdown with the group's payment contacts + "Other (type a name)" free-text option
+- [x] When a contact is selected, details card shows name, title, email (mailto), phone (tel) and company
