@@ -684,5 +684,78 @@ describe("Confirmation Status Tracking", () => {
         await db.updateTask(linked.id, { status: "Completed", completionNotes: "test cleanup", completedAt: Date.now() });
       }
     });
+
+    it("cancels the follow-up task when status changes away from Pending Follow-up", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const customers = await db.listCustomers();
+      const cust = customers[0];
+      expect(cust).toBeTruthy();
+      const groupName = (cust.customerGroup ?? "").trim() || cust.name;
+      const marker = `(Follow-up: ${groupName})`;
+
+      // Pending Follow-up → follow-up task created
+      await caller.calls.logCall({
+        group: groupName,
+        customerId: cust.id,
+        outcome: "Reached",
+        confirmationStatus: "Pending Follow-up",
+        confirmationAmount: 8000,
+        followUpDate: Date.now() + 4 * 24 * 60 * 60 * 1000,
+      });
+
+      let openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+      expect(openTasks.some(t => t.description?.includes(marker))).toBe(true);
+
+      // Status changes to Not Contacted → follow-up task must be cancelled
+      await caller.calls.updateConfirmationStatus({
+        group: groupName,
+        status: "Not Contacted",
+      });
+
+      openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+      expect(openTasks.some(t => t.description?.includes(marker))).toBe(false);
+    });
+
+    it("cancels the open promise and its check task when status changes away from Confirmed", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const customers = await db.listCustomers();
+      const cust = customers[0];
+      expect(cust).toBeTruthy();
+      const groupName = (cust.customerGroup ?? "").trim() || cust.name;
+
+      // Confirmed → creates a promise + check task
+      await caller.calls.logCall({
+        group: groupName,
+        customerId: cust.id,
+        outcome: "Promised Payment",
+        confirmationStatus: "Confirmed",
+        confirmationAmount: 7777,
+        promisedDate: Date.now() + 9 * 24 * 60 * 60 * 1000,
+      });
+
+      const open = await caller.calls.getOpenPromise({ group: groupName });
+      expect(open).toBeTruthy();
+      const marker = `(Promise #${open!.id})`;
+
+      let openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+      expect(openTasks.some(t => t.description?.includes(marker))).toBe(true);
+
+      // Status changes to Broken → promise cancelled + check task cancelled
+      await caller.calls.updateConfirmationStatus({
+        group: groupName,
+        status: "Broken",
+        notes: "customer cannot pay (test)",
+      });
+
+      const promiseAfter = await db.getPromise(open!.id);
+      expect(promiseAfter?.status).toBe("Broken");
+
+      openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+      expect(openTasks.some(t => t.description?.includes(marker))).toBe(false);
+    });
   });
 });

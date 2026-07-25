@@ -513,3 +513,16 @@
 - [x] Add / Edit / Delete contact dialogs (company picker for new contacts)
 - [x] Register "Contacts" in sidebar navigation and App.tsx route
 - [x] Vitest coverage for listAll procedure
+
+## Bug: stale tasks remain after status change (user report 26/7)
+- [x] When status changes away from Pending Follow-up → cancel the open "Follow-up call" task for the group
+- [x] When status changes away from Confirmed/Promise to Pay → cancel the open promise check task and the open promise
+- [x] Apply in both logCall and updateConfirmationStatus flows
+- [x] Vitest regression tests for task cleanup (2 new tests)
+
+## Customers page: summary totals cards (user request 26/7)
+- [x] Backend: aggregate totals across all groups (open balance, overdue + EOM, forecast, paid this month, remain to collect, turnover + last year)
+- [x] Aging totals row: Current (not due), 0-30, 31-60, 61-90, 91-120, 120+ with amounts and invoice counts
+- [x] UI: cards row above the group list on Customers page, same style as group view
+- [x] Totals respect active filters (status/confirmation filters)
+- [x] Vitest coverage for the aggregates (full suite 138/138 passing)

@@ -331,6 +331,57 @@ export default function Customers() {
     [filtered]
   );
 
+  /** Overall summary across the filtered groups — same cards as the group view, but totals. */
+  const summary = useMemo(() => {
+    const s = {
+      open: 0,
+      openByCur: {} as Record<string, number>,
+      overdue: 0,
+      overdueCount: 0,
+      overdueEom: 0,
+      forecastInitial: 0,
+      forecastCurrent: 0,
+      collected: 0,
+      remaining: 0,
+      turnoverYtd: 0,
+      turnoverLastYear: 0,
+      agingCurrent: 0,
+      agingCurrentCount: 0,
+      buckets: {
+        "0-30": { amount: 0, count: 0 },
+        "31-60": { amount: 0, count: 0 },
+        "61-90": { amount: 0, count: 0 },
+        "91-120": { amount: 0, count: 0 },
+        "120+": { amount: 0, count: 0 },
+      } as Record<"0-30" | "31-60" | "61-90" | "91-120" | "120+", { amount: number; count: number }>,
+    };
+    for (const g of filteredGroups) {
+      s.open += g.openBalance;
+      for (const [cur, amt] of Object.entries(g.openByCurrency ?? {})) {
+        s.openByCur[cur] = (s.openByCur[cur] ?? 0) + amt;
+      }
+      s.overdue += g.overdueBalance;
+      s.overdueCount += g.overdueCount;
+      s.overdueEom += g.overdueEomBalance;
+      s.forecastInitial += (g as any).forecastInitial ?? 0;
+      s.forecastCurrent += g.forecastExpected;
+      s.collected += g.collected;
+      s.remaining += g.remaining;
+      s.turnoverYtd += g.turnoverYtd ?? 0;
+      s.turnoverLastYear += g.turnoverLastYear ?? 0;
+      const aging = (g as any).aging;
+      if (aging) {
+        s.agingCurrent += aging.current ?? 0;
+        s.agingCurrentCount += aging.currentCount ?? 0;
+        for (const b of ["0-30", "31-60", "61-90", "91-120", "120+"] as const) {
+          s.buckets[b].amount += aging.buckets?.[b]?.amount ?? 0;
+          s.buckets[b].count += aging.buckets?.[b]?.count ?? 0;
+        }
+      }
+    }
+    return s;
+  }, [filteredGroups]);
+
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -419,6 +470,98 @@ export default function Customers() {
           </SelectContent>
         </Select>
       </div>
+
+      {view === "groups" && !groupsLoading && (
+        <>
+          {/* Summary KPI cards — totals across the filtered groups (same layout as group view) */}
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-xs text-muted-foreground">Open Balance</div>
+                <div className="text-xl font-bold font-mono">{fmtEur(summary.open)}</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">{filteredGroups.length} group(s)</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-xs text-muted-foreground">Overdue</div>
+                <div className={`text-xl font-bold font-mono ${summary.overdue > 0 ? "text-red-600" : ""}`}>
+                  {fmtEur(summary.overdue)}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">{summary.overdueCount} overdue invoice(s)</div>
+                <div className="text-[11px] font-mono mt-0.5 text-orange-600" title="Overdue by end of the current month (today's overdue + invoices falling due until month end)">
+                  EOM: {fmtEur(summary.overdueEom)}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-xs text-muted-foreground">AI Forecast (this month)</div>
+                <div className="text-[11px] text-muted-foreground font-mono mb-1">
+                  Initial: {fmtEur(summary.forecastInitial)} · Current: {fmtEur(summary.forecastCurrent)}
+                </div>
+                <div className="text-xl font-bold font-mono text-emerald-700">{fmtEur(summary.forecastCurrent)}</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
+                  collected {fmtEur(summary.collected)} · remaining {fmtEur(summary.remaining)}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-xs text-muted-foreground">Paid (this month)</div>
+                <div className="text-xl font-bold font-mono text-emerald-700">{fmtEur(summary.collected)}</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">collected within current month</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-xs text-muted-foreground">Remain to Collect (this month)</div>
+                <div className={`text-xl font-bold font-mono ${summary.remaining > 0 ? "text-amber-600" : ""}`}>
+                  {fmtEur(summary.remaining)}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">vs forecast expected this month</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-xs text-muted-foreground">Turnover (up to day)</div>
+                <div className="text-xl font-bold font-mono text-blue-700">
+                  {summary.turnoverYtd > 0 ? fmtEur(summary.turnoverYtd) : "—"}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
+                  last year: {summary.turnoverLastYear > 0 ? fmtEur(summary.turnoverLastYear) : "—"}
+                  {summary.turnoverYtd > 0 && summary.turnoverLastYear > 0 && (
+                    <span className={summary.turnoverYtd >= summary.turnoverLastYear ? "text-emerald-600" : "text-amber-600"}>
+                      {" "}· {((summary.turnoverYtd / summary.turnoverLastYear - 1) * 100).toFixed(0)}%
+                    </span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Aging totals across the filtered groups */}
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-sm font-semibold mb-2">Aging (all groups in view)</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="rounded-lg border bg-muted/40 p-3">
+                  <div className="text-xs text-muted-foreground">Current (not due)</div>
+                  <div className="text-lg font-bold font-mono">{fmtEur(summary.agingCurrent)}</div>
+                  <div className="text-xs text-muted-foreground">{summary.agingCurrentCount} invoice(s)</div>
+                </div>
+                {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
+                  <div key={b} className="rounded-lg border bg-card p-3">
+                    <div className="text-xs text-muted-foreground">{b} days overdue</div>
+                    <div className="text-lg font-bold font-mono">{fmtEur(summary.buckets[b].amount)}</div>
+                    <div className="text-xs text-muted-foreground">{summary.buckets[b].count} invoice(s)</div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
 
       <Card>
         <CardContent className="p-0">

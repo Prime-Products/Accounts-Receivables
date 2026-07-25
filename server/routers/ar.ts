@@ -224,6 +224,64 @@ async function upsertFollowUpTask(
   return taskId;
 }
 
+/**
+ * Cancel auto-created artifacts that no longer match the group's new confirmation status:
+ * - leaving "Pending Follow-up" → cancel the open "Follow-up call" task
+ * - leaving "Confirmed" (Promise to Pay) → cancel the open promise-check task and mark the open promise Broken? No —
+ *   we only cancel the task and leave the promise history intact unless the new status is Broken/Not Contacted,
+ *   in which case the open promise is cancelled too (customer withdrew the promise).
+ */
+async function cleanupStatusArtifacts(
+  ctx: { user: { id: number; name: string | null } },
+  input: { group: string; previousStatus: string | null; newStatus: string }
+) {
+  if (!input.previousStatus || input.previousStatus === input.newStatus) {
+    // Same status (e.g. Pending → Pending reschedule) is handled by upsert helpers.
+    if (input.previousStatus === input.newStatus) return;
+  }
+  const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+
+  // Leaving "Pending Follow-up": the follow-up call task is obsolete.
+  if (input.previousStatus === "Pending Follow-up" && input.newStatus !== "Pending Follow-up") {
+    const marker = `(Follow-up: ${input.group})`;
+    const linked = openTasks.filter(t => t.description?.includes(marker));
+    for (const t of linked) {
+      await db.updateTask(t.id, {
+        status: "Cancelled",
+        completionNotes: `Status changed to ${input.newStatus} — follow-up task auto-cancelled`,
+      });
+      await audit(ctx, "Cancel Task", "task", t.id, `Follow-up task cancelled (status → ${input.newStatus})`);
+    }
+  }
+
+  // Leaving "Confirmed" (Promise to Pay): cancel the open promise + its check task.
+  if (input.previousStatus === "Confirmed" && input.newStatus !== "Confirmed") {
+    const open = await findOpenGroupPromise(input.group);
+    if (open) {
+      await db.updatePromise(open.id, { status: "Broken" });
+      await audit(ctx, "Cancel Promise-to-Pay", "promiseToPay", open.id, `${input.group}: promise cancelled (status → ${input.newStatus})`);
+      const marker = `(Promise #${open.id})`;
+      const linked = openTasks.filter(t => t.description?.includes(marker));
+      for (const t of linked) {
+        await db.updateTask(t.id, {
+          status: "Cancelled",
+          completionNotes: `Status changed to ${input.newStatus} — promise check task auto-cancelled`,
+        });
+        await audit(ctx, "Cancel Task", "task", t.id, `Promise check task cancelled (status → ${input.newStatus})`);
+      }
+      await db.addActivityLog({
+        groupName: input.group,
+        customerId: open.customerId,
+        activityType: "promise",
+        title: `Promise cancelled — status changed to ${input.newStatus}`,
+        description: `Open promise of €${Number(open.amount).toLocaleString()} was cancelled because the confirmation status changed.`,
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      }).catch(() => {});
+    }
+  }
+}
+
 export const customersRouter = router({
   /** Global search across groups, companies, invoices, notes, and tasks. */
   search: protectedProcedure
@@ -363,11 +421,17 @@ export const customersRouter = router({
     for (const c of confirmationStatuses) {
       confirmationByGroup.set(c.groupName, c);
     }
-    const forecastByGroup = new Map<string, number>();
+   const forecastByGroup = new Map<string, number>();
     for (const f of forecastRows) {
       const key = (f.customerGroup ?? "").trim();
       if (!key) continue;
       forecastByGroup.set(key, (forecastByGroup.get(key) ?? 0) + Number(f.expectedAmount));
+    }
+    const forecastInitialByGroup = new Map<string, number>();
+    for (const f of forecastRows) {
+      const key = (f.customerGroup ?? "").trim();
+      if (!key) continue;
+      forecastInitialByGroup.set(key, (forecastInitialByGroup.get(key) ?? 0) + Number((f as any).initialForecast ?? 0));
     }
     const byCustomer = new Map<number, typeof invoices>();
     for (const inv of invoices) {
@@ -406,12 +470,18 @@ export const customersRouter = router({
         collected: number;
       }
     >();
+    const groupInvoices = new Map<string, typeof invoices>();
     for (const c of customers) {
       const key = (c.customerGroup ?? "").trim() || c.name;
       let g = groups.get(key);
       if (!g) {
         g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set(), overdue90Plus: 0, promisesKept: 0, promisesBroken: 0, worstHold: "Active", turnoverYtd: 0, turnoverLastYear: 0, collected: 0 };
         groups.set(key, g);
+      }
+      let gInv = groupInvoices.get(key);
+      if (!gInv) {
+        gInv = [];
+        groupInvoices.set(key, gInv);
       }
       g.companyCount += 1;
       g.turnoverYtd += c.turnoverYtd ? Number(c.turnoverYtd) : 0;
@@ -425,6 +495,7 @@ export const customersRouter = router({
       if ((HOLD_SEVERITY[c.onHoldStatus] ?? 0) > (HOLD_SEVERITY[g.worstHold] ?? 0)) g.worstHold = c.onHoldStatus;
       for (const inv of byCustomer.get(c.id) ?? []) {
         if (!isOpenInvoice(inv)) continue;
+        gInv.push(inv);
         g.openBalance += outstanding(inv);
         const cur = inv.currency ?? "EUR";
         g.openByCurrency[cur] = (g.openByCurrency[cur] ?? 0) + outstandingOriginal(inv);
@@ -464,12 +535,16 @@ export const customersRouter = router({
         const problematic = watchStatus === "Problematic" || watchStatus === "Critical";
         const { overdue90Plus, promisesKept, promisesBroken, worstHold, turnoverYtd, turnoverLastYear, collected, ...rest } = g;
         const confirmation = confirmationByGroup.get(g.group);
+        const aging = computeAging(groupInvoices.get(g.group) ?? [], now);
         return {
           ...rest,
           turnoverYtd,
           turnoverLastYear,
           branches: Array.from(g.branches).sort(),
           forecastExpected,
+          forecastInitial: forecastInitialByGroup.get(g.group) ?? 0,
+          hasForecast,
+          aging: { current: aging.current, currentCount: aging.currentCount, buckets: aging.buckets },
           collected,
           remaining: Math.max(0, forecastExpected - collected),
           forecastCoverage: g.overdueEomBalance > 0 ? forecastExpected / g.overdueEomBalance : null,
@@ -2200,6 +2275,7 @@ export const callsRouter = router({
 
       // Update confirmation status if provided
       if (input.confirmationStatus) {
+        const previous = await db.getGroupConfirmationStatus(input.group);
         await db.upsertGroupConfirmationStatus(input.group, {
           status: input.confirmationStatus,
           // Amount always follows the new status: reset to 0 for Not Contacted / Broken,
@@ -2212,6 +2288,13 @@ export const callsRouter = router({
           followUpDate: input.confirmationStatus === "Pending Follow-up" ? input.followUpDate : null,
           notes: input.notes,
           updatedBy: ctx.user.id,
+        });
+
+        // Cancel stale auto-created tasks/promises from the previous status
+        await cleanupStatusArtifacts(ctx, {
+          group: input.group,
+          previousStatus: previous?.status ?? null,
+          newStatus: input.confirmationStatus,
         });
 
         // "Confirmed" is effectively a Promise-to-Pay: auto-create the promise record
@@ -2282,6 +2365,7 @@ export const callsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const previous = await db.getGroupConfirmationStatus(input.group);
       await db.upsertGroupConfirmationStatus(input.group, {
         status: input.status,
         // Amount always follows the new status: reset to 0 for Not Contacted / Broken,
@@ -2294,6 +2378,11 @@ export const callsRouter = router({
         followUpDate: input.status === "Pending Follow-up" ? input.followUpDate : null,
         notes: input.notes,
         updatedBy: ctx.user.id,
+      });
+      await cleanupStatusArtifacts(ctx, {
+        group: input.group,
+        previousStatus: previous?.status ?? null,
+        newStatus: input.status,
       });
       if (input.status === "Pending Follow-up" && input.followUpDate) {
         await upsertFollowUpTask(ctx, {
