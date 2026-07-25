@@ -214,7 +214,7 @@ export default function CustomerDetail() {
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground">AI Forecast (this month)</div>
+            <div className="text-xs text-muted-foreground">Forecast (this month)</div>
             {groupForecast ? (
               <>
                 <div className="text-xl font-bold font-mono text-emerald-700" title={groupForecast.aiReasoning ?? undefined}>

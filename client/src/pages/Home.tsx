@@ -86,7 +86,7 @@ export default function Home() {
             <p className="text-xs text-muted-foreground mt-1">
               {data.target !== null
                 ? `From Smart Forecast — ${monthName(data.month)} ${data.year}`
-                : "No forecast yet — use Refresh Forecast"}
+                : "No forecast yet — use Run Forecast"}
             </p>
           </CardContent>
         </Card>

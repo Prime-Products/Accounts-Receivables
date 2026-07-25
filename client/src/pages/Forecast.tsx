@@ -37,7 +37,7 @@ function SmartForecastSection() {
   const [editAmount, setEditAmount] = useState("");
   const [editNote, setEditNote] = useState("");
   const [search, setSearch] = useState("");
-  type SortKey = "due" | "overdue" | "ai" | "expected" | "initial" | "collected" | "remaining";
+  type SortKey = "due" | "overdue" | "ai" | "expected" | "collected" | "remaining";
   const [sort, setSort] = useState<{ key: SortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
 
   const toggleSort = (key: SortKey) =>
@@ -58,8 +58,6 @@ function SmartForecastSection() {
             return Number(e.aiSuggestedAmount);
           case "expected":
             return Number(e.expectedAmount);
-          case "initial":
-            return Number(e.initialForecast ?? 0);
           case "collected":
             return e.collected;
           case "remaining":
@@ -78,26 +76,30 @@ function SmartForecastSection() {
 
   const visibleTotals = useMemo(
     () =>
-      visibleRows.reduce<{ due: number; overdue: number; ai: number; expected: number; initial: number; collected: number; remaining: number }>(
+      visibleRows.reduce<{ due: number; overdue: number; ai: number; expected: number; collected: number; remaining: number }>(
         (t, e) => ({
           due: t.due + Number(e.dueAmount),
           overdue: t.overdue + Number(e.overdueAmount),
           ai: t.ai + Number(e.aiSuggestedAmount),
           expected: t.expected + Number(e.expectedAmount),
-          initial: t.initial + Number(e.initialForecast ?? 0),
           collected: t.collected + e.collected,
           remaining: t.remaining + e.remaining,
         }),
-        { due: 0, overdue: 0, ai: 0, expected: 0, initial: 0, collected: 0, remaining: 0 }
+        { due: 0, overdue: 0, ai: 0, expected: 0, collected: 0, remaining: 0 }
       ),
     [visibleRows]
   );
 
+  const [rerunOpen, setRerunOpen] = useState(false);
+  const [rerunAck, setRerunAck] = useState(false);
   const generate = trpc.forecast.generateSmart.useMutation({
     onSuccess: r => {
       toast.success(`Forecast generated for ${r.customers} customers (${r.aiCount} AI, ${r.heuristicCount} statistical)`);
       utils.forecast.smartEntries.invalidate();
       utils.forecast.smartMonths.invalidate();
+      utils.forecast.smartStatus.invalidate();
+      setRerunOpen(false);
+      setRerunAck(false);
     },
     onError: e => toast.error(e.message),
   });
@@ -132,9 +134,15 @@ function SmartForecastSection() {
   const totals = data?.totals;
   const collectedPct = totals && totals.expected > 0 ? Math.min(100, Math.round((totals.collected / totals.expected) * 100)) : 0;
   const hasExistingForecast = (data?.entries.length ?? 0) > 0;
+  const { data: forecastStatus } = trpc.forecast.smartStatus.useQuery(sel);
 
   const handleGenerateClick = () => {
-    generate.mutate({ ...sel, useAi: true });
+    if (hasExistingForecast || forecastStatus?.hasRun) {
+      setRerunAck(false);
+      setRerunOpen(true);
+    } else {
+      generate.mutate({ ...sel, useAi: true });
+    }
   };
 
   return (
@@ -174,7 +182,7 @@ function SmartForecastSection() {
             </Select>
             <Button size="sm" className="gap-1.5" onClick={handleGenerateClick} disabled={generate.isPending}>
               <Sparkles className="h-4 w-4" />
-              {generate.isPending ? "Generating…" : (data?.entries.length ?? 0) > 0 ? "Refresh Forecast" : "Generate Forecast"}
+              {generate.isPending ? "Generating…" : hasExistingForecast ? "Forecast (already run)" : "Run Forecast"}
             </Button>
           </div>
         </div>
@@ -182,6 +190,43 @@ function SmartForecastSection() {
           <p className="text-xs text-muted-foreground">Analyzing payment behavior per customer and asking the AI for suggestions — this can take up to a minute…</p>
         )}
       </CardHeader>
+      {/* Strong re-run warning */}
+      <Dialog open={rerunOpen} onOpenChange={o => { setRerunOpen(o); if (!o) setRerunAck(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Forecast has already run for {monthName(sel.month)} {sel.year}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>
+              It was generated
+              {forecastStatus?.generatedAt ? ` on ${fmtDate(new Date(forecastStatus.generatedAt).getTime())}` : ""} for{" "}
+              <b>{forecastStatus?.groups ?? data?.entries.length ?? 0} groups</b>.
+            </p>
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-red-800">
+              <b>Re-running will damage the month's forecast:</b> every group's forecast will be recalculated with today's
+              data, so it will no longer reflect the baseline set at the start of the month.
+              {(forecastStatus?.adjustedCount ?? 0) > 0 && (
+                <> Your {forecastStatus?.adjustedCount} manual correction(s) will be kept.</>
+              )}
+            </div>
+            <p className="text-muted-foreground">To fix a single group, use the pencil (Adjust) on its row instead.</p>
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input type="checkbox" className="mt-0.5" checked={rerunAck} onChange={e => setRerunAck(e.target.checked)} />
+              <span>I understand that re-running will alter this month's forecast.</span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRerunOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={!rerunAck || generate.isPending}
+              onClick={() => generate.mutate({ ...sel, useAi: true, confirmRerun: true })}
+            >
+              {generate.isPending ? "Re-running…" : "Re-run anyway"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <CardContent className="p-0">
         {isLoading ? (
           <div className="p-4">
@@ -189,7 +234,7 @@ function SmartForecastSection() {
           </div>
         ) : (data?.entries.length ?? 0) === 0 ? (
           <div className="p-8 text-center text-muted-foreground text-sm">
-            No smart forecast for {monthName(sel.month)} {sel.year} yet. Click "Refresh Forecast" — the system scans invoices due in the month
+            No forecast for {monthName(sel.month)} {sel.year} yet. Click "Run Forecast" — the system scans invoices due in the month
             (plus overdue balances) across all companies of each customer group, profiles the group's payment behavior and suggests the
             expected collection per group in EUR. The forecast is generated only when you press the button.
           </div>
@@ -202,8 +247,7 @@ function SmartForecastSection() {
                   { label: "Total Due (month)", value: totals.due },
                   { label: "of which Overdue", value: totals.overdue },
                   { label: "AI Suggested", value: totals.aiSuggested },
-                  { label: "Expected (final)", value: totals.expected },
-                  { label: "Initial (month start)", value: totals.initial },
+                  { label: "Forecast (final)", value: totals.expected },
                   { label: "Collected so far", value: totals.collected },
                   { label: "Remaining to collect", value: totals.remaining },
                 ].map(k => (
@@ -229,8 +273,7 @@ function SmartForecastSection() {
                       ["due", "Due (month)"],
                        ["overdue", "Overdue"],
                        ["ai", "AI Suggested"],
-                       ["expected", "Expected"],
-                       ["initial", "Initial"],
+                       ["expected", "Forecast"],
                        ["collected", "Collected"],
                        ["remaining", "Remaining"],
                       ] as [SortKey, string][]
@@ -269,7 +312,6 @@ function SmartForecastSection() {
                       <TableCell className="text-right font-mono text-red-600">{fmtEur(visibleTotals.overdue)}</TableCell>
                       <TableCell className="text-right font-mono">{fmtEur(visibleTotals.ai)}</TableCell>
                       <TableCell className="text-right font-mono">{fmtEur(visibleTotals.expected)}</TableCell>
-                      <TableCell className="text-right font-mono text-blue-600">{fmtEur(visibleTotals.initial)}</TableCell>
                       <TableCell className="text-right font-mono text-emerald-700">{fmtEur(visibleTotals.collected)}</TableCell>
                       <TableCell className="text-right font-mono">{fmtEur(visibleTotals.remaining)}</TableCell>
                       <TableCell />
@@ -364,7 +406,6 @@ function SmartForecastSection() {
                           )}
                         </TableCell>
                         <TableCell className="text-right font-mono text-emerald-700">{fmtEur(e.collected)}</TableCell>
-                        <TableCell className="text-right font-mono text-blue-600">{fmtEur(Number(e.initialForecast ?? 0))}</TableCell>
                         <TableCell className="text-right font-mono">{fmtEur(e.remaining)}</TableCell>
                         <TableCell className="text-right">
                           {isEditing ? (
@@ -519,7 +560,7 @@ export default function Forecast() {
       ) : (plans ?? []).length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center text-muted-foreground">
-            No forecast months yet. Use "Refresh Forecast" above — the monthly target derives automatically from the Smart Forecast.
+            No forecast months yet. Use "Run Forecast" above — the monthly target derives automatically from the Smart Forecast.
           </CardContent>
         </Card>
       ) : (

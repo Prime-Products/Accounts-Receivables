@@ -1695,13 +1695,32 @@ export const forecastRouter = router({
 
   /** Generate (or refresh) the smart per-GROUP forecast for a month (manual Refresh only). */
   generateSmart: protectedProcedure
-    .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12), useAi: z.boolean().default(true) }))
+    .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12), useAi: z.boolean().default(true), confirmRerun: z.boolean().default(false) }))
     .mutation(async ({ ctx, input }) => {
       const role = await getAppRole(ctx.user.id);
       requireRole(role, ["Administrator", "Management", "Credit Controller", "Accounting"]);
+      // One forecast per month: if it already ran, an explicit confirmation is required.
+      const existing = await db.listForecastEntries(input.year, input.month);
+      if (existing.length > 0 && !input.confirmRerun) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `The forecast for ${input.month}/${input.year} has already run. Re-running it will alter the month's forecast.`,
+        });
+      }
       const result = await generateMonthlyForecast(input.year, input.month, { useAi: input.useAi });
       await audit(ctx, "Generate Smart Forecast", "forecast", `${input.year}-${input.month}`, `${result.groups} groups (${result.aiCount} AI, ${result.heuristicCount} heuristic)`);
       return result;
+    }),
+
+  /** Whether the month's forecast has already been generated (and when). */
+  smartStatus: protectedProcedure
+    .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12) }))
+    .query(async ({ input }) => {
+      const entries = await db.listForecastEntries(input.year, input.month);
+      if (entries.length === 0) return { hasRun: false as const, generatedAt: null, groups: 0, adjustedCount: 0 };
+      const generatedAt = entries.reduce<Date | null>((min, e) => (!min || e.createdAt < min ? e.createdAt : min), null);
+      const adjustedCount = entries.filter(e => e.userAdjusted === 1).length;
+      return { hasRun: true as const, generatedAt, groups: entries.length, adjustedCount };
     }),
 
   /** Per-GROUP forecast entries for a month, with live collected amounts (EUR). */

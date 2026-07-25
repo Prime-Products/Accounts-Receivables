@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -203,15 +204,33 @@ export default function Customers() {
   const toggleCompanySort = (key: CompanySortKey) =>
     setCompanySort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
   const now = new Date();
+  const { data: forecastStatus } = trpc.forecast.smartStatus.useQuery({
+    year: now.getUTCFullYear(),
+    month: now.getUTCMonth() + 1,
+  });
+  const [rerunOpen, setRerunOpen] = useState(false);
+  const [rerunAck, setRerunAck] = useState(false);
   const generate = trpc.forecast.generateSmart.useMutation({
     onSuccess: r => {
       toast.success(`Forecast refreshed for ${r.customers} customers (${r.aiCount} AI, ${r.heuristicCount} statistical)`);
       utils.customers.groups.invalidate();
       utils.forecast.smartEntries.invalidate();
       utils.forecast.smartMonths.invalidate();
+      utils.forecast.smartStatus.invalidate();
+      setRerunOpen(false);
+      setRerunAck(false);
     },
     onError: e => toast.error(e.message),
   });
+
+  const handleRunForecast = () => {
+    if (forecastStatus?.hasRun) {
+      setRerunAck(false);
+      setRerunOpen(true);
+    } else {
+      generate.mutate({ year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, useAi: true });
+    }
+  };
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -342,7 +361,6 @@ export default function Customers() {
       overdue: 0,
       overdueCount: 0,
       overdueEom: 0,
-      forecastInitial: 0,
       forecastCurrent: 0,
       expected: 0,
       collected: 0,
@@ -365,7 +383,6 @@ export default function Customers() {
       s.overdue += g.overdueBalance;
       s.overdueCount += g.overdueCount;
       s.overdueEom += g.overdueEomBalance;
-      s.forecastInitial += (g as any).forecastInitial ?? 0;
       s.forecastCurrent += g.forecastExpected;
       s.expected += (g as any).expectedToCollect ?? g.forecastExpected;
       s.collected += g.collected;
@@ -399,14 +416,59 @@ export default function Customers() {
         <Button
           className="gap-2"
           disabled={generate.isPending}
-          onClick={() =>
-            generate.mutate({ year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, useAi: true })
-          }
+          onClick={handleRunForecast}
         >
           <Sparkles className="h-4 w-4" />
-          {generate.isPending ? "Refreshing…" : "Refresh Forecast"}
+          {generate.isPending ? "Running…" : forecastStatus?.hasRun ? "Forecast (already run)" : "Run Forecast"}
         </Button>
       </div>
+
+      {/* Strong re-run warning: the month's forecast already exists */}
+      <Dialog open={rerunOpen} onOpenChange={o => { setRerunOpen(o); if (!o) setRerunAck(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Forecast has already run this month</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>
+              The forecast for <b>{now.toLocaleString("en-GB", { month: "long", year: "numeric" })}</b> was generated
+              {forecastStatus?.generatedAt ? ` on ${new Date(forecastStatus.generatedAt).toLocaleDateString("en-GB")}` : ""} for{" "}
+              <b>{forecastStatus?.groups ?? 0} groups</b>.
+            </p>
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-red-800">
+              <b>Re-running will damage the month's forecast:</b> the AI will recalculate every group's forecast with today's data,
+              so it will no longer reflect the start-of-month baseline you are tracking against.
+              {(forecastStatus?.adjustedCount ?? 0) > 0 && (
+                <> Your {forecastStatus?.adjustedCount} manual correction(s) will be kept.</>
+              )}
+            </div>
+            <p className="text-muted-foreground">
+              If you only want to fix a group's number, edit it directly in the Forecast column instead.
+            </p>
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={rerunAck}
+                onChange={e => setRerunAck(e.target.checked)}
+              />
+              <span>I understand that re-running will alter this month's forecast.</span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRerunOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={!rerunAck || generate.isPending}
+              onClick={() =>
+                generate.mutate({ year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, useAi: true, confirmRerun: true })
+              }
+            >
+              {generate.isPending ? "Re-running…" : "Re-run anyway"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex flex-wrap gap-3">
         <Tabs value={view} onValueChange={v => setView(v as "groups" | "companies")}>
@@ -497,7 +559,7 @@ export default function Customers() {
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <div className="text-xs text-muted-foreground">AI Forecast (this month)</div>
+                <div className="text-xs text-muted-foreground">Forecast (this month)</div>
                 <div className="text-xl font-bold font-mono text-emerald-700">{fmtEur(summary.forecastCurrent)}</div>
                 <div className="text-[11px] font-mono mt-0.5">
                   <span className="text-muted-foreground">Expected: </span>
@@ -577,7 +639,7 @@ export default function Customers() {
                     <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} />
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
                     <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} />
-                    <SortableHead label="AI Forecast" active={groupSort.key === "forecast"} dir={groupSort.dir} onClick={() => toggleGroupSort("forecast")} />
+                    <SortableHead label="Forecast" active={groupSort.key === "forecast"} dir={groupSort.dir} onClick={() => toggleGroupSort("forecast")} />
                     <SortableHead label="Expected" active={groupSort.key === "expected"} dir={groupSort.dir} onClick={() => toggleGroupSort("expected")} />
                     <SortableHead label="Collected" active={groupSort.key === "collected"} dir={groupSort.dir} onClick={() => toggleGroupSort("collected")} />
                     <SortableHead label="Remaining" active={groupSort.key === "remaining"} dir={groupSort.dir} onClick={() => toggleGroupSort("remaining")} />

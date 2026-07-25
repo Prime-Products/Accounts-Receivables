@@ -540,3 +540,10 @@
 
 ## Customers list: remove Turnover card (user request 26/7)
 - [x] Remove the "Turnover (up to day)" summary card from the Customers list (kept only on the group card)
+
+## Single unified forecast (user request 26/7)
+- [x] Audit all UI spots showing Initial vs Current forecast (Customers page, GroupDetail, Forecast page)
+- [x] Unify to ONE forecast value per month: generated once, manual corrections update the single value
+- [x] Re-run guard: if the month's forecast exists, show a strong warning dialog with explicit checkbox ("has already run — re-running will alter the forecast"); backend rejects re-run without confirmRerun
+- [x] Remove Initial/Current split from UI labels (Expected to Collect stays as the live estimate); "AI Forecast" renamed to "Forecast" everywhere
+- [x] Tests updated/added for unified forecast behavior (re-run guard + smartStatus; 144/144 passing)
