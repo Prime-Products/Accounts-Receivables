@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 const OUTCOMES = ["Reached", "No Answer", "Voicemail", "Promised Payment", "Dispute", "Other"] as const;
+const CONFIRMATION_STATUSES = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken"] as const;
 
 export default function LogCallDialog({
   group,
@@ -28,6 +29,9 @@ export default function LogCallDialog({
   const [contactName, setContactName] = useState("");
   const [outcome, setOutcome] = useState<(typeof OUTCOMES)[number]>("Reached");
   const [notes, setNotes] = useState("");
+  const [confirmationStatus, setConfirmationStatus] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">("");
+  const [confirmationAmount, setConfirmationAmount] = useState("");
+  const [followUpDate, setFollowUpDate] = useState("");
   const utils = trpc.useUtils();
 
   useEffect(() => {
@@ -36,6 +40,9 @@ export default function LogCallDialog({
       setContactName("");
       setOutcome("Reached");
       setNotes("");
+      setConfirmationStatus("");
+      setConfirmationAmount("");
+      setFollowUpDate("");
     }
   }, [open, defaultCustomerId]);
 
@@ -43,14 +50,41 @@ export default function LogCallDialog({
     onSuccess: () => {
       toast.success("Call logged");
       utils.customers.invalidate();
+      utils.calls.invalidate();
       onOpenChange(false);
     },
     onError: e => toast.error(e.message),
   });
 
+  const handleSubmit = () => {
+    if (!confirmationStatus) {
+      toast.error("Please select a confirmation status");
+      return;
+    }
+
+    const payload: any = {
+      group,
+      customerId: customerId ?? undefined,
+      contactName: contactName.trim() || undefined,
+      outcome,
+      notes: notes.trim() || undefined,
+      confirmationStatus: confirmationStatus as (typeof CONFIRMATION_STATUSES)[number],
+    };
+
+    // Add optional confirmation details
+    if (confirmationAmount) {
+      payload.confirmationAmount = Number(confirmationAmount);
+    }
+    if (followUpDate) {
+      payload.followUpDate = new Date(followUpDate).getTime();
+    }
+
+    logCall.mutate(payload);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Phone className="h-4 w-4" /> Log Call — {group}
@@ -96,8 +130,73 @@ export default function LogCallDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Confirmation Status Section */}
+          <div className="border-t pt-3 mt-3">
+            <Label className="text-sm font-semibold">Customer Response *</Label>
+            <Select value={confirmationStatus} onValueChange={(v) => setConfirmationStatus(v as (typeof CONFIRMATION_STATUSES)[number])}>
+              <SelectTrigger className="w-full mt-1.5">
+                <SelectValue placeholder="Select response…" />
+              </SelectTrigger>
+              <SelectContent>
+                {CONFIRMATION_STATUSES.map(status => (
+                  <SelectItem key={status} value={status}>
+                    {status}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Confirmed - show amount field */}
+          {confirmationStatus === "Confirmed" && (
+            <div className="space-y-1.5 bg-green-50 p-2 rounded">
+              <Label>Confirmed amount (EUR)</Label>
+              <Input
+                type="number"
+                value={confirmationAmount}
+                onChange={e => setConfirmationAmount(e.target.value)}
+                placeholder="e.g., 50000"
+                step="0.01"
+              />
+            </div>
+          )}
+
+          {/* Pending Follow-up - show follow-up date and amount */}
+          {confirmationStatus === "Pending Follow-up" && (
+            <div className="space-y-1.5 bg-blue-50 p-2 rounded">
+              <Label>Expected amount (EUR)</Label>
+              <Input
+                type="number"
+                value={confirmationAmount}
+                onChange={e => setConfirmationAmount(e.target.value)}
+                placeholder="e.g., 50000"
+                step="0.01"
+              />
+              <Label className="mt-2">Follow-up date</Label>
+              <Input
+                type="date"
+                value={followUpDate}
+                onChange={e => setFollowUpDate(e.target.value)}
+              />
+            </div>
+          )}
+
+          {/* Broken - show notes field */}
+          {confirmationStatus === "Broken" && (
+            <div className="space-y-1.5 bg-red-50 p-2 rounded">
+              <Label>Reason (optional)</Label>
+              <Textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Why can't they pay?"
+                rows={2}
+              />
+            </div>
+          )}
+
           <div className="space-y-1.5">
-            <Label>Notes (optional)</Label>
+            <Label>Additional notes (optional)</Label>
             <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What was discussed…" rows={3} />
           </div>
         </div>
@@ -106,16 +205,8 @@ export default function LogCallDialog({
             Cancel
           </Button>
           <Button
-            onClick={() =>
-              logCall.mutate({
-                group,
-                customerId: customerId ?? undefined,
-                contactName: contactName.trim() || undefined,
-                outcome,
-                notes: notes.trim() || undefined,
-              })
-            }
-            disabled={logCall.isPending}
+            onClick={handleSubmit}
+            disabled={logCall.isPending || !confirmationStatus}
           >
             {logCall.isPending ? "Saving…" : "Log Call"}
           </Button>

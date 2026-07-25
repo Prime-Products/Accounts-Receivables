@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fmtEur, onHoldStatusColors, ratingColors } from "@/lib/format";
+import { fmtEur, onHoldStatusColors, ratingColors, confirmationStatusColors, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowDown, ArrowUp, ArrowUpDown, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -194,6 +194,7 @@ export default function Customers() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [ratingFilter, setRatingFilter] = useState<string>("all");
+  const [confirmationFilter, setConfirmationFilter] = useState<string>("all");
   const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
   const [companySort, setCompanySort] = useState<{ key: CompanySortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
 
@@ -259,7 +260,13 @@ export default function Customers() {
         (statusFilter === "resolved" && g.watchStatus === "Resolved") ||
         (statusFilter === "normal" && !g.watchStatus);
       const matchesRating = ratingFilter === "all" || g.rating === ratingFilter;
-      return matchesSearch && matchesStatus && matchesRating;
+      const matchesConfirmation =
+        confirmationFilter === "all" ||
+        (confirmationFilter === "not-contacted" && g.confirmationStatus === "Not Contacted") ||
+        (confirmationFilter === "confirmed" && g.confirmationStatus === "Confirmed") ||
+        (confirmationFilter === "pending" && g.confirmationStatus === "Pending Follow-up") ||
+        (confirmationFilter === "broken" && g.confirmationStatus === "Broken");
+      return matchesSearch && matchesStatus && matchesRating && matchesConfirmation;
     });
     if (groupSort.key) {
       const getVal = (g: (typeof rows)[number]): number => {
@@ -290,7 +297,7 @@ export default function Customers() {
       });
     }
     return rows;
-  }, [groups, search, statusFilter, ratingFilter, groupSort]);
+  }, [groups, search, statusFilter, ratingFilter, confirmationFilter, groupSort]);
 
   const groupTotals = useMemo(
     () =>
@@ -370,19 +377,33 @@ export default function Customers() {
           />
         </div>
         {view === "groups" && (
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="problematic">Problematic</SelectItem>
-              <SelectItem value="critical">Critical</SelectItem>
-              <SelectItem value="legal">Legal</SelectItem>
-              <SelectItem value="resolved">Resolved</SelectItem>
-              <SelectItem value="normal">Normal</SelectItem>
-            </SelectContent>
-          </Select>
+          <>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="problematic">Problematic</SelectItem>
+                <SelectItem value="critical">Critical</SelectItem>
+                <SelectItem value="legal">Legal</SelectItem>
+                <SelectItem value="resolved">Resolved</SelectItem>
+                <SelectItem value="normal">Normal</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={confirmationFilter} onValueChange={setConfirmationFilter}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Confirmation" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All confirmations</SelectItem>
+                <SelectItem value="not-contacted">Not Contacted</SelectItem>
+                <SelectItem value="confirmed">Confirmed</SelectItem>
+                <SelectItem value="pending">Pending Follow-up</SelectItem>
+                <SelectItem value="broken">Broken</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
         )}
         <Select value={ratingFilter} onValueChange={setRatingFilter}>
           <SelectTrigger className="w-36">
@@ -415,6 +436,8 @@ export default function Customers() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Group</TableHead>
+                    <TableHead>Confirmation</TableHead>
+                    <TableHead className="text-right">Confirmed</TableHead>
                     <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} />
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
                     <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} />
@@ -427,6 +450,8 @@ export default function Customers() {
                 <TableBody>
                   <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
                     <TableCell>TOTAL ({filteredGroups.length} groups)</TableCell>
+                    <TableCell></TableCell>
+                    <TableCell></TableCell>
                     <TableCell className="text-right font-mono">{fmtEur(groupTotals.open)}</TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.overdue > 0 ? "text-red-600" : ""}`}>
                       {fmtEur(groupTotals.overdue)}
@@ -477,6 +502,19 @@ export default function Customers() {
                             </span>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${confirmationStatusColors[g.confirmationStatus] || "bg-gray-100 text-gray-700 border-gray-200"}`}>
+                          {g.confirmationStatus}
+                        </span>
+                        {g.confirmationFollowUpDate && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Follow-up: {fmtDate(g.confirmationFollowUpDate)}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className={`text-right font-mono ${g.confirmationAmount > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
+                        {fmtEur(g.confirmationAmount)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {fmtEur(g.openBalance)}

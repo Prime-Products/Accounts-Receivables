@@ -449,3 +449,19 @@
 - [x] Investigate MSC invoice statuses vs due dates — data is correct: all 412 future-due MSC invoices have status "Open" (verified via vitest against live DB)
 - [x] Root cause: sort order (dueDate ASC) put the oldest overdue invoices first, so the visible top of the list looked all-Overdue; changed groupDetail sort to dueDate DESC (not-due/newest first, same as Invoices page)
 - [x] Verify in group card — screenshot confirms MSC list now starts with Sept 2026 due dates, all "Open" status; 110/110 tests passing
+
+## Confirmation Status Tracking (user request 25/7)
+- [x] Create group_confirmation_status table (groupName, status, amount, followUpDate, notes, updatedBy, updatedAt)
+- [x] Add database helpers (getGroupConfirmationStatus, upsertGroupConfirmationStatus, listGroupConfirmationStatuses)
+- [x] Create tRPC procedures (calls.getConfirmationStatus, calls.updateConfirmationStatus)
+- [x] Extend calls.logCall to capture confirmation response (status, amount, followUpDate, notes)
+- [x] Update LogCallDialog with "Customer Response" dropdown (Confirmed, Pending Follow-up, Broken)
+- [x] Add conditional fields in LogCallDialog (amount for Confirmed/Pending, follow-up date for Pending, reason for Broken)
+- [x] Add confirmation status data to customers.groups query (confirmationStatus, confirmationAmount, confirmationFollowUpDate)
+- [x] Add confirmation filter to Customers page (All / Not Contacted / Confirmed / Pending Follow-up / Broken)
+- [x] Add "Confirmation" and "Confirmed" columns to Customers groups table with color badges
+- [x] Add confirmation status data to customers.groupDetail query
+- [x] Add "Confirmation Status" KPI card to GroupDetail page (badge + amount + follow-up date)
+- [x] Add confirmationStatusColors to format.ts (green for Confirmed, orange for Pending, red for Broken, gray for Not Contacted)
+- [x] Comprehensive vitest tests for confirmation status workflow (16 DB tests + 5 workflow tests + 2 tRPC tests = 23 tests, all passing)
+- [x] All 126 tests passing

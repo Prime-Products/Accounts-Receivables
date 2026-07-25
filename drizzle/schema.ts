@@ -389,3 +389,30 @@ export const paymentContacts = mysqlTable("payment_contacts", {
 
 export type PaymentContact = typeof paymentContacts.$inferSelect;
 export type InsertPaymentContact = typeof paymentContacts.$inferInsert;
+
+export const confirmationStatuses = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken"] as const;
+export type ConfirmationStatus = (typeof confirmationStatuses)[number];
+
+/**
+ * Group-level confirmation status tracking.
+ * Stores the current confirmation state for each customer group (e.g., MSC SHIPMANAGEMENT LTD).
+ * Updated when the user logs a call and records the customer's response.
+ */
+export const groupConfirmationStatus = mysqlTable("group_confirmation_status", {
+  id: int("id").autoincrement().primaryKey(),
+  groupName: varchar("groupName", { length: 255 }).notNull().unique(),
+  status: mysqlEnum("status", confirmationStatuses).default("Not Contacted").notNull(),
+  /** Expected/promised amount in EUR. */
+  amount: decimal("amount", { precision: 14, scale: 2 }).default("0").notNull(),
+  /** When to follow up (if status is Pending Follow-up). */
+  followUpDate: bigint("followUpDate", { mode: "number" }),
+  /** Notes about the confirmation (e.g., reason for broken promise). */
+  notes: text("notes"),
+  /** Last person who updated this status. */
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type GroupConfirmationStatus = typeof groupConfirmationStatus.$inferSelect;
+export type InsertGroupConfirmationStatus = typeof groupConfirmationStatus.$inferInsert;

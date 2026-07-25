@@ -1,0 +1,70 @@
+  logCall: protectedProcedure
+    .input(
+      z.object({
+        group: z.string().min(1).max(255),
+        customerId: z.number().optional(),
+        contactName: z.string().max(255).optional(),
+        outcome: z.enum(["Reached", "No Answer", "Voicemail", "Promised Payment", "Dispute", "Other"]),
+        notes: z.string().max(2000).optional(),
+        confirmationStatus: z.enum(confirmationStatuses).optional(),
+        confirmationAmount: z.number().optional(),
+        followUpDate: z.number().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const parts: string[] = [];
+      if (input.contactName) parts.push(`Contact: ${input.contactName}`);
+      if (input.notes) parts.push(input.notes);
+      await db.addActivityLog({
+        groupName: input.group,
+        customerId: input.customerId,
+        activityType: "call",
+        title: `Call logged — ${input.outcome}`,
+        description: parts.length > 0 ? parts.join(" · ") : undefined,
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      });
+
+      // Update confirmation status if provided
+      if (input.confirmationStatus) {
+        await db.upsertGroupConfirmationStatus(input.group, {
+          status: input.confirmationStatus,
+          amount: input.confirmationAmount,
+          followUpDate: input.followUpDate,
+          notes: input.notes,
+          updatedBy: ctx.user.id,
+        });
+      }
+
+      await audit(ctx, "Log Call", "call", input.customerId, `${input.group}: ${input.outcome}`);
+      return { success: true };
+    }),
+
+  getConfirmationStatus: protectedProcedure
+    .input(z.object({ group: z.string().min(1).max(255) }))
+    .query(async ({ input }) => {
+      return db.getGroupConfirmationStatus(input.group);
+    }),
+
+  updateConfirmationStatus: protectedProcedure
+    .input(
+      z.object({
+        group: z.string().min(1).max(255),
+        status: z.enum(confirmationStatuses),
+        amount: z.number().optional(),
+        followUpDate: z.number().optional(),
+        notes: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await db.upsertGroupConfirmationStatus(input.group, {
+        status: input.status,
+        amount: input.amount,
+        followUpDate: input.followUpDate,
+        notes: input.notes,
+        updatedBy: ctx.user.id,
+      });
+      await audit(ctx, "Update Confirmation Status", "confirmation", input.group, `Status: ${input.status}`);
+      return { success: true };
+    }),
+});

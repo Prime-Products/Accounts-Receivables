@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
   appRoles,
+  confirmationStatuses,
   customerTiers,
   invoiceStatuses,
   onHoldStatuses,
@@ -184,7 +185,7 @@ export const customersRouter = router({
     const today = new Date();
     const monthStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1);
     const monthEnd = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1);
-    const [customers, invoices, forecastRows, behavior, allPromises, watchRows, receipts] = await Promise.all([
+    const [customers, invoices, forecastRows, behavior, allPromises, watchRows, receipts, confirmationStatuses] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
       db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
@@ -192,6 +193,7 @@ export const customersRouter = router({
       db.listPromises(),
       db.listGroupWatchStatuses().catch(() => []),
       db.listReceiptsInRange(monthStart, monthEnd),
+      db.listGroupConfirmationStatuses().catch(() => []),
     ]);
     const eom = endOfCurrentMonth();
     const collectedByCustomer = new Map<number, number>();
@@ -203,6 +205,10 @@ export const customersRouter = router({
     const watchByGroup = new Map<string, { status: string; problematicSince: number | null }>();
     for (const w of watchRows) {
       watchByGroup.set(w.groupName, { status: w.status, problematicSince: w.problematicSince ?? null });
+    }
+    const confirmationByGroup = new Map<string, any>();
+    for (const c of confirmationStatuses) {
+      confirmationByGroup.set(c.groupName, c);
     }
     const forecastByGroup = new Map<string, number>();
     for (const f of forecastRows) {
@@ -304,6 +310,7 @@ export const customersRouter = router({
         const watchOverride = row && row.status !== "Auto" ? (row.status === "On Watch" ? "Problematic" : row.status) : null;
         const problematic = watchStatus === "Problematic" || watchStatus === "Critical";
         const { overdue90Plus, promisesKept, promisesBroken, worstHold, turnoverYtd, turnoverLastYear, collected, ...rest } = g;
+        const confirmation = confirmationByGroup.get(g.group);
         return {
           ...rest,
           turnoverYtd,
@@ -319,6 +326,9 @@ export const customersRouter = router({
           rating: ratingResult.rating,
           ratingScore: ratingResult.score,
           ratingFactors: ratingResult.factors,
+          confirmationStatus: confirmation?.status ?? "Not Contacted",
+          confirmationAmount: confirmation?.amount ? Number(confirmation.amount) : 0,
+          confirmationFollowUpDate: confirmation?.followUpDate ?? null,
         };
       })
       .sort((a, b) => b.openBalance - a.openBalance);
@@ -518,9 +528,10 @@ export const customersRouter = router({
       const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
       if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
       const memberIds = new Set(members.map(m => m.id));
-      const [allInvoices, allBehavior] = await Promise.all([
+      const [allInvoices, allBehavior, confirmation] = await Promise.all([
         db.listInvoices(),
         db.listPaymentBehaviorWithGroup().catch(() => []),
+        db.getGroupConfirmationStatus(input.group).catch(() => null),
       ]);
       const now = Date.now();
       // Full group scope (for the branch list and per-company summary regardless of filters)
@@ -626,6 +637,10 @@ export const customersRouter = router({
         watchOverride,
         forecastExpected: groupForecast,
         overdueEomBalance: gOverdueEom,
+        confirmationStatus: confirmation?.status ?? "Not Contacted",
+        confirmationAmount: confirmation?.amount ? Number(confirmation.amount) : 0,
+        confirmationFollowUpDate: confirmation?.followUpDate ?? null,
+        confirmationNotes: confirmation?.notes ?? null,
         totals: {
           openBalance: open.reduce((s, i) => s + outstanding(i), 0),
           overdueBalance: overdue.reduce((s, i) => s + outstanding(i), 0),
@@ -2008,6 +2023,9 @@ export const callsRouter = router({
         contactName: z.string().max(255).optional(),
         outcome: z.enum(["Reached", "No Answer", "Voicemail", "Promised Payment", "Dispute", "Other"]),
         notes: z.string().max(2000).optional(),
+        confirmationStatus: z.enum(confirmationStatuses).optional(),
+        confirmationAmount: z.number().optional(),
+        followUpDate: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -2023,10 +2041,51 @@ export const callsRouter = router({
         createdBy: ctx.user.id,
         createdAt: new Date(),
       });
+
+      // Update confirmation status if provided
+      if (input.confirmationStatus) {
+        await db.upsertGroupConfirmationStatus(input.group, {
+          status: input.confirmationStatus,
+          amount: input.confirmationAmount !== undefined ? String(input.confirmationAmount) : undefined,
+          followUpDate: input.followUpDate,
+          notes: input.notes,
+          updatedBy: ctx.user.id,
+        });
+      }
+
       await audit(ctx, "Log Call", "call", input.customerId, `${input.group}: ${input.outcome}`);
       return { success: true };
     }),
+
+  getConfirmationStatus: protectedProcedure
+    .input(z.object({ group: z.string().min(1).max(255) }))
+    .query(async ({ input }) => {
+      return db.getGroupConfirmationStatus(input.group);
+    }),
+
+  updateConfirmationStatus: protectedProcedure
+    .input(
+      z.object({
+        group: z.string().min(1).max(255),
+        status: z.enum(confirmationStatuses),
+        amount: z.number().optional(),
+        followUpDate: z.number().optional(),
+        notes: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await db.upsertGroupConfirmationStatus(input.group, {
+        status: input.status,
+        amount: input.amount !== undefined ? String(input.amount) : undefined,
+        followUpDate: input.followUpDate,
+        notes: input.notes,
+        updatedBy: ctx.user.id,
+      });
+      await audit(ctx, "Update Confirmation Status", "confirmation", input.group, `Status: ${input.status}`);
+      return { success: true };
+    }),
 });
+
 
 
 export const paymentContactsRouter = router({

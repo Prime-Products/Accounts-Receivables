@@ -10,6 +10,7 @@ import {
   customers,
   emailHistory,
   forecastEntries,
+  groupConfirmationStatus,
   groupNotes,
   groupWatchStatus,
   InsertActivityLog,
@@ -17,6 +18,7 @@ import {
   InsertCustomer,
   InsertEmailHistory,
   InsertForecastEntry,
+  InsertGroupConfirmationStatus,
   InsertInvoice,
   InsertOnHoldProposal,
   InsertPaymentContact,
@@ -658,6 +660,37 @@ export async function getActivityLog(id: number) {
   return db.select().from(activityLog).where(eq(activityLog.id, id)).limit(1);
 }
 
+// ---------- Group Confirmation Status ----------
+export async function getGroupConfirmationStatus(groupName: string) {
+  const db = await requireDb();
+  const result = await db
+    .select()
+    .from(groupConfirmationStatus)
+    .where(eq(groupConfirmationStatus.groupName, groupName))
+    .limit(1);
+  return result[0] || null;
+}
+
+export async function upsertGroupConfirmationStatus(
+  groupName: string,
+  updates: Omit<InsertGroupConfirmationStatus, "groupName">
+) {
+  const db = await requireDb();
+  const existing = await getGroupConfirmationStatus(groupName);
+  
+  if (existing) {
+    await db
+      .update(groupConfirmationStatus)
+      .set(updates)
+      .where(eq(groupConfirmationStatus.groupName, groupName));
+  } else {
+    await db.insert(groupConfirmationStatus).values({
+      groupName,
+      ...updates,
+    });
+  }
+}
+
 // ---------- Payment Contacts ----------
 export async function addPaymentContact(contact: InsertPaymentContact) {
   const db = await requireDb();
@@ -737,4 +770,9 @@ export async function globalSearch(query: string, limitPerType = 8) {
       .limit(limitPerType),
   ]);
   return { customers: custRows, invoices: invRows, notes: noteRows, tasks: taskRows };
+}
+
+export async function listGroupConfirmationStatuses() {
+  const db = await requireDb();
+  return db.select().from(groupConfirmationStatus);
 }
