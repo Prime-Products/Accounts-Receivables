@@ -439,3 +439,13 @@
 ## AI Summary Refinement (user request 25/7)
 - [x] Profile section: financials and debts to us ONLY (balances, overdue, payment behavior, forecast) — no generic company info
 - [x] Actions section: no "call the customer" suggestions for invoices — list amounts to collect, promises, pending tasks only (110/110 tests pass, LLM quota restored)
+
+## Overdue Bug: August due dates shown overdue (user report 25/7)
+- [x] Investigate invoice ΤΔΜΕΤ00672 data (due date) and overdue calculation — due date is 05 Aug **2023**, correctly overdue (~2 years)
+- [x] No root-cause bug: SQL check confirms ZERO invoices with dueDate > today are marked Overdue; bucketOf() returns null for future dates
+- [x] Verified: dates display with full year (fmtDate uses "dd MMM yyyy"); explained to user
+
+## MSC: not-due invoices show Overdue status (user report 25/7)
+- [x] Investigate MSC invoice statuses vs due dates — data is correct: all 412 future-due MSC invoices have status "Open" (verified via vitest against live DB)
+- [x] Root cause: sort order (dueDate ASC) put the oldest overdue invoices first, so the visible top of the list looked all-Overdue; changed groupDetail sort to dueDate DESC (not-due/newest first, same as Invoices page)
+- [x] Verify in group card — screenshot confirms MSC list now starts with Sept 2026 due dates, all "Open" status; 110/110 tests passing

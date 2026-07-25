@@ -602,7 +602,9 @@ export const customersRouter = router({
           };
         })
         .sort((a, b) => b.openBalance - a.openBalance);
-      const sortedInvoices = [...scoped].sort((a, b) => a.dueDate - b.dueDate);
+      // Match the Invoices page ordering: dueDate DESC (newest due first) so
+      // not-yet-due invoices appear at the top instead of a wall of old overdue rows.
+      const sortedInvoices = [...scoped].sort((a, b) => b.dueDate - a.dueDate);
       const customerNames = new Map(members.map(m => [m.id, m.name]));
       const DETAIL_HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
       const groupHoldStatus = members.reduce(
