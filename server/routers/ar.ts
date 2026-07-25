@@ -119,6 +119,49 @@ async function createGroupPromise(
   return id;
 }
 
+/**
+ * Create (or reschedule) a follow-up-call task when a group's confirmation status
+ * is set to "Pending Follow-up" with a follow-up date. Reuses an existing open
+ * follow-up task for the same group instead of creating duplicates.
+ */
+async function upsertFollowUpTask(
+  ctx: { user: { id: number; name: string | null } },
+  input: { group: string; customerId?: number; followUpDate: number; amount?: number; notes?: string }
+) {
+  let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
+  if (!cust) {
+    const customers = await db.listCustomers();
+    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+    if (members.length === 0) return null;
+    cust = members[0];
+  }
+  const marker = `(Follow-up: ${input.group})`;
+  const dateStr = new Date(input.followUpDate).toLocaleDateString("en-GB");
+  const amountStr = input.amount && input.amount > 0 ? ` — expected €${Number(eur(input.amount)).toLocaleString()}` : "";
+  const title = `Follow-up call — ${input.group}${amountStr}`;
+  const description = `Call ${input.group} on ${dateStr} to confirm the expected payment${amountStr}.${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`;
+
+  // Reuse an existing open follow-up task for this group (avoid duplicates)
+  const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+  const existing = openTasks.find(t => t.description?.includes(marker));
+  if (existing) {
+    await db.updateTask(existing.id, { title, description, dueDate: input.followUpDate });
+    await audit(ctx, "Update Task", "task", existing.id, `Follow-up rescheduled to ${dateStr} (${input.group})`);
+    return existing.id;
+  }
+  const taskId = await db.createTask({
+    customerId: cust.id,
+    type: "Manual",
+    title,
+    description,
+    dueDate: input.followUpDate,
+    status: "Pending",
+    assignedTo: ctx.user.id,
+  });
+  await audit(ctx, "Create Task", "task", taskId, `Auto follow-up call task for ${input.group} on ${dateStr}`);
+  return taskId;
+}
+
 export const customersRouter = router({
   /** Global search across groups, companies, invoices, notes, and tasks. */
   search: protectedProcedure
@@ -2117,6 +2160,17 @@ export const callsRouter = router({
             notes: input.notes,
           });
         }
+
+        // "Pending Follow-up" with a date: create/reschedule a follow-up-call task
+        if (input.confirmationStatus === "Pending Follow-up" && input.followUpDate) {
+          await upsertFollowUpTask(ctx, {
+            group: input.group,
+            customerId: input.customerId,
+            followUpDate: input.followUpDate,
+            amount: input.confirmationAmount,
+            notes: input.notes,
+          });
+        }
       }
 
       await audit(ctx, "Log Call", "call", input.customerId, `${input.group}: ${input.outcome}`);
@@ -2148,6 +2202,14 @@ export const callsRouter = router({
         notes: input.notes,
         updatedBy: ctx.user.id,
       });
+      if (input.status === "Pending Follow-up" && input.followUpDate) {
+        await upsertFollowUpTask(ctx, {
+          group: input.group,
+          followUpDate: input.followUpDate,
+          amount: input.amount,
+          notes: input.notes,
+        });
+      }
       await audit(ctx, "Update Confirmation Status", "confirmation", input.group, `Status: ${input.status}`);
       return { success: true };
     }),

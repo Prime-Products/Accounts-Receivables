@@ -457,5 +457,51 @@ describe("Confirmation Status Tracking", () => {
       }
       await db.updatePromise(latest.id, { status: "Kept" });
     });
+
+    it("logCall with Pending Follow-up creates a follow-up task (and reschedules instead of duplicating)", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const customers = await db.listCustomers();
+      expect(customers.length).toBeGreaterThan(0);
+      const cust = customers[0];
+      const groupName = (cust.customerGroup ?? "").trim() || cust.name;
+      const marker = `(Follow-up: ${groupName})`;
+      const followUpDate = Date.now() + 5 * 24 * 60 * 60 * 1000;
+
+      // First pending call → creates the task
+      await caller.calls.logCall({
+        group: groupName,
+        customerId: cust.id,
+        outcome: "Reached",
+        confirmationStatus: "Pending Follow-up",
+        confirmationAmount: 10000,
+        followUpDate,
+      });
+
+      let openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+      let followUps = openTasks.filter(t => t.description?.includes(marker));
+      expect(followUps.length).toBe(1);
+      expect(followUps[0].dueDate).toBe(followUpDate);
+
+      // Second pending call with a new date → reschedules, no duplicate
+      const newDate = Date.now() + 12 * 24 * 60 * 60 * 1000;
+      await caller.calls.logCall({
+        group: groupName,
+        customerId: cust.id,
+        outcome: "Reached",
+        confirmationStatus: "Pending Follow-up",
+        confirmationAmount: 12000,
+        followUpDate: newDate,
+      });
+
+      openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+      followUps = openTasks.filter(t => t.description?.includes(marker));
+      expect(followUps.length).toBe(1);
+      expect(followUps[0].dueDate).toBe(newDate);
+
+      // Cleanup: complete the test task
+      await db.updateTask(followUps[0].id, { status: "Completed", completionNotes: "test cleanup", completedAt: Date.now() });
+    });
   });
 });

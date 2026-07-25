@@ -475,3 +475,8 @@
 - [x] LogCallDialog: when Confirmed selected, amount and promised payment date are required fields
 - [x] Promise attaches to selected company or the group's primary member; defaults promised date to end of month if omitted (API level)
 - [x] Test for the Confirmed → promise flow (129/129 tests passing)
+
+## Pending Follow-up creates a Task (user request 26/7)
+- [x] When status "Pending Follow-up" is set with a follow-up date, auto-create a task due on that date ("Follow-up call — <group> — expected €X") via logCall and updateConfirmationStatus
+- [x] Avoid duplicate open follow-up tasks for the same group — existing open task is rescheduled/updated instead
+- [x] Test for the Pending → task flow incl. reschedule (130/130 tests passing)
