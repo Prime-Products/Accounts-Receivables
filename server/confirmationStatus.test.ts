@@ -554,5 +554,67 @@ describe("Confirmation Status Tracking", () => {
         await db.updateTask(followUp.id, { status: "Completed", completionNotes: "test cleanup", completedAt: Date.now() });
       }
     });
+
+    it("reschedules an existing open promise instead of creating a duplicate", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+
+      // Use a real customer so group promise resolution works
+      const customers = await db.listCustomers();
+      const cust = customers[0];
+      expect(cust).toBeTruthy();
+      const groupName = (cust.customerGroup ?? "").trim() || cust.name;
+
+      const day = 24 * 60 * 60 * 1000;
+      const firstDate = Date.now() + 5 * day;
+      const secondDate = Date.now() + 12 * day;
+
+      // First confirmed call → creates a promise
+      await caller.calls.logCall({
+        group: groupName,
+        customerId: cust.id,
+        outcome: "Reached",
+        confirmationStatus: "Confirmed",
+        confirmationAmount: 4321.5,
+        promisedDate: firstDate,
+      });
+
+      const open1 = await caller.calls.getOpenPromise({ group: groupName });
+      expect(open1).toBeTruthy();
+      expect(Number(open1!.amount)).toBeCloseTo(4321.5, 1);
+
+      const beforeCount = (await db.listPromises(cust.id)).filter(p => p.status === "Pending").length;
+
+      // Second confirmed call with reschedule → same promise moved, no duplicate
+      await caller.calls.logCall({
+        group: groupName,
+        customerId: cust.id,
+        outcome: "Reached",
+        confirmationStatus: "Confirmed",
+        confirmationAmount: 5000,
+        promisedDate: secondDate,
+        reschedulePromiseId: open1!.id,
+      });
+
+      const afterPending = (await db.listPromises(cust.id)).filter(p => p.status === "Pending");
+      expect(afterPending.length).toBe(beforeCount); // no new promise created
+
+      const moved = await db.getPromise(open1!.id);
+      expect(Number(moved?.amount)).toBeCloseTo(5000, 1);
+      expect(moved?.promisedDate).toBe(secondDate);
+
+      // Linked follow-up task moved to the new date
+      const marker = `(Promise #${open1!.id})`;
+      const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+      const linked = openTasks.find(t => t.description?.includes(marker));
+      expect(linked).toBeTruthy();
+      expect(linked?.dueDate).toBe(secondDate);
+
+      // Cleanup: cancel test promise + complete test task, reset confirmation row
+      await db.updatePromise(open1!.id, { status: "Broken", notes: "test cleanup" });
+      if (linked) {
+        await db.updateTask(linked.id, { status: "Completed", completionNotes: "test cleanup", completedAt: Date.now() });
+      }
+    });
   });
 });

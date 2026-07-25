@@ -120,6 +120,68 @@ async function createGroupPromise(
 }
 
 /**
+ * Find the most recent open (Pending) promise for any customer that belongs to a group.
+ * Returns the promise row (with customer name) or null.
+ */
+async function findOpenGroupPromise(group: string) {
+  const customers = await db.listCustomers();
+  const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === group);
+  if (members.length === 0) return null;
+  const memberIds = new Set(members.map(m => m.id));
+  const byId = new Map(members.map(m => [m.id, m]));
+  const all = await db.listPromises();
+  const open = all
+    .filter(p => p.status === "Pending" && memberIds.has(p.customerId))
+    .sort((a, b) => b.id - a.id);
+  if (open.length === 0) return null;
+  const p = open[0];
+  return { ...p, customerName: byId.get(p.customerId)?.name ?? "—" };
+}
+
+/**
+ * Reschedule an existing open promise to a new date/amount (customer moved the payment).
+ * Updates the promise row, moves the linked follow-up task's due date, and logs the change.
+ */
+async function rescheduleGroupPromise(
+  ctx: { user: { id: number; name: string | null } },
+  input: { group: string; promiseId: number; amount: number; promisedDate: number; notes?: string }
+) {
+  const promise = await db.getPromise(input.promiseId);
+  if (!promise || promise.status !== "Pending") return null;
+  const cust = await db.getCustomer(promise.customerId);
+  const oldDateStr = new Date(promise.promisedDate).toLocaleDateString("en-GB");
+  const newDateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
+  await db.updatePromise(input.promiseId, {
+    promisedDate: input.promisedDate,
+    amount: eur(input.amount),
+    notes: input.notes ?? promise.notes,
+  });
+  await audit(ctx, "Reschedule Promise-to-Pay", "promiseToPay", input.promiseId, `${input.group}: €${eur(input.amount)} moved ${oldDateStr} → ${newDateStr}`);
+  await db.addActivityLog({
+    groupName: input.group,
+    customerId: promise.customerId,
+    activityType: "promise",
+    title: `Payment rescheduled: €${Number(eur(input.amount)).toLocaleString()} — ${oldDateStr} → ${newDateStr}`,
+    description: `${cust?.name ?? "—"} moved the promised payment${input.notes ? ` — ${input.notes}` : ""}`,
+    createdBy: ctx.user.id,
+    createdAt: new Date(),
+  }).catch(() => {});
+  // Move the linked follow-up task (identified by "(Promise #id)" marker) to the new date.
+  const marker = `(Promise #${input.promiseId})`;
+  const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+  const linked = openTasks.find(t => t.description?.includes(marker));
+  if (linked) {
+    await db.updateTask(linked.id, {
+      title: `Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
+      description: `Verify that ${cust?.name ?? "the customer"} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${newDateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`,
+      dueDate: input.promisedDate,
+    });
+    await audit(ctx, "Update Task", "task", linked.id, `Follow-up moved to ${newDateStr} (promise #${input.promiseId} rescheduled)`);
+  }
+  return input.promiseId;
+}
+
+/**
  * Create (or reschedule) a follow-up-call task when a group's confirmation status
  * is set to "Pending Follow-up" with a follow-up date. Reuses an existing open
  * follow-up task for the same group instead of creating duplicates.
@@ -2118,6 +2180,8 @@ export const callsRouter = router({
         confirmationAmount: z.number().optional(),
         followUpDate: z.number().optional(),
         promisedDate: z.number().optional(),
+        // When Confirmed and an open promise already exists: reschedule it instead of creating a new one.
+        reschedulePromiseId: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -2157,13 +2221,25 @@ export const callsRouter = router({
           input.confirmationAmount !== undefined &&
           input.confirmationAmount > 0
         ) {
-          await createGroupPromise(ctx, {
-            group: input.group,
-            customerId: input.customerId,
-            amount: input.confirmationAmount,
-            promisedDate: input.promisedDate ?? endOfCurrentMonth(),
-            notes: input.notes,
-          });
+          let rescheduled: number | null = null;
+          if (input.reschedulePromiseId) {
+            rescheduled = await rescheduleGroupPromise(ctx, {
+              group: input.group,
+              promiseId: input.reschedulePromiseId,
+              amount: input.confirmationAmount,
+              promisedDate: input.promisedDate ?? endOfCurrentMonth(),
+              notes: input.notes,
+            });
+          }
+          if (!rescheduled) {
+            await createGroupPromise(ctx, {
+              group: input.group,
+              customerId: input.customerId,
+              amount: input.confirmationAmount,
+              promisedDate: input.promisedDate ?? endOfCurrentMonth(),
+              notes: input.notes,
+            });
+          }
         }
 
         // "Pending Follow-up" with a date: create/reschedule a follow-up-call task
@@ -2186,6 +2262,13 @@ export const callsRouter = router({
     .input(z.object({ group: z.string().min(1).max(255) }))
     .query(async ({ input }) => {
       return db.getGroupConfirmationStatus(input.group);
+    }),
+
+  /** Most recent open (Pending) promise for a group — used by Log Call to offer rescheduling. */
+  getOpenPromise: protectedProcedure
+    .input(z.object({ group: z.string().min(1).max(255) }))
+    .query(async ({ input }) => {
+      return findOpenGroupPromise(input.group);
     }),
 
   updateConfirmationStatus: protectedProcedure

@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { trpc } from "@/lib/trpc";
 import { Phone } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -33,7 +34,11 @@ export default function LogCallDialog({
   const [confirmationAmount, setConfirmationAmount] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [promisedDate, setPromisedDate] = useState("");
+  const [promiseMode, setPromiseMode] = useState<"reschedule" | "new">("reschedule");
   const utils = trpc.useUtils();
+
+  // Existing open promise for this group (offered for rescheduling on Confirmed)
+  const { data: openPromise } = trpc.calls.getOpenPromise.useQuery({ group }, { enabled: open });
 
   useEffect(() => {
     if (open) {
@@ -45,14 +50,16 @@ export default function LogCallDialog({
       setConfirmationAmount("");
       setFollowUpDate("");
       setPromisedDate("");
+      setPromiseMode("reschedule");
     }
   }, [open, defaultCustomerId]);
 
-  const logCall = trpc.calls.logCall.useMutation({
+    const logCall = trpc.calls.logCall.useMutation({
     onSuccess: () => {
       toast.success("Call logged");
       utils.customers.invalidate();
       utils.calls.invalidate();
+      utils.tasks.invalidate();
       onOpenChange(false);
     },
     onError: e => toast.error(e.message),
@@ -92,6 +99,10 @@ export default function LogCallDialog({
     }
     if (confirmationStatus === "Confirmed" && promisedDate) {
       payload.promisedDate = new Date(promisedDate).getTime();
+    }
+    // Reschedule the existing open promise instead of creating a duplicate
+    if (confirmationStatus === "Confirmed" && openPromise && promiseMode === "reschedule") {
+      payload.reschedulePromiseId = openPromise.id;
     }
 
     logCall.mutate(payload);
@@ -166,6 +177,28 @@ export default function LogCallDialog({
           {/* Confirmed - show amount field */}
           {confirmationStatus === "Confirmed" && (
             <div className="space-y-1.5 bg-green-50 p-2 rounded">
+              {openPromise && (
+                <div className="rounded border border-amber-300 bg-amber-50 p-2 space-y-2">
+                  <p className="text-xs font-medium text-amber-900">
+                    Open promise exists: €{Number(openPromise.amount).toLocaleString()} due{" "}
+                    {new Date(openPromise.promisedDate).toLocaleDateString("en-GB")} ({openPromise.customerName})
+                  </p>
+                  <RadioGroup value={promiseMode} onValueChange={v => setPromiseMode(v as "reschedule" | "new")} className="gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="reschedule" id="pm-reschedule" />
+                      <Label htmlFor="pm-reschedule" className="text-xs font-normal cursor-pointer">
+                        Reschedule this promise to the new date/amount (customer moved the payment)
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="new" id="pm-new" />
+                      <Label htmlFor="pm-new" className="text-xs font-normal cursor-pointer">
+                        Create a separate new promise (additional payment)
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+              )}
               <Label>Confirmed amount (EUR)</Label>
               <Input
                 type="number"
@@ -181,7 +214,9 @@ export default function LogCallDialog({
                 onChange={e => setPromisedDate(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                A Promise-to-Pay record will be created automatically.
+                {openPromise && promiseMode === "reschedule"
+                  ? "The existing promise and its follow-up task will be moved to the new date."
+                  : "A Promise-to-Pay record will be created automatically."}
               </p>
             </div>
           )}

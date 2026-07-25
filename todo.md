@@ -490,3 +490,9 @@
 - [x] When status changes to "Not Contacted" or "Broken", amount resets to 0 (logCall + updateConfirmationStatus)
 - [x] When status changes between Confirmed/Pending, amount reflects the newly entered value (or 0 if not provided)
 - [x] Cleaned existing stale amounts in DB for Not Contacted/Broken groups; regression test added (131/131 passing)
+
+## Promise reschedule on re-confirm (user request 26/7)
+- [x] Backend: calls.getOpenPromise query — detect existing open (Pending) promise for a group
+- [x] Backend: logCall Confirmed with reschedule flag → updates existing promise's date/amount instead of creating a new one; moves linked task's due date; logs "Payment rescheduled" in activity log
+- [x] LogCallDialog: when Confirmed selected and an open promise exists, shows amber notice + "Reschedule existing promise" (default) vs "Create a separate new promise"
+- [x] Test for reschedule flow (132/132 passing)
