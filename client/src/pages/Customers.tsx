@@ -497,12 +497,9 @@ export default function Customers() {
             <Card>
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">AI Forecast (this month)</div>
-                <div className="text-[11px] text-muted-foreground font-mono mb-1">
-                  Initial: {fmtEur(summary.forecastInitial)} · Current: {fmtEur(summary.forecastCurrent)}
-                </div>
                 <div className="text-xl font-bold font-mono text-emerald-700">{fmtEur(summary.forecastCurrent)}</div>
                 <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
-                  collected {fmtEur(summary.collected)} · remaining {fmtEur(summary.remaining)}
+                  Initial: {fmtEur(summary.forecastInitial)}
                 </div>
               </CardContent>
             </Card>

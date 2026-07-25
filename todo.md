@@ -526,3 +526,6 @@
 - [x] UI: cards row above the group list on Customers page, same style as group view
 - [x] Totals respect active filters (status/confirmation filters)
 - [x] Vitest coverage for the aggregates (full suite 138/138 passing)
+
+## Compact AI Forecast summary card (user request 26/7)
+- [x] Customers page AI Forecast card: remove collected/remaining text, show only Initial and Current forecast values compactly
