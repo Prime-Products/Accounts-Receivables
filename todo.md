@@ -547,3 +547,6 @@
 - [x] Re-run guard: if the month's forecast exists, show a strong warning dialog with explicit checkbox ("has already run — re-running will alter the forecast"); backend rejects re-run without confirmRerun
 - [x] Remove Initial/Current split from UI labels (Expected to Collect stays as the live estimate); "AI Forecast" renamed to "Forecast" everywhere
 - [x] Tests updated/added for unified forecast behavior (re-run guard + smartStatus; 144/144 passing)
+
+## Clickable confirmation badge (user request 26/7)
+- [x] Customers list: clicking the Confirmation badge opens the Log Call dialog for that group (inline status change)

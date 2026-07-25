@@ -155,6 +155,57 @@ const GroupRowActions = memo(function GroupRowActions({ group }: { group: string
   );
 });
 
+/** Clickable confirmation badge — opens the Log Call dialog for the group so the status can be changed inline. */
+const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
+  group,
+  status,
+}: {
+  group: string;
+  status: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loadMembers, setLoadMembers] = useState(false);
+  const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: loadMembers });
+  const members = useMemo(
+    () =>
+      (allCustomers ?? [])
+        .filter(c => ((c.customerGroup ?? "").trim() || c.name) === group)
+        .map(c => ({ id: c.id, name: c.name, openBalance: c.openBalance })),
+    [allCustomers, group]
+  );
+  const defaultCustomerId = useMemo(
+    () => (members.length > 0 ? [...members].sort((a, b) => b.openBalance - a.openBalance)[0].id : undefined),
+    [members]
+  );
+  return (
+    <>
+      <button
+        type="button"
+        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border cursor-pointer transition-transform hover:shadow-sm active:scale-[0.97] ${
+          confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
+        }`}
+        title="Click to log a call and change the confirmation status"
+        onClick={() => {
+          setLoadMembers(true);
+          setOpen(true);
+        }}
+      >
+        {confirmationStatusLabels[status] ?? status}
+        <Phone className="h-3 w-3 opacity-40" />
+      </button>
+      {open && (
+        <LogCallDialog
+          group={group}
+          companies={members}
+          defaultCustomerId={defaultCustomerId}
+          open={open}
+          onOpenChange={setOpen}
+        />
+      )}
+    </>
+  );
+});
+
 function SortableHead({
   label,
   active,
@@ -705,10 +756,8 @@ export default function Customers() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${confirmationStatusColors[g.confirmationStatus] || "bg-gray-100 text-gray-700 border-gray-200"}`}>
-                          {confirmationStatusLabels[g.confirmationStatus] ?? g.confirmationStatus}
-                        </span>
+                      <TableCell onClick={e => e.stopPropagation()}>
+                        <ConfirmationBadgeButton group={g.group} status={g.confirmationStatus} />
                         {g.confirmationFollowUpDate && (
                           <div className="text-xs text-muted-foreground mt-1">
                             Follow-up: {fmtDate(g.confirmationFollowUpDate)}
