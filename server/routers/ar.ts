@@ -602,7 +602,7 @@ export const customersRouter = router({
           };
         })
         .sort((a, b) => b.openBalance - a.openBalance);
-      const sortedInvoices = [...scoped].sort((a, b) => b.dueDate - a.dueDate);
+      const sortedInvoices = [...scoped].sort((a, b) => a.dueDate - b.dueDate);
       const customerNames = new Map(members.map(m => [m.id, m.name]));
       const DETAIL_HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
       const groupHoldStatus = members.reduce(
@@ -633,7 +633,7 @@ export const customersRouter = router({
           turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
           turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
         },
-        invoices: sortedInvoices.slice(0, 500).map(i => ({ ...i, customerName: customerNames.get(i.customerId) ?? "" })),
+        invoices: sortedInvoices.map(i => ({ ...i, customerName: customerNames.get(i.customerId) ?? "" })),
         activityLogs,
       };
     }),

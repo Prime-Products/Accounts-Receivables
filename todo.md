@@ -422,3 +422,16 @@
 - [x] Very short customer/group description in AI summary (Profile section, 2-3 sentences max)
 - [x] COMPLETE list of actions for current month to achieve forecast (every invoice to chase, promises, tasks, escalations)
 - [x] Include forecast/collected/remaining data in the AI prompt (monthlyForecastEur, collectedThisMonthEur, remainingToCollectEur, invoicesDueOrOverdueThisMonth)
+
+## Data Import 21.07.26 (user request 25/7)
+- [x] Parse Excel open invoices file (5,424 rows)
+- [x] Compare with existing DB customers/groups/invoices
+- [x] Verified: DB already contains this exact snapshot (5,424 invoices, per-currency counts and sums match 1:1)
+- [x] No import needed — data already in sync
+- [x] Verify totals in the app after check (EUR 4,916,462.32 / AED 1,623,352.48 / SGD 316,565.12 / USD 51,961.71)
+
+## Invoices-style Aging Report in Group Card (user request 25/7)
+- [x] Same aging card design as Invoices page (amount, count, per-currency breakdown)
+- [x] Click card toggles filter on/off (click again to deselect)
+- [x] Filtered summary row (invoice count, outstanding total, per-currency, clear-filter ×)
+- [x] Only overdue buckets like Invoices page (0-30, 31-60, 61-90, 91-120, 120+); cards always show full-scope totals; backend 500-invoice cap removed

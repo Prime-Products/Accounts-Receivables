@@ -240,49 +240,84 @@ export default function GroupDetail() {
       group,
       customerId: companyId === "all" ? undefined : Number(companyId),
       branch: branch === "all" ? undefined : branch,
-      minDaysOverdue: getMinDaysOverdue(agingFilter),
     }),
-    [group, companyId, branch, agingFilter, getMinDaysOverdue],
+    [group, companyId, branch],
   );
   const { data, isLoading } = trpc.customers.groupDetail.useQuery(query, { enabled: !!group });
   const { data: groupForecast } = trpc.customers.groupForecast.useQuery({ group }, { enabled: !!group });
 
-  // Calculate aging dynamically on frontend based on filtered invoices (like Invoices page)
+  /** Bucket an overdue invoice by days overdue (same rule as the Invoices page). */
+  const bucketOf = (dueDate: number, now: number): "0-30" | "31-60" | "61-90" | "91-120" | "120+" | null => {
+    if (now <= dueDate) return null;
+    const d = Math.floor((now - dueDate) / (24 * 60 * 60 * 1000));
+    if (d <= 30) return "0-30";
+    if (d <= 60) return "31-60";
+    if (d <= 90) return "61-90";
+    if (d <= 120) return "91-120";
+    return "120+";
+  };
+
+  // Full aging of the current scope — always computed over ALL invoices so the cards
+  // keep showing every bucket's totals regardless of the selected filter (like Invoices page).
   const computedAging = useMemo(() => {
     if (!data?.invoices) return null;
-    const buckets: Record<"0-30" | "31-60" | "61-90" | "91-120" | "120+", { amount: number; count: number }> = {
-      "0-30": { amount: 0, count: 0 },
-      "31-60": { amount: 0, count: 0 },
-      "61-90": { amount: 0, count: 0 },
-      "91-120": { amount: 0, count: 0 },
-      "120+": { amount: 0, count: 0 },
+    const mk = () => ({ amount: 0, count: 0, byCur: {} as Record<string, number> });
+    const buckets: Record<"0-30" | "31-60" | "61-90" | "91-120" | "120+", ReturnType<typeof mk>> = {
+      "0-30": mk(),
+      "31-60": mk(),
+      "61-90": mk(),
+      "91-120": mk(),
+      "120+": mk(),
     };
     let current = 0;
     let currentCount = 0;
     const now = Date.now();
     for (const inv of data.invoices) {
       if (inv.status === "Paid") continue;
-      const outstanding = Number(inv.amount) - Number(inv.paidAmount);
-      if (outstanding <= 0) continue;
-      if (now <= inv.dueDate) {
-        current += outstanding;
+      const outstandingEur = Number(inv.amountEur ?? inv.amount) - Number(inv.paidAmount) * (Number(inv.amountEur ?? inv.amount) / Math.max(Number(inv.amount), 0.01));
+      const outstandingRaw = Number(inv.amount) - Number(inv.paidAmount);
+      if (outstandingRaw <= 0) continue;
+      const b = bucketOf(inv.dueDate, now);
+      if (b === null) {
+        current += outstandingEur;
         currentCount += 1;
         continue;
       }
-      const daysOverdue = Math.floor((now - inv.dueDate) / (24 * 60 * 60 * 1000));
-      let b: "0-30" | "31-60" | "61-90" | "91-120" | "120+";
-      if (daysOverdue <= 30) b = "0-30";
-      else if (daysOverdue <= 60) b = "31-60";
-      else if (daysOverdue <= 90) b = "61-90";
-      else if (daysOverdue <= 120) b = "91-120";
-      else b = "120+";
-      // Only include if agingFilter matches or agingFilter is "all"
-      if (agingFilter !== "all" && agingFilter !== b) continue;
-      buckets[b].amount += outstanding;
+      buckets[b].amount += outstandingEur;
       buckets[b].count += 1;
+      const cur = (inv.currency ?? "EUR").toUpperCase();
+      buckets[b].byCur[cur] = (buckets[b].byCur[cur] ?? 0) + outstandingRaw;
     }
     return { buckets, current, currentCount };
+  }, [data?.invoices]);
+
+  // Invoices matching the selected aging bucket — powers the list and totals row.
+  const filteredInvoices = useMemo(() => {
+    if (!data?.invoices) return [];
+    if (agingFilter === "all") return data.invoices;
+    const now = Date.now();
+    return data.invoices.filter(inv => {
+      if (inv.status === "Paid") return false;
+      if (Number(inv.amount) - Number(inv.paidAmount) <= 0) return false;
+      return bucketOf(inv.dueDate, now) === agingFilter;
+    });
   }, [data?.invoices, agingFilter]);
+
+  /** Totals of the currently filtered invoice list: EUR + per-currency (like Invoices page). */
+  const filteredTotals = useMemo(() => {
+    let eurTotal = 0;
+    const byCur: Record<string, number> = {};
+    for (const i of filteredInvoices) {
+      if (i.status === "Paid") continue;
+      const raw = Number(i.amount) - Number(i.paidAmount);
+      if (raw <= 0) continue;
+      const ratio = Number(i.amount) > 0 ? Number(i.amountEur ?? i.amount) / Number(i.amount) : 1;
+      eurTotal += raw * ratio;
+      const cur = (i.currency ?? "EUR").toUpperCase();
+      byCur[cur] = (byCur[cur] ?? 0) + raw;
+    }
+    return { eurTotal, byCur, count: filteredInvoices.length };
+  }, [filteredInvoices]);
 
   const exportSoa = trpc.reports.export.useMutation({
     onSuccess: r => {
@@ -506,28 +541,62 @@ export default function GroupDetail() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                <div className="rounded-md border bg-muted/40 px-3 py-2">
-                  <div className="text-[11px] text-muted-foreground">Current (not due)</div>
-                  <div className="text-sm font-bold font-mono">{fmtEur(computedAging?.current ?? 0)}</div>
+                <div className="rounded-lg border bg-muted/40 p-3">
+                  <div className="text-xs text-muted-foreground">Current (not due)</div>
+                  <div className="text-lg font-bold font-mono">{fmtEur(computedAging?.current ?? 0)}</div>
+                  <div className="text-xs text-muted-foreground">{computedAging?.currentCount ?? 0} invoice(s)</div>
                 </div>
-              {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
-                <button
-                  key={b}
-                  onClick={() => setAgingFilter(b)}
-                  className={`rounded-md border px-3 py-2 cursor-pointer transition-colors ${
-                    agingFilter === b
-                      ? "bg-blue-100 border-blue-300 dark:bg-blue-900 dark:border-blue-700"
-                      : "bg-muted/40 hover:bg-muted/60"
-                  }`}
-                >
-                  <div className="text-[11px] text-muted-foreground">{b} days overdue</div>
-                    <div className="text-sm font-bold font-mono">{fmtEur(computedAging?.buckets[b].amount ?? 0)}</div>
-                    <div className="text-[10px] text-muted-foreground">{computedAging?.buckets[b].count ?? 0} inv.</div>
-                </button>
+                {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
+                  <button
+                    key={b}
+                    onClick={() => setAgingFilter(agingFilter === b ? "all" : b)}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
+                      agingFilter === b ? "ring-2 ring-primary bg-primary/5" : "bg-card hover:bg-muted/50"
+                    }`}
+                  >
+                    <div className="text-xs text-muted-foreground">{b} days overdue</div>
+                    <div className="text-lg font-bold font-mono">{fmtEur(computedAging?.buckets[b].amount ?? 0)}</div>
+                    <div className="text-xs text-muted-foreground">{computedAging?.buckets[b].count ?? 0} invoice(s)</div>
+                    {fmtByCurrency(computedAging?.buckets[b].byCur, { skipEurOnly: true }) && (
+                      <div
+                        className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate"
+                        title={fmtByCurrency(computedAging?.buckets[b].byCur)}
+                      >
+                        {fmtByCurrency(computedAging?.buckets[b].byCur)}
+                      </div>
+                    )}
+                  </button>
                 ))}
               </div>
             </CardContent>
           </Card>
+
+          {/* Filtered totals: EUR + per-currency (like Invoices page) */}
+          {filteredInvoices.length > 0 && (
+            <div className="rounded-lg border bg-muted/30 px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+              <span className="text-muted-foreground">{filteredTotals.count} invoice(s) shown</span>
+              {agingFilter !== "all" && (
+                <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30">
+                  {agingFilter} days overdue
+                  <button
+                    className="ml-0.5 text-muted-foreground hover:text-foreground"
+                    title="Clear aging filter"
+                    onClick={() => setAgingFilter("all")}
+                  >
+                    ×
+                  </button>
+                </Badge>
+              )}
+              <span>
+                Outstanding total: <span className="font-mono font-semibold">{fmtEur(filteredTotals.eurTotal)}</span>
+              </span>
+              {fmtByCurrency(filteredTotals.byCur, { skipEurOnly: true }) && (
+                <span className="text-muted-foreground">
+                  Per currency: <span className="font-mono">{fmtByCurrency(filteredTotals.byCur)}</span>
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Invoices for current scope */}
           <Card>
@@ -568,7 +637,7 @@ export default function GroupDetail() {
                     <TableBody>
                       {(() => {
                         const byBranch = new Map<string, { count: number; totalEur: number }>();
-                        for (const i of data.invoices) {
+                        for (const i of filteredInvoices) {
                           const key = branchShort(i.company);
                           const cur = byBranch.get(key) ?? { count: 0, totalEur: 0 };
                           cur.count += 1;
@@ -622,7 +691,7 @@ export default function GroupDetail() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.invoices.map(i => (
+                    {filteredInvoices.map(i => (
                       <TableRow key={i.id}>
                         <TableCell className="font-mono text-xs">{i.invoiceNumber}</TableCell>
                         <TableCell className="text-sm max-w-52">
