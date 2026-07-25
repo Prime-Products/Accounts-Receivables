@@ -25,6 +25,9 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 
+const AGING_BUCKETS = ["all", "0-30", "31-60", "61-90", "91-120", "120+"] as const;
+type AgingBucket = (typeof AGING_BUCKETS)[number];
+
 /** Actions dropdown menu for group-level interactions */
 function ActionsMenu({
   companies,
@@ -215,18 +218,29 @@ export default function GroupDetail() {
   const group = decodeURIComponent(params?.name ?? "");
   const [companyId, setCompanyId] = useState<string>("all");
   const [branch, setBranch] = useState<string>("all");
-  const [agingFilter, setAgingFilter] = useState<string>("all");
+  const [agingFilter, setAgingFilter] = useState<AgingBucket>("all");
   const [companiesOpen, setCompaniesOpen] = useState(false);
   const [invoiceView, setInvoiceView] = useState<"list" | "byBranch">("list");
+
+  // Convert aging bucket to minDaysOverdue for queries
+  const getMinDaysOverdue = (bucket: AgingBucket): number | undefined => {
+    if (bucket === "all") return undefined;
+    if (bucket === "0-30") return 0;
+    if (bucket === "31-60") return 31;
+    if (bucket === "61-90") return 61;
+    if (bucket === "91-120") return 91;
+    if (bucket === "120+") return 120;
+    return undefined;
+  };
 
   const query = useMemo(
     () => ({
       group,
       customerId: companyId === "all" ? undefined : Number(companyId),
       branch: branch === "all" ? undefined : branch,
-      minDaysOverdue: agingFilter === "all" ? undefined : Number(agingFilter),
+      minDaysOverdue: getMinDaysOverdue(agingFilter),
     }),
-    [group, companyId, branch, agingFilter],
+    [group, companyId, branch, agingFilter, getMinDaysOverdue],
   );
   const { data, isLoading } = trpc.customers.groupDetail.useQuery(query, { enabled: !!group });
   const { data: groupForecast } = trpc.customers.groupForecast.useQuery({ group }, { enabled: !!group });
@@ -245,7 +259,7 @@ export default function GroupDetail() {
       group,
       customerId: companyId === "all" ? undefined : Number(companyId),
       branch: branch === "all" ? undefined : branch,
-      minDaysOverdue: agingFilter === "all" ? undefined : Number(agingFilter),
+      minDaysOverdue: getMinDaysOverdue(agingFilter),
     });
 
   const scopeLabel =
@@ -254,7 +268,7 @@ export default function GroupDetail() {
       : [
           companyId !== "all" ? data?.companies.find(c => String(c.id) === companyId)?.name : null,
           branch !== "all" ? branchShort(branch) : null,
-          agingFilter !== "all" ? `${agingFilter}+ days overdue` : null,
+          agingFilter !== "all" ? `${agingFilter} days overdue` : null,
         ]
           .filter(Boolean)
           .join(" · ");
@@ -340,15 +354,17 @@ export default function GroupDetail() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={agingFilter} onValueChange={setAgingFilter}>
+          <Select value={agingFilter} onValueChange={(v) => setAgingFilter(v as AgingBucket)}>
             <SelectTrigger className="w-44 h-9">
               <SelectValue placeholder="Aging" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All invoices</SelectItem>
-              <SelectItem value="1">Overdue (any)</SelectItem>
-              <SelectItem value="60">Overdue 60+ days</SelectItem>
-              <SelectItem value="120">Overdue 120+ days</SelectItem>
+              <SelectItem value="0-30">0-30 days overdue</SelectItem>
+              <SelectItem value="31-60">31-60 days overdue</SelectItem>
+              <SelectItem value="61-90">61-90 days overdue</SelectItem>
+              <SelectItem value="91-120">91-120 days overdue</SelectItem>
+              <SelectItem value="120+">120+ days overdue</SelectItem>
             </SelectContent>
           </Select>
         </div>
