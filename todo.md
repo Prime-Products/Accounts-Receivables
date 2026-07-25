@@ -496,3 +496,8 @@
 - [x] Backend: logCall Confirmed with reschedule flag → updates existing promise's date/amount instead of creating a new one; moves linked task's due date; logs "Payment rescheduled" in activity log
 - [x] LogCallDialog: when Confirmed selected and an open promise exists, shows amber notice + "Reschedule existing promise" (default) vs "Create a separate new promise"
 - [x] Test for reschedule flow (132/132 passing)
+
+## Rename "Confirmed" label to "Promise to Pay" in UI (user request 26/7)
+- [x] LogCallDialog: "Confirmed" option displays as "Promise to Pay" (DB value stays "Confirmed"); amount label now "Promised amount"
+- [x] Customers page: badge + filter label shows "Promise to Pay"; amount column header renamed to "Promised"
+- [x] GroupDetail: shares the same confirmationStatusLabels map (no separate hardcoded label found)

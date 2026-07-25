@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fmtEur, onHoldStatusColors, ratingColors, confirmationStatusColors, fmtDate } from "@/lib/format";
+import { fmtEur, onHoldStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowDown, ArrowUp, ArrowUpDown, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -398,7 +398,7 @@ export default function Customers() {
               <SelectContent>
                 <SelectItem value="all">All confirmations</SelectItem>
                 <SelectItem value="not-contacted">Not Contacted</SelectItem>
-                <SelectItem value="confirmed">Confirmed</SelectItem>
+                <SelectItem value="confirmed">Promise to Pay</SelectItem>
                 <SelectItem value="pending">Pending Follow-up</SelectItem>
                 <SelectItem value="broken">Broken</SelectItem>
               </SelectContent>
@@ -437,7 +437,7 @@ export default function Customers() {
                   <TableRow>
                     <TableHead>Group</TableHead>
                     <TableHead>Confirmation</TableHead>
-                    <TableHead className="text-right">Confirmed</TableHead>
+                    <TableHead className="text-right">Promised</TableHead>
                     <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} />
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
                     <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} />
@@ -505,7 +505,7 @@ export default function Customers() {
                       </TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${confirmationStatusColors[g.confirmationStatus] || "bg-gray-100 text-gray-700 border-gray-200"}`}>
-                          {g.confirmationStatus}
+                          {confirmationStatusLabels[g.confirmationStatus] ?? g.confirmationStatus}
                         </span>
                         {g.confirmationFollowUpDate && (
                           <div className="text-xs text-muted-foreground mt-1">

@@ -12,6 +12,12 @@ import { toast } from "sonner";
 
 const OUTCOMES = ["Reached", "No Answer", "Voicemail", "Promised Payment", "Dispute", "Other"] as const;
 const CONFIRMATION_STATUSES = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken"] as const;
+const STATUS_LABELS: Record<string, string> = {
+  "Not Contacted": "Not Contacted",
+  Confirmed: "Promise to Pay",
+  "Pending Follow-up": "Pending Follow-up",
+  Broken: "Broken",
+};
 
 export default function LogCallDialog({
   group,
@@ -167,7 +173,7 @@ export default function LogCallDialog({
               <SelectContent>
                 {CONFIRMATION_STATUSES.map(status => (
                   <SelectItem key={status} value={status}>
-                    {status}
+                    {STATUS_LABELS[status] ?? status}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -199,7 +205,7 @@ export default function LogCallDialog({
                   </RadioGroup>
                 </div>
               )}
-              <Label>Confirmed amount (EUR)</Label>
+              <Label>Promised amount (EUR)</Label>
               <Input
                 type="number"
                 value={confirmationAmount}
