@@ -412,3 +412,8 @@
 - [x] Fix aging report to update when bucket is selected
 - [x] Show only invoices in selected bucket in the aging summary (frontend-based calculation like Invoices page)
 - [x] Match Invoices page behavior exactly (computedAging memoization updates with agingFilter)
+
+## Aging Report Bug Fix (user report 25/7)
+- [x] Fix aging report showing 0 values on initial page load
+- [x] Aging now calculates correctly before any bucket click (removed backend minDaysOverdue filter)
+- [x] Verify computedAging dependency chain is correct (added agingFilter to dependencies)

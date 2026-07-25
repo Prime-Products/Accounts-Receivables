@@ -276,11 +276,13 @@ export default function GroupDetail() {
       else if (daysOverdue <= 90) b = "61-90";
       else if (daysOverdue <= 120) b = "91-120";
       else b = "120+";
+      // Only include if agingFilter matches or agingFilter is "all"
+      if (agingFilter !== "all" && agingFilter !== b) continue;
       buckets[b].amount += outstanding;
       buckets[b].count += 1;
     }
     return { buckets, current, currentCount };
-  }, [data?.invoices]);
+  }, [data?.invoices, agingFilter]);
 
   const exportSoa = trpc.reports.export.useMutation({
     onSuccess: r => {

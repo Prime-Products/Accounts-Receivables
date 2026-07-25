@@ -531,7 +531,7 @@ export const customersRouter = router({
         i =>
           (input.customerId === undefined || i.customerId === input.customerId) &&
           (input.branch === undefined || i.company === input.branch) &&
-          (input.minDaysOverdue === undefined || (isOpenInvoice(i) && now > i.dueDate && daysOverdue(i.dueDate, now) >= input.minDaysOverdue)),
+          true, // Don't filter by minDaysOverdue here; let frontend handle aging bucket filtering
       );
       const aging = computeAging(scoped, now);
       const open = scoped.filter(isOpenInvoice);
