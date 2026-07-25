@@ -2047,7 +2047,8 @@ export const callsRouter = router({
         await db.upsertGroupConfirmationStatus(input.group, {
           status: input.confirmationStatus,
           amount: input.confirmationAmount !== undefined ? String(input.confirmationAmount) : undefined,
-          followUpDate: input.followUpDate,
+          // Follow-up date only applies to "Pending Follow-up"; clear it on any other status
+          followUpDate: input.confirmationStatus === "Pending Follow-up" ? input.followUpDate : null,
           notes: input.notes,
           updatedBy: ctx.user.id,
         });
@@ -2077,7 +2078,8 @@ export const callsRouter = router({
       await db.upsertGroupConfirmationStatus(input.group, {
         status: input.status,
         amount: input.amount !== undefined ? String(input.amount) : undefined,
-        followUpDate: input.followUpDate,
+        // Follow-up date only applies to "Pending Follow-up"; clear it on any other status
+        followUpDate: input.status === "Pending Follow-up" ? input.followUpDate : null,
         notes: input.notes,
         updatedBy: ctx.user.id,
       });

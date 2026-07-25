@@ -465,3 +465,7 @@
 - [x] Add confirmationStatusColors to format.ts (green for Confirmed, orange for Pending, red for Broken, gray for Not Contacted)
 - [x] Comprehensive vitest tests for confirmation status workflow (16 DB tests + 5 workflow tests + 2 tRPC tests = 23 tests, all passing)
 - [x] All 126 tests passing
+
+## Confirmation status: stale follow-up date bug (user report 26/7)
+- [x] When status changes away from "Pending Follow-up" (e.g., to Confirmed/Broken), clear the previous followUpDate automatically (logCall + updateConfirmationStatus)
+- [x] Cleaned existing stale data: PANTHEON followUpDate cleared in DB; 2 regression tests added (128/128 passing)

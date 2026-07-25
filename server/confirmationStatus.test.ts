@@ -360,5 +360,64 @@ describe("Confirmation Status Tracking", () => {
       expect(result?.status).toBe("Pending Follow-up");
       expect(Number(result?.amount)).toBe(30000);
     });
+
+    it("should clear followUpDate when status changes away from Pending Follow-up", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      const groupName = `trpc-clear-followup-${Date.now()}`;
+
+      // First: Pending Follow-up with a follow-up date
+      await caller.calls.updateConfirmationStatus({
+        group: groupName,
+        status: "Pending Follow-up",
+        amount: 20000,
+        followUpDate: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      });
+
+      let result = await db.getGroupConfirmationStatus(groupName);
+      expect(result?.status).toBe("Pending Follow-up");
+      expect(result?.followUpDate).not.toBeNull();
+
+      // Then: change to Confirmed WITHOUT passing a followUpDate
+      await caller.calls.updateConfirmationStatus({
+        group: groupName,
+        status: "Confirmed",
+        amount: 20000,
+      });
+
+      result = await db.getGroupConfirmationStatus(groupName);
+      expect(result?.status).toBe("Confirmed");
+      expect(result?.followUpDate).toBeNull();
+    });
+
+    it("logCall should clear followUpDate when confirming after a pending status", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      const groupName = `logcall-clear-followup-${Date.now()}`;
+
+      // First call: pending with follow-up date
+      await caller.calls.logCall({
+        group: groupName,
+        outcome: "Reached",
+        confirmationStatus: "Pending Follow-up",
+        confirmationAmount: 15000,
+        followUpDate: Date.now() + 3 * 24 * 60 * 60 * 1000,
+      });
+
+      let result = await db.getGroupConfirmationStatus(groupName);
+      expect(result?.followUpDate).not.toBeNull();
+
+      // Second call: customer confirms — follow-up must be cleared
+      await caller.calls.logCall({
+        group: groupName,
+        outcome: "Promised Payment",
+        confirmationStatus: "Confirmed",
+        confirmationAmount: 15000,
+      });
+
+      result = await db.getGroupConfirmationStatus(groupName);
+      expect(result?.status).toBe("Confirmed");
+      expect(result?.followUpDate).toBeNull();
+    });
   });
 });
