@@ -417,3 +417,8 @@
 - [x] Fix aging report showing 0 values on initial page load
 - [x] Aging now calculates correctly before any bucket click (removed backend minDaysOverdue filter)
 - [x] Verify computedAging dependency chain is correct (added agingFilter to dependencies)
+
+## AI Summary Improvement (user request 25/7)
+- [x] Very short customer/group description in AI summary (Profile section, 2-3 sentences max)
+- [x] COMPLETE list of actions for current month to achieve forecast (every invoice to chase, promises, tasks, escalations)
+- [x] Include forecast/collected/remaining data in the AI prompt (monthlyForecastEur, collectedThisMonthEur, remainingToCollectEur, invoicesDueOrOverdueThisMonth)

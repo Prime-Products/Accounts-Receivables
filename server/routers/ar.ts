@@ -789,6 +789,33 @@ export const customersRouter = router({
     const promises = allPromises.filter(p => memberIds.has(p.customerId));
     const pendingTasks = allTasks.filter(t => memberIds.has(t.customerId) && (t.status === "Pending" || t.status === "In Progress"));
     const onHold = members.filter(m => m.onHoldStatus !== "Active");
+    // Current-month forecast & collection status
+    const todayD = new Date();
+    const curYear = todayD.getUTCFullYear();
+    const curMonth = todayD.getUTCMonth() + 1;
+    const { start: mStart, end: mEnd } = monthRange(curYear, curMonth);
+    const [forecastRows, monthReceipts] = await Promise.all([
+      db.listForecastEntries(curYear, curMonth),
+      db.listReceiptsInRange(mStart, mEnd).catch(() => []),
+    ]);
+    const groupForecastRows = forecastRows.filter(f => (f.customerGroup ?? "").trim() === input.group);
+    const forecastExpected = groupForecastRows.reduce((s, f) => s + Number(f.expectedAmount), 0);
+    const collectedThisMonth = monthReceipts
+      .filter(r => memberIds.has(r.customerId))
+      .reduce((s, r) => s + Number(r.amount), 0);
+    const remainingToCollect = Math.max(0, forecastExpected - collectedThisMonth);
+    // Invoices due within the current month (collection targets for the forecast)
+    const dueThisMonth = open
+      .filter(i => i.dueDate <= mEnd)
+      .sort((a, b) => b.dueDate - a.dueDate)
+      .slice(0, 40)
+      .map(i => ({
+        company: names.get(i.customerId),
+        invoice: i.invoiceNumber,
+        dueDate: new Date(i.dueDate).toISOString().slice(0, 10),
+        outstandingEur: eur(outstanding(i)),
+        daysOverdue: now > i.dueDate ? Math.floor((now - i.dueDate) / (24 * 60 * 60 * 1000)) : 0,
+      }));
     const facts = {
       group: input.group,
       companies: members.length,
@@ -797,6 +824,11 @@ export const customersRouter = router({
       overdueInvoices: overdue.length,
       openInvoices: open.length,
       aging,
+      currentMonth: `${curYear}-${String(curMonth).padStart(2, "0")}`,
+      monthlyForecastEur: eur(forecastExpected),
+      collectedThisMonthEur: eur(collectedThisMonth),
+      remainingToCollectEur: eur(remainingToCollect),
+      invoicesDueOrOverdueThisMonth: dueThisMonth,
       topDebtors: [...members]
         .map(m => ({ name: m.name, overdueEur: invs.filter(i => i.customerId === m.id && isOpenInvoice(i) && now > i.dueDate).reduce((s, i) => s + outstanding(i), 0) }))
         .sort((a, b) => b.overdueEur - a.overdueEur)
@@ -814,7 +846,7 @@ export const customersRouter = router({
         {
           role: "system",
           content:
-            "You are a credit-control analyst. Write a concise, factual snapshot of a customer group for an accounts-receivable team preparing a call. Use short paragraphs and bullet points. Cover: overall exposure and overdue risk, payment behavior, promises to pay (kept/broken/pending), open follow-up tasks, on-hold status, and anything notable from the notes. End with 2-3 recommended next actions. Maximum ~250 words. Respond in English.",
+            "You are a credit-control analyst helping an accounts-receivable user hit this month's collection forecast. Structure your answer in exactly two sections:\n\n**Profile** — 2-3 sentences maximum: who this customer group is (size, exposure, payment behavior, risk level). Keep it very short.\n\n**Actions this month** — the COMPLETE list of concrete actions the user must take THIS month to achieve the monthly forecast (remainingToCollectEur). List EVERY action needed, not just the top ones: every invoice or company that must be chased (use invoicesDueOrOverdueThisMonth and topDebtors), every promise to follow up, every pending task to close, and any escalation (on-hold, legal) if the data justifies it. Each action on its own bullet line, most valuable first, with amounts in EUR and company names. Be specific: 'Call X to collect invoice Y (€Z, N days overdue)'. If the forecast is already covered (remainingToCollectEur = 0), say so and list only monitoring actions. Respond in English.",
         },
         { role: "user", content: JSON.stringify(facts) },
       ],
