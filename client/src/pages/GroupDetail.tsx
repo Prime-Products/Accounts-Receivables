@@ -471,12 +471,20 @@ export default function GroupDetail() {
                   <div className="text-[11px] text-muted-foreground">Current (not due)</div>
                   <div className="text-sm font-bold font-mono">{fmtEur(data.aging.current)}</div>
                 </div>
-                {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
-                  <div key={b} className="rounded-md border bg-muted/40 px-3 py-2">
-                    <div className="text-[11px] text-muted-foreground">{b} days overdue</div>
-                    <div className="text-sm font-bold font-mono">{fmtEur(data.aging.buckets[b].amount)}</div>
-                    <div className="text-[10px] text-muted-foreground">{data.aging.buckets[b].count} inv.</div>
-                  </div>
+              {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
+                <button
+                  key={b}
+                  onClick={() => setAgingFilter(b)}
+                  className={`rounded-md border px-3 py-2 cursor-pointer transition-colors ${
+                    agingFilter === b
+                      ? "bg-blue-100 border-blue-300 dark:bg-blue-900 dark:border-blue-700"
+                      : "bg-muted/40 hover:bg-muted/60"
+                  }`}
+                >
+                  <div className="text-[11px] text-muted-foreground">{b} days overdue</div>
+                  <div className="text-sm font-bold font-mono">{fmtEur(data.aging.buckets[b].amount)}</div>
+                  <div className="text-[10px] text-muted-foreground">{data.aging.buckets[b].count} inv.</div>
+                </button>
                 ))}
               </div>
             </CardContent>

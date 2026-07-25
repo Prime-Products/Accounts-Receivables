@@ -403,3 +403,7 @@
 - [x] Add aging bucket filters (0-30, 31-60, 61-90, 91-120, 120+ days) to GroupDetail invoices section
 - [x] Apply same filter logic as Invoices page (bucket-based instead of threshold-based)
 - [x] Test and verify filtering works correctly (110 tests passing)
+## Clickable Aging Cards (user request 25/7)
+- [x] Make aging bucket cards clickable to filter invoices
+- [x] Wire card clicks to agingFilter state (setAgingFilter on click)
+- [x] Test and verify filtering works (110 tests passing, visual feedback with active state)
