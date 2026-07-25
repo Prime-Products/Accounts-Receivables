@@ -241,8 +241,10 @@ async function cleanupStatusArtifacts(
   }
   const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
 
-  // Leaving "Pending Follow-up": the follow-up call task is obsolete.
-  if (input.previousStatus === "Pending Follow-up" && input.newStatus !== "Pending Follow-up") {
+  // Any status other than "Pending Follow-up" makes an open follow-up call task obsolete —
+  // regardless of what the recorded previous status was (covers Confirmed→Broken sequences
+  // where a follow-up task from an earlier Pending state was left open).
+  if (input.newStatus !== "Pending Follow-up") {
     const marker = `(Follow-up: ${input.group})`;
     const linked = openTasks.filter(t => t.description?.includes(marker));
     for (const t of linked) {

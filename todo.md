@@ -550,3 +550,8 @@
 
 ## Clickable confirmation badge (user request 26/7)
 - [x] Customers list: clicking the Confirmation badge opens the Log Call dialog for that group (inline status change)
+
+## Bug: stale follow-up task not cancelled (reported 26/7 — MSC case)
+- [x] Status change to Broken/Not Contacted/Confirmed must cancel ANY open follow-up call task for the group, even if the recorded previous status was not "Pending Follow-up" (e.g. Pending → Confirmed → Broken left the old follow-up task open)
+- [x] Clean up the existing stale MSC follow-up task in the database
+- [x] Add regression test for the Pending → Confirmed → Broken sequence (145/145 passing)
