@@ -435,3 +435,7 @@
 - [x] Click card toggles filter on/off (click again to deselect)
 - [x] Filtered summary row (invoice count, outstanding total, per-currency, clear-filter ×)
 - [x] Only overdue buckets like Invoices page (0-30, 31-60, 61-90, 91-120, 120+); cards always show full-scope totals; backend 500-invoice cap removed
+
+## AI Summary Refinement (user request 25/7)
+- [x] Profile section: financials and debts to us ONLY (balances, overdue, payment behavior, forecast) — no generic company info
+- [x] Actions section: no "call the customer" suggestions for invoices — list amounts to collect, promises, pending tasks only (110/110 tests pass, LLM quota restored)
