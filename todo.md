@@ -469,3 +469,9 @@
 ## Confirmation status: stale follow-up date bug (user report 26/7)
 - [x] When status changes away from "Pending Follow-up" (e.g., to Confirmed/Broken), clear the previous followUpDate automatically (logCall + updateConfirmationStatus)
 - [x] Cleaned existing stale data: PANTHEON followUpDate cleared in DB; 2 regression tests added (128/128 passing)
+
+## Confirmed status creates Promise to Pay (user request 26/7)
+- [x] When confirmation status is set to "Confirmed" with an amount, auto-create a Promise-to-Pay record for the group (with promised date; also creates follow-up task + activity log entry, same as manual Promise-to-Pay)
+- [x] LogCallDialog: when Confirmed selected, amount and promised payment date are required fields
+- [x] Promise attaches to selected company or the group's primary member; defaults promised date to end of month if omitted (API level)
+- [x] Test for the Confirmed → promise flow (129/129 tests passing)

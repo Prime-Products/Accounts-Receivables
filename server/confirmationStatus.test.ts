@@ -419,5 +419,43 @@ describe("Confirmation Status Tracking", () => {
       expect(result?.status).toBe("Confirmed");
       expect(result?.followUpDate).toBeNull();
     });
+
+    it("logCall with Confirmed creates a Promise-to-Pay for the group's customer", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+
+      // Use a real customer so the promise can attach to it
+      const customers = await db.listCustomers();
+      expect(customers.length).toBeGreaterThan(0);
+      const cust = customers[0];
+      const groupName = (cust.customerGroup ?? "").trim() || cust.name;
+      const promisedDate = Date.now() + 10 * 24 * 60 * 60 * 1000;
+      const amount = 1234.56;
+
+      const before = (await db.listPromises()).filter(p => p.customerId === cust.id).length;
+
+      await caller.calls.logCall({
+        group: groupName,
+        customerId: cust.id,
+        outcome: "Promised Payment",
+        confirmationStatus: "Confirmed",
+        confirmationAmount: amount,
+        promisedDate,
+      });
+
+      const promises = (await db.listPromises()).filter(p => p.customerId === cust.id);
+      expect(promises.length).toBe(before + 1);
+      const latest = promises.sort((a, b) => b.id - a.id)[0];
+      expect(Number(latest.amount)).toBeCloseTo(amount, 2);
+      expect(latest.promisedDate).toBe(promisedDate);
+
+      // Cleanup: remove the test promise + follow-up task + confirmation row
+      const tasks = await db.listTasks({ customerId: cust.id });
+      const followUp = tasks.find(t => t.description?.includes(`(Promise #${latest.id})`));
+      if (followUp) {
+        await db.updateTask(followUp.id, { status: "Completed", completionNotes: "test cleanup", completedAt: Date.now() });
+      }
+      await db.updatePromise(latest.id, { status: "Kept" });
+    });
   });
 });

@@ -71,6 +71,54 @@ function endOfCurrentMonth(now = new Date()): number {
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) - 1;
 }
 
+/**
+ * Create a Promise-to-Pay record for a group (used when a Confirmed status is logged).
+ * Resolves the target customer (given id or the group's primary member), creates the promise,
+ * logs the activity, and creates a follow-up task on the promised date — same behavior as addPromise.
+ */
+async function createGroupPromise(
+  ctx: { user: { id: number; name: string | null } },
+  input: { group: string; customerId?: number; amount: number; promisedDate: number; notes?: string }
+) {
+  let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
+  if (!cust) {
+    const customers = await db.listCustomers();
+    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+    if (members.length === 0) return null;
+    cust = members[0];
+  }
+  const id = await db.createPromise({
+    customerId: cust.id,
+    promisedDate: input.promisedDate,
+    amount: eur(input.amount),
+    notes: input.notes,
+    createdBy: ctx.user.id,
+  });
+  await audit(ctx, "Record Promise-to-Pay", "promiseToPay", id, `Customer #${cust.id} promised €${eur(input.amount)} by ${new Date(input.promisedDate).toISOString().slice(0, 10)} (from confirmed call)`);
+  const groupKey = cust.customerGroup?.trim() ? cust.customerGroup.trim() : cust.name;
+  const dateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
+  await db.addActivityLog({
+    groupName: groupKey,
+    customerId: cust.id,
+    activityType: "promise",
+    title: `Promise-to-Pay: €${Number(eur(input.amount)).toLocaleString()} by ${dateStr}`,
+    description: `${cust.name} — confirmed by phone${input.notes ? ` — ${input.notes}` : ""}`,
+    createdBy: ctx.user.id,
+    createdAt: new Date(),
+  }).catch(() => {});
+  const taskId = await db.createTask({
+    customerId: cust.id,
+    type: "Manual",
+    title: `Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
+    description: `Verify that ${cust.name} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${dateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
+    dueDate: input.promisedDate,
+    status: "Pending",
+    assignedTo: ctx.user.id,
+  });
+  await audit(ctx, "Create Task", "task", taskId, `Auto follow-up for promise #${id} (${cust.name})`);
+  return id;
+}
+
 export const customersRouter = router({
   /** Global search across groups, companies, invoices, notes, and tasks. */
   search: protectedProcedure
@@ -2026,6 +2074,7 @@ export const callsRouter = router({
         confirmationStatus: z.enum(confirmationStatuses).optional(),
         confirmationAmount: z.number().optional(),
         followUpDate: z.number().optional(),
+        promisedDate: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -2052,6 +2101,22 @@ export const callsRouter = router({
           notes: input.notes,
           updatedBy: ctx.user.id,
         });
+
+        // "Confirmed" is effectively a Promise-to-Pay: auto-create the promise record
+        // (with follow-up task + activity log) via the shared helper.
+        if (
+          input.confirmationStatus === "Confirmed" &&
+          input.confirmationAmount !== undefined &&
+          input.confirmationAmount > 0
+        ) {
+          await createGroupPromise(ctx, {
+            group: input.group,
+            customerId: input.customerId,
+            amount: input.confirmationAmount,
+            promisedDate: input.promisedDate ?? endOfCurrentMonth(),
+            notes: input.notes,
+          });
+        }
       }
 
       await audit(ctx, "Log Call", "call", input.customerId, `${input.group}: ${input.outcome}`);

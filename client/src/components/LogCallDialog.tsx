@@ -32,6 +32,7 @@ export default function LogCallDialog({
   const [confirmationStatus, setConfirmationStatus] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">("");
   const [confirmationAmount, setConfirmationAmount] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
+  const [promisedDate, setPromisedDate] = useState("");
   const utils = trpc.useUtils();
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export default function LogCallDialog({
       setConfirmationStatus("");
       setConfirmationAmount("");
       setFollowUpDate("");
+      setPromisedDate("");
     }
   }, [open, defaultCustomerId]);
 
@@ -61,6 +63,16 @@ export default function LogCallDialog({
       toast.error("Please select a confirmation status");
       return;
     }
+    if (confirmationStatus === "Confirmed") {
+      if (!confirmationAmount || Number(confirmationAmount) <= 0) {
+        toast.error("Please enter the confirmed amount");
+        return;
+      }
+      if (!promisedDate) {
+        toast.error("Please select the promised payment date");
+        return;
+      }
+    }
 
     const payload: any = {
       group,
@@ -77,6 +89,9 @@ export default function LogCallDialog({
     }
     if (followUpDate) {
       payload.followUpDate = new Date(followUpDate).getTime();
+    }
+    if (confirmationStatus === "Confirmed" && promisedDate) {
+      payload.promisedDate = new Date(promisedDate).getTime();
     }
 
     logCall.mutate(payload);
@@ -159,6 +174,15 @@ export default function LogCallDialog({
                 placeholder="e.g., 50000"
                 step="0.01"
               />
+              <Label className="mt-2">Promised payment date</Label>
+              <Input
+                type="date"
+                value={promisedDate}
+                onChange={e => setPromisedDate(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                A Promise-to-Pay record will be created automatically.
+              </p>
             </div>
           )}
 
