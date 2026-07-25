@@ -407,3 +407,8 @@
 - [x] Make aging bucket cards clickable to filter invoices
 - [x] Wire card clicks to agingFilter state (setAgingFilter on click)
 - [x] Test and verify filtering works (110 tests passing, visual feedback with active state)
+
+## Dynamic Aging Report (user request 25/7)
+- [x] Fix aging report to update when bucket is selected
+- [x] Show only invoices in selected bucket in the aging summary (frontend-based calculation like Invoices page)
+- [x] Match Invoices page behavior exactly (computedAging memoization updates with agingFilter)

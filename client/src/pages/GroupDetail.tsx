@@ -233,6 +233,8 @@ export default function GroupDetail() {
     return undefined;
   };
 
+
+
   const query = useMemo(
     () => ({
       group,
@@ -244,6 +246,41 @@ export default function GroupDetail() {
   );
   const { data, isLoading } = trpc.customers.groupDetail.useQuery(query, { enabled: !!group });
   const { data: groupForecast } = trpc.customers.groupForecast.useQuery({ group }, { enabled: !!group });
+
+  // Calculate aging dynamically on frontend based on filtered invoices (like Invoices page)
+  const computedAging = useMemo(() => {
+    if (!data?.invoices) return null;
+    const buckets: Record<"0-30" | "31-60" | "61-90" | "91-120" | "120+", { amount: number; count: number }> = {
+      "0-30": { amount: 0, count: 0 },
+      "31-60": { amount: 0, count: 0 },
+      "61-90": { amount: 0, count: 0 },
+      "91-120": { amount: 0, count: 0 },
+      "120+": { amount: 0, count: 0 },
+    };
+    let current = 0;
+    let currentCount = 0;
+    const now = Date.now();
+    for (const inv of data.invoices) {
+      if (inv.status === "Paid") continue;
+      const outstanding = Number(inv.amount) - Number(inv.paidAmount);
+      if (outstanding <= 0) continue;
+      if (now <= inv.dueDate) {
+        current += outstanding;
+        currentCount += 1;
+        continue;
+      }
+      const daysOverdue = Math.floor((now - inv.dueDate) / (24 * 60 * 60 * 1000));
+      let b: "0-30" | "31-60" | "61-90" | "91-120" | "120+";
+      if (daysOverdue <= 30) b = "0-30";
+      else if (daysOverdue <= 60) b = "31-60";
+      else if (daysOverdue <= 90) b = "61-90";
+      else if (daysOverdue <= 120) b = "91-120";
+      else b = "120+";
+      buckets[b].amount += outstanding;
+      buckets[b].count += 1;
+    }
+    return { buckets, current, currentCount };
+  }, [data?.invoices]);
 
   const exportSoa = trpc.reports.export.useMutation({
     onSuccess: r => {
@@ -469,7 +506,7 @@ export default function GroupDetail() {
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 <div className="rounded-md border bg-muted/40 px-3 py-2">
                   <div className="text-[11px] text-muted-foreground">Current (not due)</div>
-                  <div className="text-sm font-bold font-mono">{fmtEur(data.aging.current)}</div>
+                  <div className="text-sm font-bold font-mono">{fmtEur(computedAging?.current ?? 0)}</div>
                 </div>
               {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
                 <button
@@ -482,8 +519,8 @@ export default function GroupDetail() {
                   }`}
                 >
                   <div className="text-[11px] text-muted-foreground">{b} days overdue</div>
-                  <div className="text-sm font-bold font-mono">{fmtEur(data.aging.buckets[b].amount)}</div>
-                  <div className="text-[10px] text-muted-foreground">{data.aging.buckets[b].count} inv.</div>
+                    <div className="text-sm font-bold font-mono">{fmtEur(computedAging?.buckets[b].amount ?? 0)}</div>
+                    <div className="text-[10px] text-muted-foreground">{computedAging?.buckets[b].count ?? 0} inv.</div>
                 </button>
                 ))}
               </div>
