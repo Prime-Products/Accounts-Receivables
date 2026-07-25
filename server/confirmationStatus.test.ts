@@ -758,4 +758,104 @@ describe("Confirmation Status Tracking", () => {
       expect(openTasks.some(t => t.description?.includes(marker))).toBe(false);
     });
   });
+
+  describe("Expected to Collect / Variance", () => {
+    it("groups payload exposes expectedToCollect and expectedVariance", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+      const groups = await caller.customers.groups();
+      expect(groups.length).toBeGreaterThan(0);
+      for (const g of groups.slice(0, 20)) {
+        expect(typeof (g as any).expectedToCollect).toBe("number");
+        expect(typeof (g as any).expectedVariance).toBe("number");
+        expect((g as any).expectedVariance).toBeCloseTo(
+          (g as any).expectedToCollect - g.forecastExpected,
+          2,
+        );
+      }
+    });
+
+    it("Not Contacted → expected equals forecast; Broken → expected is 0; Promise to Pay → expected equals promised amount", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const customers = await db.listCustomers();
+      const cust = customers[0];
+      expect(cust).toBeTruthy();
+      const groupName = (cust.customerGroup ?? "").trim() || cust.name;
+
+      const findGroup = async () => {
+        const groups = await caller.customers.groups();
+        const g = groups.find(x => x.group === groupName);
+        expect(g).toBeTruthy();
+        return g! as any;
+      };
+
+      // Not Contacted → expected = forecast
+      await caller.calls.updateConfirmationStatus({ group: groupName, status: "Not Contacted" });
+      let g = await findGroup();
+      expect(g.expectedToCollect).toBeCloseTo(g.forecastExpected, 2);
+      expect(g.expectedVariance).toBeCloseTo(0, 2);
+
+      // Promise to Pay (DB: Confirmed) → expected = promised amount
+      await caller.calls.logCall({
+        group: groupName,
+        customerId: cust.id,
+        outcome: "Promised Payment",
+        confirmationStatus: "Confirmed",
+        confirmationAmount: 12345,
+        promisedDate: Date.now() + 5 * 24 * 60 * 60 * 1000,
+      });
+      g = await findGroup();
+      expect(g.expectedToCollect).toBeCloseTo(12345, 2);
+      expect(g.expectedVariance).toBeCloseTo(12345 - g.forecastExpected, 2);
+
+      // Broken → expected = 0
+      await caller.calls.updateConfirmationStatus({
+        group: groupName,
+        status: "Broken",
+        notes: "cannot pay (expected/variance test)",
+      });
+      g = await findGroup();
+      expect(g.expectedToCollect).toBe(0);
+      expect(g.expectedVariance).toBeCloseTo(-g.forecastExpected, 2);
+
+      // Reset back to Not Contacted so we don't leave test state behind
+      await caller.calls.updateConfirmationStatus({ group: groupName, status: "Not Contacted" });
+    });
+
+    it("Pending Follow-up → expected equals the pending amount", async () => {
+      const ctx = createAuthContext();
+      const caller = appRouter.createCaller(ctx);
+
+      const customers = await db.listCustomers();
+      const cust = customers[0];
+      expect(cust).toBeTruthy();
+      const groupName = (cust.customerGroup ?? "").trim() || cust.name;
+
+      await caller.calls.logCall({
+        group: groupName,
+        customerId: cust.id,
+        outcome: "Reached",
+        confirmationStatus: "Pending Follow-up",
+        confirmationAmount: 6500,
+        followUpDate: Date.now() + 3 * 24 * 60 * 60 * 1000,
+      });
+
+      const groups = await caller.customers.groups();
+      const g = groups.find(x => x.group === groupName) as any;
+      expect(g).toBeTruthy();
+      expect(g.expectedToCollect).toBeCloseTo(6500, 2);
+      expect(g.expectedVariance).toBeCloseTo(6500 - g.forecastExpected, 2);
+
+      // groupDetail must agree with the groups list
+      const detail = (await caller.customers.groupDetail({ group: groupName })) as any;
+      expect(detail.expectedToCollect).toBeCloseTo(6500, 2);
+      expect(detail.expectedVariance).toBeCloseTo(detail.expectedToCollect - detail.forecastExpected, 2);
+      expect(typeof detail.forecastInitial).toBe("number");
+
+      // Cleanup: reset to Not Contacted
+      await caller.calls.updateConfirmationStatus({ group: groupName, status: "Not Contacted" });
+    });
+  });
 });

@@ -473,15 +473,29 @@ export default function GroupDetail() {
                 <div className="text-xs text-muted-foreground">AI Forecast (this month)</div>
                 {groupForecast ? (
                   <>
-                    <div className="text-[11px] text-muted-foreground font-mono mb-1">
-                      Initial: {fmtEur(groupForecast.initialForecast ?? 0)} · Current: {fmtEur(groupForecast.expectedAmount)}
-                    </div>
                     <div className="text-xl font-bold font-mono text-emerald-700" title={groupForecast.aiReasoning ?? undefined}>
                       {fmtEur(groupForecast.expectedAmount)}
                     </div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
-                      collected {fmtEur(groupForecast.collected)} · remaining {fmtEur(groupForecast.remaining)}
+                    <div className="text-[11px] font-mono mt-0.5">
+                      <span className="text-muted-foreground">Expected: </span>
+                      <span className="font-semibold">
+                        {fmtEur((data as any).expectedToCollect ?? groupForecast.expectedAmount)}
+                      </span>
                     </div>
+                    {(() => {
+                      const variance =
+                        (data as any).expectedVariance ??
+                        ((data as any).expectedToCollect ?? groupForecast.expectedAmount) - groupForecast.expectedAmount;
+                      return (
+                        <div
+                          className={`text-[11px] font-mono mt-0.5 ${variance >= 0 ? "text-emerald-600" : "text-red-600"}`}
+                          title="Expected to Collect vs Forecast"
+                        >
+                          {variance >= 0 ? "+" : ""}
+                          {fmtEur(variance)} vs forecast
+                        </div>
+                      );
+                    })()}
                   </>
                 ) : (
                   <div className="text-sm text-muted-foreground mt-1">No forecast this month</div>

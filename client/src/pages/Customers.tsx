@@ -18,7 +18,7 @@ import LogCallDialog from "@/components/LogCallDialog";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
 
-type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "collected" | "remaining" | "overdueCount";
+type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "expected" | "collected" | "remaining" | "overdueCount";
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
 
 /** Click-to-edit forecast cell. Saving corrects the month's forecast (expected + initial baseline). */
@@ -281,6 +281,8 @@ export default function Customers() {
             return g.overdueEomBalance;
           case "forecast":
             return g.forecastExpected;
+          case "expected":
+            return (g as any).expectedToCollect ?? g.forecastExpected;
           case "collected":
             return g.collected;
           case "remaining":
@@ -302,17 +304,18 @@ export default function Customers() {
   const groupTotals = useMemo(
     () =>
       filteredGroups.reduce(
-        (t: { companies: number; open: number; overdue: number; overdueEom: number; forecast: number; collected: number; remaining: number; overdueCount: number }, g) => ({
+        (t: { companies: number; open: number; overdue: number; overdueEom: number; forecast: number; expected: number; collected: number; remaining: number; overdueCount: number }, g) => ({
           companies: t.companies + g.companyCount,
           open: t.open + g.openBalance,
           overdue: t.overdue + g.overdueBalance,
           overdueEom: t.overdueEom + g.overdueEomBalance,
           forecast: t.forecast + g.forecastExpected,
+          expected: t.expected + ((g as any).expectedToCollect ?? g.forecastExpected),
           collected: t.collected + g.collected,
           remaining: t.remaining + g.remaining,
           overdueCount: t.overdueCount + g.overdueCount,
         }),
-        { companies: 0, open: 0, overdue: 0, overdueEom: 0, forecast: 0, collected: 0, remaining: 0, overdueCount: 0 }
+        { companies: 0, open: 0, overdue: 0, overdueEom: 0, forecast: 0, expected: 0, collected: 0, remaining: 0, overdueCount: 0 }
       ),
     [filteredGroups]
   );
@@ -341,6 +344,7 @@ export default function Customers() {
       overdueEom: 0,
       forecastInitial: 0,
       forecastCurrent: 0,
+      expected: 0,
       collected: 0,
       remaining: 0,
       turnoverYtd: 0,
@@ -365,6 +369,7 @@ export default function Customers() {
       s.overdueEom += g.overdueEomBalance;
       s.forecastInitial += (g as any).forecastInitial ?? 0;
       s.forecastCurrent += g.forecastExpected;
+      s.expected += (g as any).expectedToCollect ?? g.forecastExpected;
       s.collected += g.collected;
       s.remaining += g.remaining;
       s.turnoverYtd += g.turnoverYtd ?? 0;
@@ -498,8 +503,19 @@ export default function Customers() {
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">AI Forecast (this month)</div>
                 <div className="text-xl font-bold font-mono text-emerald-700">{fmtEur(summary.forecastCurrent)}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
-                  Initial: {fmtEur(summary.forecastInitial)}
+                <div className="text-[11px] font-mono mt-0.5">
+                  <span className="text-muted-foreground">Expected: </span>
+                  <span className="font-semibold">{fmtEur(summary.expected)}</span>
+                </div>
+                <div
+                  className={`text-[11px] font-mono mt-0.5 ${summary.expected - summary.forecastCurrent >= 0 ? "text-emerald-600" : "text-red-600"}`}
+                  title="Expected to Collect vs Forecast"
+                >
+                  {summary.expected - summary.forecastCurrent >= 0 ? "+" : ""}
+                  {fmtEur(summary.expected - summary.forecastCurrent)}
+                  {summary.forecastCurrent > 0
+                    ? ` (${(((summary.expected - summary.forecastCurrent) / summary.forecastCurrent) * 100).toFixed(1)}%)`
+                    : ""}
                 </div>
               </CardContent>
             </Card>
@@ -582,6 +598,7 @@ export default function Customers() {
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
                     <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} />
                     <SortableHead label="AI Forecast" active={groupSort.key === "forecast"} dir={groupSort.dir} onClick={() => toggleGroupSort("forecast")} />
+                    <SortableHead label="Expected" active={groupSort.key === "expected"} dir={groupSort.dir} onClick={() => toggleGroupSort("expected")} />
                     <SortableHead label="Collected" active={groupSort.key === "collected"} dir={groupSort.dir} onClick={() => toggleGroupSort("collected")} />
                     <SortableHead label="Remaining" active={groupSort.key === "remaining"} dir={groupSort.dir} onClick={() => toggleGroupSort("remaining")} />
                     <TableHead className="w-10"></TableHead>
@@ -601,6 +618,9 @@ export default function Customers() {
                     </TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.forecast > 0 ? "text-emerald-700" : ""}`}>
                       {fmtEur(groupTotals.forecast)}
+                    </TableCell>
+                    <TableCell className={`text-right font-mono ${groupTotals.expected - groupTotals.forecast >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                      {fmtEur(groupTotals.expected)}
                     </TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.collected > 0 ? "text-emerald-700" : ""}`}>
                       {fmtEur(groupTotals.collected)}
@@ -667,6 +687,22 @@ export default function Customers() {
                       </TableCell>
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                         <EditableForecastCell group={g.group} value={g.forecastExpected} />
+                      </TableCell>
+                      <TableCell
+                        className={`text-right font-mono ${
+                          ((g as any).expectedToCollect ?? g.forecastExpected) - g.forecastExpected < 0
+                            ? "text-red-600"
+                            : ((g as any).expectedToCollect ?? g.forecastExpected) - g.forecastExpected > 0
+                              ? "text-emerald-700"
+                              : "text-muted-foreground"
+                        }`}
+                        title={
+                          g.confirmationStatus === "Not Contacted"
+                            ? "Not contacted yet — expected equals forecast"
+                            : `Based on last call (${confirmationStatusLabels[g.confirmationStatus] ?? g.confirmationStatus})`
+                        }
+                      >
+                        {fmtEur((g as any).expectedToCollect ?? g.forecastExpected)}
                       </TableCell>
                       <TableCell className={`text-right font-mono ${g.collected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                         {fmtEur(g.collected)}

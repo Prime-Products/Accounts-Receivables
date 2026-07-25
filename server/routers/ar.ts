@@ -536,6 +536,16 @@ export const customersRouter = router({
         const { overdue90Plus, promisesKept, promisesBroken, worstHold, turnoverYtd, turnoverLastYear, collected, ...rest } = g;
         const confirmation = confirmationByGroup.get(g.group);
         const aging = computeAging(groupInvoices.get(g.group) ?? [], now);
+        // Expected to Collect: live estimate driven by log calls.
+        // Not Contacted → forecast; Confirmed/Pending → confirmation amount; Broken → 0.
+        const confStatus = confirmation?.status ?? "Not Contacted";
+        const confAmount = confirmation?.amount ? Number(confirmation.amount) : 0;
+        const expectedToCollect =
+          confStatus === "Not Contacted"
+            ? forecastExpected
+            : confStatus === "Broken"
+              ? 0
+              : confAmount;
         return {
           ...rest,
           turnoverYtd,
@@ -543,6 +553,8 @@ export const customersRouter = router({
           branches: Array.from(g.branches).sort(),
           forecastExpected,
           forecastInitial: forecastInitialByGroup.get(g.group) ?? 0,
+          expectedToCollect,
+          expectedVariance: expectedToCollect - forecastExpected,
           hasForecast,
           aging: { current: aging.current, currentCount: aging.currentCount, buckets: aging.buckets },
           collected,
@@ -554,8 +566,8 @@ export const customersRouter = router({
           rating: ratingResult.rating,
           ratingScore: ratingResult.score,
           ratingFactors: ratingResult.factors,
-          confirmationStatus: confirmation?.status ?? "Not Contacted",
-          confirmationAmount: confirmation?.amount ? Number(confirmation.amount) : 0,
+          confirmationStatus: confStatus,
+          confirmationAmount: confAmount,
           confirmationFollowUpDate: confirmation?.followUpDate ?? null,
         };
       })
@@ -851,6 +863,13 @@ export const customersRouter = router({
         "Active" as string,
       );
       const activityLogs = await db.listActivityLog(input.group, 200).catch(() => []);
+      const gConfStatus = confirmation?.status ?? "Not Contacted";
+      const gConfAmount = confirmation?.amount ? Number(confirmation.amount) : 0;
+      const gExpectedToCollect =
+        gConfStatus === "Not Contacted" ? groupForecast : gConfStatus === "Broken" ? 0 : gConfAmount;
+      const groupForecastInitial = forecastRows
+        .filter(f => (f.customerGroup ?? "").trim() === input.group)
+        .reduce((s, f) => s + Number((f as any).initialForecast ?? 0), 0);
       return {
         group: input.group,
         companies,
@@ -864,9 +883,12 @@ export const customersRouter = router({
         watchStatus,
         watchOverride,
         forecastExpected: groupForecast,
+        forecastInitial: groupForecastInitial,
+        expectedToCollect: gExpectedToCollect,
+        expectedVariance: gExpectedToCollect - groupForecast,
         overdueEomBalance: gOverdueEom,
-        confirmationStatus: confirmation?.status ?? "Not Contacted",
-        confirmationAmount: confirmation?.amount ? Number(confirmation.amount) : 0,
+        confirmationStatus: gConfStatus,
+        confirmationAmount: gConfAmount,
         confirmationFollowUpDate: confirmation?.followUpDate ?? null,
         confirmationNotes: confirmation?.notes ?? null,
         totals: {

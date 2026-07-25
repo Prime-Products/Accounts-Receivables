@@ -529,3 +529,11 @@
 
 ## Compact AI Forecast summary card (user request 26/7)
 - [x] Customers page AI Forecast card: remove collected/remaining text, show only Initial and Current forecast values compactly
+
+## Forecast vs Expected to Collect model (user request 26/7)
+- [x] Backend: expected-to-collect per group = confirmation amount when contacted (Promise/Pending), 0 when Broken, forecast when Not Contacted
+- [x] Backend: expose expected + variance in customers.groups and groupDetail payloads
+- [x] Customers page: forecast card shows Forecast, Expected to Collect, and Variance with color (green ≥ 0, red < 0) + %
+- [x] Customers list: sortable "Expected" column per group + TOTAL cell, colored by variance vs forecast
+- [x] Group card: forecast KPI shows Forecast vs Expected vs Variance (colored)
+- [x] Vitest coverage for expected/variance computation (3 new tests; 141/141 passing)
