@@ -60,3 +60,26 @@ describe("month rollover — confirmation statuses reset each month", () => {
     await caller.calls.updateConfirmationStatus({ group, status: "Not Contacted" });
   });
 });
+
+describe("stale open promises — Not Contacted sweeps them", () => {
+  it("a promise created directly (no Confirmed status) is cancelled when status is set to Not Contacted", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+    const customers = await db.listCustomers();
+    const cust = customers[1] ?? customers[0];
+    expect(cust).toBeTruthy();
+    const group = (cust.customerGroup ?? "").trim() || cust.name;
+
+    // Create a promise directly (like the Promises page does) — confirmation status never set to Confirmed
+    const promised = Date.now() + 5 * 24 * 60 * 60 * 1000;
+    await caller.forecast.addPromise({ customerId: cust.id, amount: 4321, promisedDate: promised, notes: "regression test promise" });
+    const openBefore = await caller.calls.getOpenPromise({ group });
+    expect(openBefore).toBeTruthy();
+
+    // Set status to Not Contacted — previous status may be null or already Not Contacted
+    await caller.calls.updateConfirmationStatus({ group, status: "Not Contacted" });
+
+    // The open promise must be swept: dialog should no longer offer a reschedule
+    const openAfter = await caller.calls.getOpenPromise({ group });
+    expect(openAfter).toBeNull();
+  });
+});

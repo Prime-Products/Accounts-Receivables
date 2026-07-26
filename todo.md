@@ -562,3 +562,8 @@
 - [x] Audit: Collected/Paid/Remain computed from receipts within the current month window. OK
 - [x] Audit: promises and follow-up tasks keep absolute dates and appear as overdue after rollover (intentional — they need manual resolution)
 - [x] Regression test: Promise to Pay recorded last month → presented as Not Contacted this month, Expected falls back to forecast (146/146 passing)
+
+## Stale open promise after Not Contacted (user bug 26/7 — DYNACOM)
+- [x] Fix: setting status to Not Contacted or Broken now cancels ALL open (Pending) promises of the group + linked follow-up tasks, regardless of previous status (covers promises created directly from the Promises page)
+- [x] Backfill: DYNACOM's stale Pending promises (€1,111,000 / €700 / €20,000) marked Broken; open check task cancelled; 0 open promises remain
+- [x] Regression test: open promise + status → Not Contacted ⇒ getOpenPromise returns null (147/147 passing)

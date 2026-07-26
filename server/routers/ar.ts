@@ -258,10 +258,12 @@ async function cleanupStatusArtifacts(
   ctx: { user: { id: number; name: string | null } },
   input: { group: string; previousStatus: string | null; newStatus: string }
 ) {
-  if (!input.previousStatus || input.previousStatus === input.newStatus) {
-    // Same status (e.g. Pending → Pending reschedule) is handled by upsert helpers.
-    if (input.previousStatus === input.newStatus) return;
-  }
+  // Same-status re-saves are normally handled by the upsert helpers (e.g. Pending →
+  // Pending reschedule) — but "Not Contacted" / "Broken" re-saves must still sweep
+  // stale open promises (promises can be created directly from the Promises page,
+  // leaving them orphaned from the confirmation-status workflow).
+  const sweepStatuses = ["Not Contacted", "Broken"];
+  if (input.previousStatus === input.newStatus && !sweepStatuses.includes(input.newStatus)) return;
   const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
 
   // Any status other than "Pending Follow-up" makes an open follow-up call task obsolete —
@@ -279,10 +281,20 @@ async function cleanupStatusArtifacts(
     }
   }
 
-  // Leaving "Confirmed" (Promise to Pay): cancel the open promise + its check task.
-  if (input.previousStatus === "Confirmed" && input.newStatus !== "Confirmed") {
-    const open = await findOpenGroupPromise(input.group);
-    if (open) {
+  // "Not Contacted" and "Broken" mean "there is no active promise" — cancel ALL open
+  // promises of the group and their linked check tasks, regardless of the previous
+  // status (promises can also be created directly from the Promises page, so the
+  // confirmation status row may never have been "Confirmed").
+  // Leaving "Confirmed" to any other status also cancels the open promise(s).
+  const promisesObsolete =
+    input.newStatus === "Not Contacted" ||
+    input.newStatus === "Broken" ||
+    (input.previousStatus === "Confirmed" && input.newStatus !== "Confirmed");
+  if (promisesObsolete) {
+    // Cancel every open promise (not just the newest) so nothing stale lingers.
+    for (let guard = 0; guard < 20; guard++) {
+      const open = await findOpenGroupPromise(input.group);
+      if (!open) break;
       await db.updatePromise(open.id, { status: "Broken" });
       await audit(ctx, "Cancel Promise-to-Pay", "promiseToPay", open.id, `${input.group}: promise cancelled (status → ${input.newStatus})`);
       const marker = `(Promise #${open.id})`;
