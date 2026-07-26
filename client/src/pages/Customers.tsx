@@ -763,6 +763,11 @@ export default function Customers() {
                             Follow-up: {fmtDate(g.confirmationFollowUpDate)}
                           </div>
                         )}
+                        {g.confirmationStatus === "Confirmed" && g.confirmationPromiseDate && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Pay by: {fmtDate(g.confirmationPromiseDate)}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className={`text-right font-mono ${g.confirmationAmount > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                         {fmtEur(g.confirmationAmount)}

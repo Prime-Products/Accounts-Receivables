@@ -65,9 +65,13 @@ describe("stale open promises — Not Contacted sweeps them", () => {
   it("a promise created directly (no Confirmed status) is cancelled when status is set to Not Contacted", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const customers = await db.listCustomers();
-    const cust = customers[1] ?? customers[0];
+    const groupOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
+    const firstGroup = customers[0] ? groupOf(customers[0]) : "";
+    // Pick a customer whose group differs from customers[0]'s group — groupForecast.test.ts
+    // uses customers[0] concurrently, and our Not Contacted sweep would cancel its promise task.
+    const cust = customers.find(c => groupOf(c) !== firstGroup) ?? customers[0];
     expect(cust).toBeTruthy();
-    const group = (cust.customerGroup ?? "").trim() || cust.name;
+    const group = groupOf(cust);
 
     // Create a promise directly (like the Promises page does) — confirmation status never set to Confirmed
     const promised = Date.now() + 5 * 24 * 60 * 60 * 1000;
@@ -81,5 +85,33 @@ describe("stale open promises — Not Contacted sweeps them", () => {
     // The open promise must be swept: dialog should no longer offer a reschedule
     const openAfter = await caller.calls.getOpenPromise({ group });
     expect(openAfter).toBeNull();
+  });
+});
+
+describe("groups payload — promise date under badge", () => {
+  it("a Confirmed group with an open promise exposes confirmationPromiseDate", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+    const customers = await db.listCustomers();
+    const groupOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
+    const firstGroup = customers[0] ? groupOf(customers[0]) : "";
+    const candidates = customers.filter(c => groupOf(c) !== firstGroup);
+    const cust = candidates[1] ?? candidates[0] ?? customers[0];
+    expect(cust).toBeTruthy();
+    const group = groupOf(cust);
+
+    const promised = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    await caller.calls.updateConfirmationStatus({ group, status: "Confirmed", amount: 1234 });
+    await caller.forecast.addPromise({ customerId: cust.id, amount: 1234, promisedDate: promised, notes: "badge date test" });
+
+    const groups = await caller.customers.groups();
+    const row = groups.find(g => g.group === group);
+    expect(row).toBeTruthy();
+    expect(row!.confirmationStatus).toBe("Confirmed");
+    expect(row!.confirmationPromiseDate).toBeTruthy();
+
+    // Cleanup: back to Not Contacted sweeps the promise
+    await caller.calls.updateConfirmationStatus({ group, status: "Not Contacted" });
+    const after = await caller.calls.getOpenPromise({ group });
+    expect(after).toBeNull();
   });
 });

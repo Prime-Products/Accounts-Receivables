@@ -479,10 +479,17 @@ export const customersRouter = router({
     // Per-group behavior (weighted) and promise tallies for ratings
     const groupBehavior = aggregateGroupBehavior(behavior as BehaviorRow[]);
     const promisesByCustomer = new Map<number, { kept: number; broken: number }>();
+    // Earliest open (Pending) promise date per customer — surfaced under the
+    // "Promise to Pay" badge in the groups table (mirrors the follow-up date).
+    const openPromiseDateByCustomer = new Map<number, number>();
     for (const p of allPromises) {
       const e = promisesByCustomer.get(p.customerId) ?? { kept: 0, broken: 0 };
       if (p.status === "Kept") e.kept++;
       else if (p.status === "Broken") e.broken++;
+      else if (p.status === "Pending") {
+        const cur = openPromiseDateByCustomer.get(p.customerId);
+        if (cur === undefined || p.promisedDate < cur) openPromiseDateByCustomer.set(p.customerId, p.promisedDate);
+      }
       promisesByCustomer.set(p.customerId, e);
     }
     const HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
@@ -505,6 +512,7 @@ export const customersRouter = router({
         turnoverYtd: number;
         turnoverLastYear: number;
         collected: number;
+        openPromiseDate: number | null;
       }
     >();
     const groupInvoices = new Map<string, typeof invoices>();
@@ -512,7 +520,7 @@ export const customersRouter = router({
       const key = (c.customerGroup ?? "").trim() || c.name;
       let g = groups.get(key);
       if (!g) {
-        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set(), overdue90Plus: 0, promisesKept: 0, promisesBroken: 0, worstHold: "Active", turnoverYtd: 0, turnoverLastYear: 0, collected: 0 };
+        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set(), overdue90Plus: 0, promisesKept: 0, promisesBroken: 0, worstHold: "Active", turnoverYtd: 0, turnoverLastYear: 0, collected: 0, openPromiseDate: null };
         groups.set(key, g);
       }
       let gInv = groupInvoices.get(key);
@@ -529,6 +537,8 @@ export const customersRouter = router({
         g.promisesKept += prom.kept;
         g.promisesBroken += prom.broken;
       }
+      const opd = openPromiseDateByCustomer.get(c.id);
+      if (opd !== undefined && (g.openPromiseDate === null || opd < g.openPromiseDate)) g.openPromiseDate = opd;
       if ((HOLD_SEVERITY[c.onHoldStatus] ?? 0) > (HOLD_SEVERITY[g.worstHold] ?? 0)) g.worstHold = c.onHoldStatus;
       for (const inv of byCustomer.get(c.id) ?? []) {
         if (!isOpenInvoice(inv)) continue;
@@ -570,7 +580,7 @@ export const customersRouter = router({
         const watchStatus = resolved.status;
         const watchOverride = row && row.status !== "Auto" ? (row.status === "On Watch" ? "Problematic" : row.status) : null;
         const problematic = watchStatus === "Problematic" || watchStatus === "Critical";
-        const { overdue90Plus, promisesKept, promisesBroken, worstHold, turnoverYtd, turnoverLastYear, collected, ...rest } = g;
+        const { overdue90Plus, promisesKept, promisesBroken, worstHold, turnoverYtd, turnoverLastYear, collected, openPromiseDate, ...rest } = g;
         const confirmation = confirmationByGroup.get(g.group);
         const aging = computeAging(groupInvoices.get(g.group) ?? [], now);
         // Expected to Collect: live estimate driven by log calls.
@@ -608,6 +618,8 @@ export const customersRouter = router({
           confirmationStatus: confStatus,
           confirmationAmount: confAmount,
           confirmationFollowUpDate: confirmation?.followUpDate ?? null,
+          // Earliest open promise date — shown under the "Promise to Pay" badge.
+          confirmationPromiseDate: confStatus === "Confirmed" ? openPromiseDate : null,
         };
       })
       .sort((a, b) => b.openBalance - a.openBalance);
