@@ -570,3 +570,28 @@
 
 ## Promise date under badge (user request 26/7)
 - [x] Customers list: show the promised payment date ("Pay by: dd/mm/yyyy") under the "Promise to Pay" badge (same pattern as the follow-up date under "Pending Follow-up")
+
+
+## Payment Reconciliation System (Manual Allocation) — User Request
+
+- [ ] Backend: Create `payments.recordPayment` tRPC procedure to create a new receipt (amount, date, method, notes, customerId)
+- [ ] Backend: Create `payments.getOpenInvoices` tRPC procedure to fetch open/partially paid invoices for a customer
+- [ ] Backend: Create `payments.allocatePayment` tRPC procedure to allocate a receipt to one or more invoices (receiptId, allocations: [{invoiceId, amount}])
+- [ ] Backend: Update invoice status logic when allocations are created (Open → Partially Paid → Paid based on paidAmount)
+- [ ] Backend: Add vitest tests for payment recording and allocation logic
+- [ ] Frontend: Add "Record Payment" button to CustomerDetail or GroupDetail actions
+- [ ] Frontend: Create payment recording modal (amount, date, method, notes)
+- [ ] Frontend: Create invoice allocation dialog (list of open invoices with checkboxes, amount input for partial payments, total validation)
+- [ ] Frontend: Show allocated amounts on invoices (Paid / Partially Paid status with visual indicator)
+- [ ] Frontend: Add optimistic updates for payment allocation
+- [ ] Test end-to-end: record payment, allocate to invoices, verify status updates and invoice list reflects changes
+- [ ] Checkpoint: Payment reconciliation system complete
+
+
+## Full Quality Audit (user request 26/7)
+
+- [x] Static checks: TypeScript compile, full test suite, dev-server/browser logs for errors
+- [x] Data consistency: invoice paidAmount vs allocations, statuses vs open promises/tasks, forecast entries vs current month, orphan rows
+- [x] Visual verification of all main pages (Dashboard, Customers, Group card, Customer 360, Forecast, Tasks, Invoices, Contacts, Reports, Settings)
+- [x] Fix issues found during audit (1 stale test updated; 5 stale promises cancelled; all vitest fixture data purged from DB)
+- [ ] Deliver audit report to user
