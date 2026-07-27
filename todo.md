@@ -635,12 +635,12 @@
 - [x] Frontend: search dropdown shows "Wire transfer / Payment" result group linking to /wire-transfers
 
 ## Vessels on all invoices (user request 27/7)
-- [ ] Schema: vessels table (name, optional customerId/imo/notes) + vesselId on invoices (available on ALL invoices, optional); migration applied
-- [ ] Backend: vessels list/create procedures; invoice create/update accepts vesselId; invoice queries return vessel name
-- [ ] Frontend: vessel select (with inline "add new vessel") on invoice create/edit forms
-- [ ] Frontend: Vessel column/badge on invoice lists (Invoices page, group/customer cards)
-- [ ] Search: vessel name matches return invoices of that vessel
-- [ ] Tests for vessel CRUD and invoice-vessel linking
+- [x] Schema: vessels table (name, optional customerId/imo/notes) + vesselId on invoices (available on ALL invoices, optional); migration applied
+- [x] Backend: vessels list/create procedures; invoice create/update accepts vesselId; invoice queries return vessel name
+- [x] Frontend: vessel select (with inline "add new vessel") on invoice create/edit forms
+- [x] Frontend: Vessel column/badge on invoice lists (Invoices page, group/customer cards)
+- [x] Search: vessel name matches return invoices of that vessel
+- [x] Tests for vessel CRUD and invoice-vessel linking
 - [x] Update Collected calculation to include received wire transfers
 - [x] Update Dashboard KPIs to reflect wire transfers in collected amounts
 - [x] Write tests for wire transfer impact on balances
