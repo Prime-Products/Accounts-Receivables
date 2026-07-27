@@ -786,3 +786,8 @@
 - [x] Rename "Broken" display label to "Not Confirmed Payment" (badges, Log Call dialog, filters; promise buttons show "Not Confirmed"; DB values unchanged)
 - [x] Tests: 3 new confirmationTaskLink tests; full suite green (1 known parallel-run flake passes in isolation)
 - [x] Verify visually, checkpoint
+
+## Performance: limited initial rendering (user request 28/7)
+- [x] Customers groups list: render first 100 rows with "Show all" footer (companies view too)
+- [x] Invoices list: initial render reduced to 100 rows with "Load 500 more" / "Show all" footer
+- [x] Verify visually, checkpoint

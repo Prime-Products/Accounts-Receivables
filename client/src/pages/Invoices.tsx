@@ -131,7 +131,7 @@ export default function Invoices() {
 
   // Incremental rendering: mounting 5000+ table rows freezes the browser for
   // seconds. Render a window and grow it on demand.
-  const [visibleCount, setVisibleCount] = useState(200);
+  const [visibleCount, setVisibleCount] = useState(100);
   useEffect(() => {
     setVisibleCount(200);
   }, [statusFilter, bucketFilter, branchFilter, vesselFilter, search, groupDrill]);

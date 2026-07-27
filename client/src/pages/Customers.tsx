@@ -264,6 +264,9 @@ export default function Customers() {
   const { data: teamMembers } = trpc.team.list.useQuery();
   const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
   const [companySort, setCompanySort] = useState<{ key: CompanySortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
+  // Performance: render only the first 100 rows initially; "Show all" reveals the rest.
+  const [showAllGroups, setShowAllGroups] = useState(false);
+  const [showAllCompanies, setShowAllCompanies] = useState(false);
 
   const toggleGroupSort = (key: GroupSortKey) =>
     setGroupSort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
@@ -757,7 +760,7 @@ export default function Customers() {
                     </TableCell>
                     <TableCell></TableCell>
                   </TableRow>
-                  {filteredGroups.map(g => (
+                  {(showAllGroups ? filteredGroups : filteredGroups.slice(0, 100)).map(g => (
                     <TableRow
                       key={g.group}
                       className="cursor-pointer"
@@ -850,6 +853,18 @@ export default function Customers() {
                       </TableCell>
                     </TableRow>
                   ))}
+                  {!showAllGroups && filteredGroups.length > 100 && (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={12} className="text-center py-4">
+                        <span className="text-sm text-muted-foreground mr-3">
+                          Showing 100 of {filteredGroups.length.toLocaleString()} groups
+                        </span>
+                        <Button variant="outline" size="sm" onClick={() => setShowAllGroups(true)}>
+                          Show all
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             )
@@ -888,7 +903,7 @@ export default function Customers() {
                   </TableCell>
                   <TableCell className="text-right font-mono">{fmtEur(companyTotals.credit)}</TableCell>
                 </TableRow>
-                {filtered.map(c => (
+                {(showAllCompanies ? filtered : filtered.slice(0, 100)).map(c => (
                   <TableRow key={c.id} className="cursor-pointer" onClick={() => navigate(`/customers/${c.id}`)}>
                     <TableCell className="font-mono text-sm">{c.code}</TableCell>
                     <TableCell className="font-medium">{c.name}</TableCell>
@@ -920,6 +935,18 @@ export default function Customers() {
                     <TableCell className="text-right font-mono">{fmtEur(c.creditLimit)}</TableCell>
                   </TableRow>
                 ))}
+                {!showAllCompanies && filtered.length > 100 && (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={8} className="text-center py-4">
+                      <span className="text-sm text-muted-foreground mr-3">
+                        Showing 100 of {filtered.length.toLocaleString()} companies
+                      </span>
+                      <Button variant="outline" size="sm" onClick={() => setShowAllCompanies(true)}>
+                        Show all
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           )}
