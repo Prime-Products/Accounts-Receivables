@@ -99,6 +99,7 @@ export default function WireTransfersPage() {
   const [customerFilter, setCustomerFilter] = useState("all");
   const [branchFilter, setBranchFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState<"all" | "customer" | "internal">("all");
+  const [allocationFilter, setAllocationFilter] = useState<"all" | "unallocated" | "partial" | "full">("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -119,11 +120,20 @@ export default function WireTransfersPage() {
       if (branchFilter !== "all" && t.branch !== branchFilter) return false;
       if (typeFilter === "customer" && t.isInternal) return false;
       if (typeFilter === "internal" && !t.isInternal) return false;
+      if (allocationFilter !== "all") {
+        // Allocation state only meaningful for received customer transfers
+        if (t.isInternal) return false;
+        const alloc = Number(t.allocatedAmount ?? 0);
+        const unalloc = Number(t.unallocatedAmount ?? 0);
+        if (allocationFilter === "unallocated" && !(alloc <= 0.005 && unalloc > 0.005)) return false;
+        if (allocationFilter === "partial" && !(alloc > 0.005 && unalloc > 0.005)) return false;
+        if (allocationFilter === "full" && !(unalloc <= 0.005 && alloc > 0.005)) return false;
+      }
       if (dateFrom && new Date(Number(t.transferDate)) < new Date(dateFrom)) return false;
       if (dateTo && new Date(Number(t.transferDate)) > new Date(dateTo + "T23:59:59")) return false;
       return true;
     });
-  }, [allTransfers, statusFilter, customerFilter, branchFilter, typeFilter, dateFrom, dateTo]);
+  }, [allTransfers, statusFilter, customerFilter, branchFilter, typeFilter, allocationFilter, dateFrom, dateTo]);
 
   // Calculate totals
   const totals = useMemo(() => {
@@ -133,7 +143,11 @@ export default function WireTransfersPage() {
     const received = filteredTransfers
       .filter((t: any) => t.status === "Received" && !t.isInternal)
       .reduce((sum: number, t: any) => sum + Number(t.amount), 0);
-    return { pending, received };
+    const notFullyAllocated = filteredTransfers.filter(
+      (t: any) => t.status === "Received" && !t.isInternal && Number(t.unallocatedAmount ?? 0) > 0.005
+    );
+    const unallocated = notFullyAllocated.reduce((sum: number, t: any) => sum + Number(t.unallocatedAmount ?? 0), 0);
+    return { pending, received, unallocated, unallocatedCount: notFullyAllocated.length };
   }, [filteredTransfers]);
 
   return (
@@ -158,7 +172,7 @@ export default function WireTransfersPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Pending</CardTitle>
@@ -190,6 +204,25 @@ export default function WireTransfersPage() {
           <CardContent>
             <div className="text-2xl font-bold">{fmtCur(totals.pending + totals.received, "EUR")}</div>
             <p className="text-xs text-muted-foreground mt-1">{filteredTransfers.length} transfers</p>
+          </CardContent>
+        </Card>
+
+        <Card
+          className={cn(
+            "cursor-pointer transition-colors",
+            allocationFilter === "unallocated" ? "border-amber-500 bg-amber-50/50" : "hover:border-amber-300"
+          )}
+          onClick={() => setAllocationFilter(allocationFilter === "unallocated" ? "all" : "unallocated")}
+          title="Click to show only transfers with unallocated amounts"
+        >
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-amber-700">Unallocated</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-amber-700">{fmtCur(totals.unallocated, "EUR")}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {totals.unallocatedCount} transfer(s) not fully allocated
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -225,6 +258,21 @@ export default function WireTransfersPage() {
                   <SelectItem value="all">All types</SelectItem>
                   <SelectItem value="customer">Customer transfers</SelectItem>
                   <SelectItem value="internal">Internal (inter-office)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="allocation-filter">Allocation</Label>
+              <Select value={allocationFilter} onValueChange={(v) => setAllocationFilter(v as any)}>
+                <SelectTrigger id="allocation-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="unallocated">Not allocated</SelectItem>
+                  <SelectItem value="partial">Partially allocated</SelectItem>
+                  <SelectItem value="full">Fully allocated</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -342,9 +390,18 @@ export default function WireTransfersPage() {
                           <TableCell>{fmtCur(Number(t.amount), t.currency)}</TableCell>
                           <TableCell className="text-sm font-mono">
                             {Number(t.allocatedAmount) > 0 ? (
-                              <span className={Number(t.unallocatedAmount) <= 0.005 ? "text-green-700" : "text-amber-700"}>
-                                {fmtCur(Number(t.allocatedAmount), t.currency)}
-                              </span>
+                              <>
+                                <span className={Number(t.unallocatedAmount) <= 0.005 ? "text-green-700" : "text-amber-700"}>
+                                  {fmtCur(Number(t.allocatedAmount), t.currency)}
+                                </span>
+                                {Number(t.unallocatedAmount) > 0.005 && (
+                                  <div className="text-[11px] text-amber-600">
+                                    {fmtCur(Number(t.unallocatedAmount), t.currency)} left
+                                  </div>
+                                )}
+                              </>
+                            ) : !t.isInternal && t.status === "Received" ? (
+                              <span className="text-amber-600 text-xs font-medium">not allocated</span>
                             ) : (
                               "-"
                             )}

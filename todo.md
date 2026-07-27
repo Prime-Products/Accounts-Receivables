@@ -691,3 +691,4 @@
 - [x] Deleting a wire transfer cascades: revert its allocations on invoices, delete allocations, and delete derived internal transfers; clean up current orphaned internal rows
 - [x] Shorten internal transfer subtitle to "for invoice {invoiceNumber}" only
 - [x] Wire Transfers table: actions (Update/Allocate) visible without horizontal scrolling — compact columns / responsive layout
+- [x] Find companies/transfers with unallocated sums: Allocation filter (Not/Partially/Fully allocated), Unallocated KPI card, unallocated amount visible per row
