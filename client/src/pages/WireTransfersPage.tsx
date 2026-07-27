@@ -12,7 +12,7 @@ import { toast } from "sonner";
 
 export default function WireTransfersPage() {
   const [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "Received">("All");
-  const [customerFilter, setCustomerFilter] = useState("");
+  const [customerFilter, setCustomerFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -28,7 +28,7 @@ export default function WireTransfersPage() {
   const filteredTransfers = useMemo(() => {
     return allTransfers.filter((t: any) => {
       if (statusFilter !== "All" && t.status !== statusFilter) return false;
-      if (customerFilter && t.customerId !== Number(customerFilter)) return false;
+      if (customerFilter && customerFilter !== "all" && t.customerId !== Number(customerFilter)) return false;
       if (dateFrom && new Date(Number(t.transferDate)) < new Date(dateFrom)) return false;
       if (dateTo && new Date(Number(t.transferDate)) > new Date(dateTo)) return false;
       return true;
@@ -132,7 +132,7 @@ export default function WireTransfersPage() {
                   <SelectValue placeholder="All customers" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All customers</SelectItem>
+                  <SelectItem value="all">All customers</SelectItem>
                   {(customers as any[]).map((c: any) => (
                     <SelectItem key={c.id} value={String(c.id)}>
                       {c.name}
