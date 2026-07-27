@@ -608,3 +608,12 @@
 - [x] UI: Create BankDetails component for Customer 360 card
 - [x] Tests: Write vitest for bank details procedures (6/6 passing)
 - [x] Verify: Run full test suite and checkpoint (154/154 passing)
+
+## Wire Transfers Feature (Phase 2 of Wire Transfers/Credit Notes/Netting)
+
+- [x] Schema: Add wire_transfers table to drizzle/schema.ts
+- [x] Migration: Generate and apply SQL for wire_transfers
+- [x] Backend: Add procedures (add, update, get, list, delete wire transfers)
+- [x] UI: Create WireTransfers component for Customer 360 card
+- [x] Tests: Write vitest for wire transfers procedures (4/4 passing)
+- [x] Verify: Run full test suite and checkpoint (158/158 passing)

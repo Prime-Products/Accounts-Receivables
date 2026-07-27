@@ -448,3 +448,34 @@ export const paymentBankDetails = mysqlTable("payment_bank_details", {
 
 export type PaymentBankDetails = typeof paymentBankDetails.$inferSelect;
 export type InsertPaymentBankDetails = typeof paymentBankDetails.$inferInsert;
+
+export const wireTransfers = mysqlTable("wire_transfers", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull(),
+  
+  // Wire transfer details
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull().$type<number>(),
+  currency: varchar("currency", { length: 8 }).default("EUR").notNull(),
+  transferDate: bigint("transferDate", { mode: "number" }).notNull(), // Unix timestamp in milliseconds
+  
+  // Status tracking: Pending (waiting to receive) or Received
+  status: mysqlEnum("status", ["Pending", "Received"]).default("Pending").notNull(),
+  receivedDate: bigint("receivedDate", { mode: "number" }), // Unix timestamp when payment was received (null if still pending)
+  
+  // Reference and notes
+  referenceNumber: varchar("referenceNumber", { length: 255 }), // Bank reference or transaction ID
+  notes: text("notes"),
+  
+  // Audit trail
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_wire_transfers_customerId").on(t.customerId),
+  index("idx_wire_transfers_status").on(t.status),
+  index("idx_wire_transfers_transferDate").on(t.transferDate),
+]);
+
+export type WireTransfer = typeof wireTransfers.$inferSelect;
+export type InsertWireTransfer = typeof wireTransfers.$inferInsert;

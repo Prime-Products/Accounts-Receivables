@@ -814,3 +814,39 @@ export async function deleteBankDetails(customerId: number) {
   const db = await requireDb();
   await db.delete(paymentBankDetails).where(eq(paymentBankDetails.customerId, customerId));
 }
+
+
+// ---------- Wire Transfers ----------
+import { wireTransfers, InsertWireTransfer, WireTransfer } from "../drizzle/schema";
+
+export async function createWireTransfer(data: InsertWireTransfer) {
+  const db = await requireDb();
+  const res = await db.insert(wireTransfers).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function getWireTransfer(id: number) {
+  const db = await requireDb();
+  const r = await db.select().from(wireTransfers).where(eq(wireTransfers.id, id)).limit(1);
+  return r[0] || null;
+}
+
+export async function listWireTransfersByCustomerId(customerId: number) {
+  const db = await requireDb();
+  return db.select().from(wireTransfers).where(eq(wireTransfers.customerId, customerId)).orderBy(desc(wireTransfers.transferDate));
+}
+
+export async function listWireTransfersByStatus(status: "Pending" | "Received") {
+  const db = await requireDb();
+  return db.select().from(wireTransfers).where(eq(wireTransfers.status, status)).orderBy(desc(wireTransfers.transferDate));
+}
+
+export async function updateWireTransfer(id: number, data: Partial<InsertWireTransfer>) {
+  const db = await requireDb();
+  await db.update(wireTransfers).set(data).where(eq(wireTransfers.id, id));
+}
+
+export async function deleteWireTransfer(id: number) {
+  const db = await requireDb();
+  await db.delete(wireTransfers).where(eq(wireTransfers.id, id));
+}

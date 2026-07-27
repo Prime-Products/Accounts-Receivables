@@ -3,6 +3,7 @@ import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
 import { BankDetails } from "@/components/BankDetails";
+import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -304,6 +305,7 @@ export default function CustomerDetail() {
           <TabsTrigger value="contracts">Contracts ({contracts.length})</TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
           <TabsTrigger value="bankDetails">Bank Details</TabsTrigger>
+          <TabsTrigger value="wireTransfers">Wire Transfers</TabsTrigger>
         </TabsList>
 
         <TabsContent value="invoices">
@@ -521,6 +523,10 @@ export default function CustomerDetail() {
 
         <TabsContent value="bankDetails">
           <BankDetails customerId={customer.id} />
+        </TabsContent>
+
+        <TabsContent value="wireTransfers">
+          <WireTransfers customerId={customer.id} />
         </TabsContent>
       </Tabs>
     </div>

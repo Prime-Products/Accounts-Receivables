@@ -1328,6 +1328,60 @@ export const customersRouter = router({
       await audit(ctx, "Delete Bank Details", "customer", input.customerId);
       return { success: true };
     }),
+
+  listWireTransfers: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .query(async ({ input }) => {
+      return db.listWireTransfersByCustomerId(input.customerId);
+    }),
+
+  createWireTransfer: protectedProcedure
+    .input(
+      z.object({
+        customerId: z.number(),
+        amount: z.number().positive(),
+        currency: z.string().default("EUR"),
+        transferDate: z.number(),
+        status: z.enum(["Pending", "Received"]).default("Pending"),
+        receivedDate: z.number().optional().nullable(),
+        referenceNumber: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const id = await db.createWireTransfer({
+        ...input,
+        createdBy: ctx.user.id,
+      });
+      await audit(ctx, "Create Wire Transfer", "customer", input.customerId, `EUR ${input.amount}`);
+      return { id, success: true };
+    }),
+
+  updateWireTransfer: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        customerId: z.number(),
+        status: z.enum(["Pending", "Received"]).optional(),
+        receivedDate: z.number().optional().nullable(),
+        referenceNumber: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, customerId, ...data } = input;
+      await db.updateWireTransfer(id, { ...data, updatedBy: ctx.user.id });
+      await audit(ctx, "Update Wire Transfer", "customer", customerId);
+      return { success: true };
+    }),
+
+  deleteWireTransfer: protectedProcedure
+    .input(z.object({ id: z.number(), customerId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await db.deleteWireTransfer(input.id);
+      await audit(ctx, "Delete Wire Transfer", "customer", input.customerId);
+      return { success: true };
+    }),
 });
 
 export const invoicesRouter = router({
