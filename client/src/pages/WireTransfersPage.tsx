@@ -229,7 +229,7 @@ function CreateWireTransferForm({
   onSuccess: () => void;
   customers: Array<{ id: number; name: string }>;
 }) {
-  const [customerId, setCustomerId] = useState("");
+  const [customerId, setCustomerId] = useState("0");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("EUR");
   const [transferDate, setTransferDate] = useState(new Date().toISOString().split("T")[0]);
@@ -248,7 +248,7 @@ function CreateWireTransferForm({
   });
 
   const handleSubmit = () => {
-    if (!customerId || !amount) {
+    if (!customerId || customerId === "0" || !amount) {
       toast.error("Customer and Amount are required");
       return;
     }
@@ -274,11 +274,15 @@ function CreateWireTransferForm({
             <SelectValue placeholder="Select customer" />
           </SelectTrigger>
           <SelectContent>
-            {customers.map((c: any) => (
+            {(customers as any[]).length > 0 ? (
+              customers.map((c: any) => (
               <SelectItem key={c.id} value={String(c.id)}>
                 {c.name}
               </SelectItem>
-            ))}
+            ))
+            ) : (
+              <div className="p-2 text-sm text-muted-foreground">No customers available</div>
+            )}
           </SelectContent>
         </Select>
       </div>
