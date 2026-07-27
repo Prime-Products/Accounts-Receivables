@@ -1,4 +1,3 @@
-import GlobalSearch from "@/components/GlobalSearch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -67,7 +66,6 @@ export default function Home() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <GlobalSearch />
           <Button variant="outline" className="gap-2" onClick={() => navigate("/forecast")}>
             <Target className="h-4 w-4" /> Monthly Target (from Forecast)
           </Button>

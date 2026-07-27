@@ -19,6 +19,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
+import GlobalSearch from "@/components/GlobalSearch";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
@@ -283,6 +284,9 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
+        <div className="sticky top-0 z-40 flex h-12 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:backdrop-blur">
+          <GlobalSearch />
+        </div>
         <main className="flex-1 p-4">{children}</main>
       </SidebarInset>
     </>

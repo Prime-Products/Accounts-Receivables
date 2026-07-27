@@ -695,3 +695,6 @@
 - [x] Backend: cancelInvoicePayment procedure — revert all allocations of an invoice (restore status/paidAmount, free wire transfer amount, delete derived internal transfers, audit)
 - [x] Frontend: "Cancel payment" action on invoice rows (Invoices page + customer tab) with confirmation dialog
 - [x] Tests for cancelInvoicePayment (revert to Open, transfer freed, internal transfer removed)
+- [x] Global search available on all pages (in DashboardLayout header), not only Dashboard
+- [x] Remove duplicate search bar from Dashboard page
+- [x] Inline search: click and type directly, results in dropdown below the input — no modal

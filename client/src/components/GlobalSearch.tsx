@@ -1,40 +1,47 @@
 import { Badge } from "@/components/ui/badge";
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { Building2, FileText, ListChecks, Search, StickyNote, Users } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Building2, FileText, ListChecks, Loader2, Search, StickyNote, Users, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 
-/** Global search bar (command-palette style) that searches groups, companies, invoices, notes, and tasks. */
+/**
+ * Global inline search — available on every page (rendered in the app layout).
+ * Click the input and type directly; results appear in a dropdown below.
+ * No modal. Cmd/Ctrl+K focuses the input. Esc closes the dropdown.
+ */
 export default function GlobalSearch() {
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
+  const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 300);
     return () => clearTimeout(t);
   }, [query]);
 
-  // Ctrl/Cmd+K shortcut
+  // Ctrl/Cmd+K focuses the input
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setOpen(o => !o);
+        inputRef.current?.focus();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
   const enabled = debounced.length >= 2;
@@ -50,96 +57,138 @@ export default function GlobalSearch() {
   };
 
   const hasResults =
-    !!data && (data.groups.length > 0 || data.companies.length > 0 || data.invoices.length > 0 || data.notes.length > 0 || data.tasks.length > 0);
+    !!data &&
+    (data.groups.length > 0 ||
+      data.companies.length > 0 ||
+      data.invoices.length > 0 ||
+      data.notes.length > 0 ||
+      data.tasks.length > 0);
+
+  const showDropdown = open && query.trim().length >= 2;
+
+  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <div className="py-1">
+      <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</div>
+      {children}
+    </div>
+  );
+
+  const Row = ({ onClick, children }: { onClick: () => void; children: React.ReactNode }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/70 transition-colors"
+    >
+      {children}
+    </button>
+  );
 
   return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        className="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm text-muted-foreground hover:bg-muted/50 transition-colors w-full sm:w-72"
-      >
-        <Search className="h-4 w-4" />
-        <span className="flex-1 text-left">Search groups, invoices, notes…</span>
-        <kbd className="hidden sm:inline-flex h-5 items-center rounded border bg-muted px-1.5 font-mono text-[10px]">⌘K</kbd>
-      </button>
-      <CommandDialog open={open} onOpenChange={setOpen} title="Global search" description="Search groups, companies, invoices, notes and tasks">
-        <CommandInput placeholder="Type at least 2 characters…" value={query} onValueChange={setQuery} />
-        <CommandList>
-          {!enabled ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">Search groups, companies, invoices, notes and tasks.</div>
-          ) : isFetching && !data ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">Searching…</div>
+    <div ref={rootRef} className="relative w-full sm:w-80">
+      <div className="flex items-center gap-2 rounded-md border bg-card px-3 h-9 text-sm focus-within:ring-2 focus-within:ring-ring/40">
+        <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={e => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={e => {
+            if (e.key === "Escape") {
+              setOpen(false);
+              inputRef.current?.blur();
+            }
+          }}
+          placeholder="Search groups, invoices, notes…"
+          className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground min-w-0"
+        />
+        {isFetching && enabled ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
+        ) : query ? (
+          <button type="button" onClick={() => { setQuery(""); inputRef.current?.focus(); }} className="text-muted-foreground hover:text-foreground shrink-0">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : (
+          <kbd className="hidden sm:inline-flex h-5 items-center rounded border bg-muted px-1.5 font-mono text-[10px] shrink-0">⌘K</kbd>
+        )}
+      </div>
+
+      {showDropdown && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-[70vh] overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-lg">
+          {!enabled || (isFetching && !data) ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">Searching…</div>
           ) : !hasResults ? (
-            <CommandEmpty>No results for “{debounced}”.</CommandEmpty>
+            <div className="py-6 text-center text-sm text-muted-foreground">No results for “{debounced}”.</div>
           ) : (
-            <>
+            <div className="divide-y">
               {data!.groups.length > 0 && (
-                <CommandGroup heading="Groups">
+                <Section title="Groups">
                   {data!.groups.map(g => (
-                    <CommandItem key={`g-${g.name}`} value={`group ${g.name}`} onSelect={() => go(`/groups/${encodeURIComponent(g.name)}`)}>
-                      <Users className="h-4 w-4 text-muted-foreground" />
-                      <span className="flex-1">{g.name}</span>
-                      <span className="text-xs text-muted-foreground">{g.members} member{g.members === 1 ? "" : "s"}</span>
-                    </CommandItem>
+                    <Row key={`g-${g.name}`} onClick={() => go(`/groups/${encodeURIComponent(g.name)}`)}>
+                      <Users className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="flex-1 truncate">{g.name}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">{g.members} member{g.members === 1 ? "" : "s"}</span>
+                    </Row>
                   ))}
-                </CommandGroup>
+                </Section>
               )}
               {data!.companies.length > 0 && (
-                <CommandGroup heading="Companies">
+                <Section title="Companies">
                   {data!.companies.map(c => (
-                    <CommandItem key={`c-${c.id}`} value={`company ${c.name} ${c.code}`} onSelect={() => go(`/customers/${c.id}`)}>
-                      <Building2 className="h-4 w-4 text-muted-foreground" />
-                      <span className="flex-1">{c.name}</span>
-                      <span className="font-mono text-xs text-muted-foreground">{c.code}</span>
-                    </CommandItem>
+                    <Row key={`c-${c.id}`} onClick={() => go(`/customers/${c.id}`)}>
+                      <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="flex-1 truncate">{c.name}</span>
+                      <span className="font-mono text-xs text-muted-foreground shrink-0">{c.code}</span>
+                    </Row>
                   ))}
-                </CommandGroup>
+                </Section>
               )}
               {data!.invoices.length > 0 && (
-                <CommandGroup heading="Invoices">
+                <Section title="Invoices">
                   {data!.invoices.map(i => (
-                    <CommandItem key={`i-${i.id}`} value={`invoice ${i.invoiceNumber}`} onSelect={() => go(`/invoices?q=${encodeURIComponent(i.invoiceNumber)}`)}>
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-mono">{i.invoiceNumber}</span>
+                    <Row key={`i-${i.id}`} onClick={() => go(`/invoices?q=${encodeURIComponent(i.invoiceNumber)}`)}>
+                      <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="font-mono shrink-0">{i.invoiceNumber}</span>
                       <span className="flex-1 truncate text-xs text-muted-foreground">{i.customerName}</span>
-                      <span className="font-mono text-xs">{fmtEur(i.amount)}</span>
-                      <Badge variant="outline" className="text-[10px]">{i.status}</Badge>
-                    </CommandItem>
+                      <span className="font-mono text-xs shrink-0">{fmtEur(i.amount)}</span>
+                      <Badge variant="outline" className="text-[10px] shrink-0">{i.status}</Badge>
+                    </Row>
                   ))}
-                </CommandGroup>
+                </Section>
               )}
               {data!.notes.length > 0 && (
-                <CommandGroup heading="Notes">
+                <Section title="Notes">
                   {data!.notes.map(n => (
-                    <CommandItem key={`n-${n.id}`} value={`note ${n.id} ${n.excerpt}`} onSelect={() => go(`/groups/${encodeURIComponent(n.group)}`)}>
-                      <StickyNote className="h-4 w-4 text-muted-foreground" />
+                    <Row key={`n-${n.id}`} onClick={() => go(`/groups/${encodeURIComponent(n.group)}`)}>
+                      <StickyNote className="h-4 w-4 text-muted-foreground shrink-0" />
                       <div className="flex-1 min-w-0">
                         <div className="truncate text-sm">{n.excerpt}</div>
                         <div className="text-[10px] text-muted-foreground">
                           {n.group} · {new Date(n.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                         </div>
                       </div>
-                    </CommandItem>
+                    </Row>
                   ))}
-                </CommandGroup>
+                </Section>
               )}
               {data!.tasks.length > 0 && (
-                <CommandGroup heading="Tasks">
+                <Section title="Tasks">
                   {data!.tasks.map(t => (
-                    <CommandItem key={`t-${t.id}`} value={`task ${t.id} ${t.title}`} onSelect={() => go("/tasks")}>
-                      <ListChecks className="h-4 w-4 text-muted-foreground" />
+                    <Row key={`t-${t.id}`} onClick={() => go("/tasks")}>
+                      <ListChecks className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="flex-1 truncate">{t.title}</span>
                       {t.group && <span className="text-xs text-muted-foreground truncate max-w-32">{t.group}</span>}
-                      <Badge variant="outline" className="text-[10px]">{t.status}</Badge>
-                    </CommandItem>
+                      <Badge variant="outline" className="text-[10px] shrink-0">{t.status}</Badge>
+                    </Row>
                   ))}
-                </CommandGroup>
+                </Section>
               )}
-            </>
+            </div>
           )}
-        </CommandList>
-      </CommandDialog>
-    </>
+        </div>
+      )}
+    </div>
   );
 }
-
