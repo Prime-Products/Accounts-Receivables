@@ -692,3 +692,6 @@
 - [x] Shorten internal transfer subtitle to "for invoice {invoiceNumber}" only
 - [x] Wire Transfers table: actions (Update/Allocate) visible without horizontal scrolling — compact columns / responsive layout
 - [x] Find companies/transfers with unallocated sums: Allocation filter (Not/Partially/Fully allocated), Unallocated KPI card, unallocated amount visible per row
+- [x] Backend: cancelInvoicePayment procedure — revert all allocations of an invoice (restore status/paidAmount, free wire transfer amount, delete derived internal transfers, audit)
+- [x] Frontend: "Cancel payment" action on invoice rows (Invoices page + customer tab) with confirmation dialog
+- [x] Tests for cancelInvoicePayment (revert to Open, transfer freed, internal transfer removed)

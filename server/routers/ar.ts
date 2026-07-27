@@ -1716,6 +1716,40 @@ export const invoicesRouter = router({
     const invoices = await db.listInvoices();
     return computeAging(invoices, Date.now());
   }),
+
+  /**
+   * Cancel the payment of an invoice: reverts ALL wire-transfer allocations that
+   * settled it — invoice returns to Open (paidAmount reduced), the amounts are
+   * freed on their wire transfers, and derived internal inter-office transfers
+   * are deleted. Everything is audited.
+   */
+  cancelPayment: protectedProcedure
+    .input(z.object({ invoiceId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const inv = await db.getInvoice(input.invoiceId);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      const allocs = await db.listWtAllocationsByInvoice(input.invoiceId);
+      if (allocs.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This invoice has no wire-transfer payment to cancel" });
+      }
+      let reverted = 0;
+      for (const alloc of allocs) {
+        await db.deleteInternalTransfersByAllocation(alloc.id);
+        await db.deleteWireTransferAllocation(alloc.id);
+        reverted += Number(alloc.amount);
+      }
+      const newPaid = Math.max(0, Number(inv.paidAmount) - reverted);
+      const newStatus = newPaid <= 0.005 ? "Open" : newPaid >= Number(inv.amount) - 0.005 ? "Paid" : "Partially Paid";
+      await db.updateInvoice(input.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
+      await audit(
+        ctx,
+        "Cancel Invoice Payment",
+        "invoice",
+        input.invoiceId,
+        `Payment of ${inv.currency ?? "EUR"} ${reverted.toFixed(2)} cancelled on ${inv.invoiceNumber} — ${allocs.length} allocation(s) reverted, invoice → ${newStatus}`
+      );
+      return { success: true, reverted, allocationsRemoved: allocs.length, newStatus };
+    }),
   create: protectedProcedure
     .input(z.object({
       customerId: z.number(),

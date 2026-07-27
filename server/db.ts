@@ -926,6 +926,16 @@ export async function getWireTransferAllocation(id: number) {
   return r[0] || null;
 }
 
+/** All wire-transfer allocations that settled a given invoice (for cancelling the payment). */
+export async function listWtAllocationsByInvoice(invoiceId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(wireTransferAllocations)
+    .where(eq(wireTransferAllocations.invoiceId, invoiceId))
+    .orderBy(desc(wireTransferAllocations.createdAt));
+}
+
 export async function deleteWireTransferAllocation(id: number) {
   const db = await requireDb();
   await db.delete(wireTransferAllocations).where(eq(wireTransferAllocations.id, id));

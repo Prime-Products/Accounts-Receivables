@@ -586,4 +586,62 @@ describe("Wire Transfer Allocation (Συμψηφισμός, group-level)", () =>
     expect(revertedInv?.status).toBe("Open");
     expect(Number(revertedInv?.paidAmount)).toBeCloseTo(0, 2);
   });
+
+  it("cancelPayment on an invoice reverts its allocations, frees the transfer and removes internal transfers", async () => {
+    const now = Date.now();
+    const inv = await db.createInvoice({
+      customerId: sisterId,
+      invoiceNumber: "WTA-INV-CP-" + now,
+      company: "Prime Products Distribution B.V",
+      currency: "EUR",
+      issueDate: now - 30 * 86400000,
+      dueDate: now - 3 * 86400000,
+      amount: "600" as any,
+      paidAmount: "0" as any,
+      status: "Open" as any,
+    } as any);
+    createdInvoices.push(inv);
+
+    const wtCp = await caller.customers.createWireTransfer({
+      customerId: senderId,
+      amount: 900,
+      currency: "EUR",
+      transferDate: now,
+      branch: "Prime Products LTD",
+      status: "Received",
+      receivedDate: now,
+    });
+    createdTransfers.push(wtCp.id);
+
+    await caller.customers.allocateWireTransfer({
+      wireTransferId: wtCp.id,
+      allocations: [{ invoiceId: inv, amount: 600 }],
+    });
+
+    // Sanity: invoice Paid, internal transfer created, transfer partially allocated
+    expect((await db.getInvoice(inv))?.status).toBe("Paid");
+    let all = await caller.customers.getAllWireTransfers();
+    expect(all.some((t: any) => t.isInternal && t.sourceWireTransferId === wtCp.id)).toBe(true);
+
+    // Cancel the payment from the invoice side
+    const res = await caller.invoices.cancelPayment({ invoiceId: inv });
+    expect(res.success).toBe(true);
+    expect(res.allocationsRemoved).toBe(1);
+    expect(res.newStatus).toBe("Open");
+
+    // Invoice reverted
+    const reverted = await db.getInvoice(inv);
+    expect(reverted?.status).toBe("Open");
+    expect(Number(reverted?.paidAmount)).toBeCloseTo(0, 2);
+
+    // Transfer amount freed (no allocations) and internal transfer gone
+    all = await caller.customers.getAllWireTransfers();
+    const t = all.find((x: any) => x.id === wtCp.id);
+    expect(Number(t?.allocatedAmount ?? 0)).toBeCloseTo(0, 2);
+    expect(Number(t?.unallocatedAmount ?? 0)).toBeCloseTo(900, 2);
+    expect(all.some((x: any) => x.isInternal && x.sourceWireTransferId === wtCp.id)).toBe(false);
+
+    // Cancelling again should fail (nothing to cancel)
+    await expect(caller.invoices.cancelPayment({ invoiceId: inv })).rejects.toThrow();
+  });
 });

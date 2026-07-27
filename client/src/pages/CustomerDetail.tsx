@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
+import { CancelPaymentButton } from "@/components/CancelPaymentButton";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, FileDown, HandCoins, Layers, Plus } from "lucide-react";
 import { useState } from "react";
@@ -343,6 +344,7 @@ export default function CustomerDetail() {
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead className="text-right">Paid</TableHead>
                       <TableHead className="text-right">Outstanding</TableHead>
+                      <TableHead className="w-[90px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -376,6 +378,11 @@ export default function CustomerDetail() {
                           {i.currency && i.currency !== "EUR"
                             ? fmtCur(Number(i.amount) - Number(i.paidAmount), i.currency, 2)
                             : fmtEur(Number(i.amount) - Number(i.paidAmount))}
+                        </TableCell>
+                        <TableCell>
+                          {(i.status === "Paid" || i.status === "Partially Paid") && Number(i.paidAmount) > 0.005 && (
+                            <CancelPaymentButton invoiceId={i.id} invoiceNumber={i.invoiceNumber} />
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
