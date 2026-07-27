@@ -1878,17 +1878,33 @@ export const invoicesRouter = router({
       await audit(ctx, "Set Invoice Vessel", "invoice", input.invoiceId, v ? `Vessel "${v.name}" set on ${inv.invoiceNumber}` : `Vessel cleared on ${inv.invoiceNumber}`);
       return { success: true };
     }),
-  markDisputed: protectedProcedure.input(z.object({ id: z.number(), disputed: z.boolean() })).mutation(async ({ ctx, input }) => {
-    const inv = await db.getInvoice(input.id);
-    if (!inv) throw new TRPCError({ code: "NOT_FOUND" });
-    const now = Date.now();
-    const status = input.disputed
-      ? "Disputed"
-      : (deriveInvoiceStatus(Number(inv.amount), Number(inv.paidAmount), inv.dueDate, now, "Open") as any);
-    await db.updateInvoice(input.id, { status });
-    await audit(ctx, input.disputed ? "Mark Disputed" : "Clear Dispute", "invoice", input.id);
-    return { success: true };
-  }),
+  markDisputed: protectedProcedure
+    .input(z.object({ id: z.number(), disputed: z.boolean(), reason: z.string().max(1000).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const inv = await db.getInvoice(input.id);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND" });
+      const now = Date.now();
+      const status = input.disputed
+        ? "Disputed"
+        : (deriveInvoiceStatus(Number(inv.amount), Number(inv.paidAmount), inv.dueDate, now, "Open") as any);
+      const update: Record<string, unknown> = { status };
+      if (input.disputed && input.reason?.trim()) {
+        const stamp = new Date(now).toISOString().slice(0, 10);
+        const line = `[Dispute ${stamp}] ${input.reason.trim()}`;
+        update.notes = inv.notes ? `${inv.notes}\n${line}` : line;
+      }
+      await db.updateInvoice(input.id, update);
+      await audit(
+        ctx,
+        input.disputed ? "Mark Disputed" : "Clear Dispute",
+        "invoice",
+        input.id,
+        input.disputed
+          ? `${inv.invoiceNumber} marked Disputed${input.reason?.trim() ? ` — ${input.reason.trim()}` : ""}`
+          : `${inv.invoiceNumber} dispute cleared → ${status}`
+      );
+      return { success: true, status };
+    }),
 });
 
 export const vesselsRouter = router({

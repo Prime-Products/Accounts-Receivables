@@ -664,6 +664,12 @@
 - [x] Optimize: gzip compression middleware (invoices.list wire 3169KB→188KB); trim invoices.list payload to UI fields; tasks.list Promise.all (469→197ms); 10s micro-cache for listCustomers/listInvoices with write invalidation; route-level lazy loading; Invoices table 200-row window with Load more; staleTime 30s + no refetchOnWindowFocus; Customers page loads companies list only when needed
 - [x] Optimize: DB indexes on tasks (customerId, status, assigneeId, dueDate) — migration 0023 applied
 - [x] Verify: before/after timings + full test suite (183/184; 1 known-flaky confirmationStatus test passes in isolation)
+
+## Invoice dispute (user request 27/7)
+- [x] Backend: invoices.markDisputed extended — mark invoice Disputed with optional reason (appended to notes as "[Dispute YYYY-MM-DD] ..."), revert re-derives correct status (Paid/Partially Paid/Overdue/Open), audit logged with reason
+- [x] Frontend: status badge on Invoices table rows is now a dropdown — "Mark as Disputed" (opens reason dialog) / "Clear dispute"
+- [x] Frontend: Disputed status visible via badge + existing "All statuses → Disputed" filter; reason saved in invoice notes and audit trail
+- [x] Tests for dispute/revert logic (server/dispute.test.ts — 2/2 passing)
 - [x] Update Dashboard KPIs to reflect wire transfers in collected amounts
 - [x] Write tests for wire transfer impact on balances
 - [x] Verify: Run full test suite (158/158 passing)

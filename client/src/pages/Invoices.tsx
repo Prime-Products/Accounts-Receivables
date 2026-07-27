@@ -8,10 +8,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { ChevronRight, FileDown, FileText, HandCoins, Plus, Ship, Users } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, FileDown, FileText, HandCoins, Plus, Ship, Undo2, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -76,6 +78,19 @@ export default function Invoices() {
 
   const exportReport = trpc.reports.export.useMutation({
     onSuccess: r => downloadBase64(r.filename, r.mimeType, r.base64),
+    onError: e => toast.error(e.message),
+  });
+
+  // Dispute dialog
+  const [dispTarget, setDispTarget] = useState<{ id: number; invoiceNumber: string } | null>(null);
+  const [dispReason, setDispReason] = useState("");
+  const markDisputed = trpc.invoices.markDisputed.useMutation({
+    onSuccess: (_r, vars) => {
+      toast.success(vars.disputed ? "Invoice marked as Disputed" : "Dispute cleared");
+      utils.invoices.invalidate();
+      setDispTarget(null);
+      setDispReason("");
+    },
     onError: e => toast.error(e.message),
   });
 
@@ -543,9 +558,29 @@ export default function Invoices() {
                     </TableCell>
                     <TableCell className="text-sm">{fmtDate(i.dueDate)}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={invoiceStatusColors[i.status]}>
-                        {i.status}
-                      </Badge>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="group inline-flex items-center gap-0.5" title="Change status">
+                            <Badge variant="outline" className={invoiceStatusColors[i.status]}>
+                              {i.status}
+                            </Badge>
+                            <ChevronDown className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          {i.status !== "Disputed" ? (
+                            <DropdownMenuItem onClick={() => { setDispReason(""); setDispTarget({ id: i.id, invoiceNumber: i.invoiceNumber }); }}>
+                              <AlertTriangle className="h-4 w-4 mr-2 text-purple-600" />
+                              Mark as Disputed
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem onClick={() => markDisputed.mutate({ id: i.id, disputed: false })}>
+                              <Undo2 className="h-4 w-4 mr-2 text-muted-foreground" />
+                              Clear dispute
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       {i.currency && i.currency !== "EUR" ? (
@@ -590,6 +625,40 @@ export default function Invoices() {
           )}
         </CardContent>
       </Card>
+
+      {/* Dispute reason dialog */}
+      <Dialog open={!!dispTarget} onOpenChange={o => { if (!o) setDispTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-purple-600" />
+              Dispute invoice {dispTarget?.invoiceNumber}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="dispute-reason">Reason (optional)</Label>
+            <Textarea
+              id="dispute-reason"
+              placeholder="e.g. Customer disputes the amount / wrong charge / pending credit note..."
+              value={dispReason}
+              onChange={e => setDispReason(e.target.value)}
+              rows={3}
+            />
+            <p className="text-xs text-muted-foreground">
+              The invoice will be marked as Disputed. The reason is saved in the invoice notes and the audit trail. You can revert anytime via "Clear dispute".
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDispTarget(null)}>Cancel</Button>
+            <Button
+              disabled={markDisputed.isPending}
+              onClick={() => dispTarget && markDisputed.mutate({ id: dispTarget.id, disputed: true, reason: dispReason.trim() || undefined })}
+            >
+              {markDisputed.isPending ? "Saving..." : "Mark as Disputed"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
