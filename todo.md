@@ -669,3 +669,10 @@
 ## Allocation dialog invoice search (user request 27/7)
 
 - [x] Search input in the Allocate dialog to filter group open invoices by invoice number, company, or branch (rows with entered amounts stay visible/kept in total)
+
+## Visible allocation breakdown per wire transfer (user request 27/7)
+
+- [x] Wire Transfers table: expandable allocation breakdown per transfer showing invoice number, credited company, and amount (e.g. DYNACOM €10,000 → 760 SGD to MAGE SHIPPING invoice)
+- [x] Backend: getAllWireTransfers (or a batch allocations endpoint) returns allocation details (invoice, company, amount) for expansion
+- [x] Receiving company side: customer Wire Transfers tab shows incoming allocations (e.g. MAGE sees "760 received via DYNACOM wire transfer" with invoice + source transfer reference)
+- [x] Breakdown shows the invoice's branch/office prominently (e.g. Singapore) so it's clear where the settled amount went

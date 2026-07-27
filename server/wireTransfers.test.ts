@@ -421,4 +421,31 @@ describe("Wire Transfer Allocation (Συμψηφισμός, group-level)", () =>
     const t = transfers.find(x => x.id === transferId)!;
     expect(Number(t.allocatedAmount)).toBeCloseTo(3000, 2);
   });
+
+  it("getAllWireTransfers exposes an allocation breakdown (invoice, credited company, branch)", async () => {
+    const transfers = await caller.customers.getAllWireTransfers();
+    const t = transfers.find(x => x.id === transferId)! as any;
+    expect(Array.isArray(t.allocations)).toBe(true);
+    // After the previous test only the invoiceB allocation (3000) remains
+    const b = t.allocations.find((a: any) => a.invoiceId === invoiceB);
+    expect(b).toBeTruthy();
+    expect(Number(b.amount)).toBeCloseTo(3000, 2);
+    expect(b.creditedCompanyName).toContain("Alloc Sister Test");
+    expect(b.creditedCustomerId).toBe(sisterId);
+    expect(b.branch).toBe("Prime Products LTD");
+    expect(b.invoiceNumber).toContain("WTA-INV-B-");
+  });
+
+  it("receiving company sees incoming allocations with source transfer info", async () => {
+    const incoming = await caller.customers.listIncomingAllocations({ customerId: sisterId });
+    expect(incoming.length).toBeGreaterThan(0);
+    const row = incoming.find((r: any) => r.invoiceId === invoiceB)! as any;
+    expect(row).toBeTruthy();
+    expect(Number(row.amount)).toBeCloseTo(3000, 2);
+    expect(row.sourceCustomerId).toBe(senderId);
+    expect(row.sourceCustomerName).toContain("Alloc Sender Test");
+    expect(Number(row.sourceAmount)).toBeCloseTo(10000, 2);
+    expect(row.invoiceBranch).toBe("Prime Products LTD");
+    expect(row.invoiceNumber).toContain("WTA-INV-B-");
+  });
 });

@@ -1422,12 +1422,33 @@ export const customersRouter = router({
     .query(async () => {
       const [transfers, customers] = await Promise.all([db.listAllWireTransfers(), db.listCustomers()]);
       const byId = new Map(customers.map(c => [c.id, c]));
-      const allocated = await db.sumAllocationsByWireTransferIds(transfers.map(t => t.id));
+      const ids = transfers.map(t => t.id);
+      const [allocated, allocRows] = await Promise.all([
+        db.sumAllocationsByWireTransferIds(ids),
+        db.listAllocationsByWireTransferIds(ids),
+      ]);
+      const detailsByTransfer = new Map<number, any[]>();
+      for (const a of allocRows) {
+        const list = detailsByTransfer.get(a.wireTransferId) ?? [];
+        list.push({
+          id: a.id,
+          invoiceId: a.invoiceId,
+          invoiceNumber: a.invoiceNumber,
+          amount: Number(a.amount),
+          currency: a.invoiceCurrency,
+          creditedCompanyName: a.invoiceCustomerId != null ? (byId.get(a.invoiceCustomerId)?.name ?? "—") : "—",
+          creditedCustomerId: a.invoiceCustomerId,
+          branch: a.invoiceCompany,
+          createdAt: a.createdAt,
+        });
+        detailsByTransfer.set(a.wireTransferId, list);
+      }
       return transfers.map(t => ({
         ...t,
         customerName: byId.get(t.customerId)?.name ?? `Customer #${t.customerId}`,
         allocatedAmount: allocated.get(t.id) ?? 0,
         unallocatedAmount: Math.max(0, Number(t.amount) - (allocated.get(t.id) ?? 0)),
+        allocations: detailsByTransfer.get(t.id) ?? [],
       }));
     }),
 
@@ -1477,6 +1498,38 @@ export const customersRouter = router({
         ...r,
         amount: Number(r.amount),
         invoiceCustomerName: r.invoiceCustomerId != null ? (names.get(r.invoiceCustomerId) ?? "—") : "—",
+      }));
+    }),
+
+  /**
+   * Incoming allocations for a customer: amounts credited to their invoices
+   * from wire transfers of any group member (e.g. MAGE sees "760 received via
+   * DYNACOM wire transfer" against its invoice).
+   */
+  listIncomingAllocations: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .query(async ({ input }) => {
+      const [rows, customers] = await Promise.all([
+        db.listIncomingAllocationsByCustomer(input.customerId),
+        db.listCustomers(),
+      ]);
+      const names = new Map(customers.map(c => [c.id, c.name]));
+      return rows.map(r => ({
+        id: r.id,
+        wireTransferId: r.wireTransferId,
+        invoiceId: r.invoiceId,
+        invoiceNumber: r.invoiceNumber,
+        invoiceStatus: r.invoiceStatus,
+        invoiceBranch: r.invoiceCompany,
+        amount: Number(r.amount),
+        currency: r.invoiceCurrency,
+        createdAt: r.createdAt,
+        sourceCustomerId: r.sourceCustomerId,
+        sourceCustomerName: names.get(r.sourceCustomerId) ?? `Customer #${r.sourceCustomerId}`,
+        sourceAmount: Number(r.sourceAmount),
+        sourceCurrency: r.sourceCurrency,
+        sourceTransferDate: r.sourceTransferDate,
+        sourceReference: r.sourceReference,
       }));
     }),
 

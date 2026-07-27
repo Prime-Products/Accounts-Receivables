@@ -23,6 +23,8 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
   const utils = trpc.useUtils();
   const { data: transfers = [], isLoading } = trpc.customers.listWireTransfers.useQuery({ customerId });
   const { data: branches = [] } = trpc.customers.listBranches.useQuery();
+  // Amounts credited to THIS company's invoices from any wire transfer (incl. other group members)
+  const { data: incoming = [] } = trpc.customers.listIncomingAllocations.useQuery({ customerId });
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
@@ -291,6 +293,59 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Incoming allocations: money credited to this company's invoices via wire transfers (possibly from other group members) */}
+      {(incoming as any[]).length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              Incoming allocations{" "}
+              <span className="text-sm font-normal text-muted-foreground">
+                (amounts settled on this company's invoices via wire transfers)
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Invoice</TableHead>
+                  <TableHead>Branch</TableHead>
+                  <TableHead>Via wire transfer from</TableHead>
+                  <TableHead>Transfer</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(incoming as any[]).map((a) => (
+                  <TableRow key={a.id}>
+                    <TableCell className="text-sm">{fmtDate(Number(a.createdAt))}</TableCell>
+                    <TableCell className="font-mono font-semibold text-green-700">
+                      {fmtCur(Number(a.amount), a.currency)}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">{a.invoiceNumber ?? `#${a.invoiceId}`}</TableCell>
+                    <TableCell className="text-sm">
+                      {a.invoiceBranch ? (
+                        <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700">
+                          {a.invoiceBranch}
+                        </span>
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm font-medium">{a.sourceCustomerName}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {fmtCur(Number(a.sourceAmount), a.sourceCurrency)} · {fmtDate(Number(a.sourceTransferDate))}
+                      {a.sourceReference ? ` · ${a.sourceReference}` : ""}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -924,3 +924,53 @@ export async function sumAllocationsByWireTransferIds(ids: number[]) {
   for (const r of rows) m.set(r.wireTransferId, (m.get(r.wireTransferId) ?? 0) + Number(r.amount));
   return m;
 }
+
+/** Allocation details (invoice + credited company) for a set of wire transfers — for breakdown rows. */
+export async function listAllocationsByWireTransferIds(ids: number[]) {
+  if (ids.length === 0) return [];
+  const db = await requireDb();
+  return db
+    .select({
+      id: wireTransferAllocations.id,
+      wireTransferId: wireTransferAllocations.wireTransferId,
+      invoiceId: wireTransferAllocations.invoiceId,
+      amount: wireTransferAllocations.amount,
+      createdAt: wireTransferAllocations.createdAt,
+      invoiceNumber: invoices.invoiceNumber,
+      invoiceCompany: invoices.company,
+      invoiceCurrency: invoices.currency,
+      invoiceStatus: invoices.status,
+      invoiceCustomerId: invoices.customerId,
+    })
+    .from(wireTransferAllocations)
+    .leftJoin(invoices, eq(wireTransferAllocations.invoiceId, invoices.id))
+    .where(inArray(wireTransferAllocations.wireTransferId, ids))
+    .orderBy(desc(wireTransferAllocations.createdAt));
+}
+
+/** Incoming allocations for a customer: amounts credited to THEIR invoices from any wire transfer. */
+export async function listIncomingAllocationsByCustomer(customerId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: wireTransferAllocations.id,
+      wireTransferId: wireTransferAllocations.wireTransferId,
+      invoiceId: wireTransferAllocations.invoiceId,
+      amount: wireTransferAllocations.amount,
+      createdAt: wireTransferAllocations.createdAt,
+      invoiceNumber: invoices.invoiceNumber,
+      invoiceCompany: invoices.company,
+      invoiceCurrency: invoices.currency,
+      invoiceStatus: invoices.status,
+      sourceCustomerId: wireTransfers.customerId,
+      sourceAmount: wireTransfers.amount,
+      sourceCurrency: wireTransfers.currency,
+      sourceTransferDate: wireTransfers.transferDate,
+      sourceReference: wireTransfers.referenceNumber,
+    })
+    .from(wireTransferAllocations)
+    .innerJoin(invoices, eq(wireTransferAllocations.invoiceId, invoices.id))
+    .innerJoin(wireTransfers, eq(wireTransferAllocations.wireTransferId, wireTransfers.id))
+    .where(eq(invoices.customerId, customerId))
+    .orderBy(desc(wireTransferAllocations.createdAt));
+}

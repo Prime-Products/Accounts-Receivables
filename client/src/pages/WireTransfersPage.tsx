@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, ChevronRight, ChevronDown, CornerDownRight } from "lucide-react";
+import { Fragment } from "react";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import { fmtDate, fmtCur } from "@/lib/format";
@@ -100,6 +101,7 @@ export default function WireTransfersPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
 
   // Single fast query — transfers come with customerName precomputed on server
   const { data: allTransfers = [], isLoading } = trpc.customers.getAllWireTransfers.useQuery();
@@ -272,6 +274,7 @@ export default function WireTransfersPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableCell className="w-8"></TableCell>
                     <TableCell>Customer</TableCell>
                     <TableCell>Branch</TableCell>
                     <TableCell>Amount</TableCell>
@@ -284,42 +287,94 @@ export default function WireTransfersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredTransfers.map((t: any) => (
-                    <TableRow key={t.id}>
-                      <TableCell className="font-medium">{t.customerName}</TableCell>
-                      <TableCell className="text-sm">{t.branch || "-"}</TableCell>
-                      <TableCell>{fmtCur(Number(t.amount), t.currency)}</TableCell>
-                      <TableCell className="text-sm font-mono">
-                        {Number(t.allocatedAmount) > 0 ? (
-                          <span className={Number(t.unallocatedAmount) <= 0.005 ? "text-green-700" : "text-amber-700"}>
-                            {fmtCur(Number(t.allocatedAmount), t.currency)}
-                          </span>
-                        ) : (
-                          "-"
-                        )}
-                      </TableCell>
-                      <TableCell>{fmtDate(Number(t.transferDate))}</TableCell>
-                      <TableCell>
-                        <span
-                          className={`px-2 py-1 rounded text-xs font-medium ${
-                            t.status === "Received"
-                              ? "bg-green-100 text-green-800"
-                              : "bg-yellow-100 text-yellow-800"
-                          }`}
+                  {filteredTransfers.map((t: any) => {
+                    const hasAllocs = Array.isArray(t.allocations) && t.allocations.length > 0;
+                    const isOpen = !!expanded[t.id];
+                    return (
+                      <Fragment key={t.id}>
+                        <TableRow
+                          className={hasAllocs ? "cursor-pointer" : undefined}
+                          onClick={hasAllocs ? () => setExpanded(e => ({ ...e, [t.id]: !e[t.id] })) : undefined}
                         >
-                          {t.status}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-sm">{t.referenceNumber || "-"}</TableCell>
-                      <TableCell className="text-sm max-w-[200px] truncate">{t.notes || "-"}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <UpdateWireTransferDialog transfer={t} branches={branches as string[]} />
-                          {t.status === "Received" && <AllocateWireTransferDialog transfer={t} />}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                          <TableCell className="w-8 px-2">
+                            {hasAllocs ? (
+                              isOpen ? (
+                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                              )
+                            ) : null}
+                          </TableCell>
+                          <TableCell className="font-medium">{t.customerName}</TableCell>
+                          <TableCell className="text-sm">{t.branch || "-"}</TableCell>
+                          <TableCell>{fmtCur(Number(t.amount), t.currency)}</TableCell>
+                          <TableCell className="text-sm font-mono">
+                            {Number(t.allocatedAmount) > 0 ? (
+                              <span className={Number(t.unallocatedAmount) <= 0.005 ? "text-green-700" : "text-amber-700"}>
+                                {fmtCur(Number(t.allocatedAmount), t.currency)}
+                              </span>
+                            ) : (
+                              "-"
+                            )}
+                          </TableCell>
+                          <TableCell>{fmtDate(Number(t.transferDate))}</TableCell>
+                          <TableCell>
+                            <span
+                              className={`px-2 py-1 rounded text-xs font-medium ${
+                                t.status === "Received"
+                                  ? "bg-green-100 text-green-800"
+                                  : "bg-yellow-100 text-yellow-800"
+                              }`}
+                            >
+                              {t.status}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-sm">{t.referenceNumber || "-"}</TableCell>
+                          <TableCell className="text-sm max-w-[200px] truncate">{t.notes || "-"}</TableCell>
+                          <TableCell onClick={e => e.stopPropagation()}>
+                            <div className="flex gap-1">
+                              <UpdateWireTransferDialog transfer={t} branches={branches as string[]} />
+                              {t.status === "Received" && <AllocateWireTransferDialog transfer={t} />}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {hasAllocs && isOpen && (
+                          <TableRow className="bg-muted/40 hover:bg-muted/40">
+                            <TableCell></TableCell>
+                            <TableCell colSpan={9} className="py-2">
+                              <div className="space-y-1">
+                                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                  Allocation breakdown — where this transfer went
+                                </div>
+                                {t.allocations.map((a: any) => (
+                                  <div key={a.id} className="flex items-center gap-2 text-sm">
+                                    <CornerDownRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                    <span className="font-mono font-semibold">{fmtCur(Number(a.amount), a.currency ?? t.currency)}</span>
+                                    <span className="text-muted-foreground">→</span>
+                                    <span className="font-medium">{a.creditedCompanyName}</span>
+                                    <span className="text-muted-foreground">invoice</span>
+                                    <span className="font-mono">{a.invoiceNumber ?? `#${a.invoiceId}`}</span>
+                                    {a.branch && (
+                                      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700">
+                                        {a.branch}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                                {Number(t.unallocatedAmount) > 0.005 && (
+                                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <CornerDownRight className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="font-mono">{fmtCur(Number(t.unallocatedAmount), t.currency)}</span>
+                                    <span>not yet allocated</span>
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
