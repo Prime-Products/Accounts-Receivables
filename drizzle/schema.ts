@@ -1,4 +1,4 @@
-import { bigint, decimal, double, index, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { bigint, boolean, decimal, double, index, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -467,6 +467,15 @@ export const wireTransfers = mysqlTable("wire_transfers", {
   referenceNumber: varchar("referenceNumber", { length: 255 }), // Bank reference or transaction ID
   notes: text("notes"),
   
+  // Internal inter-office transfers: auto-created when an allocation settles an
+  // invoice of a DIFFERENT branch than the branch that received the customer's money.
+  // e.g. Prime Products LTD → Prime Products Distribution B.V (to settle a SUMMER SHIPPING invoice)
+  isInternal: boolean("isInternal").default(false).notNull(),
+  sourceWireTransferId: int("sourceWireTransferId"), // the original customer transfer this internal transfer derives from
+  sourceAllocationId: int("sourceAllocationId"), // the allocation that triggered this internal transfer
+  fromBranch: varchar("fromBranch", { length: 128 }), // our office that received the customer's money
+  toBranch: varchar("toBranch", { length: 128 }), // our office whose invoice was settled
+  
   // Audit trail
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -476,6 +485,7 @@ export const wireTransfers = mysqlTable("wire_transfers", {
   index("idx_wire_transfers_customerId").on(t.customerId),
   index("idx_wire_transfers_status").on(t.status),
   index("idx_wire_transfers_transferDate").on(t.transferDate),
+  index("idx_wire_transfers_sourceWireTransferId").on(t.sourceWireTransferId),
 ]);
 
 export type WireTransfer = typeof wireTransfers.$inferSelect;

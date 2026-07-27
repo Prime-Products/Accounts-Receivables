@@ -855,6 +855,9 @@ export async function listReceivedWireTransfersInRange(start: number, end: numbe
   const db = await requireDb();
   const rows = await db.select().from(wireTransfers).where(eq(wireTransfers.status, "Received"));
   return rows.filter(w => {
+    // Internal inter-office transfers are bookkeeping mirrors of an already-counted
+    // customer transfer — excluding them prevents double counting in collected figures.
+    if ((w as any).isInternal) return false;
     const ts = w.receivedDate ?? w.transferDate;
     return ts >= start && ts < end;
   });
@@ -877,6 +880,14 @@ export async function createWireTransferAllocation(data: InsertWireTransferAlloc
   const db = await requireDb();
   const res = await db.insert(wireTransferAllocations).values(data);
   return Number((res as any)[0].insertId);
+}
+
+/** Delete internal inter-office transfers that were auto-created for a given allocation. */
+export async function deleteInternalTransfersByAllocation(allocationId: number) {
+  const db = await requireDb();
+  await db
+    .delete(wireTransfers)
+    .where(and(eq(wireTransfers.isInternal, true), eq(wireTransfers.sourceAllocationId, allocationId)));
 }
 
 export async function listAllocationsByWireTransfer(wireTransferId: number) {

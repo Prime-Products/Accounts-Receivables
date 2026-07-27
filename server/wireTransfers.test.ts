@@ -448,4 +448,95 @@ describe("Wire Transfer Allocation (Συμψηφισμός, group-level)", () =>
     expect(row.invoiceBranch).toBe("Prime Products LTD");
     expect(row.invoiceNumber).toContain("WTA-INV-B-");
   });
+
+  it("cross-branch allocation auto-creates an internal inter-office transfer with traceable reference", async () => {
+    // Transfer received at "Prime Products LTD", invoice issued by "Prime Products Distribution B.V"
+    const now = Date.now();
+    const crossInv = await db.createInvoice({
+      customerId: sisterId,
+      invoiceNumber: "WTA-INV-X-" + now,
+      company: "Prime Products Distribution B.V",
+      currency: "EUR",
+      issueDate: now - 30 * 86400000,
+      dueDate: now - 3 * 86400000,
+      amount: "450" as any,
+      paidAmount: "0" as any,
+      status: "Open" as any,
+    } as any);
+    createdInvoices.push(crossInv);
+
+    const wtX = await caller.customers.createWireTransfer({
+      customerId: senderId,
+      amount: 2000,
+      currency: "EUR",
+      transferDate: now,
+      branch: "Prime Products LTD",
+      status: "Received",
+      receivedDate: now,
+      referenceNumber: "BANKREF-42",
+    });
+    createdTransfers.push(wtX.id);
+
+    await caller.customers.allocateWireTransfer({
+      wireTransferId: wtX.id,
+      allocations: [{ invoiceId: crossInv, amount: 450 }],
+    });
+
+    // An internal transfer should now exist referencing the origin
+    const all = await caller.customers.getAllWireTransfers();
+    const internal = all.find(
+      (t: any) => t.isInternal && t.sourceWireTransferId === wtX.id
+    ) as any;
+    expect(internal).toBeTruthy();
+    createdTransfers.push(internal.id);
+    expect(Number(internal.amount)).toBeCloseTo(450, 2);
+    expect(internal.fromBranch).toBe("Prime Products LTD");
+    expect(internal.toBranch).toBe("Prime Products Distribution B.V");
+    expect(internal.branch).toBe("Prime Products Distribution B.V");
+    expect(internal.referenceNumber).toContain(`INT-WT${wtX.id}`);
+    expect(internal.referenceNumber).toContain("BANKREF-42");
+    expect(internal.sourceCustomerName).toContain("Alloc Sender Test");
+
+    // Removing the allocation also removes the internal transfer
+    const allocs = await caller.customers.listWireTransferAllocations({ wireTransferId: wtX.id });
+    await caller.customers.removeWireTransferAllocation({ allocationId: allocs[0].id });
+    const after = await caller.customers.getAllWireTransfers();
+    expect(after.find((t: any) => t.id === internal.id)).toBeUndefined();
+  });
+
+  it("same-branch allocation does NOT create an internal transfer", async () => {
+    const now = Date.now();
+    const sameInv = await db.createInvoice({
+      customerId: sisterId,
+      invoiceNumber: "WTA-INV-Y-" + now,
+      company: "Prime Products LTD",
+      currency: "EUR",
+      issueDate: now - 30 * 86400000,
+      dueDate: now - 3 * 86400000,
+      amount: "300" as any,
+      paidAmount: "0" as any,
+      status: "Open" as any,
+    } as any);
+    createdInvoices.push(sameInv);
+
+    const wtY = await caller.customers.createWireTransfer({
+      customerId: senderId,
+      amount: 500,
+      currency: "EUR",
+      transferDate: now,
+      branch: "Prime Products LTD",
+      status: "Received",
+      receivedDate: now,
+    });
+    createdTransfers.push(wtY.id);
+
+    await caller.customers.allocateWireTransfer({
+      wireTransferId: wtY.id,
+      allocations: [{ invoiceId: sameInv, amount: 300 }],
+    });
+
+    const all = await caller.customers.getAllWireTransfers();
+    const internal = all.find((t: any) => t.isInternal && t.sourceWireTransferId === wtY.id);
+    expect(internal).toBeUndefined();
+  });
 });

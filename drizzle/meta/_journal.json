@@ -141,6 +141,13 @@
       "when": 1785148359883,
       "tag": "0019_gigantic_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1785151958470,
+      "tag": "0020_broad_spiral",
+      "breakpoints": true
     }
   ]
 }

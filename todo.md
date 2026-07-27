@@ -680,3 +680,11 @@
 ## Inter-office flow in allocation breakdown (user correction 27/7)
 
 - [x] Breakdown entry reads as inter-office flow: receiving branch (transfer.branch, e.g. Prime Ltd) → wire transfer of amount → invoice branch (e.g. Prime BV Rotterdam) → settled invoice of company (e.g. SUMMER SHIPPING €450); also reflect in incoming allocations table
+
+## Internal inter-office wire transfers (user request 27/7)
+
+- [x] Schema: wire_transfers gains isInternal flag + sourceWireTransferId + fromBranch/toBranch (or equivalent) to represent internal transfers between our own companies
+- [x] Backend: when an allocation settles an invoice of a different branch than the receiving branch, auto-create a separate internal wire transfer record with reference to the original customer transfer (e.g. INT-{sourceId} · via DYNACOM WT#3)
+- [x] Backend: removing the allocation also removes/adjusts the corresponding internal transfer
+- [x] Frontend: Wire Transfers list shows internal transfers distinctly (badge "Internal", from→to branches, reference to source transfer), filterable
+- [x] Tests for internal transfer auto-creation and removal

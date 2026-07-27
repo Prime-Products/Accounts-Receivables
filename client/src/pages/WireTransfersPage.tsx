@@ -98,6 +98,7 @@ export default function WireTransfersPage() {
   const [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "Received">("All");
   const [customerFilter, setCustomerFilter] = useState("all");
   const [branchFilter, setBranchFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "customer" | "internal">("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -116,19 +117,21 @@ export default function WireTransfersPage() {
       if (statusFilter !== "All" && t.status !== statusFilter) return false;
       if (customerFilter !== "all" && t.customerId !== Number(customerFilter)) return false;
       if (branchFilter !== "all" && t.branch !== branchFilter) return false;
+      if (typeFilter === "customer" && t.isInternal) return false;
+      if (typeFilter === "internal" && !t.isInternal) return false;
       if (dateFrom && new Date(Number(t.transferDate)) < new Date(dateFrom)) return false;
       if (dateTo && new Date(Number(t.transferDate)) > new Date(dateTo + "T23:59:59")) return false;
       return true;
     });
-  }, [allTransfers, statusFilter, customerFilter, branchFilter, dateFrom, dateTo]);
+  }, [allTransfers, statusFilter, customerFilter, branchFilter, typeFilter, dateFrom, dateTo]);
 
   // Calculate totals
   const totals = useMemo(() => {
     const pending = filteredTransfers
-      .filter((t: any) => t.status === "Pending")
+      .filter((t: any) => t.status === "Pending" && !t.isInternal)
       .reduce((sum: number, t: any) => sum + Number(t.amount), 0);
     const received = filteredTransfers
-      .filter((t: any) => t.status === "Received")
+      .filter((t: any) => t.status === "Received" && !t.isInternal)
       .reduce((sum: number, t: any) => sum + Number(t.amount), 0);
     return { pending, received };
   }, [filteredTransfers]);
@@ -208,6 +211,20 @@ export default function WireTransfersPage() {
                   <SelectItem value="All">All</SelectItem>
                   <SelectItem value="Pending">Pending</SelectItem>
                   <SelectItem value="Received">Received</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="type-filter">Type</Label>
+              <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as any)}>
+                <SelectTrigger id="type-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  <SelectItem value="customer">Customer transfers</SelectItem>
+                  <SelectItem value="internal">Internal (inter-office)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -305,7 +322,22 @@ export default function WireTransfersPage() {
                               )
                             ) : null}
                           </TableCell>
-                          <TableCell className="font-medium">{t.customerName}</TableCell>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              {t.isInternal && (
+                                <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+                                  Internal
+                                </span>
+                              )}
+                              <span>{t.isInternal ? `${t.fromBranch ?? "Our office"} → ${t.toBranch ?? "-"}` : t.customerName}</span>
+                            </div>
+                            {t.isInternal && (
+                              <div className="text-xs text-muted-foreground mt-0.5">
+                                for invoice of {t.customerName}
+                                {t.sourceCustomerName ? ` · origin: ${t.sourceCustomerName} WT#${t.sourceWireTransferId}` : ""}
+                              </div>
+                            )}
+                          </TableCell>
                           <TableCell className="text-sm">{t.branch || "-"}</TableCell>
                           <TableCell>{fmtCur(Number(t.amount), t.currency)}</TableCell>
                           <TableCell className="text-sm font-mono">
@@ -332,10 +364,14 @@ export default function WireTransfersPage() {
                           <TableCell className="text-sm">{t.referenceNumber || "-"}</TableCell>
                           <TableCell className="text-sm max-w-[200px] truncate">{t.notes || "-"}</TableCell>
                           <TableCell onClick={e => e.stopPropagation()}>
-                            <div className="flex gap-1">
-                              <UpdateWireTransferDialog transfer={t} branches={branches as string[]} />
-                              {t.status === "Received" && <AllocateWireTransferDialog transfer={t} />}
-                            </div>
+                            {t.isInternal ? (
+                              <span className="text-xs text-muted-foreground">auto</span>
+                            ) : (
+                              <div className="flex gap-1">
+                                <UpdateWireTransferDialog transfer={t} branches={branches as string[]} />
+                                {t.status === "Received" && <AllocateWireTransferDialog transfer={t} />}
+                              </div>
+                            )}
                           </TableCell>
                         </TableRow>
                         {hasAllocs && isOpen && (

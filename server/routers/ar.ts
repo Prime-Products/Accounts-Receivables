@@ -1443,13 +1443,19 @@ export const customersRouter = router({
         });
         detailsByTransfer.set(a.wireTransferId, list);
       }
-      return transfers.map(t => ({
-        ...t,
-        customerName: byId.get(t.customerId)?.name ?? `Customer #${t.customerId}`,
-        allocatedAmount: allocated.get(t.id) ?? 0,
-        unallocatedAmount: Math.max(0, Number(t.amount) - (allocated.get(t.id) ?? 0)),
-        allocations: detailsByTransfer.get(t.id) ?? [],
-      }));
+      const transferById = new Map(transfers.map(t => [t.id, t]));
+      return transfers.map(t => {
+        const src = t.sourceWireTransferId != null ? transferById.get(t.sourceWireTransferId) : undefined;
+        return {
+          ...t,
+          customerName: byId.get(t.customerId)?.name ?? `Customer #${t.customerId}`,
+          allocatedAmount: allocated.get(t.id) ?? 0,
+          unallocatedAmount: Math.max(0, Number(t.amount) - (allocated.get(t.id) ?? 0)),
+          allocations: detailsByTransfer.get(t.id) ?? [],
+          // For internal inter-office transfers: who originally sent the money
+          sourceCustomerName: src ? (byId.get(src.customerId)?.name ?? `Customer #${src.customerId}`) : null,
+        };
+      });
     }),
 
   /**
@@ -1595,7 +1601,7 @@ export const customersRouter = router({
       for (const a of input.allocations) {
         const inv = await db.getInvoice(a.invoiceId);
         if (!inv) continue;
-        await db.createWireTransferAllocation({
+        const allocationId = await db.createWireTransferAllocation({
           wireTransferId: wt.id,
           invoiceId: a.invoiceId,
           amount: String(a.amount) as any,
@@ -1606,6 +1612,31 @@ export const customersRouter = router({
         const newStatus = fullyPaid ? "Paid" : "Partially Paid";
         await db.updateInvoice(a.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
         results.push({ invoiceId: a.invoiceId, invoiceNumber: inv.invoiceNumber, newStatus });
+
+        // Cross-branch settlement → record a separate INTERNAL wire transfer between our own offices
+        // (e.g. Prime Products LTD → Prime Products Distribution B.V), referencing the original customer transfer.
+        const receivingBranch = (wt.branch ?? "").trim();
+        const invoiceBranch = (inv.company ?? "").trim();
+        if (invoiceBranch && receivingBranch !== invoiceBranch) {
+          const invoiceOwner = customers.find(c => c.id === inv.customerId);
+          await db.createWireTransfer({
+            customerId: inv.customerId,
+            amount: String(a.amount) as any,
+            currency: inv.currency ?? wt.currency,
+            transferDate: Date.now(),
+            branch: invoiceBranch,
+            status: "Received" as any,
+            receivedDate: Date.now(),
+            referenceNumber: `INT-WT${wt.id}${wt.referenceNumber ? ` (${wt.referenceNumber})` : ""}`,
+            notes: `Internal transfer: ${receivingBranch || "our office"} → ${invoiceBranch} to settle invoice ${inv.invoiceNumber} of ${invoiceOwner?.name ?? `customer #${inv.customerId}`}. Origin: wire transfer #${wt.id} from ${sender.name}.`,
+            isInternal: true,
+            sourceWireTransferId: wt.id,
+            sourceAllocationId: allocationId,
+            fromBranch: receivingBranch || null,
+            toBranch: invoiceBranch,
+            createdBy: ctx.user.id,
+          } as any);
+        }
         await audit(
           ctx,
           "Allocate Wire Transfer",
@@ -1629,6 +1660,8 @@ export const customersRouter = router({
         const newStatus = newPaid <= 0.005 ? "Open" : newPaid >= Number(inv.amount) - 0.005 ? "Paid" : "Partially Paid";
         await db.updateInvoice(alloc.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
       }
+      // Remove the internal inter-office transfer that was auto-created for this allocation (if any)
+      await db.deleteInternalTransfersByAllocation(input.allocationId);
       await db.deleteWireTransferAllocation(input.allocationId);
       await audit(ctx, "Remove Wire Transfer Allocation", "invoice", alloc.invoiceId, `WT#${alloc.wireTransferId} allocation of ${Number(alloc.amount).toFixed(2)} removed`);
       return { success: true };
