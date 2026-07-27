@@ -1385,14 +1385,18 @@ export const customersRouter = router({
 
   getAllWireTransfers: protectedProcedure
     .query(async () => {
-      const customers = await db.listCustomers();
-      const allTransfers: any[] = [];
-      for (const customer of customers) {
-        const transfers = await db.listWireTransfersByCustomerId(customer.id);
-        allTransfers.push(...transfers);
-      }
-      return allTransfers;
+      const [transfers, customers] = await Promise.all([db.listAllWireTransfers(), db.listCustomers()]);
+      const byId = new Map(customers.map(c => [c.id, c]));
+      return transfers.map(t => ({ ...t, customerName: byId.get(t.customerId)?.name ?? `Customer #${t.customerId}` }));
     }),
+
+  /** Lightweight list of all companies (id + name) for dropdowns. */
+  listCompanies: protectedProcedure.query(async () => {
+    const customers = await db.listCustomers();
+    return customers
+      .map(c => ({ id: c.id, name: c.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }),
 });
 
 export const invoicesRouter = router({

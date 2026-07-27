@@ -629,3 +629,11 @@
 - [ ] Update Dashboard KPIs to reflect wire transfers in collected amounts
 - [ ] Write tests for wire transfer impact on balances
 - [x] Verify: Run full test suite (158/158 passing)
+
+## Wire Transfers Page Bug Fixes (user-reported)
+
+- [x] Fix slow loading: getAllWireTransfers does N+1 queries (811 queries, one per customer) — replace with single query
+- [x] Fix empty customer dropdown: search procedure requires min 2 chars, returns nothing for empty query — added listCompanies procedure
+- [x] Replace plain Select with searchable customer combobox (811 companies)
+- [x] Verify create wire transfer flow end-to-end (screenshot verified, 158/158 tests pass)
+- [x] Clean vitest residue (Test Bank/Email/Wire Transfer Test customers and their rows)

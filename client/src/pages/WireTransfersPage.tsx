@@ -6,9 +6,89 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import { fmtDate, fmtCur } from "@/lib/format";
 import { toast } from "sonner";
+
+type Company = { id: number; name: string };
+
+/** Searchable customer combobox for large customer lists. */
+function CustomerCombobox({
+  companies,
+  value,
+  onChange,
+  placeholder = "Select customer...",
+  allowAll = false,
+}: {
+  companies: Company[];
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  allowAll?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedLabel =
+    value === "all"
+      ? "All customers"
+      : companies.find(c => String(c.id) === value)?.name || placeholder;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+        >
+          <span className="truncate">{selectedLabel}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[320px] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Type to search..." />
+          <CommandList>
+            <CommandEmpty>No customer found.</CommandEmpty>
+            <CommandGroup>
+              {allowAll && (
+                <CommandItem
+                  value="__all__"
+                  onSelect={() => {
+                    onChange("all");
+                    setOpen(false);
+                  }}
+                >
+                  <Check className={cn("mr-2 h-4 w-4", value === "all" ? "opacity-100" : "opacity-0")} />
+                  All customers
+                </CommandItem>
+              )}
+              {companies.map(c => (
+                <CommandItem
+                  key={c.id}
+                  value={c.name}
+                  onSelect={() => {
+                    onChange(String(c.id));
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn("mr-2 h-4 w-4", value === String(c.id) ? "opacity-100" : "opacity-0")}
+                  />
+                  <span className="truncate">{c.name}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function WireTransfersPage() {
   const [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "Received">("All");
@@ -17,20 +97,18 @@ export default function WireTransfersPage() {
   const [dateTo, setDateTo] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
-  // Fetch all wire transfers
+  // Single fast query — transfers come with customerName precomputed on server
   const { data: allTransfers = [], isLoading } = trpc.customers.getAllWireTransfers.useQuery();
-  
-  // Fetch all customers for dropdown
-  const { data: searchResults = { companies: [] } } = trpc.customers.search.useQuery({ query: "" });
-  const customers = searchResults.companies || [];
+  // Lightweight companies list (id + name) for dropdowns
+  const { data: companies = [] } = trpc.customers.listCompanies.useQuery();
 
   // Filter transfers
   const filteredTransfers = useMemo(() => {
-    return allTransfers.filter((t: any) => {
+    return (allTransfers as any[]).filter((t: any) => {
       if (statusFilter !== "All" && t.status !== statusFilter) return false;
-      if (customerFilter && customerFilter !== "all" && t.customerId !== Number(customerFilter)) return false;
+      if (customerFilter !== "all" && t.customerId !== Number(customerFilter)) return false;
       if (dateFrom && new Date(Number(t.transferDate)) < new Date(dateFrom)) return false;
-      if (dateTo && new Date(Number(t.transferDate)) > new Date(dateTo)) return false;
+      if (dateTo && new Date(Number(t.transferDate)) > new Date(dateTo + "T23:59:59")) return false;
       return true;
     });
   }, [allTransfers, statusFilter, customerFilter, dateFrom, dateTo]);
@@ -46,10 +124,6 @@ export default function WireTransfersPage() {
     return { pending, received };
   }, [filteredTransfers]);
 
-  const getCustomerName = (customerId: number) => {
-    return customers.find((c: any) => c.id === customerId)?.name || `Customer #${customerId}`;
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -62,7 +136,7 @@ export default function WireTransfersPage() {
             <DialogHeader>
               <DialogTitle>Create Wire Transfer</DialogTitle>
             </DialogHeader>
-            <CreateWireTransferForm onSuccess={() => setIsCreateOpen(false)} customers={customers} />
+            <CreateWireTransferForm onSuccess={() => setIsCreateOpen(false)} companies={companies as Company[]} />
           </DialogContent>
         </Dialog>
       </div>
@@ -111,7 +185,7 @@ export default function WireTransfersPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
+            <div className="space-y-1.5">
               <Label htmlFor="status-filter">Status</Label>
               <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
                 <SelectTrigger id="status-filter">
@@ -125,24 +199,17 @@ export default function WireTransfersPage() {
               </Select>
             </div>
 
-            <div>
-              <Label htmlFor="customer-filter">Customer</Label>
-              <Select value={customerFilter} onValueChange={setCustomerFilter}>
-                <SelectTrigger id="customer-filter">
-                  <SelectValue placeholder="All customers" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All customers</SelectItem>
-                  {(customers as any[]).map((c: any) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="space-y-1.5">
+              <Label>Customer</Label>
+              <CustomerCombobox
+                companies={companies as Company[]}
+                value={customerFilter}
+                onChange={setCustomerFilter}
+                allowAll
+              />
             </div>
 
-            <div>
+            <div className="space-y-1.5">
               <Label htmlFor="date-from">From</Label>
               <Input
                 id="date-from"
@@ -152,7 +219,7 @@ export default function WireTransfersPage() {
               />
             </div>
 
-            <div>
+            <div className="space-y-1.5">
               <Label htmlFor="date-to">To</Label>
               <Input
                 id="date-to"
@@ -169,7 +236,7 @@ export default function WireTransfersPage() {
       <Card>
         <CardContent className="pt-6">
           {isLoading ? (
-            <div className="text-center py-8">Loading...</div>
+            <div className="text-center py-8 text-muted-foreground">Loading...</div>
           ) : filteredTransfers.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">No wire transfers found</div>
           ) : (
@@ -179,7 +246,6 @@ export default function WireTransfersPage() {
                   <TableRow>
                     <TableCell>Customer</TableCell>
                     <TableCell>Amount</TableCell>
-                    <TableCell>Currency</TableCell>
                     <TableCell>Transfer Date</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell>Reference</TableCell>
@@ -190,9 +256,8 @@ export default function WireTransfersPage() {
                 <TableBody>
                   {filteredTransfers.map((t: any) => (
                     <TableRow key={t.id}>
-                      <TableCell className="font-medium">{getCustomerName(t.customerId)}</TableCell>
+                      <TableCell className="font-medium">{t.customerName}</TableCell>
                       <TableCell>{fmtCur(Number(t.amount), t.currency)}</TableCell>
-                      <TableCell>{t.currency}</TableCell>
                       <TableCell>{fmtDate(Number(t.transferDate))}</TableCell>
                       <TableCell>
                         <span
@@ -206,7 +271,7 @@ export default function WireTransfersPage() {
                         </span>
                       </TableCell>
                       <TableCell className="text-sm">{t.referenceNumber || "-"}</TableCell>
-                      <TableCell className="text-sm">{t.notes || "-"}</TableCell>
+                      <TableCell className="text-sm max-w-[200px] truncate">{t.notes || "-"}</TableCell>
                       <TableCell>
                         <UpdateWireTransferDialog transfer={t} />
                       </TableCell>
@@ -224,12 +289,12 @@ export default function WireTransfersPage() {
 
 function CreateWireTransferForm({
   onSuccess,
-  customers,
+  companies,
 }: {
   onSuccess: () => void;
-  customers: Array<{ id: number; name: string }>;
+  companies: Company[];
 }) {
-  const [customerId, setCustomerId] = useState("0");
+  const [customerId, setCustomerId] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("EUR");
   const [transferDate, setTransferDate] = useState(new Date().toISOString().split("T")[0]);
@@ -237,9 +302,11 @@ function CreateWireTransferForm({
   const [referenceNumber, setReferenceNumber] = useState("");
   const [notes, setNotes] = useState("");
 
+  const utils = trpc.useUtils();
   const createMutation = trpc.customers.createWireTransfer.useMutation({
     onSuccess: () => {
       toast.success("Wire transfer created");
+      utils.customers.getAllWireTransfers.invalidate();
       onSuccess();
     },
     onError: (err) => {
@@ -248,7 +315,7 @@ function CreateWireTransferForm({
   });
 
   const handleSubmit = () => {
-    if (!customerId || customerId === "0" || !amount) {
+    if (!customerId || !amount) {
       toast.error("Customer and Amount are required");
       return;
     }
@@ -267,28 +334,18 @@ function CreateWireTransferForm({
 
   return (
     <div className="space-y-4">
-      <div>
-        <Label htmlFor="customer">Customer *</Label>
-        <Select value={customerId} onValueChange={setCustomerId}>
-          <SelectTrigger id="customer">
-            <SelectValue placeholder="Select customer" />
-          </SelectTrigger>
-          <SelectContent>
-            {(customers as any[]).length > 0 ? (
-              customers.map((c: any) => (
-              <SelectItem key={c.id} value={String(c.id)}>
-                {c.name}
-              </SelectItem>
-            ))
-            ) : (
-              <div className="p-2 text-sm text-muted-foreground">No customers available</div>
-            )}
-          </SelectContent>
-        </Select>
+      <div className="space-y-1.5">
+        <Label>Customer *</Label>
+        <CustomerCombobox
+          companies={companies}
+          value={customerId}
+          onChange={setCustomerId}
+          placeholder="Type to search customer..."
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <div>
+        <div className="space-y-1.5">
           <Label htmlFor="amount">Amount *</Label>
           <Input
             id="amount"
@@ -300,7 +357,7 @@ function CreateWireTransferForm({
           />
         </div>
 
-        <div>
+        <div className="space-y-1.5">
           <Label htmlFor="currency">Currency</Label>
           <Input
             id="currency"
@@ -312,7 +369,7 @@ function CreateWireTransferForm({
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <div>
+        <div className="space-y-1.5">
           <Label htmlFor="transfer-date">Transfer Date</Label>
           <Input
             id="transfer-date"
@@ -322,7 +379,7 @@ function CreateWireTransferForm({
           />
         </div>
 
-        <div>
+        <div className="space-y-1.5">
           <Label htmlFor="status">Status</Label>
           <Select value={status} onValueChange={(v) => setStatus(v as any)}>
             <SelectTrigger id="status">
@@ -336,7 +393,7 @@ function CreateWireTransferForm({
         </div>
       </div>
 
-      <div>
+      <div className="space-y-1.5">
         <Label htmlFor="reference">Reference Number</Label>
         <Input
           id="reference"
@@ -346,7 +403,7 @@ function CreateWireTransferForm({
         />
       </div>
 
-      <div>
+      <div className="space-y-1.5">
         <Label htmlFor="notes">Notes</Label>
         <Input
           id="notes"
@@ -377,9 +434,22 @@ function UpdateWireTransferDialog({
   const [newStatus, setNewStatus] = useState(transfer.status);
   const [isOpen, setIsOpen] = useState(false);
 
+  const utils = trpc.useUtils();
   const updateMutation = trpc.customers.updateWireTransfer.useMutation({
     onSuccess: () => {
       toast.success("Wire transfer updated");
+      utils.customers.getAllWireTransfers.invalidate();
+      setIsOpen(false);
+    },
+    onError: (err) => {
+      toast.error(err.message);
+    },
+  });
+
+  const deleteMutation = trpc.customers.deleteWireTransfer.useMutation({
+    onSuccess: () => {
+      toast.success("Wire transfer deleted");
+      utils.customers.getAllWireTransfers.invalidate();
       setIsOpen(false);
     },
     onError: (err) => {
@@ -411,7 +481,7 @@ function UpdateWireTransferDialog({
           <div>
             <Label>Amount: {fmtCur(Number(transfer.amount), transfer.currency)}</Label>
           </div>
-          <div>
+          <div className="space-y-1.5">
             <Label htmlFor="update-status">Status</Label>
             <Select value={newStatus} onValueChange={(v) => setNewStatus(v as any)}>
               <SelectTrigger id="update-status">
@@ -423,9 +493,18 @@ function UpdateWireTransferDialog({
               </SelectContent>
             </Select>
           </div>
-          <Button onClick={handleUpdate} disabled={updateMutation.isPending} className="w-full">
-            {updateMutation.isPending ? "Updating..." : "Update"}
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={handleUpdate} disabled={updateMutation.isPending} className="flex-1">
+              {updateMutation.isPending ? "Updating..." : "Update"}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteMutation.mutate({ id: transfer.id, customerId: transfer.customerId })}
+              disabled={deleteMutation.isPending}
+            >
+              Delete
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

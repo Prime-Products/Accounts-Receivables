@@ -836,6 +836,11 @@ export async function listWireTransfersByCustomerId(customerId: number) {
   return db.select().from(wireTransfers).where(eq(wireTransfers.customerId, customerId)).orderBy(desc(wireTransfers.transferDate));
 }
 
+export async function listAllWireTransfers() {
+  const db = await requireDb();
+  return db.select().from(wireTransfers).orderBy(desc(wireTransfers.transferDate));
+}
+
 export async function listWireTransfersByStatus(status: "Pending" | "Received") {
   const db = await requireDb();
   return db.select().from(wireTransfers).where(eq(wireTransfers.status, status)).orderBy(desc(wireTransfers.transferDate));
