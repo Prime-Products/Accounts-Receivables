@@ -37,6 +37,10 @@ import {
   userProfiles,
   users,
 } from "../drizzle/schema";
+import {
+  paymentBankDetails,
+  InsertPaymentBankDetails,
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -786,4 +790,27 @@ export async function setGroupConfirmationUpdatedAt(groupName: string, updatedAt
   const db = await requireDb();
   const ts = updatedAt.toISOString().slice(0, 19).replace("T", " ");
   await db.execute(sql`UPDATE group_confirmation_status SET updatedAt = ${ts} WHERE groupName = ${groupName}`);
+}
+
+// ---------- Payment Bank Details ----------
+export async function getBankDetailsByCustomerId(customerId: number) {
+  const db = await requireDb();
+  const r = await db.select().from(paymentBankDetails).where(eq(paymentBankDetails.customerId, customerId)).limit(1);
+  return r[0] || null;
+}
+
+export async function createBankDetails(data: InsertPaymentBankDetails) {
+  const db = await requireDb();
+  const res = await db.insert(paymentBankDetails).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function updateBankDetails(customerId: number, data: Partial<InsertPaymentBankDetails>) {
+  const db = await requireDb();
+  await db.update(paymentBankDetails).set(data).where(eq(paymentBankDetails.customerId, customerId));
+}
+
+export async function deleteBankDetails(customerId: number) {
+  const db = await requireDb();
+  await db.delete(paymentBankDetails).where(eq(paymentBankDetails.customerId, customerId));
 }

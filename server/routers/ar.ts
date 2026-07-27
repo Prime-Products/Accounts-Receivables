@@ -1285,6 +1285,49 @@ export const customersRouter = router({
       await audit(ctx, "Update Customer", "customer", id);
       return { success: true };
     }),
+
+  // Bank Details procedures
+  getBankDetails: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .query(async ({ input }) => {
+      return await db.getBankDetailsByCustomerId(input.customerId);
+    }),
+
+  saveBankDetails: protectedProcedure
+    .input(
+      z.object({
+        customerId: z.number(),
+        iban: z.string().optional().nullable(),
+        accountNumber: z.string().optional().nullable(),
+        bankName: z.string().optional().nullable(),
+        swiftCode: z.string().optional().nullable(),
+        beneficiaryName: z.string().optional().nullable(),
+        currency: z.string().default("EUR"),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { customerId, ...data } = input;
+      const existing = await db.getBankDetailsByCustomerId(customerId);
+
+      if (existing) {
+        // Update existing
+        await db.updateBankDetails(customerId, { ...data, updatedBy: ctx.user.id });
+      } else {
+        // Create new
+        await db.createBankDetails({ customerId, ...data, createdBy: ctx.user.id });
+      }
+
+      await audit(ctx, "Save Bank Details", "customer", customerId);
+      return { success: true };
+    }),
+
+  deleteBankDetails: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await db.deleteBankDetails(input.customerId);
+      await audit(ctx, "Delete Bank Details", "customer", input.customerId);
+      return { success: true };
+    }),
 });
 
 export const invoicesRouter = router({

@@ -594,4 +594,17 @@
 - [x] Data consistency: invoice paidAmount vs allocations, statuses vs open promises/tasks, forecast entries vs current month, orphan rows
 - [x] Visual verification of all main pages (Dashboard, Customers, Group card, Customer 360, Forecast, Tasks, Invoices, Contacts, Reports, Settings)
 - [x] Fix issues found during audit (1 stale test updated; 5 stale promises cancelled; all vitest fixture data purged from DB)
-- [ ] Deliver audit report to user
+- [x] Deliver audit report to user
+
+## DB indexes (user request 26/7)
+
+- [x] CANCELLED by user before applying — schema.ts changes reverted, no migration was run, database untouched
+
+## Bank Details Feature (Phase 1 of Wire Transfers/Credit Notes/Netting)
+
+- [x] Schema: Add payment_bank_details table to drizzle/schema.ts
+- [x] Migration: Generate and apply SQL for payment_bank_details
+- [x] Backend: Add procedures (add, update, get, delete bank details)
+- [x] UI: Create BankDetails component for Customer 360 card
+- [x] Tests: Write vitest for bank details procedures (6/6 passing)
+- [x] Verify: Run full test suite and checkpoint (154/154 passing)

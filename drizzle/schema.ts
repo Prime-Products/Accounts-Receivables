@@ -1,4 +1,4 @@
-import { bigint, decimal, double, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { bigint, decimal, double, index, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -416,3 +416,35 @@ export const groupConfirmationStatus = mysqlTable("group_confirmation_status", {
 
 export type GroupConfirmationStatus = typeof groupConfirmationStatus.$inferSelect;
 export type InsertGroupConfirmationStatus = typeof groupConfirmationStatus.$inferInsert;
+
+/**
+ * Bank details for payment processing per customer.
+ * Stores IBAN, account number, bank name, Swift code, and beneficiary name.
+ * One primary record per customer; can have multiple alternative accounts per currency.
+ */
+export const paymentBankDetails = mysqlTable("payment_bank_details", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull().unique(),
+  
+  // Primary bank account details
+  iban: varchar("iban", { length: 34 }),
+  accountNumber: varchar("accountNumber", { length: 64 }),
+  bankName: varchar("bankName", { length: 255 }),
+  swiftCode: varchar("swiftCode", { length: 11 }),
+  beneficiaryName: varchar("beneficiaryName", { length: 255 }),
+  
+  // Currency and defaults
+  currency: varchar("currency", { length: 8 }).default("EUR").notNull(),
+  isDefault: int("isDefault").default(1).notNull(),
+  
+  // Audit trail
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_bank_details_customerId").on(t.customerId),
+]);
+
+export type PaymentBankDetails = typeof paymentBankDetails.$inferSelect;
+export type InsertPaymentBankDetails = typeof paymentBankDetails.$inferInsert;
