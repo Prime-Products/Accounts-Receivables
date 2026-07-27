@@ -39,6 +39,27 @@ export const userProfiles = mysqlTable("user_profiles", {
 export const customerTiers = ["Platinum", "Gold", "Silver", "Bronze", "New"] as const;
 
 /**
+ * Team members — collaborators who manage customers and take on tasks.
+ * Separate from the auth `users` table: members are managed in-app (no login
+ * required) and can be linked to an auth user later via userId if they sign in.
+ */
+export const teamMembers = mysqlTable("team_members", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 191 }).notNull(),
+  email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 64 }),
+  /** Job title / role label, e.g. "Credit Controller". */
+  title: varchar("title", { length: 128 }),
+  /** Optional link to an auth user (users.id) if the member signs in. */
+  userId: int("userId"),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type TeamMember = typeof teamMembers.$inferSelect;
+export type InsertTeamMember = typeof teamMembers.$inferInsert;
+
+/**
  * Historical payment behavior per customer, computed from imported payment allocations
  * (last-year window). Used by the smart forecast for avg/median days-to-pay.
  */
@@ -70,6 +91,8 @@ export const customers = mysqlTable("customers", {
   turnoverYtd: decimal("turnoverYtd", { precision: 14, scale: 2 }),
   turnoverLastYear: decimal("turnoverLastYear", { precision: 14, scale: 2 }),
   onHoldStatus: mysqlEnum("onHoldStatus", ["Active", "Under Review", "Eligible for On Hold", "On Hold", "Legal"]).default("Active").notNull(),
+  /** Responsible team member (account manager); FK to team_members.id. */
+  accountManagerId: int("accountManagerId"),
   softoneId: varchar("softoneId", { length: 64 }),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -170,6 +193,8 @@ export const tasks = mysqlTable("tasks", {
   dueDate: bigint("dueDate", { mode: "number" }).notNull(),
   status: mysqlEnum("status", taskStatuses).default("Pending").notNull(),
   assignedTo: int("assignedTo"),
+  /** Team member responsible for the task; FK to team_members.id. */
+  assigneeId: int("assigneeId"),
   completedAt: bigint("completedAt", { mode: "number" }),
   completionNotes: text("completionNotes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

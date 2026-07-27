@@ -6,6 +6,7 @@ import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
 import { ActivityLog } from "@/components/ActivityLog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
+import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -366,6 +367,12 @@ export default function GroupDetail() {
                 </Badge>
               )}
               {data && <WatchStatusSelect group={group} effective={data.watchStatus ?? null} />}
+              {data && (
+                <AccountManagerControl
+                  manager={(data as any).accountManager ?? null}
+                  groupName={group}
+                />
+              )}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               Group card — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}

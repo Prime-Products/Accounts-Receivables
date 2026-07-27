@@ -42,6 +42,7 @@ import {
   InsertPaymentBankDetails,
 } from "../drizzle/schema";
 import { vessels, InsertVessel } from "../drizzle/schema";
+import { teamMembers, InsertTeamMember } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -868,6 +869,51 @@ export async function getVesselById(id: number) {
   const db = await requireDb();
   const rows = await db.select().from(vessels).where(eq(vessels.id, id)).limit(1);
   return rows[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Team members — collaborators who manage customers and take on tasks
+// ---------------------------------------------------------------------------
+
+export async function listTeamMembers(includeInactive = false) {
+  const db = await requireDb();
+  if (includeInactive) return db.select().from(teamMembers).orderBy(teamMembers.name);
+  return db.select().from(teamMembers).where(eq(teamMembers.active, true)).orderBy(teamMembers.name);
+}
+
+export async function createTeamMember(data: InsertTeamMember) {
+  const db = await requireDb();
+  const [res] = await db.insert(teamMembers).values(data);
+  return res.insertId;
+}
+
+export async function updateTeamMember(id: number, data: Partial<InsertTeamMember>) {
+  const db = await requireDb();
+  await db.update(teamMembers).set(data).where(eq(teamMembers.id, id));
+}
+
+export async function getTeamMemberById(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(teamMembers).where(eq(teamMembers.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function deleteTeamMember(id: number) {
+  const db = await requireDb();
+  // Detach from customers and tasks first, then delete.
+  await db.update(customers).set({ accountManagerId: null }).where(eq(customers.accountManagerId, id));
+  await db.update(tasks).set({ assigneeId: null }).where(eq(tasks.assigneeId, id));
+  await db.delete(teamMembers).where(eq(teamMembers.id, id));
+}
+
+/** Assign an account manager to every company of a customer group. */
+export async function setGroupAccountManager(groupName: string, managerId: number | null) {
+  const db = await requireDb();
+  const trimmed = groupName.trim();
+  await db
+    .update(customers)
+    .set({ accountManagerId: managerId })
+    .where(or(eq(customers.customerGroup, trimmed), eq(customers.name, trimmed)));
 }
 
 /** Test/maintenance helper: overwrite a confirmation row's updatedAt (bypasses onUpdateNow via raw SQL). */

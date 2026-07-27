@@ -5,6 +5,7 @@ import GroupNotesDialog from "@/components/GroupNotesDialog";
 import { BankDetails } from "@/components/BankDetails";
 import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
+import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -112,6 +113,11 @@ export default function CustomerDetail() {
                 <Layers className="h-3 w-3" /> {customer.customerGroup}
               </Badge>
             )}
+            <AccountManagerControl
+              manager={(data as any).accountManager ?? null}
+              customerId={id}
+              onChanged={() => utils.customers.get360.invalidate({ id })}
+            />
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             {customer.code} · VAT {customer.vatNumber || "—"} · {customer.email || "no email"} · terms{" "}

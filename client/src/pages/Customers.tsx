@@ -247,6 +247,8 @@ export default function Customers() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [ratingFilter, setRatingFilter] = useState<string>("all");
   const [confirmationFilter, setConfirmationFilter] = useState<string>("all");
+  const [managerFilter, setManagerFilter] = useState<string>("all");
+  const { data: teamMembers } = trpc.team.list.useQuery();
   const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
   const [companySort, setCompanySort] = useState<{ key: CompanySortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
 
@@ -336,7 +338,12 @@ export default function Customers() {
         (confirmationFilter === "confirmed" && g.confirmationStatus === "Confirmed") ||
         (confirmationFilter === "pending" && g.confirmationStatus === "Pending Follow-up") ||
         (confirmationFilter === "broken" && g.confirmationStatus === "Broken");
-      return matchesSearch && matchesStatus && matchesRating && matchesConfirmation;
+      const gManager = (g as any).accountManager as { id: number; name: string } | null;
+      const matchesManager =
+        managerFilter === "all" ||
+        (managerFilter === "unassigned" && !gManager) ||
+        (managerFilter !== "unassigned" && managerFilter !== "all" && gManager?.id === Number(managerFilter));
+      return matchesSearch && matchesStatus && matchesRating && matchesConfirmation && matchesManager;
     });
     if (groupSort.key) {
       const getVal = (g: (typeof rows)[number]): number => {
@@ -369,7 +376,7 @@ export default function Customers() {
       });
     }
     return rows;
-  }, [groups, search, statusFilter, ratingFilter, confirmationFilter, groupSort]);
+  }, [groups, search, statusFilter, ratingFilter, confirmationFilter, managerFilter, groupSort]);
 
   const groupTotals = useMemo(
     () =>
@@ -568,6 +575,20 @@ export default function Customers() {
                 <SelectItem value="broken">Broken</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={managerFilter} onValueChange={setManagerFilter}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Manager" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All managers</SelectItem>
+                <SelectItem value="unassigned">Unassigned</SelectItem>
+                {(teamMembers ?? []).map(m => (
+                  <SelectItem key={m.id} value={String(m.id)}>
+                    {m.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </>
         )}
         <Select value={ratingFilter} onValueChange={setRatingFilter}>
@@ -755,6 +776,11 @@ export default function Customers() {
                             </span>
                           )}
                         </div>
+                        {(g as any).accountManager && (
+                          <div className="text-[11px] text-sky-700 mt-0.5 truncate">
+                            {(g as any).accountManager.name}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell onClick={e => e.stopPropagation()}>
                         <ConfirmationBadgeButton group={g.group} status={g.confirmationStatus} />

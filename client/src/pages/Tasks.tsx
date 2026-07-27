@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import NewTaskDialog, { TASK_TYPES } from "@/components/NewTaskDialog";
+import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -26,9 +27,11 @@ import { Link } from "wouter";
 
 export default function Tasks() {
   const { data: tasks, isLoading } = trpc.tasks.list.useQuery();
+  const { data: teamMembers } = trpc.team.list.useQuery();
   const utils = trpc.useUtils();
   const [statusFilter, setStatusFilter] = useState<string>("Pending");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
 
   const runEngine = trpc.tasks.runEngine.useMutation({
@@ -53,14 +56,25 @@ export default function Tasks() {
     onError: e => toast.error(e.message),
   });
 
+  const assignTask = trpc.tasks.assign.useMutation({
+    onSuccess: () => {
+      toast.success("Task assignment updated");
+      utils.tasks.list.invalidate();
+      utils.team.workload.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+
   const filtered = useMemo(() => {
     if (!tasks) return [];
     return tasks.filter(t => {
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
       if (typeFilter !== "all" && t.type !== typeFilter) return false;
+      if (assigneeFilter === "unassigned" && t.assigneeId != null) return false;
+      if (assigneeFilter !== "all" && assigneeFilter !== "unassigned" && t.assigneeId !== Number(assigneeFilter)) return false;
       return true;
     });
-  }, [tasks, statusFilter, typeFilter]);
+  }, [tasks, statusFilter, typeFilter, assigneeFilter]);
 
   const openTask = useMemo(() => (tasks ?? []).find(t => t.id === openTaskId) ?? null, [tasks, openTaskId]);
   const promiseStatusColors: Record<string, string> = {
@@ -131,6 +145,20 @@ export default function Tasks() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+          <SelectTrigger className="w-52">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All assignees</SelectItem>
+            <SelectItem value="unassigned">Unassigned</SelectItem>
+            {(teamMembers ?? []).map(m => (
+              <SelectItem key={m.id} value={String(m.id)}>
+                {m.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <Card>
@@ -153,6 +181,7 @@ export default function Tasks() {
                   <TableHead>Customer</TableHead>
                   <TableHead>Task</TableHead>
                   <TableHead>Invoice</TableHead>
+                  <TableHead>Assignee</TableHead>
                   <TableHead>Due</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -176,6 +205,24 @@ export default function Tasks() {
                       <div>{t.title}</div>
                     </TableCell>
                     <TableCell className="text-sm font-mono">{t.invoiceNumber ?? "—"}</TableCell>
+                    <TableCell className="text-sm" onClick={e => e.stopPropagation()}>
+                      <Select
+                        value={t.assigneeId ? String(t.assigneeId) : "none"}
+                        onValueChange={v => assignTask.mutate({ id: t.id, assigneeId: v === "none" ? null : Number(v) })}
+                      >
+                        <SelectTrigger className="h-7 w-36 text-xs border-dashed">
+                          <SelectValue placeholder="Unassigned" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">— Unassigned —</SelectItem>
+                          {(teamMembers ?? []).map(m => (
+                            <SelectItem key={m.id} value={String(m.id)}>
+                              {m.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
                     <TableCell className="text-sm">{fmtDate(t.dueDate)}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={taskStatusColors[t.status] ?? ""}>
@@ -243,6 +290,13 @@ export default function Tasks() {
                   <div>
                     <div className="text-xs text-muted-foreground">Due date</div>
                     <div className="font-medium">{fmtDate(openTask.dueDate)}</div>
+                  </div>
+                  <div className="col-span-2">
+                    <div className="text-xs text-muted-foreground mb-1">Assignee</div>
+                    <TeamMemberSelect
+                      value={openTask.assigneeId ?? null}
+                      onChange={id => assignTask.mutate({ id: openTask.id, assigneeId: id })}
+                    />
                   </div>
                   {openTask.invoiceNumber && (
                     <div>

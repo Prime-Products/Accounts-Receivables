@@ -36,6 +36,7 @@ import {
   Settings,
   TrendingUp,
   Users,
+  UserCog,
   Banknote,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -53,6 +54,7 @@ const menuItems = [
   { icon: Banknote, label: "Wire Transfers", path: "/wire-transfers" },
   { icon: TrendingUp, label: "Forecast", path: "/forecast" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
+  { icon: UserCog, label: "Team", path: "/team" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 

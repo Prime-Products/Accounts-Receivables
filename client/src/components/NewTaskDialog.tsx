@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { trpc } from "@/lib/trpc";
 import { ChevronsUpDown, Plus } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -51,6 +52,7 @@ export default function NewTaskDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [assigneeId, setAssigneeId] = useState<number | null>(null);
 
   const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: open });
   const customers = customerIds ? (allCustomers ?? []).filter(c => customerIds.includes(c.id)) : (allCustomers ?? []);
@@ -67,6 +69,7 @@ export default function NewTaskDialog({
       setTitle("");
       setDescription("");
       setType("Manual");
+      setAssigneeId(null);
     },
     onError: e => toast.error(e.message),
   });
@@ -81,6 +84,7 @@ export default function NewTaskDialog({
       title: title.trim(),
       description: description.trim() || undefined,
       dueDate: new Date(`${dueDate}T12:00:00`).getTime(),
+      assigneeId: assigneeId ?? undefined,
     });
   };
 
@@ -159,6 +163,10 @@ export default function NewTaskDialog({
               <Label>Due date</Label>
               <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Assignee (optional)</Label>
+            <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} />
           </div>
           <div className="space-y-1.5">
             <Label>Title</Label>

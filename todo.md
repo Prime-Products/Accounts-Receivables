@@ -642,6 +642,15 @@
 - [x] Search: vessel name matches return invoices of that vessel
 - [x] Tests for vessel CRUD and invoice-vessel linking
 - [x] Update Collected calculation to include received wire transfers
+
+## Team members: account managers & task assignment (user request 27/7)
+- [x] Schema: team_members table (name, email, phone, role/title, active) + accountManagerId on customers (group inherits from members) + assigneeId on tasks
+- [x] Backend: teamMembers router (list/create/update/deactivate); customers.setAccountManager (single company or whole group); tasks.assign / re-assign procedure with audit
+- [x] Frontend: Team page in menu — manage members (add/edit/deactivate)
+- [x] Frontend: account manager shown & editable on customer card and group card (assign to whole group at once)
+- [x] Frontend: Customers list shows account manager column + filter by manager
+- [x] Frontend: Tasks — assignee picker on create, assignee shown on rows, re-assign action, filter tasks by assignee
+- [x] Tests: team member CRUD, owner assignment (company & group), task assignment/re-assignment (5/5 passing)
 - [x] Update Dashboard KPIs to reflect wire transfers in collected amounts
 - [x] Write tests for wire transfer impact on balances
 - [x] Verify: Run full test suite (158/158 passing)

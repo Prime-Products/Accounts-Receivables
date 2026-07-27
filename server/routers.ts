@@ -15,6 +15,7 @@ import {
   receiptsRouter,
   reportsRouter,
   tasksRouter,
+  teamRouter,
 } from "./routers/ar";
 
 export const appRouter = router({
@@ -34,6 +35,7 @@ export const appRouter = router({
   customers: customersRouter,
   invoices: invoicesRouter,
   vessels: vesselsRouter,
+  team: teamRouter,
   receipts: receiptsRouter,
   contracts: contractsRouter,
   tasks: tasksRouter,

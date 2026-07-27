@@ -524,6 +524,8 @@ export const customersRouter = router({
     }
     const HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
     const day90 = 90 * 24 * 60 * 60 * 1000;
+    const teamById = new Map((await db.listTeamMembers(true)).map(m => [m.id, m]));
+    const managerByGroup = new Map<string, { id: number; name: string } | null>();
     const groups = new Map<
       string,
       {
@@ -559,6 +561,9 @@ export const customersRouter = router({
         groupInvoices.set(key, gInv);
       }
       g.companyCount += 1;
+      if (!managerByGroup.get(key) && c.accountManagerId && teamById.has(c.accountManagerId)) {
+        managerByGroup.set(key, { id: c.accountManagerId, name: teamById.get(c.accountManagerId)!.name });
+      }
       g.turnoverYtd += c.turnoverYtd ? Number(c.turnoverYtd) : 0;
       g.turnoverLastYear += c.turnoverLastYear ? Number(c.turnoverLastYear) : 0;
       g.collected += collectedByCustomer.get(c.id) ?? 0;
@@ -648,6 +653,7 @@ export const customersRouter = router({
           confirmationStatus: confStatus,
           confirmationAmount: confAmount,
           confirmationFollowUpDate: confirmation?.followUpDate ?? null,
+          accountManager: managerByGroup.get(g.group) ?? null,
           // Earliest open promise date — shown under the "Promise to Pay" badge.
           confirmationPromiseDate: confStatus === "Confirmed" ? openPromiseDate : null,
         };
@@ -955,11 +961,19 @@ export const customersRouter = router({
       const groupForecastInitial = forecastRows
         .filter(f => (f.customerGroup ?? "").trim() === input.group)
         .reduce((s, f) => s + Number((f as any).initialForecast ?? 0), 0);
+      // Group account manager: the first member company with a manager set.
+      const teamAll = await db.listTeamMembers(true);
+      const teamMap = new Map(teamAll.map(m => [m.id, m]));
+      const managerMember = members.find(m => (m as any).accountManagerId && teamMap.has((m as any).accountManagerId));
+      const accountManager = managerMember
+        ? { id: (managerMember as any).accountManagerId as number, name: teamMap.get((managerMember as any).accountManagerId)!.name }
+        : null;
       return {
         group: input.group,
         companies,
         branches,
         aging,
+        accountManager,
         behavior: groupBehavior,
         rating: ratingResult,
         holdStatus: groupHoldStatus,
@@ -1289,8 +1303,14 @@ export const customersRouter = router({
     const watchOverride = watchRow && watchRow.status !== "Auto" ? (watchRow.status === "On Watch" ? "Problematic" : watchRow.status) : null;
     const vesselRows360 = await db.listVessels();
     const vesselName360 = new Map(vesselRows360.map(v => [v.id, v.name]));
+    const team360 = await db.listTeamMembers(true);
+    const teamMap360 = new Map(team360.map(m => [m.id, m]));
+    const accountManager = (customer as any).accountManagerId && teamMap360.has((customer as any).accountManagerId)
+      ? { id: (customer as any).accountManagerId as number, name: teamMap360.get((customer as any).accountManagerId)!.name }
+      : null;
     return {
       customer,
+      accountManager,
       invoices: invoices.map(i => ({
         ...i,
         vesselName: i.vesselId ? (vesselName360.get(i.vesselId) ?? null) : null,
@@ -1729,6 +1749,37 @@ export const customersRouter = router({
       .map(c => ({ id: c.id, name: c.name }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }),
+  /**
+   * Assign a responsible team member (account manager) either to a single
+   * company or to every company of a customer group. null clears it.
+   */
+  setAccountManager: protectedProcedure
+    .input(z.object({
+      managerId: z.number().nullable(),
+      customerId: z.number().optional(),
+      groupName: z.string().min(1).optional(),
+    }).refine(v => v.customerId !== undefined || v.groupName !== undefined, { message: "customerId or groupName required" }))
+    .mutation(async ({ ctx, input }) => {
+      let managerName: string | null = null;
+      if (input.managerId !== null) {
+        const member = await db.getTeamMemberById(input.managerId);
+        if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+        if (!member.active) throw new TRPCError({ code: "BAD_REQUEST", message: "Team member is inactive" });
+        managerName = member.name;
+      }
+      if (input.groupName) {
+        await db.setGroupAccountManager(input.groupName, input.managerId);
+        await audit(ctx, "Set Account Manager", "customerGroup", undefined,
+          `Group "${input.groupName}" → ${managerName ?? "unassigned"}`);
+      } else if (input.customerId !== undefined) {
+        const customer = await db.getCustomer(input.customerId);
+        if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+        await db.updateCustomer(input.customerId, { accountManagerId: input.managerId } as any);
+        await audit(ctx, "Set Account Manager", "customer", input.customerId,
+          `${customer.name} → ${managerName ?? "unassigned"}`);
+      }
+      return { success: true, managerName };
+    }),
 });
 
 export const invoicesRouter = router({
@@ -2006,6 +2057,7 @@ export const tasksRouter = router({
       description: z.string().optional(),
       dueDate: z.number(),
       invoiceId: z.number().optional(),
+      assigneeId: z.number().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const customer = await db.getCustomer(input.customerId);
@@ -2017,6 +2069,7 @@ export const tasksRouter = router({
         description: input.description,
         dueDate: input.dueDate,
         invoiceId: input.invoiceId,
+        assigneeId: input.assigneeId ?? null,
         status: "Pending",
         assignedTo: ctx.user.id,
       });
@@ -2033,6 +2086,8 @@ export const tasksRouter = router({
       const invById = new Map(invoices.map(i => [i.id, i]));
       const allPromises = await db.listPromises();
       const promById = new Map(allPromises.map(p => [p.id, p]));
+      const members = await db.listTeamMembers(true);
+      const memberById = new Map(members.map(mb => [mb.id, mb]));
       return rows.map(t => {
         // Promise follow-up tasks embed "(Promise #<id>)" in their description.
         const m = t.description?.match(/\(Promise #(\d+)\)/);
@@ -2041,12 +2096,27 @@ export const tasksRouter = router({
           ...t,
           customerName: byId.get(t.customerId)?.name ?? "—",
           invoiceNumber: t.invoiceId ? invById.get(t.invoiceId)?.invoiceNumber : undefined,
+          assigneeName: t.assigneeId ? (memberById.get(t.assigneeId)?.name ?? null) : null,
           promiseId: promise?.id,
           promise: promise
             ? { id: promise.id, promisedDate: promise.promisedDate, amount: promise.amount, status: promise.status, notes: promise.notes }
             : undefined,
         };
       });
+    }),
+  /** Assign or re-assign a task to a team member (null clears the assignment). */
+  assign: protectedProcedure
+    .input(z.object({ id: z.number(), assigneeId: z.number().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.assigneeId !== null) {
+        const member = await db.getTeamMemberById(input.assigneeId);
+        if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+        if (!member.active) throw new TRPCError({ code: "BAD_REQUEST", message: "Team member is inactive" });
+      }
+      await db.updateTask(input.id, { assigneeId: input.assigneeId } as any);
+      const name = input.assigneeId ? (await db.getTeamMemberById(input.assigneeId))?.name : null;
+      await audit(ctx, "Assign Task", "task", input.id, name ? `Assigned to ${name}` : "Assignment cleared");
+      return { success: true };
     }),
   updateStatus: protectedProcedure
     .input(z.object({ id: z.number(), status: z.enum(taskStatuses), completionNotes: z.string().optional() }))
@@ -2063,6 +2133,73 @@ export const tasksRouter = router({
     const res = await runTaskEngine();
     await audit(ctx, "Run Task Engine", "system", undefined, `Generated ${res.created} task(s)`);
     return res;
+  }),
+});
+
+/**
+ * Team members — collaborators who manage customers (account managers) and
+ * take on tasks. Managed in-app; no login is required for a member.
+ */
+export const teamRouter = router({
+  list: protectedProcedure
+    .input(z.object({ includeInactive: z.boolean().optional() }).optional())
+    .query(async ({ input }) => db.listTeamMembers(input?.includeInactive ?? false)),
+  create: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(191),
+      email: z.string().email().max(320).optional(),
+      phone: z.string().max(64).optional(),
+      title: z.string().max(128).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const id = await db.createTeamMember({
+        name: input.name.trim(),
+        email: input.email?.trim() || null,
+        phone: input.phone?.trim() || null,
+        title: input.title?.trim() || null,
+      });
+      await audit(ctx, "Create Team Member", "teamMember", Number(id), `Member "${input.name.trim()}" created`);
+      return { id: Number(id) };
+    }),
+  update: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      name: z.string().min(1).max(191).optional(),
+      email: z.string().email().max(320).nullable().optional(),
+      phone: z.string().max(64).nullable().optional(),
+      title: z.string().max(128).nullable().optional(),
+      active: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      const member = await db.getTeamMemberById(id);
+      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+      await db.updateTeamMember(id, data as any);
+      await audit(ctx, "Update Team Member", "teamMember", id, data.active === false ? `Member "${member.name}" deactivated` : undefined);
+      return { success: true };
+    }),
+  remove: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await db.getTeamMemberById(input.id);
+      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+      await db.deleteTeamMember(input.id);
+      await audit(ctx, "Delete Team Member", "teamMember", input.id, `Member "${member.name}" deleted (detached from customers & tasks)`);
+      return { success: true };
+    }),
+  /** Per-member workload: managed companies/groups and open task counts. */
+  workload: protectedProcedure.query(async () => {
+    const [members, allCustomers, allTasks] = await Promise.all([
+      db.listTeamMembers(true),
+      db.listCustomers(),
+      db.listTasks({ statuses: ["Pending", "In Progress"] }),
+    ]);
+    return members.map(m => {
+      const managed = allCustomers.filter(c => c.accountManagerId === m.id);
+      const groups = new Set(managed.map(c => (c.customerGroup ?? "").trim() || c.name));
+      const openTasks = allTasks.filter(t => t.assigneeId === m.id).length;
+      return { ...m, companies: managed.length, groups: groups.size, openTasks };
+    });
   }),
 });
 
