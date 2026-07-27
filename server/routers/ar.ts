@@ -1407,6 +1407,20 @@ export const customersRouter = router({
   deleteWireTransfer: protectedProcedure
     .input(z.object({ id: z.number(), customerId: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      // Cascade: revert allocations on invoices, delete allocations,
+      // and delete internal inter-office transfers derived from this transfer.
+      const allocs = await db.listAllocationsByWireTransfer(input.id);
+      for (const alloc of allocs) {
+        const inv = await db.getInvoice(alloc.invoiceId);
+        if (inv) {
+          const newPaid = Math.max(0, Number(inv.paidAmount) - Number(alloc.amount));
+          const newStatus = newPaid <= 0.005 ? "Open" : newPaid >= Number(inv.amount) - 0.005 ? "Paid" : "Partially Paid";
+          await db.updateInvoice(alloc.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
+        }
+        await db.deleteInternalTransfersByAllocation(alloc.id);
+        await db.deleteWireTransferAllocation(alloc.id);
+      }
+      await db.deleteInternalTransfersBySource(input.id);
       await db.deleteWireTransfer(input.id);
       await audit(ctx, "Delete Wire Transfer", "customer", input.customerId);
       return { success: true };

@@ -890,6 +890,14 @@ export async function deleteInternalTransfersByAllocation(allocationId: number) 
     .where(and(eq(wireTransfers.isInternal, true), eq(wireTransfers.sourceAllocationId, allocationId)));
 }
 
+/** Delete internal inter-office transfers derived from a given source wire transfer. */
+export async function deleteInternalTransfersBySource(sourceWireTransferId: number) {
+  const db = await requireDb();
+  await db
+    .delete(wireTransfers)
+    .where(and(eq(wireTransfers.isInternal, true), eq(wireTransfers.sourceWireTransferId, sourceWireTransferId)));
+}
+
 export async function listAllocationsByWireTransfer(wireTransferId: number) {
   const db = await requireDb();
   return db

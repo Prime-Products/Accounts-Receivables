@@ -539,4 +539,51 @@ describe("Wire Transfer Allocation (Συμψηφισμός, group-level)", () =>
     const internal = all.find((t: any) => t.isInternal && t.sourceWireTransferId === wtY.id);
     expect(internal).toBeUndefined();
   });
+
+  it("deleting a wire transfer cascades: reverts invoices, removes allocations and internal transfers", async () => {
+    const now = Date.now();
+    const inv = await db.createInvoice({
+      customerId: sisterId,
+      invoiceNumber: "WTA-INV-Z-" + now,
+      company: "Prime Products Distribution B.V",
+      currency: "EUR",
+      issueDate: now - 30 * 86400000,
+      dueDate: now - 3 * 86400000,
+      amount: "800" as any,
+      paidAmount: "0" as any,
+      status: "Open" as any,
+    } as any);
+    createdInvoices.push(inv);
+
+    const wtZ = await caller.customers.createWireTransfer({
+      customerId: senderId,
+      amount: 1000,
+      currency: "EUR",
+      transferDate: now,
+      branch: "Prime Products LTD",
+      status: "Received",
+      receivedDate: now,
+    });
+
+    await caller.customers.allocateWireTransfer({
+      wireTransferId: wtZ.id,
+      allocations: [{ invoiceId: inv, amount: 800 }],
+    });
+
+    // Invoice became Paid and an internal transfer exists
+    const paidInv = await db.getInvoice(inv);
+    expect(paidInv?.status).toBe("Paid");
+    let all = await caller.customers.getAllWireTransfers();
+    expect(all.some((t: any) => t.isInternal && t.sourceWireTransferId === wtZ.id)).toBe(true);
+
+    // Delete the source transfer → everything derived must go away
+    await caller.customers.deleteWireTransfer({ id: wtZ.id, customerId: senderId });
+
+    all = await caller.customers.getAllWireTransfers();
+    expect(all.find((t: any) => t.id === wtZ.id)).toBeUndefined();
+    expect(all.some((t: any) => t.isInternal && t.sourceWireTransferId === wtZ.id)).toBe(false);
+    const revertedInv = await db.getInvoice(inv);
+    expect(revertedInv?.status).toBe("Open");
+    expect(Number(revertedInv?.paidAmount)).toBeCloseTo(0, 2);
+  });
 });

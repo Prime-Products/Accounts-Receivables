@@ -688,3 +688,4 @@
 - [x] Backend: removing the allocation also removes/adjusts the corresponding internal transfer
 - [x] Frontend: Wire Transfers list shows internal transfers distinctly (badge "Internal", from→to branches, reference to source transfer), filterable
 - [x] Tests for internal transfer auto-creation and removal
+- [x] Deleting a wire transfer cascades: revert its allocations on invoices, delete allocations, and delete derived internal transfers; clean up current orphaned internal rows
