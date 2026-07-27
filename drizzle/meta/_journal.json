@@ -169,6 +169,20 @@
       "when": 1785179650093,
       "tag": "0023_empty_ultron",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1785185565059,
+      "tag": "0024_freezing_chameleon",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1785186683769,
+      "tag": "0025_odd_magik",
+      "breakpoints": true
     }
   ]
 }

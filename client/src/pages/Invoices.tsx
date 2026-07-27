@@ -33,6 +33,7 @@ export default function Invoices() {
     return b && (BUCKETS as readonly string[]).includes(b) ? (b as (typeof BUCKETS)[number]) : "all";
   });
   const [branchFilter, setBranchFilter] = useState<string>("all");
+  const [vesselFilter, setVesselFilter] = useState<string>("all");
   const [groupView, setGroupView] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("view") === "group";
@@ -92,11 +93,26 @@ export default function Invoices() {
     return Array.from(new Set(invoices.map(i => i.company).filter((c): c is string => !!c))).sort();
   }, [invoices]);
 
+  /** Vessels present in the invoice data (id + name), for the vessel filter dropdown. */
+  const vesselOptions = useMemo(() => {
+    if (!invoices) return [] as { id: number; name: string }[];
+    const map = new Map<number, string>();
+    for (const i of invoices) {
+      const vid = (i as any).vesselId as number | null;
+      const vname = (i as any).vesselName as string | null;
+      if (vid && vname && !map.has(vid)) map.set(vid, vname);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [invoices]);
+
   const filtered = useMemo(() => {
     if (!invoices) return [];
     return invoices.filter(i => {
       if (statusFilter !== "all" && i.status !== statusFilter) return false;
       if (branchFilter !== "all" && i.company !== branchFilter) return false;
+      if (vesselFilter !== "all" && String((i as any).vesselId ?? "") !== vesselFilter) return false;
       if (groupDrill && ((i as any).customerGroup ?? i.customerName) !== groupDrill) return false;
       if (bucketFilter !== "all") {
         if (i.daysOverdue <= 0) return false;
@@ -111,14 +127,14 @@ export default function Invoices() {
       }
       return true;
     });
-  }, [invoices, statusFilter, bucketFilter, branchFilter, search, groupDrill]);
+  }, [invoices, statusFilter, bucketFilter, branchFilter, vesselFilter, search, groupDrill]);
 
   // Incremental rendering: mounting 5000+ table rows freezes the browser for
   // seconds. Render a window and grow it on demand.
   const [visibleCount, setVisibleCount] = useState(200);
   useEffect(() => {
     setVisibleCount(200);
-  }, [statusFilter, bucketFilter, branchFilter, search, groupDrill]);
+  }, [statusFilter, bucketFilter, branchFilter, vesselFilter, search, groupDrill]);
   const visibleRows = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
   /** Totals of the currently filtered list: EUR + per-currency breakdown. */
@@ -396,6 +412,21 @@ export default function Invoices() {
             ))}
           </SelectContent>
         </Select>
+        {vesselOptions.length > 0 && (
+          <Select value={vesselFilter} onValueChange={setVesselFilter}>
+            <SelectTrigger className="w-52">
+              <SelectValue placeholder="All vessels" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All vessels</SelectItem>
+              {vesselOptions.map(v => (
+                <SelectItem key={v.id} value={String(v.id)}>
+                  {v.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {/* Filtered totals: EUR + per-currency */}

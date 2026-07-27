@@ -22,6 +22,8 @@ const Reports = lazy(() => import("./pages/Reports"));
 const Settings = lazy(() => import("./pages/Settings"));
 const WireTransfersPage = lazy(() => import("./pages/WireTransfersPage"));
 const Team = lazy(() => import("./pages/Team"));
+const Vessels = lazy(() => import("./pages/Vessels"));
+const VesselDetail = lazy(() => import("./pages/VesselDetail"));
 
 function PageFallback() {
   return (
@@ -41,6 +43,8 @@ function Router() {
           <Route path={"/customers/:id"} component={CustomerDetail} />
           <Route path={"/groups/:name"} component={GroupDetail} />
           <Route path={"/invoices"} component={Invoices} />
+          <Route path={"/vessels"} component={Vessels} />
+          <Route path={"/vessels/:id"} component={VesselDetail} />
           <Route path={"/contracts"} component={Contracts} />
           <Route path={"/contacts"} component={Contacts} />
           <Route path={"/tasks"} component={Tasks} />

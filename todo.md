@@ -765,3 +765,15 @@
 - [x] Invoices page search also matches vessel name
 - [x] Global search (header) matches invoices by vessel name and shows vessel in results
 - [x] Vitest suite: vessel CRUD, assignment to invoices, list enrichment, vessel-aware search, delete detachment (5/5 passing)
+
+## Vessel tracking: Vessels page + vessel detail card (user request 28/7)
+- [x] Schema: extend vessels table with vesselType, flag (IMO/customerId/notes already exist) + migration
+- [x] Backend: vessels.listWithStats — financial aggregates (open balance, overdue amount/count, total invoiced/paid, invoice count, max days overdue, owner company/group)
+- [x] Backend: vessels.detail procedure — vessel info + financial summary + full invoice rows (same fields as invoices.list) + related companies
+- [x] Backend: vessels.create/update accept new fields (vesselType, flag)
+- [x] Frontend: Vessels page in sidebar — list with search, sortable columns (name, type, flag, owner, open balance, overdue, invoice count)
+- [x] Frontend: VesselDetail page — vessel info card (editable IMO/type/flag/notes), financial KPIs, unified InvoicesTable of its invoices
+- [x] Frontend: vessel filter dropdown on Invoices page
+- [x] Frontend: vessel names clickable in InvoicesTable (badge links to vessel detail page)
+- [x] Tests: vessel aggregates, detail procedure, create/update with new fields (9/9 vessels tests)
+- [x] Verify: tsc clean, full suite 190 tests (1 unrelated flake passes in isolation), screenshots, checkpoint

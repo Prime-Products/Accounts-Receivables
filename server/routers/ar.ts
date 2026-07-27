@@ -1913,15 +1913,142 @@ export const invoicesRouter = router({
 
 export const vesselsRouter = router({
   list: protectedProcedure.query(async () => db.listVessels()),
+  /** Vessels enriched with financial aggregates for the Vessels list page. */
+  listWithStats: protectedProcedure.query(async () => {
+    const [vesselRows, allInvoices, customers] = await Promise.all([
+      db.listVessels(),
+      db.listInvoices(),
+      db.listCustomers(),
+    ]);
+    const custById = new Map(customers.map(c => [c.id, c]));
+    const now = Date.now();
+    type Agg = {
+      invoiceCount: number;
+      openBalance: number;
+      overdueAmount: number;
+      overdueCount: number;
+      totalInvoiced: number;
+      totalPaid: number;
+      maxDaysOverdue: number;
+      customerIds: Set<number>;
+    };
+    const aggByVessel = new Map<number, Agg>();
+    for (const inv of allInvoices) {
+      if (!inv.vesselId) continue;
+      let agg = aggByVessel.get(inv.vesselId);
+      if (!agg) {
+        agg = { invoiceCount: 0, openBalance: 0, overdueAmount: 0, overdueCount: 0, totalInvoiced: 0, totalPaid: 0, maxDaysOverdue: 0, customerIds: new Set() };
+        aggByVessel.set(inv.vesselId, agg);
+      }
+      agg.invoiceCount += 1;
+      agg.customerIds.add(inv.customerId);
+      const eurAmount = inv.amountEur != null ? Number(inv.amountEur) : Number(inv.amount);
+      const paidFraction = Number(inv.amount) > 0 ? Math.min(1, Math.max(0, Number(inv.paidAmount) / Number(inv.amount))) : 0;
+      agg.totalInvoiced += eurAmount;
+      agg.totalPaid += eurAmount * paidFraction;
+      if (isOpenInvoice(inv)) {
+        const out = outstanding(inv);
+        agg.openBalance += out;
+        const dOver = daysOverdue(inv.dueDate, now);
+        if (dOver > 0) {
+          agg.overdueAmount += out;
+          agg.overdueCount += 1;
+          if (dOver > agg.maxDaysOverdue) agg.maxDaysOverdue = dOver;
+        }
+      }
+    }
+    return vesselRows.map(v => {
+      const agg = aggByVessel.get(v.id);
+      const owner = v.customerId ? custById.get(v.customerId) : undefined;
+      // No explicit owner set → derive from invoicing history (first invoiced customer).
+      let derivedOwner: string | null = null;
+      if (!owner && agg && agg.customerIds.size > 0) {
+        const c = custById.get(Array.from(agg.customerIds)[0]);
+        if (c) derivedOwner = (c.customerGroup ?? "").trim() || c.name;
+      }
+      return {
+        ...v,
+        ownerName: owner ? owner.name : derivedOwner,
+        ownerGroup: owner ? ((owner.customerGroup ?? "").trim() || owner.name) : derivedOwner,
+        invoiceCount: agg?.invoiceCount ?? 0,
+        openBalance: agg?.openBalance ?? 0,
+        overdueAmount: agg?.overdueAmount ?? 0,
+        overdueCount: agg?.overdueCount ?? 0,
+        totalInvoiced: agg?.totalInvoiced ?? 0,
+        totalPaid: agg?.totalPaid ?? 0,
+        maxDaysOverdue: agg?.maxDaysOverdue ?? 0,
+      };
+    });
+  }),
+  /** Full vessel card: info + financial summary + its invoices (same row shape as invoices.list). */
+  detail: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+    const vessel = await db.getVesselById(input.id);
+    if (!vessel) throw new TRPCError({ code: "NOT_FOUND", message: "Vessel not found" });
+    const [allInvoices, customers] = await Promise.all([db.listInvoices(), db.listCustomers()]);
+    const custById = new Map(customers.map(c => [c.id, c]));
+    const now = Date.now();
+    const rows = allInvoices.filter(i => i.vesselId === input.id);
+    const invoiceRows = rows.map(i => ({
+      id: i.id,
+      customerId: i.customerId,
+      invoiceNumber: i.invoiceNumber,
+      company: i.company,
+      currency: i.currency,
+      amount: i.amount,
+      amountEur: i.amountEur,
+      paidAmount: i.paidAmount,
+      status: i.status,
+      issueDate: i.issueDate,
+      dueDate: i.dueDate,
+      vesselId: i.vesselId,
+      customerName: custById.get(i.customerId)?.name ?? "—",
+      customerTier: custById.get(i.customerId)?.tier ?? "New",
+      customerGroup: (custById.get(i.customerId)?.customerGroup ?? "").trim() || (custById.get(i.customerId)?.name ?? "—"),
+      vesselName: vessel.name,
+      outstanding: outstanding(i),
+      daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, now) : 0,
+    }));
+    let openBalance = 0, overdueAmount = 0, overdueCount = 0, totalInvoiced = 0, totalPaid = 0, maxDays = 0;
+    for (const i of rows) {
+      const eurAmount = i.amountEur != null ? Number(i.amountEur) : Number(i.amount);
+      const paidFraction = Number(i.amount) > 0 ? Math.min(1, Math.max(0, Number(i.paidAmount) / Number(i.amount))) : 0;
+      totalInvoiced += eurAmount;
+      totalPaid += eurAmount * paidFraction;
+      if (isOpenInvoice(i)) {
+        const out = outstanding(i);
+        openBalance += out;
+        const d = daysOverdue(i.dueDate, now);
+        if (d > 0) { overdueAmount += out; overdueCount += 1; if (d > maxDays) maxDays = d; }
+      }
+    }
+    const owner = vessel.customerId ? custById.get(vessel.customerId) : undefined;
+    // Companies that have invoiced this vessel (context on the card).
+    const relatedCompanies = Array.from(new Set(rows.map(r => r.customerId)))
+      .map(cid => {
+        const c = custById.get(cid);
+        return c ? { id: c.id, name: c.name, group: (c.customerGroup ?? "").trim() || c.name } : null;
+      })
+      .filter((x): x is { id: number; name: string; group: string } => x !== null);
+    return {
+      vessel: {
+        ...vessel,
+        ownerName: owner?.name ?? null,
+        ownerGroup: owner ? ((owner.customerGroup ?? "").trim() || owner.name) : null,
+      },
+      stats: { openBalance, overdueAmount, overdueCount, totalInvoiced, totalPaid, maxDaysOverdue: maxDays, invoiceCount: rows.length },
+      relatedCompanies,
+      invoices: invoiceRows,
+    };
+  }),
   create: protectedProcedure
-    .input(z.object({ name: z.string().min(1).max(191), customerId: z.number().optional(), imo: z.string().max(32).optional(), notes: z.string().optional() }))
+    .input(z.object({ name: z.string().min(1).max(191), customerId: z.number().optional(), imo: z.string().max(32).optional(), vesselType: z.string().max(64).optional(), flag: z.string().max(64).optional(), notes: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const id = await db.createVessel({ name: input.name.trim(), customerId: input.customerId ?? null, imo: input.imo?.trim() || null, notes: input.notes ?? null });
+      const id = await db.createVessel({ name: input.name.trim(), customerId: input.customerId ?? null, imo: input.imo?.trim() || null, vesselType: input.vesselType?.trim() || null, flag: input.flag?.trim() || null, notes: input.notes ?? null });
       await audit(ctx, "Create Vessel", "vessel", Number(id), `Vessel "${input.name.trim()}" created`);
       return { id: Number(id) };
     }),
   update: protectedProcedure
-    .input(z.object({ id: z.number(), name: z.string().min(1).max(191).optional(), customerId: z.number().nullable().optional(), imo: z.string().max(32).nullable().optional(), notes: z.string().nullable().optional() }))
+    .input(z.object({ id: z.number(), name: z.string().min(1).max(191).optional(), customerId: z.number().nullable().optional(), imo: z.string().max(32).nullable().optional(), vesselType: z.string().max(64).nullable().optional(), flag: z.string().max(64).nullable().optional(), notes: z.string().nullable().optional() }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
       await db.updateVessel(id, data as any);

@@ -560,6 +560,10 @@ export const vessels = mysqlTable(
     customerId: int("customerId"),
     /** Optional IMO number. */
     imo: varchar("imo", { length: 32 }),
+    /** Vessel type, e.g. Container, Bulk Carrier, Tanker. */
+    vesselType: varchar("vesselType", { length: 64 }),
+    /** Flag state, e.g. Greece, Panama, Liberia. */
+    flag: varchar("flag", { length: 64 }),
     notes: text("notes"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
@@ -568,3 +572,70 @@ export const vessels = mysqlTable(
 
 export type Vessel = typeof vessels.$inferSelect;
 export type InsertVessel = typeof vessels.$inferInsert;
+
+export const requestStatuses = ["Open", "Answered", "Closed", "Cancelled"] as const;
+export type RequestStatus = (typeof requestStatuses)[number];
+
+export const departmentOptions = ["Contracts", "Logistics", "Operations", "Finance", "Legal", "Sales", "Other"] as const;
+export type Department = (typeof departmentOptions)[number];
+
+export const requests = mysqlTable(
+  "requests",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    customerId: int("customerId"),
+    groupName: varchar("groupName", { length: 255 }),
+    createdBy: int("createdBy").notNull(), // FK to users.id
+    requestedDepartment: mysqlEnum("requestedDepartment", departmentOptions).notNull(),
+    question: text("question").notNull(),
+    status: mysqlEnum("status", requestStatuses).default("Open").notNull(),
+    createdAt: bigint("createdAt", { mode: "number" }).notNull(),
+    updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),
+  },
+  t => [
+    index("idx_requests_customerId").on(t.customerId),
+    index("idx_requests_groupName").on(t.groupName),
+    index("idx_requests_createdBy").on(t.createdBy),
+    index("idx_requests_status").on(t.status),
+  ]
+);
+
+export type Request = typeof requests.$inferSelect;
+export type InsertRequest = typeof requests.$inferInsert;
+
+export const requestResponses = mysqlTable(
+  "request_responses",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    requestId: int("requestId").notNull(),
+    respondedBy: int("respondedBy").notNull(), // FK to users.id
+    response: text("response").notNull(),
+    respondedAt: bigint("respondedAt", { mode: "number" }).notNull(),
+  },
+  t => [
+    index("idx_requestResponses_requestId").on(t.requestId),
+    index("idx_requestResponses_respondedBy").on(t.respondedBy),
+  ]
+);
+
+export type RequestResponse = typeof requestResponses.$inferSelect;
+export type InsertRequestResponse = typeof requestResponses.$inferInsert;
+
+export const requestNotifications = mysqlTable(
+  "request_notifications",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    requestId: int("requestId").notNull(),
+    userId: int("userId").notNull(), // FK to users.id (recipient)
+    isRead: boolean("isRead").default(false).notNull(),
+    createdAt: bigint("createdAt", { mode: "number" }).notNull(),
+  },
+  t => [
+    index("idx_requestNotifications_requestId").on(t.requestId),
+    index("idx_requestNotifications_userId").on(t.userId),
+    index("idx_requestNotifications_isRead").on(t.isRead),
+  ]
+);
+
+export type RequestNotification = typeof requestNotifications.$inferSelect;
+export type InsertRequestNotification = typeof requestNotifications.$inferInsert;

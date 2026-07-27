@@ -10,12 +10,14 @@ import { trpc } from "@/lib/trpc";
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Ship, Undo2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Link } from "wouter";
 
 /** The unified invoice row shape shared by invoices.list, groupDetail and get360. */
 export interface InvoiceRowData {
   id: number;
   invoiceNumber: string;
   customerName?: string | null;
+  vesselId?: number | null;
   vesselName?: string | null;
   company?: string | null;
   currency?: string | null;
@@ -159,10 +161,19 @@ export function InvoicesTable({
               )}
               <TableCell className="max-w-48">
                 {i.vesselName ? (
-                  <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-44" title={`Vessel: ${i.vesselName}`}>
-                    <Ship className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{i.vesselName}</span>
-                  </Badge>
+                  i.vesselId ? (
+                    <Link href={`/vessels/${i.vesselId}`}>
+                      <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-44 cursor-pointer hover:bg-sky-100 transition-colors" title={`View vessel: ${i.vesselName}`}>
+                        <Ship className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{i.vesselName}</span>
+                      </Badge>
+                    </Link>
+                  ) : (
+                    <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-44" title={`Vessel: ${i.vesselName}`}>
+                      <Ship className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{i.vesselName}</span>
+                    </Badge>
+                  )
                 ) : (
                   <span className="text-muted-foreground/50 text-xs">—</span>
                 )}
