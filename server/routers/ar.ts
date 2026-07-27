@@ -1792,15 +1792,27 @@ export const invoicesRouter = router({
       const vessels = await db.listVessels();
       const vesselById = new Map(vessels.map(v => [v.id, v]));
       const now = Date.now();
-     return invoices.map(i => ({
-       ...i,
-       customerName: byId.get(i.customerId)?.name ?? "—",
-       customerTier: byId.get(i.customerId)?.tier ?? "New",
+      // Trimmed payload: only the fields the UI consumes (5k+ rows, every byte counts)
+      return invoices.map(i => ({
+        id: i.id,
+        customerId: i.customerId,
+        invoiceNumber: i.invoiceNumber,
+        company: i.company,
+        currency: i.currency,
+        amount: i.amount,
+        amountEur: i.amountEur,
+        paidAmount: i.paidAmount,
+        status: i.status,
+        issueDate: i.issueDate,
+        dueDate: i.dueDate,
+        vesselId: i.vesselId,
+        customerName: byId.get(i.customerId)?.name ?? "—",
+        customerTier: byId.get(i.customerId)?.tier ?? "New",
         customerGroup: (byId.get(i.customerId)?.customerGroup ?? "").trim() || (byId.get(i.customerId)?.name ?? "—"),
-       vesselName: i.vesselId ? (vesselById.get(i.vesselId)?.name ?? null) : null,
-       outstanding: outstanding(i),
-       daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, now) : 0,
-     }));
+        vesselName: i.vesselId ? (vesselById.get(i.vesselId)?.name ?? null) : null,
+        outstanding: outstanding(i),
+        daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, now) : 0,
+      }));
     }),
   aging: protectedProcedure.query(async () => {
     const invoices = await db.listInvoices();
@@ -2079,14 +2091,16 @@ export const tasksRouter = router({
   list: protectedProcedure
     .input(z.object({ statuses: z.array(z.enum(taskStatuses)).optional() }).optional())
     .query(async ({ input }) => {
-      const rows = await db.listTasks({ statuses: input?.statuses });
-      const customers = await db.listCustomers();
+      const [rows, customers, invoices, allPromises, members] = await Promise.all([
+        db.listTasks({ statuses: input?.statuses }),
+        db.listCustomers(),
+        db.listInvoices(),
+        db.listPromises(),
+        db.listTeamMembers(true),
+      ]);
       const byId = new Map(customers.map(c => [c.id, c]));
-      const invoices = await db.listInvoices();
       const invById = new Map(invoices.map(i => [i.id, i]));
-      const allPromises = await db.listPromises();
       const promById = new Map(allPromises.map(p => [p.id, p]));
-      const members = await db.listTeamMembers(true);
       const memberById = new Map(members.map(mb => [mb.id, mb]));
       return rows.map(t => {
         // Promise follow-up tasks embed "(Promise #<id>)" in their description.

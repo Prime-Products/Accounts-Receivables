@@ -236,8 +236,10 @@ function SortableHead({
 }
 
 export default function Customers() {
-  const { data, isLoading } = trpc.customers.list.useQuery();
   const [view, setView] = useState<"groups" | "companies">("groups");
+  const { data, isLoading } = trpc.customers.list.useQuery(undefined, {
+    enabled: view === "companies",
+  });
   const { data: groups, isLoading: groupsLoading } = trpc.customers.groups.useQuery(undefined, {
     enabled: view === "groups",
   });

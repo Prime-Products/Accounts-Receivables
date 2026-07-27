@@ -12,7 +12,7 @@ import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDa
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { ChevronRight, FileDown, FileText, HandCoins, Plus, Ship, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 const STATUSES = ["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const;
@@ -111,6 +111,14 @@ export default function Invoices() {
       return true;
     });
   }, [invoices, statusFilter, bucketFilter, branchFilter, search, groupDrill]);
+
+  // Incremental rendering: mounting 5000+ table rows freezes the browser for
+  // seconds. Render a window and grow it on demand.
+  const [visibleCount, setVisibleCount] = useState(200);
+  useEffect(() => {
+    setVisibleCount(200);
+  }, [statusFilter, bucketFilter, branchFilter, search, groupDrill]);
+  const visibleRows = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
   /** Totals of the currently filtered list: EUR + per-currency breakdown. */
   const filteredTotals = useMemo(() => {
@@ -512,7 +520,7 @@ export default function Invoices() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map(i => (
+                {visibleRows.map(i => (
                   <TableRow key={i.id}>
                     <TableCell className="font-mono text-sm">{i.invoiceNumber}</TableCell>
                     <TableCell className="font-medium max-w-64">
@@ -566,6 +574,19 @@ export default function Invoices() {
                 ))}
               </TableBody>
             </Table>
+          )}
+          {!isLoading && filtered.length > visibleCount && (
+            <div className="flex items-center justify-center gap-3 py-4 border-t">
+              <span className="text-sm text-muted-foreground">
+                Showing {visibleCount.toLocaleString()} of {filtered.length.toLocaleString()} invoices
+              </span>
+              <Button variant="outline" size="sm" onClick={() => setVisibleCount(c => c + 500)}>
+                Load 500 more
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setVisibleCount(filtered.length)}>
+                Show all
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

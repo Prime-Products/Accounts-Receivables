@@ -199,7 +199,12 @@ export const tasks = mysqlTable("tasks", {
   completionNotes: text("completionNotes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, t => [
+  index("idx_tasks_customerId").on(t.customerId),
+  index("idx_tasks_status").on(t.status),
+  index("idx_tasks_assigneeId").on(t.assigneeId),
+  index("idx_tasks_dueDate").on(t.dueDate),
+]);
 
 export const onHoldStatuses = ["Under Review", "Eligible for On Hold", "On Hold", "Legal", "Rejected", "Resolved"] as const;
 

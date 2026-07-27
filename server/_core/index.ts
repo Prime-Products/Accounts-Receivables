@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import compression from "compression";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -33,6 +34,8 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  // Gzip responses — API payloads (invoice/customer lists) shrink ~10x on the wire.
+  app.use(compression());
   // Apply persisted FX rate overrides (best-effort; defaults remain if unavailable).
   getSetting("fx_rates")
     .then(stored => {

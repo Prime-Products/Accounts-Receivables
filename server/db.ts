@@ -169,7 +169,46 @@ export async function listUsersWithProfiles() {
 }
 
 // ---------- Customers ----------
+/**
+ * Micro-cache for hot, frequently re-read reference lists (customers / invoices).
+ * The remote DB round-trip is ~150-300ms; many procedures re-fetch the full
+ * customer list just to resolve names. A 10s TTL keeps data effectively live
+ * for interactive use while collapsing bursts of identical reads (page loads
+ * fire 3-5 procedures that each call listCustomers). Any write to the table
+ * clears its cache entry immediately.
+ */
+const microCache = new Map<string, { at: number; data: unknown }>();
+const MICRO_TTL_MS = 10_000;
+
+function cacheGet<T>(key: string): T | undefined {
+  const hit = microCache.get(key);
+  if (!hit) return undefined;
+  if (Date.now() - hit.at > MICRO_TTL_MS) {
+    microCache.delete(key);
+    return undefined;
+  }
+  return hit.data as T;
+}
+
+function cacheSet(key: string, data: unknown) {
+  microCache.set(key, { at: Date.now(), data });
+}
+
+export function invalidateCache(prefix: string) {
+  for (const key of Array.from(microCache.keys())) {
+    if (key.startsWith(prefix)) microCache.delete(key);
+  }
+}
+
 export async function listCustomers() {
+  const cached = cacheGet<Awaited<ReturnType<typeof listCustomersUncached>>>("customers:all");
+  if (cached) return cached;
+  const rows = await listCustomersUncached();
+  cacheSet("customers:all", rows);
+  return rows;
+}
+
+async function listCustomersUncached() {
   const db = await requireDb();
   return db.select().from(customers).orderBy(customers.name);
 }
@@ -183,16 +222,30 @@ export async function getCustomer(id: number) {
 export async function createCustomer(data: InsertCustomer) {
   const db = await requireDb();
   const res = await db.insert(customers).values(data);
+  invalidateCache("customers:");
   return Number((res as any)[0].insertId);
 }
 
 export async function updateCustomer(id: number, data: Partial<InsertCustomer>) {
   const db = await requireDb();
   await db.update(customers).set(data).where(eq(customers.id, id));
+  invalidateCache("customers:");
 }
 
 // ---------- Invoices ----------
 export async function listInvoices(filter?: { customerId?: number; statuses?: string[] }) {
+  const cacheable = !filter?.customerId && (!filter?.statuses || filter.statuses.length === 0);
+  if (cacheable) {
+    const cached = cacheGet<Awaited<ReturnType<typeof listInvoicesQuery>>>("invoices:all");
+    if (cached) return cached;
+    const rows = await listInvoicesQuery(filter);
+    cacheSet("invoices:all", rows);
+    return rows;
+  }
+  return listInvoicesQuery(filter);
+}
+
+async function listInvoicesQuery(filter?: { customerId?: number; statuses?: string[] }) {
   const db = await requireDb();
   const conds = [];
   if (filter?.customerId) conds.push(eq(invoices.customerId, filter.customerId));
@@ -211,12 +264,14 @@ export async function getInvoice(id: number) {
 export async function createInvoice(data: InsertInvoice) {
   const db = await requireDb();
   const res = await db.insert(invoices).values(data);
+  invalidateCache("invoices:");
   return Number((res as any)[0].insertId);
 }
 
 export async function updateInvoice(id: number, data: Partial<InsertInvoice>) {
   const db = await requireDb();
   await db.update(invoices).set(data).where(eq(invoices.id, id));
+  invalidateCache("invoices:");
 }
 
 // ---------- Receipts & allocations ----------
@@ -863,6 +918,7 @@ export async function deleteVessel(id: number) {
   // Detach from invoices first, then delete the vessel.
   await db.update(invoices).set({ vesselId: null }).where(eq(invoices.vesselId, id));
   await db.delete(vessels).where(eq(vessels.id, id));
+  invalidateCache("invoices:");
 }
 
 export async function getVesselById(id: number) {
@@ -904,6 +960,7 @@ export async function deleteTeamMember(id: number) {
   await db.update(customers).set({ accountManagerId: null }).where(eq(customers.accountManagerId, id));
   await db.update(tasks).set({ assigneeId: null }).where(eq(tasks.assigneeId, id));
   await db.delete(teamMembers).where(eq(teamMembers.id, id));
+  invalidateCache("customers:");
 }
 
 /** Assign an account manager to every company of a customer group. */
@@ -914,6 +971,7 @@ export async function setGroupAccountManager(groupName: string, managerId: numbe
     .update(customers)
     .set({ accountManagerId: managerId })
     .where(or(eq(customers.customerGroup, trimmed), eq(customers.name, trimmed)));
+  invalidateCache("customers:");
 }
 
 /** Test/maintenance helper: overwrite a confirmation row's updatedAt (bypasses onUpdateNow via raw SQL). */

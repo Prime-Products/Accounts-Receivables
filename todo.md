@@ -657,6 +657,13 @@
 - [x] New Invoice form: remove vessel picker (vessel comes only from bulk upload)
 - [x] Keep vessel display in CustomerDetail/GroupDetail tables and search (already read-only)
 - [x] Keep backend intact for the upcoming bulk invoice+vessel upload (vessel tests 5/5 passing)
+
+## Performance investigation & optimization (user request 27/7)
+- [x] Profile: measure response time + payload size of all main endpoints (invoices.list, customers.groups, dashboard, forecast, tasks, groupDetail, get360)
+- [x] Identify N+1 queries and oversized payloads (no gzip; invoices.list 3.2MB; 5459 DOM rows; no staleTime; tasks.list 5 sequential queries; tasks table unindexed; eager route imports)
+- [x] Optimize: gzip compression middleware (invoices.list wire 3169KB→188KB); trim invoices.list payload to UI fields; tasks.list Promise.all (469→197ms); 10s micro-cache for listCustomers/listInvoices with write invalidation; route-level lazy loading; Invoices table 200-row window with Load more; staleTime 30s + no refetchOnWindowFocus; Customers page loads companies list only when needed
+- [x] Optimize: DB indexes on tasks (customerId, status, assigneeId, dueDate) — migration 0023 applied
+- [x] Verify: before/after timings + full test suite (183/184; 1 known-flaky confirmationStatus test passes in isolation)
 - [x] Update Dashboard KPIs to reflect wire transfers in collected amounts
 - [x] Write tests for wire transfer impact on balances
 - [x] Verify: Run full test suite (158/158 passing)
