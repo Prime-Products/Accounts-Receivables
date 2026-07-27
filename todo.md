@@ -676,6 +676,11 @@
 - [x] Backend: ensure groupDetail and get360 invoice rows carry the same fields as invoices.list (vesselName, company/branch, issueDate, dueDate, status, amount, amountEur, paidAmount, outstanding, daysOverdue, currency)
 - [x] Shared InvoiceTable component with identical columns + dispute action, used in all three views
 - [x] Verify visually in all three views, tsc + tests, checkpoint
+
+## Sortable columns in shared invoice table (user request 27/7)
+- [x] InvoicesTable: clickable column headers (Invoice, Customer, Vessel, Branch, Doc. Date, Due Date, Status, Amount, Paid, Outstanding, Days Overdue) toggling asc/desc with arrow indicator (third click clears sort; amount columns default to desc first; multi-currency sorts on EUR value)
+- [x] Sorting works in all three views (Invoices page, group card, customer card)
+- [x] Verify visually + tsc, checkpoint
 - [x] Update Dashboard KPIs to reflect wire transfers in collected amounts
 - [x] Write tests for wire transfer impact on balances
 - [x] Verify: Run full test suite (158/158 passing)

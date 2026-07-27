@@ -7,8 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ChevronDown, Ship, Undo2 } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Ship, Undo2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 /** The unified invoice row shape shared by invoices.list, groupDetail and get360. */
@@ -29,6 +29,35 @@ export interface InvoiceRowData {
   daysOverdue: number;
 }
 
+type SortKey =
+  | "invoiceNumber"
+  | "customerName"
+  | "vesselName"
+  | "company"
+  | "issueDate"
+  | "dueDate"
+  | "status"
+  | "amount"
+  | "paidAmount"
+  | "outstanding"
+  | "daysOverdue";
+
+function sortValue(row: InvoiceRowData, key: SortKey): string | number {
+  switch (key) {
+    case "invoiceNumber": return row.invoiceNumber ?? "";
+    case "customerName": return (row.customerName ?? "").toLowerCase();
+    case "vesselName": return (row.vesselName ?? "").toLowerCase();
+    case "company": return (row.company ?? "").toLowerCase();
+    case "issueDate": return row.issueDate ?? 0;
+    case "dueDate": return row.dueDate ?? 0;
+    case "status": return row.status ?? "";
+    case "amount": return Number(row.amountEur ?? row.amount) || 0;
+    case "paidAmount": return Number(row.paidAmount) || 0;
+    case "outstanding": return Number(row.outstanding) || 0;
+    case "daysOverdue": return Number(row.daysOverdue) || 0;
+  }
+}
+
 /**
  * Shared invoice table used by the Invoices page, the group card and the customer card,
  * so every view shows exactly the same information and actions.
@@ -47,6 +76,8 @@ export function InvoicesTable({
   const utils = trpc.useUtils();
   const [dispTarget, setDispTarget] = useState<{ id: number; invoiceNumber: string } | null>(null);
   const [dispReason, setDispReason] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const markDisputed = trpc.invoices.markDisputed.useMutation({
     onSuccess: (_r, vars) => {
       toast.success(vars.disputed ? "Invoice marked as Disputed" : "Dispute cleared");
@@ -58,26 +89,67 @@ export function InvoicesTable({
     onError: e => toast.error(e.message),
   });
 
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      if (sortDir === "asc") setSortDir("desc");
+      else { setSortKey(null); setSortDir("asc"); } // third click clears sorting
+    } else {
+      setSortKey(key);
+      // Numeric/date columns usually want "largest first" on first click
+      const descFirst: SortKey[] = ["amount", "paidAmount", "outstanding", "daysOverdue"];
+      setSortDir(descFirst.includes(key) ? "desc" : "asc");
+    }
+  };
+
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return rows;
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const va = sortValue(a, sortKey);
+      const vb = sortValue(b, sortKey);
+      if (typeof va === "string" && typeof vb === "string") return va.localeCompare(vb) * dir;
+      return ((va as number) - (vb as number)) * dir;
+    });
+  }, [rows, sortKey, sortDir]);
+
+  const SortableHead = ({ label, k, align }: { label: string; k: SortKey; align?: "right" }) => (
+    <TableHead className={align === "right" ? "text-right" : undefined}>
+      <button
+        type="button"
+        onClick={() => toggleSort(k)}
+        className={`inline-flex items-center gap-1 hover:text-foreground transition-colors select-none ${align === "right" ? "justify-end w-full" : ""} ${sortKey === k ? "text-foreground font-semibold" : ""}`}
+        title={`Sort by ${label}`}
+      >
+        {label}
+        {sortKey === k ? (
+          sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-30" />
+        )}
+      </button>
+    </TableHead>
+  );
+
   return (
     <>
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Invoice</TableHead>
-            {showCustomer && <TableHead>Customer</TableHead>}
-            <TableHead>Vessel</TableHead>
-            <TableHead>Prime Branch</TableHead>
-            <TableHead>Doc. Date</TableHead>
-            <TableHead>Due Date</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Amount</TableHead>
-            <TableHead className="text-right">Paid</TableHead>
-            <TableHead className="text-right">Outstanding</TableHead>
-            <TableHead className="text-right">Days Overdue</TableHead>
+            <SortableHead label="Invoice" k="invoiceNumber" />
+            {showCustomer && <SortableHead label="Customer" k="customerName" />}
+            <SortableHead label="Vessel" k="vesselName" />
+            <SortableHead label="Prime Branch" k="company" />
+            <SortableHead label="Doc. Date" k="issueDate" />
+            <SortableHead label="Due Date" k="dueDate" />
+            <SortableHead label="Status" k="status" />
+            <SortableHead label="Amount" k="amount" align="right" />
+            <SortableHead label="Paid" k="paidAmount" align="right" />
+            <SortableHead label="Outstanding" k="outstanding" align="right" />
+            <SortableHead label="Days Overdue" k="daysOverdue" align="right" />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map(i => (
+          {sortedRows.map(i => (
             <TableRow key={i.id}>
               <TableCell className="font-mono text-sm">{i.invoiceNumber}</TableCell>
               {showCustomer && (
