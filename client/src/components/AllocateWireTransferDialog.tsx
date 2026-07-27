@@ -131,7 +131,7 @@ export function AllocateWireTransferDialog({
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
         {trigger ?? (
-          <Button variant="outline" size="sm" disabled={transfer.status !== "Received"}>
+          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={transfer.status !== "Received"}>
             Allocate
           </Button>
         )}

@@ -689,3 +689,5 @@
 - [x] Frontend: Wire Transfers list shows internal transfers distinctly (badge "Internal", from→to branches, reference to source transfer), filterable
 - [x] Tests for internal transfer auto-creation and removal
 - [x] Deleting a wire transfer cascades: revert its allocations on invoices, delete allocations, and delete derived internal transfers; clean up current orphaned internal rows
+- [x] Shorten internal transfer subtitle to "for invoice {invoiceNumber}" only
+- [x] Wire Transfers table: actions (Update/Allocate) visible without horizontal scrolling — compact columns / responsive layout

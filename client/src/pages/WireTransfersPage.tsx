@@ -288,19 +288,18 @@ export default function WireTransfersPage() {
             <div className="text-center py-8 text-muted-foreground">No wire transfers found</div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="table-fixed w-full">
                 <TableHeader>
                   <TableRow>
                     <TableCell className="w-8"></TableCell>
-                    <TableCell>Customer</TableCell>
-                    <TableCell>Branch</TableCell>
-                    <TableCell>Amount</TableCell>
-                    <TableCell>Allocated</TableCell>
-                    <TableCell>Transfer Date</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Reference</TableCell>
-                    <TableCell>Notes</TableCell>
-                    <TableCell>Actions</TableCell>
+                    <TableCell className="w-[23%]">Customer</TableCell>
+                    <TableCell className="w-[13%]">Branch</TableCell>
+                    <TableCell className="w-[9%]">Amount</TableCell>
+                    <TableCell className="w-[8%]">Allocated</TableCell>
+                    <TableCell className="w-[10%]">Date</TableCell>
+                    <TableCell className="w-[8%]">Status</TableCell>
+                    <TableCell className="w-[10%]">Ref / Notes</TableCell>
+                    <TableCell className="w-[15%]">Actions</TableCell>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -329,16 +328,17 @@ export default function WireTransfersPage() {
                                   Internal
                                 </span>
                               )}
-                              <span>{t.isInternal ? `${t.fromBranch ?? "Our office"} → ${t.toBranch ?? "-"}` : t.customerName}</span>
+                              <span className="truncate" title={t.isInternal ? `${t.fromBranch ?? "Our office"} → ${t.toBranch ?? "-"}` : t.customerName}>
+                                {t.isInternal ? `${t.fromBranch ?? "Our office"} → ${t.toBranch ?? "-"}` : t.customerName}
+                              </span>
                             </div>
                             {t.isInternal && (
                               <div className="text-xs text-muted-foreground mt-0.5">
-                                for invoice of {t.customerName}
-                                {t.sourceCustomerName ? ` · origin: ${t.sourceCustomerName} WT#${t.sourceWireTransferId}` : ""}
+                                for invoice {(t as any).settledInvoiceNumber ?? "—"}
                               </div>
                             )}
                           </TableCell>
-                          <TableCell className="text-sm">{t.branch || "-"}</TableCell>
+                          <TableCell className="text-sm truncate" title={t.branch || undefined}>{t.branch || "-"}</TableCell>
                           <TableCell>{fmtCur(Number(t.amount), t.currency)}</TableCell>
                           <TableCell className="text-sm font-mono">
                             {Number(t.allocatedAmount) > 0 ? (
@@ -349,7 +349,7 @@ export default function WireTransfersPage() {
                               "-"
                             )}
                           </TableCell>
-                          <TableCell>{fmtDate(Number(t.transferDate))}</TableCell>
+                          <TableCell className="whitespace-nowrap text-sm">{fmtDate(Number(t.transferDate))}</TableCell>
                           <TableCell>
                             <span
                               className={`px-2 py-1 rounded text-xs font-medium ${
@@ -361,9 +361,10 @@ export default function WireTransfersPage() {
                               {t.status}
                             </span>
                           </TableCell>
-                          <TableCell className="text-sm">{t.referenceNumber || "-"}</TableCell>
-                          <TableCell className="text-sm max-w-[200px] truncate">{t.notes || "-"}</TableCell>
-                          <TableCell onClick={e => e.stopPropagation()}>
+                          <TableCell className="text-sm max-w-[140px] truncate" title={[t.referenceNumber, t.notes].filter(Boolean).join(" · ") || undefined}>
+                            {t.referenceNumber || t.notes || "-"}
+                          </TableCell>
+                          <TableCell onClick={e => e.stopPropagation()} className="whitespace-nowrap">
                             {t.isInternal ? (
                               <span className="text-xs text-muted-foreground">auto</span>
                             ) : (
@@ -377,7 +378,7 @@ export default function WireTransfersPage() {
                         {hasAllocs && isOpen && (
                           <TableRow className="bg-muted/40 hover:bg-muted/40">
                             <TableCell></TableCell>
-                            <TableCell colSpan={9} className="py-2">
+                            <TableCell colSpan={8} className="py-2">
                               <div className="space-y-1">
                                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                                   Allocation breakdown — where this transfer went
@@ -644,7 +645,7 @@ function UpdateWireTransferDialog({
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button variant="outline" size="sm" className="h-7 px-2 text-xs">
           Update
         </Button>
       </DialogTrigger>

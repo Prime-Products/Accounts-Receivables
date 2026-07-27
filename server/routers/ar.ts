@@ -1458,6 +1458,9 @@ export const customersRouter = router({
         detailsByTransfer.set(a.wireTransferId, list);
       }
       const transferById = new Map(transfers.map(t => [t.id, t]));
+      // Map allocation id → invoice number (for internal rows' "for invoice X" label)
+      const invoiceNoByAllocId = new Map<number, string | null>();
+      for (const a of allocRows) invoiceNoByAllocId.set(a.id, a.invoiceNumber ?? null);
       return transfers.map(t => {
         const src = t.sourceWireTransferId != null ? transferById.get(t.sourceWireTransferId) : undefined;
         return {
@@ -1468,6 +1471,8 @@ export const customersRouter = router({
           allocations: detailsByTransfer.get(t.id) ?? [],
           // For internal inter-office transfers: who originally sent the money
           sourceCustomerName: src ? (byId.get(src.customerId)?.name ?? `Customer #${src.customerId}`) : null,
+          settledInvoiceNumber:
+            t.sourceAllocationId != null ? (invoiceNoByAllocId.get(t.sourceAllocationId) ?? null) : null,
         };
       });
     }),
