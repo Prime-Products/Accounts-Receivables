@@ -1003,6 +1003,8 @@ export const customersRouter = router({
           ...i,
           customerName: customerNames.get(i.customerId) ?? "",
           vesselName: i.vesselId ? (vesselNameById.get(i.vesselId) ?? null) : null,
+          outstanding: outstanding(i),
+          daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, Date.now()) : 0,
         })),
         activityLogs,
       };
@@ -1314,6 +1316,8 @@ export const customersRouter = router({
       invoices: invoices.map(i => ({
         ...i,
         vesselName: i.vesselId ? (vesselName360.get(i.vesselId) ?? null) : null,
+        outstanding: outstanding(i),
+        daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, Date.now()) : 0,
       })),
       receipts,
       contracts,

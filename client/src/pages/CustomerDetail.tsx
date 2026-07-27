@@ -6,6 +6,7 @@ import { BankDetails } from "@/components/BankDetails";
 import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
+import { InvoicesTable } from "@/components/InvoicesTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -338,63 +339,11 @@ export default function CustomerDetail() {
               {visibleInvoices.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">No invoices for this customer.</div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Invoice</TableHead>
-                      <TableHead>Vessel</TableHead>
-                      <TableHead>Branch</TableHead>
-                      <TableHead>Doc. Date</TableHead>
-                      <TableHead>Due</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead className="text-right">Paid</TableHead>
-                      <TableHead className="text-right">Outstanding</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {visibleInvoices.map(i => (
-                      <TableRow key={i.id}>
-                        <TableCell className="font-mono text-sm">{i.invoiceNumber}</TableCell>
-                        <TableCell className="text-sm max-w-36">
-                          {(i as any).vesselName ? (
-                            <div className="truncate" title={(i as any).vesselName}>{(i as any).vesselName}</div>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={branchColors[branchShort(i.company)] ?? "bg-gray-50 text-gray-600 border-gray-200"} title={i.company ?? undefined}>
-                            {branchShort(i.company)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm">{fmtDate(i.issueDate)}</TableCell>
-                        <TableCell className="text-sm">{fmtDate(i.dueDate)}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={invoiceStatusColors[i.status]}>
-                            {i.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {i.currency && i.currency !== "EUR" ? (
-                            <span>
-                              {fmtCur(i.amount, i.currency, 2)}
-                              <span className="block text-xs text-muted-foreground">≈ {fmtEur(Number(i.amountEur ?? i.amount))}</span>
-                            </span>
-                          ) : (
-                            fmtEur(i.amount)
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">{i.currency && i.currency !== "EUR" ? fmtCur(i.paidAmount, i.currency, 2) : fmtEur(i.paidAmount)}</TableCell>
-                        <TableCell className="text-right font-mono font-semibold">
-                          {i.currency && i.currency !== "EUR"
-                            ? fmtCur(Number(i.amount) - Number(i.paidAmount), i.currency, 2)
-                            : fmtEur(Number(i.amount) - Number(i.paidAmount))}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <InvoicesTable
+                  rows={visibleInvoices as any}
+                  showCustomer={false}
+                  onDisputeChanged={() => utils.customers.get360.invalidate()}
+                />
               )}
             </CardContent>
           </Card>

@@ -7,6 +7,7 @@ import SendEmailDialog from "@/components/SendEmailDialog";
 import { ActivityLog } from "@/components/ActivityLog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
+import { InvoicesTable } from "@/components/InvoicesTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -206,6 +207,7 @@ function GroupPromiseDialog({ companies, defaultCustomerId, open: externalOpen, 
 export default function GroupDetail() {
   const [, params] = useRoute("/groups/:name");
   const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
   const group = decodeURIComponent(params?.name ?? "");
   const [companyId, setCompanyId] = useState<string>("all");
   const [branch, setBranch] = useState<string>("all");
@@ -689,55 +691,10 @@ export default function GroupDetail() {
                 </>
               ) : (
               <div className="max-h-[480px] overflow-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Document</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Vessel</TableHead>
-                      <TableHead>Branch</TableHead>
-                      <TableHead>Doc. Date</TableHead>
-                      <TableHead>Due Date</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredInvoices.map(i => (
-                      <TableRow key={i.id}>
-                        <TableCell className="font-mono text-xs">{i.invoiceNumber}</TableCell>
-                        <TableCell className="text-sm max-w-52">
-                          <div className="truncate" title={i.customerName}>{i.customerName}</div>
-                        </TableCell>
-                        <TableCell className="text-sm max-w-36">
-                          {(i as any).vesselName ? (
-                            <div className="truncate" title={(i as any).vesselName}>{(i as any).vesselName}</div>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={`text-[10px] ${branchColors[branchShort(i.company)] ?? ""}`}>
-                            {branchShort(i.company)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">{fmtDate(i.issueDate)}</TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">{fmtDate(i.dueDate)}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={`text-[10px] ${invoiceStatusColors[i.status] ?? ""}`}>
-                            {i.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {fmtCur(Number(i.amount), i.currency ?? "EUR")}
-                          {i.currency && i.currency !== "EUR" && i.amountEur != null && (
-                            <div className="text-[10px] text-muted-foreground">≈ {fmtEur(Number(i.amountEur))}</div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <InvoicesTable
+                  rows={filteredInvoices as any}
+                  onDisputeChanged={() => utils.customers.groupDetail.invalidate()}
+                />
               </div>
               )}
             </CardContent>

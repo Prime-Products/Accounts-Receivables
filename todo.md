@@ -670,6 +670,12 @@
 - [x] Frontend: status badge on Invoices table rows is now a dropdown — "Mark as Disputed" (opens reason dialog) / "Clear dispute"
 - [x] Frontend: Disputed status visible via badge + existing "All statuses → Disputed" filter; reason saved in invoice notes and audit trail
 - [x] Tests for dispute/revert logic (server/dispute.test.ts — 2/2 passing)
+
+## Unified invoice info across views (user request 27/7)
+- [x] Audit: compare invoice table columns in Invoices page vs GroupDetail vs CustomerDetail
+- [x] Backend: ensure groupDetail and get360 invoice rows carry the same fields as invoices.list (vesselName, company/branch, issueDate, dueDate, status, amount, amountEur, paidAmount, outstanding, daysOverdue, currency)
+- [x] Shared InvoiceTable component with identical columns + dispute action, used in all three views
+- [x] Verify visually in all three views, tsc + tests, checkpoint
 - [x] Update Dashboard KPIs to reflect wire transfers in collected amounts
 - [x] Write tests for wire transfer impact on balances
 - [x] Verify: Run full test suite (158/158 passing)
