@@ -356,6 +356,7 @@ export const customersRouter = router({
             dueDate: i.dueDate,
             customerName: cust?.name ?? "",
             group: cust ? groupKeyOf(cust) : "",
+            vesselName: (i as any).vesselName ?? null,
           };
         }),
         notes: res.notes.map(n => ({
@@ -374,6 +375,30 @@ export const customersRouter = router({
             group: cust ? groupKeyOf(cust) : null,
           };
         }),
+        transfers: (res.transfers ?? []).map(t => ({
+          id: t.id,
+          customerName: t.customerName,
+          amount: Number(t.amount),
+          currency: t.currency,
+          transferDate: t.transferDate,
+          status: t.status,
+          branch: t.branch,
+          referenceNumber: t.referenceNumber,
+          isInternal: !!t.isInternal,
+        })),
+        payments: (res.allocations ?? []).map(a => ({
+          id: a.id,
+          wireTransferId: a.wireTransferId,
+          amount: Number(a.amount),
+          currency: a.transferCurrency,
+          invoiceNumber: a.invoiceNumber,
+          invoiceId: a.invoiceId,
+          payerName: a.payerName,
+          creditedName: a.creditedName,
+          transferAmount: Number(a.transferAmount),
+          transferDate: a.transferDate,
+          transferReference: a.transferReference,
+        })),
       };
     }),
   list: protectedProcedure.query(async () => {
@@ -913,6 +938,8 @@ export const customersRouter = router({
       // not-yet-due invoices appear at the top instead of a wall of old overdue rows.
       const sortedInvoices = [...scoped].sort((a, b) => b.dueDate - a.dueDate);
       const customerNames = new Map(members.map(m => [m.id, m.name]));
+      const allVesselRows = await db.listVessels();
+      const vesselNameById = new Map(allVesselRows.map(v => [v.id, v.name]));
       const DETAIL_HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
       const groupHoldStatus = members.reduce(
         (worst, m) => ((DETAIL_HOLD_SEVERITY[m.onHoldStatus] ?? 0) > (DETAIL_HOLD_SEVERITY[worst] ?? 0) ? m.onHoldStatus : worst),
@@ -958,7 +985,11 @@ export const customersRouter = router({
           turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
           turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
         },
-        invoices: sortedInvoices.map(i => ({ ...i, customerName: customerNames.get(i.customerId) ?? "" })),
+        invoices: sortedInvoices.map(i => ({
+          ...i,
+          customerName: customerNames.get(i.customerId) ?? "",
+          vesselName: i.vesselId ? (vesselNameById.get(i.vesselId) ?? null) : null,
+        })),
         activityLogs,
       };
     }),
@@ -1256,9 +1287,14 @@ export const customersRouter = router({
     const resolvedCd = resolveGroupStatus(watchRow, autoProblematic);
     const watchStatus = resolvedCd.status;
     const watchOverride = watchRow && watchRow.status !== "Auto" ? (watchRow.status === "On Watch" ? "Problematic" : watchRow.status) : null;
+    const vesselRows360 = await db.listVessels();
+    const vesselName360 = new Map(vesselRows360.map(v => [v.id, v.name]));
     return {
       customer,
-      invoices,
+      invoices: invoices.map(i => ({
+        ...i,
+        vesselName: i.vesselId ? (vesselName360.get(i.vesselId) ?? null) : null,
+      })),
       receipts,
       contracts,
       installments,
@@ -1702,12 +1738,15 @@ export const invoicesRouter = router({
       const invoices = await db.listInvoices({ customerId: input?.customerId, statuses: input?.statuses });
       const customers = await db.listCustomers();
       const byId = new Map(customers.map(c => [c.id, c]));
+      const vessels = await db.listVessels();
+      const vesselById = new Map(vessels.map(v => [v.id, v]));
       const now = Date.now();
      return invoices.map(i => ({
        ...i,
        customerName: byId.get(i.customerId)?.name ?? "—",
        customerTier: byId.get(i.customerId)?.tier ?? "New",
         customerGroup: (byId.get(i.customerId)?.customerGroup ?? "").trim() || (byId.get(i.customerId)?.name ?? "—"),
+       vesselName: i.vesselId ? (vesselById.get(i.vesselId)?.name ?? null) : null,
        outstanding: outstanding(i),
        daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, now) : 0,
      }));
@@ -1757,12 +1796,24 @@ export const invoicesRouter = router({
       issueDate: z.number(),
       dueDate: z.number(),
       amount: z.number().positive(),
+      vesselId: z.number().optional(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const id = await db.createInvoice({ ...input, amount: eur(input.amount), amountEur: eur(input.amount) });
       await audit(ctx, "Create Invoice", "invoice", id, `Invoice ${input.invoiceNumber} for customer #${input.customerId}, amount €${eur(input.amount)}`);
       return { id };
+    }),
+  /** Attach or detach a vessel on any invoice. */
+  setVessel: protectedProcedure
+    .input(z.object({ invoiceId: z.number(), vesselId: z.number().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const inv = await db.getInvoice(input.invoiceId);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      await db.updateInvoice(input.invoiceId, { vesselId: input.vesselId } as any);
+      const v = input.vesselId ? await db.getVesselById(input.vesselId) : null;
+      await audit(ctx, "Set Invoice Vessel", "invoice", input.invoiceId, v ? `Vessel "${v.name}" set on ${inv.invoiceNumber}` : `Vessel cleared on ${inv.invoiceNumber}`);
+      return { success: true };
     }),
   markDisputed: protectedProcedure.input(z.object({ id: z.number(), disputed: z.boolean() })).mutation(async ({ ctx, input }) => {
     const inv = await db.getInvoice(input.id);
@@ -1775,6 +1826,33 @@ export const invoicesRouter = router({
     await audit(ctx, input.disputed ? "Mark Disputed" : "Clear Dispute", "invoice", input.id);
     return { success: true };
   }),
+});
+
+export const vesselsRouter = router({
+  list: protectedProcedure.query(async () => db.listVessels()),
+  create: protectedProcedure
+    .input(z.object({ name: z.string().min(1).max(191), customerId: z.number().optional(), imo: z.string().max(32).optional(), notes: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const id = await db.createVessel({ name: input.name.trim(), customerId: input.customerId ?? null, imo: input.imo?.trim() || null, notes: input.notes ?? null });
+      await audit(ctx, "Create Vessel", "vessel", Number(id), `Vessel "${input.name.trim()}" created`);
+      return { id: Number(id) };
+    }),
+  update: protectedProcedure
+    .input(z.object({ id: z.number(), name: z.string().min(1).max(191).optional(), customerId: z.number().nullable().optional(), imo: z.string().max(32).nullable().optional(), notes: z.string().nullable().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      await db.updateVessel(id, data as any);
+      await audit(ctx, "Update Vessel", "vessel", id);
+      return { success: true };
+    }),
+  remove: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const v = await db.getVesselById(input.id);
+      await db.deleteVessel(input.id);
+      await audit(ctx, "Delete Vessel", "vessel", input.id, v ? `Vessel "${v.name}" deleted (detached from invoices)` : undefined);
+      return { success: true };
+    }),
 });
 
 export const receiptsRouter = router({

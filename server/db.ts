@@ -41,6 +41,7 @@ import {
   paymentBankDetails,
   InsertPaymentBankDetails,
 } from "../drizzle/schema";
+import { vessels, InsertVessel } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -760,9 +761,18 @@ export async function globalSearch(query: string, limitPerType = 8) {
       .where(or(like(customers.name, q), like(customers.code, q), like(customers.customerGroup, q), like(customers.vatNumber, q)))
       .limit(limitPerType * 3),
     db
-      .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, customerId: invoices.customerId, amount: invoices.amount, status: invoices.status, dueDate: invoices.dueDate })
+      .select({
+        id: invoices.id,
+        invoiceNumber: invoices.invoiceNumber,
+        customerId: invoices.customerId,
+        amount: invoices.amount,
+        status: invoices.status,
+        dueDate: invoices.dueDate,
+        vesselName: vessels.name,
+      })
       .from(invoices)
-      .where(like(invoices.invoiceNumber, q))
+      .leftJoin(vessels, eq(invoices.vesselId, vessels.id))
+      .where(or(like(invoices.invoiceNumber, q), like(vessels.name, q)))
       .limit(limitPerType),
     db
       .select({ id: groupNotes.id, groupName: groupNotes.groupName, content: groupNotes.content, createdAt: groupNotes.createdAt })
@@ -777,12 +787,87 @@ export async function globalSearch(query: string, limitPerType = 8) {
       .orderBy(desc(tasks.dueDate))
       .limit(limitPerType),
   ]);
-  return { customers: custRows, invoices: invRows, notes: noteRows, tasks: taskRows };
+  // Wire transfers & payments (allocations): match by transfer reference, customer name,
+  // or the invoice number an allocation settled — so searching "INV-000013" also surfaces
+  // the payment/transfer that settled that invoice.
+  const transferRows = await db
+    .select({
+      id: wireTransfers.id,
+      customerId: wireTransfers.customerId,
+      amount: wireTransfers.amount,
+      currency: wireTransfers.currency,
+      transferDate: wireTransfers.transferDate,
+      status: wireTransfers.status,
+      branch: wireTransfers.branch,
+      referenceNumber: wireTransfers.referenceNumber,
+      isInternal: wireTransfers.isInternal,
+      customerName: customers.name,
+    })
+    .from(wireTransfers)
+    .innerJoin(customers, eq(wireTransfers.customerId, customers.id))
+    .where(or(like(wireTransfers.referenceNumber, q), like(customers.name, q)))
+    .orderBy(desc(wireTransfers.transferDate))
+    .limit(limitPerType);
+  const allocationRows = await db
+    .select({
+      id: wireTransferAllocations.id,
+      wireTransferId: wireTransferAllocations.wireTransferId,
+      amount: wireTransferAllocations.amount,
+      invoiceNumber: invoices.invoiceNumber,
+      invoiceId: invoices.id,
+      transferAmount: wireTransfers.amount,
+      transferCurrency: wireTransfers.currency,
+      transferDate: wireTransfers.transferDate,
+      transferReference: wireTransfers.referenceNumber,
+      payerName: customers.name,
+      creditedName: sql<string>`(SELECT c2.name FROM customers c2 WHERE c2.id = ${invoices.customerId})`,
+    })
+    .from(wireTransferAllocations)
+    .innerJoin(invoices, eq(wireTransferAllocations.invoiceId, invoices.id))
+    .innerJoin(wireTransfers, eq(wireTransferAllocations.wireTransferId, wireTransfers.id))
+    .innerJoin(customers, eq(wireTransfers.customerId, customers.id))
+    .where(like(invoices.invoiceNumber, q))
+    .orderBy(desc(wireTransferAllocations.createdAt))
+    .limit(limitPerType);
+  return { customers: custRows, invoices: invRows, notes: noteRows, tasks: taskRows, transfers: transferRows, allocations: allocationRows };
 }
 
 export async function listGroupConfirmationStatuses() {
   const db = await requireDb();
   return db.select().from(groupConfirmationStatus);
+}
+
+// ---------------------------------------------------------------------------
+// Vessels (ships) — registry usable on all invoices
+// ---------------------------------------------------------------------------
+
+export async function listVessels() {
+  const db = await requireDb();
+  return db.select().from(vessels).orderBy(vessels.name);
+}
+
+export async function createVessel(data: InsertVessel) {
+  const db = await requireDb();
+  const [res] = await db.insert(vessels).values(data);
+  return res.insertId;
+}
+
+export async function updateVessel(id: number, data: Partial<InsertVessel>) {
+  const db = await requireDb();
+  await db.update(vessels).set(data).where(eq(vessels.id, id));
+}
+
+export async function deleteVessel(id: number) {
+  const db = await requireDb();
+  // Detach from invoices first, then delete the vessel.
+  await db.update(invoices).set({ vesselId: null }).where(eq(invoices.vesselId, id));
+  await db.delete(vessels).where(eq(vessels.id, id));
+}
+
+export async function getVesselById(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(vessels).where(eq(vessels.id, id)).limit(1);
+  return rows[0] ?? null;
 }
 
 /** Test/maintenance helper: overwrite a confirmation row's updatedAt (bypasses onUpdateNow via raw SQL). */

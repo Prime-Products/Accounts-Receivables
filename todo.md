@@ -625,6 +625,22 @@
 - [x] Create WireTransfersPage with list of all wire transfers (all customers)
 - [x] Add filters to WireTransfersPage (Status, Customer, Date range)
 - [x] Update Open Balance calculation — resolved by design: balances decrease through manual invoice allocation (paidAmount), not automatic deduction; user confirmed manual matching workflow
+
+## Cancel visibility for auto (internal) transfers (user request 27/7)
+- [x] Investigate why the cancel (X) action is not visible to the user in the transfer allocation breakdown — user located it; works as designed
+- [x] Cancel action for internal (auto) transfers — done via X in the source transfer's allocation breakdown (user confirmed found)
+
+## Global search: include wire transfers & payments (user request 27/7)
+- [x] Backend: globalSearch matches wire transfers by reference number and allocations by invoice number (returns transfer + allocation info: amount, customer, invoice)
+- [x] Frontend: search dropdown shows "Wire transfer / Payment" result group linking to /wire-transfers
+
+## Vessels on all invoices (user request 27/7)
+- [ ] Schema: vessels table (name, optional customerId/imo/notes) + vesselId on invoices (available on ALL invoices, optional); migration applied
+- [ ] Backend: vessels list/create procedures; invoice create/update accepts vesselId; invoice queries return vessel name
+- [ ] Frontend: vessel select (with inline "add new vessel") on invoice create/edit forms
+- [ ] Frontend: Vessel column/badge on invoice lists (Invoices page, group/customer cards)
+- [ ] Search: vessel name matches return invoices of that vessel
+- [ ] Tests for vessel CRUD and invoice-vessel linking
 - [x] Update Collected calculation to include received wire transfers
 - [x] Update Dashboard KPIs to reflect wire transfers in collected amounts
 - [x] Write tests for wire transfer impact on balances
@@ -700,3 +716,13 @@
 - [x] Inline search: click and type directly, results in dropdown below the input — no modal
 - [x] Remove "Cancel payment" buttons from invoice rows (Invoices page, GroupDetail, CustomerDetail)
 - [x] Add cancel (X) action on each allocation row in the transfer's allocation breakdown (WireTransfersPage) with confirmation — reverts invoice, frees transfer amount, deletes internal transfer
+
+## Vessel (Πλοίο) field on all invoices (user request 27/7)
+- [x] Schema: vessels registry table (name, optional customer, IMO, notes) + invoices.vesselId (optional on ALL invoices)
+- [x] Backend: vessels router (list/create/update/remove), invoices.setVessel mutation, invoices.list & get360 & groupDetail return vesselName
+- [x] Frontend: VesselSelect component (pick existing or create inline)
+- [x] Invoices page: Vessel column with inline edit (click to set/change vessel on any invoice), vessel picker in New Invoice dialog
+- [x] Customer detail & Group detail invoice tables show Vessel column
+- [x] Invoices page search also matches vessel name
+- [x] Global search (header) matches invoices by vessel name and shows vessel in results
+- [x] Vitest suite: vessel CRUD, assignment to invoices, list enrichment, vessel-aware search, delete detachment (5/5 passing)

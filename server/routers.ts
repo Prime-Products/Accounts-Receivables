@@ -9,6 +9,7 @@ import {
   customersRouter,
   forecastRouter,
   invoicesRouter,
+  vesselsRouter,
   onHoldRouter,
   paymentContactsRouter,
   receiptsRouter,
@@ -32,6 +33,7 @@ export const appRouter = router({
 
   customers: customersRouter,
   invoices: invoicesRouter,
+  vessels: vesselsRouter,
   receipts: receiptsRouter,
   contracts: contractsRouter,
   tasks: tasksRouter,

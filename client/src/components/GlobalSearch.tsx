@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { Building2, FileText, ListChecks, Loader2, Search, StickyNote, Users, X } from "lucide-react";
+import { ArrowLeftRight, Banknote, Building2, FileText, ListChecks, Loader2, Search, StickyNote, Users, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 
@@ -62,7 +62,9 @@ export default function GlobalSearch() {
       data.companies.length > 0 ||
       data.invoices.length > 0 ||
       data.notes.length > 0 ||
-      data.tasks.length > 0);
+      data.tasks.length > 0 ||
+      (data.transfers?.length ?? 0) > 0 ||
+      (data.payments?.length ?? 0) > 0);
 
   const showDropdown = open && query.trim().length >= 2;
 
@@ -151,9 +153,53 @@ export default function GlobalSearch() {
                     <Row key={`i-${i.id}`} onClick={() => go(`/invoices?q=${encodeURIComponent(i.invoiceNumber)}`)}>
                       <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="font-mono shrink-0">{i.invoiceNumber}</span>
-                      <span className="flex-1 truncate text-xs text-muted-foreground">{i.customerName}</span>
+                      <span className="flex-1 truncate text-xs text-muted-foreground">
+                        {i.customerName}
+                        {(i as any).vesselName ? ` · ${(i as any).vesselName}` : ""}
+                      </span>
                       <span className="font-mono text-xs shrink-0">{fmtEur(i.amount)}</span>
                       <Badge variant="outline" className="text-[10px] shrink-0">{i.status}</Badge>
+                    </Row>
+                  ))}
+                </Section>
+              )}
+              {(data!.payments?.length ?? 0) > 0 && (
+                <Section title="Payments (allocations)">
+                  {data!.payments!.map((p: any) => (
+                    <Row key={`p-${p.id}`} onClick={() => go("/wire-transfers")}>
+                      <Banknote className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="truncate text-sm">
+                          <span className="font-mono">{p.invoiceNumber}</span>
+                          <span className="text-muted-foreground"> paid by </span>
+                          {p.payerName}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground truncate">
+                          from transfer {p.transferAmount?.toLocaleString()} {p.currency}
+                          {p.transferReference ? ` · ref ${p.transferReference}` : ""} ·{" "}
+                          {new Date(Number(p.transferDate)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                        </div>
+                      </div>
+                      <span className="font-mono text-xs shrink-0">
+                        {Number(p.amount).toLocaleString()} {p.currency}
+                      </span>
+                    </Row>
+                  ))}
+                </Section>
+              )}
+              {(data!.transfers?.length ?? 0) > 0 && (
+                <Section title="Wire transfers">
+                  {data!.transfers!.map((t: any) => (
+                    <Row key={`w-${t.id}`} onClick={() => go("/wire-transfers")}>
+                      <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="flex-1 truncate">
+                        {t.isInternal ? "Internal · " : ""}
+                        {t.customerName}
+                      </span>
+                      <span className="font-mono text-xs shrink-0">
+                        {Number(t.amount).toLocaleString()} {t.currency}
+                      </span>
+                      <Badge variant="outline" className="text-[10px] shrink-0">{t.status}</Badge>
                     </Row>
                   ))}
                 </Section>

@@ -8,10 +8,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { VesselSelect } from "@/components/VesselSelect";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { ChevronRight, FileDown, FileText, HandCoins, Plus, Users } from "lucide-react";
+import { ChevronRight, FileDown, FileText, HandCoins, Pencil, Plus, Ship, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -49,11 +50,23 @@ export default function Invoices() {
   // New invoice dialog
   const [invOpen, setInvOpen] = useState(false);
   const [invForm, setInvForm] = useState({ customerId: "", invoiceNumber: "", issueDate: "", dueDate: "", amount: "" });
+  const [invVesselId, setInvVesselId] = useState<number | null>(null);
+  // Inline vessel editing on existing invoices
+  const [vesselEditId, setVesselEditId] = useState<number | null>(null);
+  const setVessel = trpc.invoices.setVessel.useMutation({
+    onSuccess: () => {
+      toast.success("Vessel updated");
+      utils.invoices.invalidate();
+      setVesselEditId(null);
+    },
+    onError: e => toast.error(e.message),
+  });
   const createInvoice = trpc.invoices.create.useMutation({
     onSuccess: () => {
       toast.success("Invoice created");
       utils.invoices.invalidate();
       setInvOpen(false);
+      setInvVesselId(null);
     },
     onError: e => toast.error(e.message),
   });
@@ -103,8 +116,11 @@ export default function Invoices() {
           i.daysOverdue <= 30 ? "0-30" : i.daysOverdue <= 60 ? "31-60" : i.daysOverdue <= 90 ? "61-90" : i.daysOverdue <= 120 ? "91-120" : "120+";
         if (b !== bucketFilter) return false;
       }
-      if (search && !i.invoiceNumber.toLowerCase().includes(search.toLowerCase()) && !i.customerName.toLowerCase().includes(search.toLowerCase()))
-        return false;
+      if (search) {
+        const q = search.toLowerCase();
+        const vessel = ((i as any).vesselName ?? "").toLowerCase();
+        if (!i.invoiceNumber.toLowerCase().includes(q) && !i.customerName.toLowerCase().includes(q) && !vessel.includes(q)) return false;
+      }
       return true;
     });
   }, [invoices, statusFilter, bucketFilter, branchFilter, search, groupDrill]);
@@ -312,6 +328,14 @@ export default function Invoices() {
                   <Label>Due date *</Label>
                   <Input type="date" value={invForm.dueDate} onChange={e => setInvForm({ ...invForm, dueDate: e.target.value })} />
                 </div>
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Vessel (optional)</Label>
+                  <VesselSelect
+                    value={invVesselId}
+                    onChange={setInvVesselId}
+                    customerId={invForm.customerId ? Number(invForm.customerId) : null}
+                  />
+                </div>
               </div>
               <DialogFooter>
                 <Button
@@ -323,6 +347,7 @@ export default function Invoices() {
                       issueDate: new Date(invForm.issueDate).getTime(),
                       dueDate: new Date(invForm.dueDate).getTime(),
                       amount: Number(invForm.amount),
+                      vesselId: invVesselId ?? undefined,
                     })
                   }
                 >
@@ -499,6 +524,7 @@ export default function Invoices() {
                 <TableRow>
                   <TableHead>Invoice</TableHead>
                   <TableHead>Customer</TableHead>
+                  <TableHead>Vessel</TableHead>
                   <TableHead>Prime Branch</TableHead>
                   <TableHead>Due Date</TableHead>
                   <TableHead>Status</TableHead>
@@ -513,6 +539,33 @@ export default function Invoices() {
                     <TableCell className="font-mono text-sm">{i.invoiceNumber}</TableCell>
                     <TableCell className="font-medium max-w-64">
                       <span className="block truncate" title={i.customerName}>{i.customerName}</span>
+                    </TableCell>
+                    <TableCell className="max-w-48">
+                      {vesselEditId === i.id ? (
+                        <div className="min-w-56">
+                          <VesselSelect
+                            value={(i as any).vesselId ?? null}
+                            onChange={vid => setVessel.mutate({ invoiceId: i.id, vesselId: vid })}
+                            customerId={i.customerId}
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          className="group flex items-center gap-1.5 text-sm text-left hover:text-primary transition-colors"
+                          title={(i as any).vesselName ? `Vessel: ${(i as any).vesselName} — click to change` : "Set vessel"}
+                          onClick={() => setVesselEditId(i.id)}
+                        >
+                          {(i as any).vesselName ? (
+                            <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-44">
+                              <Ship className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{(i as any).vesselName}</span>
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground/50 text-xs">—</span>
+                          )}
+                          <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                        </button>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={branchColors[branchShort(i.company)] ?? "bg-gray-50 text-gray-600 border-gray-200"} title={i.company ?? undefined}>

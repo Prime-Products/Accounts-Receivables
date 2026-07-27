@@ -93,6 +93,8 @@ export const invoices = mysqlTable("invoices", {
   status: mysqlEnum("status", invoiceStatuses).default("Open").notNull(),
   contractInstallmentId: int("contractInstallmentId"),
   softoneId: varchar("softoneId", { length: 64 }),
+  /** Optional vessel the invoice concerns (shipping clients); FK to vessels.id. */
+  vesselId: int("vesselId"),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -514,3 +516,25 @@ export const wireTransferAllocations = mysqlTable(
 
 export type WireTransferAllocation = typeof wireTransferAllocations.$inferSelect;
 export type InsertWireTransferAllocation = typeof wireTransferAllocations.$inferInsert;
+
+/**
+ * Vessels (ships) — reusable registry. A vessel may optionally be linked to a
+ * customer (owner/manager), but the field is available on ALL invoices.
+ */
+export const vessels = mysqlTable(
+  "vessels",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    name: varchar("name", { length: 191 }).notNull(),
+    /** Optional owning/managing customer. */
+    customerId: int("customerId"),
+    /** Optional IMO number. */
+    imo: varchar("imo", { length: 32 }),
+    notes: text("notes"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  t => [index("idx_vessels_name").on(t.name), index("idx_vessels_customerId").on(t.customerId)]
+);
+
+export type Vessel = typeof vessels.$inferSelect;
+export type InsertVessel = typeof vessels.$inferInsert;

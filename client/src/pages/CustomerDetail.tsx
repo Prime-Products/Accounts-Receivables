@@ -336,6 +336,7 @@ export default function CustomerDetail() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Invoice</TableHead>
+                      <TableHead>Vessel</TableHead>
                       <TableHead>Branch</TableHead>
                       <TableHead>Doc. Date</TableHead>
                       <TableHead>Due</TableHead>
@@ -349,6 +350,13 @@ export default function CustomerDetail() {
                     {visibleInvoices.map(i => (
                       <TableRow key={i.id}>
                         <TableCell className="font-mono text-sm">{i.invoiceNumber}</TableCell>
+                        <TableCell className="text-sm max-w-36">
+                          {(i as any).vesselName ? (
+                            <div className="truncate" title={(i as any).vesselName}>{(i as any).vesselName}</div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Badge variant="outline" className={branchColors[branchShort(i.company)] ?? "bg-gray-50 text-gray-600 border-gray-200"} title={i.company ?? undefined}>
                             {branchShort(i.company)}

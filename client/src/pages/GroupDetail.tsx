@@ -687,6 +687,7 @@ export default function GroupDetail() {
                     <TableRow>
                       <TableHead>Document</TableHead>
                       <TableHead>Company</TableHead>
+                      <TableHead>Vessel</TableHead>
                       <TableHead>Branch</TableHead>
                       <TableHead>Doc. Date</TableHead>
                       <TableHead>Due Date</TableHead>
@@ -700,6 +701,13 @@ export default function GroupDetail() {
                         <TableCell className="font-mono text-xs">{i.invoiceNumber}</TableCell>
                         <TableCell className="text-sm max-w-52">
                           <div className="truncate" title={i.customerName}>{i.customerName}</div>
+                        </TableCell>
+                        <TableCell className="text-sm max-w-36">
+                          {(i as any).vesselName ? (
+                            <div className="truncate" title={(i as any).vesselName}>{(i as any).vesselName}</div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className={`text-[10px] ${branchColors[branchShort(i.company)] ?? ""}`}>
