@@ -665,3 +665,7 @@
 ## Allocation dialog too small (user bug 27/7)
 
 - [x] Widen the Allocate dialog so all columns are visible without horizontal scroll (96vw, up to 1200px; invoice list up to 45vh)
+
+## Allocation dialog invoice search (user request 27/7)
+
+- [x] Search input in the Allocate dialog to filter group open invoices by invoice number, company, or branch (rows with entered amounts stay visible/kept in total)

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
 import { fmtCur, fmtDate } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Trash2, Search, X } from "lucide-react";
 
 /**
  * Allocation (συμψηφισμός) dialog: match a RECEIVED wire transfer against open
@@ -32,6 +32,7 @@ export function AllocateWireTransferDialog({
   const [isOpen, setIsOpen] = useState(false);
   // invoiceId -> amount string being typed
   const [amounts, setAmounts] = useState<Record<number, string>>({});
+  const [search, setSearch] = useState("");
 
   const utils = trpc.useUtils();
   const { data: openInvoices = [], isLoading: invLoading } = trpc.customers.listGroupOpenInvoices.useQuery(
@@ -63,6 +64,23 @@ export function AllocateWireTransferDialog({
     }
     return bad;
   }, [amounts, openInvoices]);
+
+  // Filter invoices by search term (invoice number, company, branch, amount).
+  // Rows where the user already typed an amount stay visible so the entered
+  // total always matches what's on screen.
+  const filteredInvoices = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return openInvoices as any[];
+    return (openInvoices as any[]).filter(inv => {
+      if (Number(amounts[inv.id] || 0) > 0) return true;
+      return (
+        String(inv.invoiceNumber ?? "").toLowerCase().includes(q) ||
+        String(inv.customerName ?? "").toLowerCase().includes(q) ||
+        String(inv.company ?? "").toLowerCase().includes(q) ||
+        String(inv.outstandingOriginal ?? "").includes(q)
+      );
+    });
+  }, [openInvoices, search, amounts]);
 
   const allocateMutation = trpc.customers.allocateWireTransfer.useMutation({
     onSuccess: (res) => {
@@ -192,10 +210,33 @@ export function AllocateWireTransferDialog({
               (all member companies — the amount is credited to the invoice's company)
             </span>
           </h4>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search invoice number, company, branch or amount..."
+              className="h-9 pl-8 pr-8"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            {search && (
+              <button
+                type="button"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setSearch("")}
+                title="Clear search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
           {invLoading || allocLoading ? (
             <p className="text-sm text-muted-foreground py-4">Loading invoices...</p>
           ) : (openInvoices as any[]).length === 0 ? (
             <p className="text-sm text-muted-foreground py-4">No open invoices in this group</p>
+          ) : filteredInvoices.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">
+              No invoices match "{search}" — clear the search to see all {(openInvoices as any[]).length} open invoices
+            </p>
           ) : (
             <div className="max-h-[45vh] overflow-y-auto rounded-md border">
               <Table>
@@ -210,7 +251,7 @@ export function AllocateWireTransferDialog({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(openInvoices as any[]).map(inv => {
+                  {filteredInvoices.map(inv => {
                     const invalid = invalidRows.includes(inv.id);
                     return (
                       <TableRow key={inv.id}>
