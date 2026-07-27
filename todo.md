@@ -651,6 +651,12 @@
 - [x] Frontend: Customers list shows account manager column + filter by manager
 - [x] Frontend: Tasks — assignee picker on create, assignee shown on rows, re-assign action, filter tasks by assignee
 - [x] Tests: team member CRUD, owner assignment (company & group), task assignment/re-assignment (5/5 passing)
+
+## Vessels read-only (user request 27/7)
+- [x] Invoices page: vessel column becomes display-only (remove inline VesselSelect editing)
+- [x] New Invoice form: remove vessel picker (vessel comes only from bulk upload)
+- [x] Keep vessel display in CustomerDetail/GroupDetail tables and search (already read-only)
+- [x] Keep backend intact for the upcoming bulk invoice+vessel upload (vessel tests 5/5 passing)
 - [x] Update Dashboard KPIs to reflect wire transfers in collected amounts
 - [x] Write tests for wire transfer impact on balances
 - [x] Verify: Run full test suite (158/158 passing)
