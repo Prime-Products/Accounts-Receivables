@@ -1530,6 +1530,7 @@ export const customersRouter = router({
         sourceCurrency: r.sourceCurrency,
         sourceTransferDate: r.sourceTransferDate,
         sourceReference: r.sourceReference,
+        sourceBranch: r.sourceBranch,
       }));
     }),
 

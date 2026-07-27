@@ -676,3 +676,7 @@
 - [x] Backend: getAllWireTransfers (or a batch allocations endpoint) returns allocation details (invoice, company, amount) for expansion
 - [x] Receiving company side: customer Wire Transfers tab shows incoming allocations (e.g. MAGE sees "760 received via DYNACOM wire transfer" with invoice + source transfer reference)
 - [x] Breakdown shows the invoice's branch/office prominently (e.g. Singapore) so it's clear where the settled amount went
+
+## Inter-office flow in allocation breakdown (user correction 27/7)
+
+- [x] Breakdown entry reads as inter-office flow: receiving branch (transfer.branch, e.g. Prime Ltd) → wire transfer of amount → invoice branch (e.g. Prime BV Rotterdam) → settled invoice of company (e.g. SUMMER SHIPPING €450); also reflect in incoming allocations table

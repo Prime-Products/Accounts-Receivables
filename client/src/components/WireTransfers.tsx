@@ -321,6 +321,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                   <TableHead>Amount</TableHead>
                   <TableHead>Invoice</TableHead>
                   <TableHead>Branch</TableHead>
+                  <TableHead>From branch</TableHead>
                   <TableHead>Via wire transfer from</TableHead>
                   <TableHead>Transfer</TableHead>
                 </TableRow>
@@ -337,6 +338,15 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                       {a.invoiceBranch ? (
                         <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700">
                           {a.invoiceBranch}
+                        </span>
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {a.sourceBranch ? (
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">
+                          {a.sourceBranch}
                         </span>
                       ) : (
                         "-"

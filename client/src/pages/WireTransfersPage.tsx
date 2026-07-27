@@ -349,16 +349,25 @@ export default function WireTransfersPage() {
                                 {t.allocations.map((a: any) => (
                                   <div key={a.id} className="flex items-center gap-2 text-sm">
                                     <CornerDownRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                    {t.branch && (
+                                      <>
+                                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">
+                                          {t.branch}
+                                        </span>
+                                        <span className="text-muted-foreground text-xs">wired</span>
+                                      </>
+                                    )}
                                     <span className="font-mono font-semibold">{fmtCur(Number(a.amount), a.currency ?? t.currency)}</span>
                                     <span className="text-muted-foreground">→</span>
-                                    <span className="font-medium">{a.creditedCompanyName}</span>
-                                    <span className="text-muted-foreground">invoice</span>
-                                    <span className="font-mono">{a.invoiceNumber ?? `#${a.invoiceId}`}</span>
-                                    {a.branch && (
+                                    {a.branch ? (
                                       <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700">
                                         {a.branch}
                                       </span>
-                                    )}
+                                    ) : null}
+                                    <span className="text-muted-foreground text-xs">settled invoice</span>
+                                    <span className="font-mono">{a.invoiceNumber ?? `#${a.invoiceId}`}</span>
+                                    <span className="text-muted-foreground text-xs">of</span>
+                                    <span className="font-medium">{a.creditedCompanyName}</span>
                                   </div>
                                 ))}
                                 {Number(t.unallocatedAmount) > 0.005 && (

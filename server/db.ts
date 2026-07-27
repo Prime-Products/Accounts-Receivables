@@ -967,6 +967,7 @@ export async function listIncomingAllocationsByCustomer(customerId: number) {
       sourceCurrency: wireTransfers.currency,
       sourceTransferDate: wireTransfers.transferDate,
       sourceReference: wireTransfers.referenceNumber,
+      sourceBranch: wireTransfers.branch,
     })
     .from(wireTransferAllocations)
     .innerJoin(invoices, eq(wireTransferAllocations.invoiceId, invoices.id))
