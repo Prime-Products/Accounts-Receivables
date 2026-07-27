@@ -795,3 +795,9 @@
 ## Badge task dialog inline (user request 28/7)
 - [x] Clicking Promise to Pay / Pending Follow-up badge opens the task in a dialog on the Customers page (no navigation to /tasks) — new reusable TaskDetailDialog component
 - [x] Verify visually, checkpoint
+
+## GroupDetail badge inline dialog (user request 28/7)
+- [x] Backend: customers.groupDetail exposes confirmationTaskId (follow-up task or open promise-check task)
+- [x] GroupDetail header: clickable confirmation badge — linked task opens inline TaskDetailDialog; otherwise opens Log Call dialog
+- [x] TaskDetailDialog invalidates customers.groupDetail so the group card refreshes after task/promise actions
+- [x] Verify visually, checkpoint

@@ -988,6 +988,24 @@ export const customersRouter = router({
       const gConf = effectiveConfirmation(confirmation);
       const gConfStatus = gConf.status;
       const gConfAmount = gConf.amount;
+      // Linked task for the confirmation badge (same logic as customers.groups):
+      // Pending Follow-up → "(Follow-up: <group>)" task; Promise to Pay → "(Promise #<id>)" check task.
+      let gConfirmationTaskId: number | null = null;
+      if (gConfStatus === "Pending Follow-up" || gConfStatus === "Confirmed") {
+        const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => [])).filter(
+          t => t.description?.includes("(Follow-up: ") || t.description?.includes("(Promise #"),
+        );
+        if (gConfStatus === "Pending Follow-up") {
+          gConfirmationTaskId = openAutoTasks.find(t => t.description?.includes(`(Follow-up: ${input.group})`))?.id ?? null;
+        } else {
+          const openPromise = (await db.listPromises().catch(() => []))
+            .filter(p => p.status === "Pending" && memberIds.has(p.customerId))
+            .sort((a, b) => b.id - a.id)[0];
+          if (openPromise) {
+            gConfirmationTaskId = openAutoTasks.find(t => t.description?.includes(`(Promise #${openPromise.id})`))?.id ?? null;
+          }
+        }
+      }
       const gExpectedToCollect =
         gConfStatus === "Not Contacted" ? groupForecast : gConfStatus === "Broken" ? 0 : gConfAmount;
       const groupForecastInitial = forecastRows
@@ -1020,6 +1038,7 @@ export const customersRouter = router({
         overdueEomBalance: gOverdueEom,
         confirmationStatus: gConfStatus,
         confirmationAmount: gConfAmount,
+        confirmationTaskId: gConfirmationTaskId,
         confirmationFollowUpDate: confirmation?.followUpDate ?? null,
         confirmationNotes: confirmation?.notes ?? null,
         totals: {

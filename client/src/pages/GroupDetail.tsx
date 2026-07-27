@@ -4,6 +4,7 @@ import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
 import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
+import TaskDetailDialog from "@/components/TaskDetailDialog";
 import { ActivityLog } from "@/components/ActivityLog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
@@ -19,7 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors, confirmationStatusColors } from "@/lib/format";
+import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
@@ -125,6 +126,44 @@ function CompanyPicker({
         </SelectContent>
       </Select>
     </div>
+  );
+}
+
+/**
+ * Clickable confirmation-status badge for the group header — same behavior as the
+ * groups list: a linked task opens inline in TaskDetailDialog, otherwise Log Call.
+ */
+function GroupConfirmationBadge({
+  group,
+  companies,
+  status,
+  taskId,
+}: {
+  group: string;
+  companies: { id: number; name: string }[];
+  status: string;
+  taskId: number | null;
+}) {
+  const [taskOpen, setTaskOpen] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
+  const hasLinkedTask = taskId !== null && (status === "Pending Follow-up" || status === "Confirmed");
+  return (
+    <>
+      <button
+        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors hover:opacity-80 ${
+          confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
+        }`}
+        title={hasLinkedTask ? "Click to open the linked follow-up task" : "Click to log a call and change the confirmation status"}
+        onClick={() => (hasLinkedTask ? setTaskOpen(true) : setCallOpen(true))}
+      >
+        {confirmationStatusLabels[status] ?? status}
+        <Phone className="h-3 w-3 opacity-40" />
+      </button>
+      {taskOpen && <TaskDetailDialog taskId={taskId} open={taskOpen} onOpenChange={setTaskOpen} />}
+      {callOpen && (
+        <LogCallDialog group={group} companies={companies} open={callOpen} onOpenChange={setCallOpen} />
+      )}
+    </>
   );
 }
 
@@ -369,6 +408,14 @@ export default function GroupDetail() {
                 </Badge>
               )}
               {data && <WatchStatusSelect group={group} effective={data.watchStatus ?? null} />}
+              {data && (data as any).confirmationStatus && (
+                <GroupConfirmationBadge
+                  group={group}
+                  companies={data.companies}
+                  status={(data as any).confirmationStatus}
+                  taskId={(data as any).confirmationTaskId ?? null}
+                />
+              )}
               {data && (
                 <AccountManagerControl
                   manager={(data as any).accountManager ?? null}

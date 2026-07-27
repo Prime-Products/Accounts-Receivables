@@ -37,6 +37,7 @@ export default function TaskDetailDialog({
     onSuccess: () => {
       utils.tasks.list.invalidate();
       utils.customers.groups.invalidate();
+      utils.customers.groupDetail.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -45,6 +46,7 @@ export default function TaskDetailDialog({
       toast.success(`Promise marked ${vars.status === "Broken" ? "Not Confirmed" : vars.status} — follow-up task completed`);
       utils.tasks.list.invalidate();
       utils.customers.groups.invalidate();
+      utils.customers.groupDetail.invalidate();
     },
     onError: e => toast.error(e.message),
   });
