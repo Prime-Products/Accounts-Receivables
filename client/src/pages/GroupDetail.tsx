@@ -18,7 +18,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors, confirmationStatusColors } from "@/lib/format";
-import { CancelPaymentButton } from "@/components/CancelPaymentButton";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
@@ -693,7 +692,6 @@ export default function GroupDetail() {
                       <TableHead>Due Date</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
-                      <TableHead className="w-[90px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -719,11 +717,6 @@ export default function GroupDetail() {
                           {fmtCur(Number(i.amount), i.currency ?? "EUR")}
                           {i.currency && i.currency !== "EUR" && i.amountEur != null && (
                             <div className="text-[10px] text-muted-foreground">≈ {fmtEur(Number(i.amountEur))}</div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {(i.status === "Paid" || i.status === "Partially Paid") && Number(i.paidAmount) > 0.005 && (
-                            <CancelPaymentButton invoiceId={i.id} invoiceNumber={i.invoiceNumber} />
                           )}
                         </TableCell>
                       </TableRow>

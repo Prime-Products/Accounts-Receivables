@@ -698,3 +698,5 @@
 - [x] Global search available on all pages (in DashboardLayout header), not only Dashboard
 - [x] Remove duplicate search bar from Dashboard page
 - [x] Inline search: click and type directly, results in dropdown below the input — no modal
+- [x] Remove "Cancel payment" buttons from invoice rows (Invoices page, GroupDetail, CustomerDetail)
+- [x] Add cancel (X) action on each allocation row in the transfer's allocation breakdown (WireTransfersPage) with confirmation — reverts invoice, frees transfer amount, deletes internal transfer

@@ -9,6 +9,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Check, ChevronsUpDown, ChevronRight, ChevronDown, CornerDownRight } from "lucide-react";
+import { X } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Fragment } from "react";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
@@ -17,8 +29,65 @@ import { toast } from "sonner";
 import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDialog";
 
 type Company = { id: number; name: string };
-
 const CURRENCIES = ["EUR", "USD", "AED", "SGD", "GBP", "NOK", "JPY"];
+
+/** Cancel a single allocation from the transfer side: reverts the invoice, frees the amount, deletes the derived internal transfer. */
+function CancelAllocationButton({
+  allocationId,
+  invoiceLabel,
+  amountLabel,
+}: {
+  allocationId: number;
+  invoiceLabel: string;
+  amountLabel: string;
+}) {
+  const utils = trpc.useUtils();
+  const removeMutation = trpc.customers.removeWireTransferAllocation.useMutation({
+    onSuccess: () => {
+      toast.success(`Payment of ${amountLabel} for ${invoiceLabel} cancelled`);
+      utils.customers.getAllWireTransfers.invalidate();
+      utils.customers.listWireTransferAllocations.invalidate();
+      utils.customers.listGroupOpenInvoices.invalidate();
+      utils.invoices.invalidate();
+      utils.customers.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <button
+          type="button"
+          className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors shrink-0"
+          title={`Cancel payment ${amountLabel} for ${invoiceLabel}`}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Cancel this payment?</AlertDialogTitle>
+          <AlertDialogDescription>
+            The allocation of <span className="font-mono font-semibold">{amountLabel}</span> to invoice{" "}
+            <span className="font-mono font-semibold">{invoiceLabel}</span> will be removed. The invoice
+            reverts to its previous status, the amount becomes available on the wire transfer again, and any
+            derived internal transfer is deleted.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep payment</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-red-600 hover:bg-red-700 text-white"
+            onClick={() => removeMutation.mutate({ allocationId })}
+            disabled={removeMutation.isPending}
+          >
+            {removeMutation.isPending ? "Cancelling…" : "Cancel payment"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
 
 /** Searchable customer combobox for large customer lists. */
 function CustomerCombobox({
@@ -462,6 +531,11 @@ export default function WireTransfersPage() {
                                     <span className="font-mono">{a.invoiceNumber ?? `#${a.invoiceId}`}</span>
                                     <span className="text-muted-foreground text-xs">of</span>
                                     <span className="font-medium">{a.creditedCompanyName}</span>
+                                    <CancelAllocationButton
+                                      allocationId={a.id}
+                                      invoiceLabel={a.invoiceNumber ?? `#${a.invoiceId}`}
+                                      amountLabel={fmtCur(Number(a.amount), a.currency ?? t.currency)}
+                                    />
                                   </div>
                                 ))}
                                 {Number(t.unallocatedAmount) > 0.005 && (

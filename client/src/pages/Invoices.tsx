@@ -8,7 +8,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CancelPaymentButton } from "@/components/CancelPaymentButton";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
@@ -506,7 +505,6 @@ export default function Invoices() {
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead className="text-right">Outstanding</TableHead>
                   <TableHead className="text-right">Days Overdue</TableHead>
-                  <TableHead className="w-[90px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -549,11 +547,6 @@ export default function Invoices() {
                     </TableCell>
                     <TableCell className={`text-right font-mono ${i.daysOverdue > 0 ? "text-red-600 font-semibold" : ""}`}>
                       {i.daysOverdue > 0 ? i.daysOverdue : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {(i.status === "Paid" || i.status === "Partially Paid") && Number(i.paidAmount) > 0.005 && (
-                        <CancelPaymentButton invoiceId={i.id} invoiceNumber={i.invoiceNumber} />
-                      )}
                     </TableCell>
                   </TableRow>
                 ))}
