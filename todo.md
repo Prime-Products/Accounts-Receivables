@@ -791,3 +791,7 @@
 - [x] Customers groups list: render first 100 rows with "Show all" footer (companies view too)
 - [x] Invoices list: initial render reduced to 100 rows with "Load 500 more" / "Show all" footer
 - [x] Verify visually, checkpoint
+
+## Badge task dialog inline (user request 28/7)
+- [x] Clicking Promise to Pay / Pending Follow-up badge opens the task in a dialog on the Customers page (no navigation to /tasks) — new reusable TaskDetailDialog component
+- [x] Verify visually, checkpoint

@@ -18,6 +18,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import LogCallDialog from "@/components/LogCallDialog";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
+import TaskDetailDialog from "@/components/TaskDetailDialog";
 
 type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "expected" | "collected" | "remaining" | "overdueCount";
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
@@ -169,8 +170,8 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
   taskId?: number | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [taskOpen, setTaskOpen] = useState(false);
   const [loadMembers, setLoadMembers] = useState(false);
-  const [, navigate] = useLocation();
   const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: loadMembers });
   const members = useMemo(
     () =>
@@ -194,7 +195,7 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
         title={hasLinkedTask ? "Click to open the linked follow-up task" : "Click to log a call and change the confirmation status"}
         onClick={() => {
           if (hasLinkedTask) {
-            navigate(`/tasks?task=${taskId}`);
+            setTaskOpen(true);
             return;
           }
           setLoadMembers(true);
@@ -204,6 +205,7 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
         {confirmationStatusLabels[status] ?? status}
         {hasLinkedTask ? <ExternalLink className="h-3 w-3 opacity-40" /> : <Phone className="h-3 w-3 opacity-40" />}
       </button>
+      {taskOpen && <TaskDetailDialog taskId={taskId ?? null} open={taskOpen} onOpenChange={setTaskOpen} />}
       {open && (
         <LogCallDialog
           group={group}
