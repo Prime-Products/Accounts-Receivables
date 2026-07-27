@@ -118,7 +118,7 @@ export function AllocateWireTransferDialog({
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="w-[96vw] sm:max-w-[1200px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             Allocate Wire Transfer — {transfer.customerName ?? `Customer #${transfer.customerId}`}
@@ -197,7 +197,7 @@ export function AllocateWireTransferDialog({
           ) : (openInvoices as any[]).length === 0 ? (
             <p className="text-sm text-muted-foreground py-4">No open invoices in this group</p>
           ) : (
-            <div className="max-h-[320px] overflow-y-auto rounded-md border">
+            <div className="max-h-[45vh] overflow-y-auto rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>

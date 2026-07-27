@@ -661,3 +661,7 @@
 - [x] Frontend: allocations visible with company name (credit goes to the invoice's company, e.g. CREST)
 - [x] Tests: allocation across group companies, status transitions, over-allocation rejected, unallocate reverts (7 new tests; 168/168 total)
 - [x] Verify: full test suite, clean test residue, checkpoint
+
+## Allocation dialog too small (user bug 27/7)
+
+- [x] Widen the Allocate dialog so all columns are visible without horizontal scroll (96vw, up to 1200px; invoice list up to 45vh)
