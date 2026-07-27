@@ -777,3 +777,12 @@
 - [x] Frontend: vessel names clickable in InvoicesTable (badge links to vessel detail page)
 - [x] Tests: vessel aggregates, detail procedure, create/update with new fields (9/9 vessels tests)
 - [x] Verify: tsc clean, full suite 190 tests (1 unrelated flake passes in isolation), screenshots, checkpoint
+
+## Groups list: badge click-through + Broken rename (user request 28/7)
+- [x] Backend: customers.groups exposes confirmationTaskId (Pending Follow-up → follow-up-call task, Promise to Pay → promise-check task)
+- [x] Groups list: clicking the "Promise to Pay" badge opens the linked task (deep link /tasks?task=id)
+- [x] Groups list: clicking the "Pending Follow-up" badge opens the linked task
+- [x] Tasks page: ?task=<id> deep link auto-opens the task detail dialog
+- [x] Rename "Broken" display label to "Not Confirmed Payment" (badges, Log Call dialog, filters; promise buttons show "Not Confirmed"; DB values unchanged)
+- [x] Tests: 3 new confirmationTaskLink tests; full suite green (1 known parallel-run flake passes in isolation)
+- [x] Verify visually, checkpoint

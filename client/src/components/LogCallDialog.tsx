@@ -16,7 +16,7 @@ const STATUS_LABELS: Record<string, string> = {
   "Not Contacted": "Not Contacted",
   Confirmed: "Promise to Pay",
   "Pending Follow-up": "Pending Follow-up",
-  Broken: "Broken",
+  Broken: "Not Confirmed Payment",
 };
 
 export default function LogCallDialog({
@@ -312,14 +312,14 @@ export default function LogCallDialog({
             </div>
           )}
 
-          {/* Broken - show notes field */}
+          {/* Not Confirmed Payment - show notes field */}
           {confirmationStatus === "Broken" && (
             <div className="space-y-1.5 bg-red-50 p-2 rounded">
               <Label>Reason (optional)</Label>
               <Textarea
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
-                placeholder="Why can't they pay?"
+                placeholder="Why is the payment not confirmed?"
                 rows={2}
               />
             </div>

@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtEur, onHoldStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowDown, ArrowUp, ArrowUpDown, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
@@ -155,16 +155,22 @@ const GroupRowActions = memo(function GroupRowActions({ group }: { group: string
   );
 });
 
-/** Clickable confirmation badge — opens the Log Call dialog for the group so the status can be changed inline. */
+/**
+ * Clickable confirmation badge. "Promise to Pay" / "Pending Follow-up" badges with a
+ * linked auto-created task navigate to that task; other badges open the Log Call dialog.
+ */
 const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
   group,
   status,
+  taskId,
 }: {
   group: string;
   status: string;
+  taskId?: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const [loadMembers, setLoadMembers] = useState(false);
+  const [, navigate] = useLocation();
   const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: loadMembers });
   const members = useMemo(
     () =>
@@ -177,6 +183,7 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
     () => (members.length > 0 ? [...members].sort((a, b) => b.openBalance - a.openBalance)[0].id : undefined),
     [members]
   );
+  const hasLinkedTask = taskId != null && (status === "Confirmed" || status === "Pending Follow-up");
   return (
     <>
       <button
@@ -184,14 +191,18 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
         className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border cursor-pointer transition-transform hover:shadow-sm active:scale-[0.97] ${
           confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
         }`}
-        title="Click to log a call and change the confirmation status"
+        title={hasLinkedTask ? "Click to open the linked follow-up task" : "Click to log a call and change the confirmation status"}
         onClick={() => {
+          if (hasLinkedTask) {
+            navigate(`/tasks?task=${taskId}`);
+            return;
+          }
           setLoadMembers(true);
           setOpen(true);
         }}
       >
         {confirmationStatusLabels[status] ?? status}
-        <Phone className="h-3 w-3 opacity-40" />
+        {hasLinkedTask ? <ExternalLink className="h-3 w-3 opacity-40" /> : <Phone className="h-3 w-3 opacity-40" />}
       </button>
       {open && (
         <LogCallDialog
@@ -574,7 +585,7 @@ export default function Customers() {
                 <SelectItem value="not-contacted">Not Contacted</SelectItem>
                 <SelectItem value="confirmed">Promise to Pay</SelectItem>
                 <SelectItem value="pending">Pending Follow-up</SelectItem>
-                <SelectItem value="broken">Broken</SelectItem>
+                <SelectItem value="broken">Not Confirmed Payment</SelectItem>
               </SelectContent>
             </Select>
             <Select value={managerFilter} onValueChange={setManagerFilter}>
@@ -785,7 +796,7 @@ export default function Customers() {
                         )}
                       </TableCell>
                       <TableCell onClick={e => e.stopPropagation()}>
-                        <ConfirmationBadgeButton group={g.group} status={g.confirmationStatus} />
+                        <ConfirmationBadgeButton group={g.group} status={g.confirmationStatus} taskId={(g as any).confirmationTaskId} />
                         {g.confirmationFollowUpDate && (
                           <div className="text-xs text-muted-foreground mt-1">
                             Follow-up: {fmtDate(g.confirmationFollowUpDate)}

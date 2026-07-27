@@ -21,9 +21,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { CheckCircle2, HandCoins, ListChecks, RefreshCw, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 
 export default function Tasks() {
   const { data: tasks, isLoading } = trpc.tasks.list.useQuery();
@@ -33,6 +33,21 @@ export default function Tasks() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
+  // Deep link: /tasks?task=<id> opens that task's detail dialog (used by the
+  // confirmation badges in the groups list).
+  const searchString = useSearch();
+  const [consumedParam, setConsumedParam] = useState(false);
+  useEffect(() => {
+    if (consumedParam || !tasks) return;
+    const id = Number(new URLSearchParams(searchString).get("task"));
+    if (id && tasks.some(t => t.id === id)) {
+      const t = tasks.find(tk => tk.id === id)!;
+      // Ensure the task is visible regardless of the current status filter.
+      setStatusFilter(t.status === "Pending" ? "Pending" : "all");
+      setOpenTaskId(id);
+    }
+    setConsumedParam(true);
+  }, [tasks, searchString, consumedParam]);
 
   const runEngine = trpc.tasks.runEngine.useMutation({
     onSuccess: r => {
@@ -272,7 +287,7 @@ export default function Tasks() {
                   <Badge variant="outline" className={taskStatusColors[openTask.status] ?? ""}>{openTask.status}</Badge>
                   {openTask.promise && (
                     <Badge variant="outline" className={promiseStatusColors[openTask.promise.status] ?? ""}>
-                      Promise {openTask.promise.status}
+                      Promise {openTask.promise.status === "Broken" ? "Not Confirmed" : openTask.promise.status}
                     </Badge>
                   )}
                 </div>
@@ -358,7 +373,7 @@ export default function Tasks() {
                           disabled={setPromiseStatus.isPending}
                           onClick={() => setPromiseStatus.mutate({ id: openTask.promise!.id, status: "Broken" })}
                         >
-                          <ThumbsDown className="h-4 w-4" /> Broken
+                          <ThumbsDown className="h-4 w-4" /> Not Confirmed
                         </Button>
                       </div>
                     )}
