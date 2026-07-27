@@ -16,14 +16,18 @@ interface WireTransfersProps {
   customerId: number;
 }
 
+const CURRENCIES = ["EUR", "USD", "AED", "SGD", "GBP", "NOK", "JPY"];
+
 export function WireTransfers({ customerId }: WireTransfersProps) {
   const utils = trpc.useUtils();
   const { data: transfers = [], isLoading } = trpc.customers.listWireTransfers.useQuery({ customerId });
+  const { data: branches = [] } = trpc.customers.listBranches.useQuery();
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     amount: "",
     currency: "EUR",
+    branch: "none",
     transferDate: new Date().toISOString().split("T")[0],
     status: "Pending",
     referenceNumber: "",
@@ -38,6 +42,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
       setForm({
         amount: "",
         currency: "EUR",
+        branch: "none",
         transferDate: new Date().toISOString().split("T")[0],
         status: "Pending",
         referenceNumber: "",
@@ -74,6 +79,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
       customerId,
       amount: Number(form.amount),
       currency: form.currency,
+      branch: form.branch !== "none" ? form.branch : null,
       transferDate,
       status: form.status as "Pending" | "Received",
       referenceNumber: form.referenceNumber || null,
@@ -131,12 +137,31 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="EUR">EUR</SelectItem>
-                      <SelectItem value="USD">USD</SelectItem>
-                      <SelectItem value="GBP">GBP</SelectItem>
+                      {CURRENCIES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              <div>
+                <Label>Branch (received at)</Label>
+                <Select value={form.branch} onValueChange={(v) => setForm({ ...form, branch: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select branch..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">—</SelectItem>
+                    {(branches as string[]).map((b) => (
+                      <SelectItem key={b} value={b}>
+                        {b}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -213,6 +238,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
+                  <TableHead>Branch</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Reference</TableHead>
@@ -224,6 +250,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                 {transfers.map((t) => (
                   <TableRow key={t.id}>
                     <TableCell>{fmtDate(Number(t.transferDate))}</TableCell>
+                    <TableCell className="text-sm">{(t as any).branch || "-"}</TableCell>
                     <TableCell>{fmtCur(t.amount, t.currency)}</TableCell>
                     <TableCell>
                       <Select

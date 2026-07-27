@@ -457,6 +457,7 @@ export const wireTransfers = mysqlTable("wire_transfers", {
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull().$type<number>(),
   currency: varchar("currency", { length: 8 }).default("EUR").notNull(),
   transferDate: bigint("transferDate", { mode: "number" }).notNull(), // Unix timestamp in milliseconds
+  branch: varchar("branch", { length: 128 }), // Our branch where the customer sent the transfer (same values as invoice branches)
   
   // Status tracking: Pending (waiting to receive) or Received
   status: mysqlEnum("status", ["Pending", "Received"]).default("Pending").notNull(),

@@ -16,6 +16,8 @@ import { toast } from "sonner";
 
 type Company = { id: number; name: string };
 
+const CURRENCIES = ["EUR", "USD", "AED", "SGD", "GBP", "NOK", "JPY"];
+
 /** Searchable customer combobox for large customer lists. */
 function CustomerCombobox({
   companies,
@@ -93,6 +95,7 @@ function CustomerCombobox({
 export default function WireTransfersPage() {
   const [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "Received">("All");
   const [customerFilter, setCustomerFilter] = useState("all");
+  const [branchFilter, setBranchFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -101,17 +104,20 @@ export default function WireTransfersPage() {
   const { data: allTransfers = [], isLoading } = trpc.customers.getAllWireTransfers.useQuery();
   // Lightweight companies list (id + name) for dropdowns
   const { data: companies = [] } = trpc.customers.listCompanies.useQuery();
+  // Branch names (from invoice branches)
+  const { data: branches = [] } = trpc.customers.listBranches.useQuery();
 
   // Filter transfers
   const filteredTransfers = useMemo(() => {
     return (allTransfers as any[]).filter((t: any) => {
       if (statusFilter !== "All" && t.status !== statusFilter) return false;
       if (customerFilter !== "all" && t.customerId !== Number(customerFilter)) return false;
+      if (branchFilter !== "all" && t.branch !== branchFilter) return false;
       if (dateFrom && new Date(Number(t.transferDate)) < new Date(dateFrom)) return false;
       if (dateTo && new Date(Number(t.transferDate)) > new Date(dateTo + "T23:59:59")) return false;
       return true;
     });
-  }, [allTransfers, statusFilter, customerFilter, dateFrom, dateTo]);
+  }, [allTransfers, statusFilter, customerFilter, branchFilter, dateFrom, dateTo]);
 
   // Calculate totals
   const totals = useMemo(() => {
@@ -136,7 +142,11 @@ export default function WireTransfersPage() {
             <DialogHeader>
               <DialogTitle>Create Wire Transfer</DialogTitle>
             </DialogHeader>
-            <CreateWireTransferForm onSuccess={() => setIsCreateOpen(false)} companies={companies as Company[]} />
+            <CreateWireTransferForm
+              onSuccess={() => setIsCreateOpen(false)}
+              companies={companies as Company[]}
+              branches={branches as string[]}
+            />
           </DialogContent>
         </Dialog>
       </div>
@@ -184,7 +194,7 @@ export default function WireTransfersPage() {
           <CardTitle className="text-base">Filters</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="status-filter">Status</Label>
               <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
@@ -207,6 +217,23 @@ export default function WireTransfersPage() {
                 onChange={setCustomerFilter}
                 allowAll
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="branch-filter">Branch</Label>
+              <Select value={branchFilter} onValueChange={setBranchFilter}>
+                <SelectTrigger id="branch-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All branches</SelectItem>
+                  {(branches as string[]).map(b => (
+                    <SelectItem key={b} value={b}>
+                      {b}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-1.5">
@@ -245,6 +272,7 @@ export default function WireTransfersPage() {
                 <TableHeader>
                   <TableRow>
                     <TableCell>Customer</TableCell>
+                    <TableCell>Branch</TableCell>
                     <TableCell>Amount</TableCell>
                     <TableCell>Transfer Date</TableCell>
                     <TableCell>Status</TableCell>
@@ -257,6 +285,7 @@ export default function WireTransfersPage() {
                   {filteredTransfers.map((t: any) => (
                     <TableRow key={t.id}>
                       <TableCell className="font-medium">{t.customerName}</TableCell>
+                      <TableCell className="text-sm">{t.branch || "-"}</TableCell>
                       <TableCell>{fmtCur(Number(t.amount), t.currency)}</TableCell>
                       <TableCell>{fmtDate(Number(t.transferDate))}</TableCell>
                       <TableCell>
@@ -273,7 +302,7 @@ export default function WireTransfersPage() {
                       <TableCell className="text-sm">{t.referenceNumber || "-"}</TableCell>
                       <TableCell className="text-sm max-w-[200px] truncate">{t.notes || "-"}</TableCell>
                       <TableCell>
-                        <UpdateWireTransferDialog transfer={t} />
+                        <UpdateWireTransferDialog transfer={t} branches={branches as string[]} />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -290,13 +319,16 @@ export default function WireTransfersPage() {
 function CreateWireTransferForm({
   onSuccess,
   companies,
+  branches,
 }: {
   onSuccess: () => void;
   companies: Company[];
+  branches: string[];
 }) {
   const [customerId, setCustomerId] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("EUR");
+  const [branch, setBranch] = useState("none");
   const [transferDate, setTransferDate] = useState(new Date().toISOString().split("T")[0]);
   const [status, setStatus] = useState<"Pending" | "Received">("Pending");
   const [referenceNumber, setReferenceNumber] = useState("");
@@ -324,6 +356,7 @@ function CreateWireTransferForm({
       customerId: Number(customerId),
       amount: Number(amount),
       currency,
+      branch: branch !== "none" ? branch : null,
       transferDate: new Date(transferDate).getTime(),
       status,
       referenceNumber: referenceNumber || null,
@@ -359,13 +392,36 @@ function CreateWireTransferForm({
 
         <div className="space-y-1.5">
           <Label htmlFor="currency">Currency</Label>
-          <Input
-            id="currency"
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value)}
-            placeholder="EUR"
-          />
+          <Select value={currency} onValueChange={setCurrency}>
+            <SelectTrigger id="currency">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CURRENCIES.map(c => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="branch">Branch (received at)</Label>
+        <Select value={branch} onValueChange={setBranch}>
+          <SelectTrigger id="branch">
+            <SelectValue placeholder="Select branch..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">—</SelectItem>
+            {branches.map(b => (
+              <SelectItem key={b} value={b}>
+                {b}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -422,6 +478,7 @@ function CreateWireTransferForm({
 
 function UpdateWireTransferDialog({
   transfer,
+  branches,
 }: {
   transfer: {
     id: number;
@@ -429,9 +486,12 @@ function UpdateWireTransferDialog({
     status: "Pending" | "Received";
     amount: string | number;
     currency: string;
+    branch?: string | null;
   };
+  branches: string[];
 }) {
   const [newStatus, setNewStatus] = useState(transfer.status);
+  const [newBranch, setNewBranch] = useState(transfer.branch || "none");
   const [isOpen, setIsOpen] = useState(false);
 
   const utils = trpc.useUtils();
@@ -462,6 +522,7 @@ function UpdateWireTransferDialog({
       id: transfer.id,
       customerId: transfer.customerId,
       status: newStatus,
+      branch: newBranch !== "none" ? newBranch : null,
       receivedDate: newStatus === "Received" ? new Date().getTime() : null,
     });
   };
@@ -490,6 +551,22 @@ function UpdateWireTransferDialog({
               <SelectContent>
                 <SelectItem value="Pending">Pending</SelectItem>
                 <SelectItem value="Received">Received</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="update-branch">Branch (received at)</Label>
+            <Select value={newBranch} onValueChange={setNewBranch}>
+              <SelectTrigger id="update-branch">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">—</SelectItem>
+                {branches.map(b => (
+                  <SelectItem key={b} value={b}>
+                    {b}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

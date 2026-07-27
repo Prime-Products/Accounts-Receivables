@@ -433,7 +433,7 @@ export const customersRouter = router({
     const today = new Date();
     const monthStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1);
     const monthEnd = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1);
-    const [customers, invoices, forecastRows, behavior, allPromises, watchRows, receipts, confirmationStatuses] = await Promise.all([
+    const [customers, invoices, forecastRows, behavior, allPromises, watchRows, receipts, confirmationStatuses, monthWires] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
       db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
@@ -442,6 +442,7 @@ export const customersRouter = router({
       db.listGroupWatchStatuses().catch(() => []),
       db.listReceiptsInRange(monthStart, monthEnd),
       db.listGroupConfirmationStatuses().catch(() => []),
+      db.listReceivedWireTransfersInRange(monthStart, monthEnd).catch(() => []),
     ]);
     const eom = endOfCurrentMonth();
     const collectedByCustomer = new Map<number, number>();
@@ -449,6 +450,10 @@ export const customersRouter = router({
       if (r.receiptDate >= monthStart && r.receiptDate < monthEnd) {
         collectedByCustomer.set(r.customerId, (collectedByCustomer.get(r.customerId) ?? 0) + Number(r.amount));
       }
+    }
+    // Received wire transfers count as collected within the month (manual invoice matching happens separately)
+    for (const w of monthWires) {
+      collectedByCustomer.set(w.customerId, (collectedByCustomer.get(w.customerId) ?? 0) + Number(w.amount));
     }
     const watchByGroup = new Map<string, { status: string; problematicSince: number | null }>();
     for (const w of watchRows) {
@@ -1014,7 +1019,6 @@ export const customersRouter = router({
     const month = now.getUTCMonth() + 1;
     const entries = await db.listForecastEntries(year, month);
     const entry = entries.find(e => (e.customerGroup ?? "").trim() === input.group);
-    if (!entry) return null;
     const customers = await db.listCustomers();
     const memberIds = new Set(
       customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group).map(c => c.id),
@@ -1022,9 +1026,30 @@ export const customersRouter = router({
     const receipts = await db.listReceipts();
     const start = Date.UTC(year, month - 1, 1);
     const end = Date.UTC(year, month, 1);
-    const collected = receipts
+    const monthWires = await db.listReceivedWireTransfersInRange(start, end).catch(() => []);
+    const wireCollected = monthWires.filter(w => memberIds.has(w.customerId)).reduce((s, w) => s + Number(w.amount), 0);
+    const collected = wireCollected + receipts
       .filter(r => memberIds.has(r.customerId) && r.receiptDate >= start && r.receiptDate < end)
       .reduce((s, r) => s + Number(r.amount), 0);
+    if (!entry) {
+      // No forecast entry this month — still report collected so the group card
+      // shows receipts + received wire transfers under "Paid (this month)".
+      return {
+        year,
+        month,
+        dueAmount: 0,
+        overdueAmount: 0,
+        aiSuggestedAmount: 0,
+        aiReasoning: null as string | null,
+        expectedAmount: 0,
+        initialForecast: 0,
+        userAdjusted: false,
+        adjustmentNote: null as string | null,
+        collected,
+        remaining: 0,
+        hasForecast: false,
+      };
+    }
     return {
       year,
       month,
@@ -1038,6 +1063,7 @@ export const customersRouter = router({
       adjustmentNote: entry.adjustmentNote,
       collected,
       remaining: Math.max(0, Number(entry.expectedAmount) - collected),
+      hasForecast: true,
     };
   }),
   addGroupNote: protectedProcedure
@@ -1120,7 +1146,8 @@ export const customersRouter = router({
     ]);
     const groupForecastRows = forecastRows.filter(f => (f.customerGroup ?? "").trim() === input.group);
     const forecastExpected = groupForecastRows.reduce((s, f) => s + Number(f.expectedAmount), 0);
-    const collectedThisMonth = monthReceipts
+    const aiMonthWires = await db.listReceivedWireTransfersInRange(mStart, mEnd).catch(() => []);
+    const collectedThisMonth = aiMonthWires.filter(w => memberIds.has(w.customerId)).reduce((s, w) => s + Number(w.amount), 0) + monthReceipts
       .filter(r => memberIds.has(r.customerId))
       .reduce((s, r) => s + Number(r.amount), 0);
     const remainingToCollect = Math.max(0, forecastExpected - collectedThisMonth);
@@ -1342,6 +1369,7 @@ export const customersRouter = router({
         amount: z.number().positive(),
         currency: z.string().default("EUR"),
         transferDate: z.number(),
+        branch: z.string().optional().nullable(),
         status: z.enum(["Pending", "Received"]).default("Pending"),
         receivedDate: z.number().optional().nullable(),
         referenceNumber: z.string().optional().nullable(),
@@ -1353,7 +1381,7 @@ export const customersRouter = router({
         ...input,
         createdBy: ctx.user.id,
       });
-      await audit(ctx, "Create Wire Transfer", "customer", input.customerId, `EUR ${input.amount}`);
+      await audit(ctx, "Create Wire Transfer", "customer", input.customerId, `${input.currency ?? "EUR"} ${input.amount}${input.branch ? ` @ ${input.branch}` : ""}`);
       return { id, success: true };
     }),
 
@@ -1362,6 +1390,7 @@ export const customersRouter = router({
       z.object({
         id: z.number(),
         customerId: z.number(),
+        branch: z.string().optional().nullable(),
         status: z.enum(["Pending", "Received"]).optional(),
         receivedDate: z.number().optional().nullable(),
         referenceNumber: z.string().optional().nullable(),
@@ -1382,6 +1411,12 @@ export const customersRouter = router({
       await audit(ctx, "Delete Wire Transfer", "customer", input.customerId);
       return { success: true };
     }),
+
+  /** Distinct branch names (invoice "company" values) for dropdowns. */
+  listBranches: protectedProcedure.query(async () => {
+    const invoices = await db.listInvoices();
+    return Array.from(new Set(invoices.map(i => i.company).filter((b): b is string => !!b))).sort();
+  }),
 
   getAllWireTransfers: protectedProcedure
     .query(async () => {
@@ -1729,14 +1764,16 @@ export const forecastRouter = router({
     const year = nowDate.getUTCFullYear();
     const month = nowDate.getUTCMonth() + 1;
     const { start, end } = monthRange(year, month);
-    const [invoices, installments, forecastTarget, collectedThisMonth, tasksPending, proposals] = await Promise.all([
+    const [invoices, installments, forecastTarget, receiptsCollected, tasksPending, proposals, dashMonthWires] = await Promise.all([
       db.listInvoices(),
       db.listInstallments(),
       db.sumForecastExpected(year, month),
       db.sumReceiptsInRange(start, end),
       db.listTasks({ statuses: ["Pending", "In Progress"] }),
       db.listOnHoldProposals(),
+      db.listReceivedWireTransfersInRange(start, end).catch(() => []),
     ]);
+    const collectedThisMonth = receiptsCollected + dashMonthWires.reduce((s, w) => s + Number(w.amount), 0);
     const aging = computeAging(invoices, now);
     const arBalance = aging.totalOverdue + aging.current;
     const last90Sales = await db.sumInvoicedInRange(now - 90 * 24 * 60 * 60 * 1000, now);
@@ -1915,6 +1952,11 @@ export const forecastRouter = router({
         if (r.receiptDate >= start && r.receiptDate < end) {
           collectedByCustomer.set(r.customerId, (collectedByCustomer.get(r.customerId) ?? 0) + Number(r.amount));
         }
+      }
+      // Received wire transfers count toward collected (manual invoice matching is separate)
+      const smartMonthWires = await db.listReceivedWireTransfersInRange(start, end).catch(() => []);
+      for (const w of smartMonthWires) {
+        collectedByCustomer.set(w.customerId, (collectedByCustomer.get(w.customerId) ?? 0) + Number(w.amount));
       }
       const rows = entries.map(e => {
         const cust = byId.get(e.customerId);

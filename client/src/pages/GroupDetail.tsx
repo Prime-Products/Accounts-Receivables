@@ -471,7 +471,7 @@ export default function GroupDetail() {
             <Card>
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Forecast (this month)</div>
-                {groupForecast ? (
+                {groupForecast && (groupForecast as any).hasForecast !== false ? (
                   <>
                     <div className="text-xl font-bold font-mono text-emerald-700" title={groupForecast.aiReasoning ?? undefined}>
                       {fmtEur(groupForecast.expectedAmount)}
@@ -515,7 +515,7 @@ export default function GroupDetail() {
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Remain to Collect (this month)</div>
                 <div className={`text-xl font-bold font-mono ${groupForecast && groupForecast.remaining > 0 ? "text-amber-600" : ""}`}>
-                  {groupForecast ? fmtEur(groupForecast.remaining) : "—"}
+                  {groupForecast && (groupForecast as any).hasForecast !== false ? fmtEur(groupForecast.remaining) : "—"}
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-0.5">vs forecast expected this month</div>
               </CardContent>

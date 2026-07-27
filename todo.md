@@ -624,10 +624,10 @@
 - [x] Add Wire Transfers menu item to sidebar navigation
 - [x] Create WireTransfersPage with list of all wire transfers (all customers)
 - [x] Add filters to WireTransfersPage (Status, Customer, Date range)
-- [ ] Update Open Balance calculation to deduct received wire transfers
-- [ ] Update Collected calculation to include received wire transfers
-- [ ] Update Dashboard KPIs to reflect wire transfers in collected amounts
-- [ ] Write tests for wire transfer impact on balances
+- [ ] Update Open Balance calculation to deduct received wire transfers (deferred — user chose manual invoice matching instead)
+- [x] Update Collected calculation to include received wire transfers
+- [x] Update Dashboard KPIs to reflect wire transfers in collected amounts
+- [x] Write tests for wire transfer impact on balances
 - [x] Verify: Run full test suite (158/158 passing)
 
 ## Wire Transfers Page Bug Fixes (user-reported)
@@ -637,3 +637,14 @@
 - [x] Replace plain Select with searchable customer combobox (811 companies)
 - [x] Verify create wire transfer flow end-to-end (screenshot verified, 158/158 tests pass)
 - [x] Clean vitest residue (Test Bank/Email/Wire Transfer Test customers and their rows)
+
+## Wire Transfers: Branch & Currency + Collected Integration
+
+- [x] Schema: Add branch column to wire_transfers, generate + apply migration
+- [x] Backend: Accept branch in create/update procedures; expose branches list for dropdown (customers.listBranches)
+- [x] Backend: Include received wire transfers in group Collected (groups list, groupForecast, groupAiSummary, dashboard, smartEntries)
+- [x] UI: Branch dropdown in Create/Edit Wire Transfer form (same branches as invoices)
+- [x] UI: Branch column + branch filter in wire transfers list
+- [x] UI: Currency dropdown (EUR, USD, AED, SGD, GBP, NOK, JPY) instead of free text
+- [x] Tests: Wire transfer with branch + collected integration tests (7 wire transfer tests; 161/161 total)
+- [x] Verify: full test suite, clean test residue, checkpoint

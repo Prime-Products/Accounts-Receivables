@@ -846,6 +846,20 @@ export async function listWireTransfersByStatus(status: "Pending" | "Received") 
   return db.select().from(wireTransfers).where(eq(wireTransfers.status, status)).orderBy(desc(wireTransfers.transferDate));
 }
 
+/**
+ * Received wire transfers whose effective date (receivedDate, falling back to
+ * transferDate) is within [start, end). Used to include received transfers in
+ * "collected this month" figures. EUR-equivalent handling is done by callers.
+ */
+export async function listReceivedWireTransfersInRange(start: number, end: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(wireTransfers).where(eq(wireTransfers.status, "Received"));
+  return rows.filter(w => {
+    const ts = w.receivedDate ?? w.transferDate;
+    return ts >= start && ts < end;
+  });
+}
+
 export async function updateWireTransfer(id: number, data: Partial<InsertWireTransfer>) {
   const db = await requireDb();
   await db.update(wireTransfers).set(data).where(eq(wireTransfers.id, id));
