@@ -35,6 +35,7 @@ import {
   Settings,
   TrendingUp,
   Users,
+  Banknote,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -48,6 +49,7 @@ const menuItems = [
   { icon: FileText, label: "Invoices", path: "/invoices" },
   { icon: ScrollText, label: "Contracts", path: "/contracts" },
   { icon: ListChecks, label: "Tasks", path: "/tasks" },
+  { icon: Banknote, label: "Wire Transfers", path: "/wire-transfers" },
   { icon: TrendingUp, label: "Forecast", path: "/forecast" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
   { icon: Settings, label: "Settings", path: "/settings" },

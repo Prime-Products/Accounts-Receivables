@@ -16,6 +16,7 @@ import Tasks from "./pages/Tasks";
 import Forecast from "./pages/Forecast";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import WireTransfersPage from "./pages/WireTransfersPage";
 
 function Router() {
   return (
@@ -29,6 +30,7 @@ function Router() {
         <Route path={"/contracts"} component={Contracts} />
         <Route path={"/contacts"} component={Contacts} />
         <Route path={"/tasks"} component={Tasks} />
+        <Route path={"/wire-transfers"} component={WireTransfersPage} />
         <Route path={"/forecast"} component={Forecast} />
         <Route path={"/reports"} component={Reports} />
         <Route path={"/settings"} component={Settings} />

@@ -617,3 +617,15 @@
 - [x] UI: Create WireTransfers component for Customer 360 card
 - [x] Tests: Write vitest for wire transfers procedures (4/4 passing)
 - [x] Verify: Run full test suite and checkpoint (158/158 passing)
+
+
+## Wire Transfers Menu & Balance Integration (Phase 3)
+
+- [x] Add Wire Transfers menu item to sidebar navigation
+- [x] Create WireTransfersPage with list of all wire transfers (all customers)
+- [x] Add filters to WireTransfersPage (Status, Customer, Date range)
+- [ ] Update Open Balance calculation to deduct received wire transfers
+- [ ] Update Collected calculation to include received wire transfers
+- [ ] Update Dashboard KPIs to reflect wire transfers in collected amounts
+- [ ] Write tests for wire transfer impact on balances
+- [x] Verify: Run full test suite (158/158 passing)

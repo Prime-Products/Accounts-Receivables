@@ -1382,6 +1382,17 @@ export const customersRouter = router({
       await audit(ctx, "Delete Wire Transfer", "customer", input.customerId);
       return { success: true };
     }),
+
+  getAllWireTransfers: protectedProcedure
+    .query(async () => {
+      const customers = await db.listCustomers();
+      const allTransfers: any[] = [];
+      for (const customer of customers) {
+        const transfers = await db.listWireTransfersByCustomerId(customer.id);
+        allTransfers.push(...transfers);
+      }
+      return allTransfers;
+    }),
 });
 
 export const invoicesRouter = router({
