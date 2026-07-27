@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import { fmtDate, fmtCur } from "@/lib/format";
 import { toast } from "sonner";
+import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDialog";
 
 type Company = { id: number; name: string };
 
@@ -274,6 +275,7 @@ export default function WireTransfersPage() {
                     <TableCell>Customer</TableCell>
                     <TableCell>Branch</TableCell>
                     <TableCell>Amount</TableCell>
+                    <TableCell>Allocated</TableCell>
                     <TableCell>Transfer Date</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell>Reference</TableCell>
@@ -287,6 +289,15 @@ export default function WireTransfersPage() {
                       <TableCell className="font-medium">{t.customerName}</TableCell>
                       <TableCell className="text-sm">{t.branch || "-"}</TableCell>
                       <TableCell>{fmtCur(Number(t.amount), t.currency)}</TableCell>
+                      <TableCell className="text-sm font-mono">
+                        {Number(t.allocatedAmount) > 0 ? (
+                          <span className={Number(t.unallocatedAmount) <= 0.005 ? "text-green-700" : "text-amber-700"}>
+                            {fmtCur(Number(t.allocatedAmount), t.currency)}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
                       <TableCell>{fmtDate(Number(t.transferDate))}</TableCell>
                       <TableCell>
                         <span
@@ -302,7 +313,10 @@ export default function WireTransfersPage() {
                       <TableCell className="text-sm">{t.referenceNumber || "-"}</TableCell>
                       <TableCell className="text-sm max-w-[200px] truncate">{t.notes || "-"}</TableCell>
                       <TableCell>
-                        <UpdateWireTransferDialog transfer={t} branches={branches as string[]} />
+                        <div className="flex gap-1">
+                          <UpdateWireTransferDialog transfer={t} branches={branches as string[]} />
+                          {t.status === "Received" && <AllocateWireTransferDialog transfer={t} />}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

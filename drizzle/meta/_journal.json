@@ -134,6 +134,13 @@
       "when": 1785146216953,
       "tag": "0018_easy_clea",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1785148359883,
+      "tag": "0019_gigantic_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }

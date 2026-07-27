@@ -1422,7 +1422,162 @@ export const customersRouter = router({
     .query(async () => {
       const [transfers, customers] = await Promise.all([db.listAllWireTransfers(), db.listCustomers()]);
       const byId = new Map(customers.map(c => [c.id, c]));
-      return transfers.map(t => ({ ...t, customerName: byId.get(t.customerId)?.name ?? `Customer #${t.customerId}` }));
+      const allocated = await db.sumAllocationsByWireTransferIds(transfers.map(t => t.id));
+      return transfers.map(t => ({
+        ...t,
+        customerName: byId.get(t.customerId)?.name ?? `Customer #${t.customerId}`,
+        allocatedAmount: allocated.get(t.id) ?? 0,
+        unallocatedAmount: Math.max(0, Number(t.amount) - (allocated.get(t.id) ?? 0)),
+      }));
+    }),
+
+  /**
+   * Open / partially-paid invoices of ALL companies in the sender's group
+   * (συμψηφισμός is group-level: a DYNACOM transfer can settle CREST invoices).
+   */
+  listGroupOpenInvoices: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .query(async ({ input }) => {
+      const cust = await db.getCustomer(input.customerId);
+      if (!cust) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+      const groupKey = (cust.customerGroup ?? "").trim() || cust.name;
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => (((c.customerGroup ?? "").trim() || c.name) === groupKey));
+      const memberIds = new Set(members.map(c => c.id));
+      const names = new Map(members.map(c => [c.id, c.name]));
+      const invoices = await db.listInvoices();
+      return invoices
+        .filter(i => memberIds.has(i.customerId) && i.status !== "Paid" && Number(i.amount) - Number(i.paidAmount) > 0.005)
+        .sort((a, b) => a.dueDate - b.dueDate)
+        .map(i => ({
+          id: i.id,
+          invoiceNumber: i.invoiceNumber,
+          customerId: i.customerId,
+          customerName: names.get(i.customerId) ?? "—",
+          company: i.company,
+          currency: i.currency,
+          amount: Number(i.amount),
+          paidAmount: Number(i.paidAmount),
+          outstandingOriginal: Number(i.amount) - Number(i.paidAmount),
+          dueDate: i.dueDate,
+          status: i.status,
+        }));
+    }),
+
+  /** Existing allocations of a wire transfer (with invoice + company info). */
+  listWireTransferAllocations: protectedProcedure
+    .input(z.object({ wireTransferId: z.number() }))
+    .query(async ({ input }) => {
+      const [rows, customers] = await Promise.all([
+        db.listAllocationsByWireTransfer(input.wireTransferId),
+        db.listCustomers(),
+      ]);
+      const names = new Map(customers.map(c => [c.id, c.name]));
+      return rows.map(r => ({
+        ...r,
+        amount: Number(r.amount),
+        invoiceCustomerName: r.invoiceCustomerId != null ? (names.get(r.invoiceCustomerId) ?? "—") : "—",
+      }));
+    }),
+
+  /**
+   * Allocate (συμψηφισμός) a received wire transfer against one or more invoices
+   * of the same group. Validates: transfer received, invoices belong to the
+   * sender's group, per-invoice amount ≤ outstanding (original currency),
+   * total allocated (incl. previous allocations) ≤ transfer amount.
+   * Updates invoice paidAmount and status (Open → Partially Paid → Paid).
+   */
+  allocateWireTransfer: protectedProcedure
+    .input(
+      z.object({
+        wireTransferId: z.number(),
+        allocations: z
+          .array(z.object({ invoiceId: z.number(), amount: z.number().positive() }))
+          .min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const wt = await db.getWireTransfer(input.wireTransferId);
+      if (!wt) throw new TRPCError({ code: "NOT_FOUND", message: "Wire transfer not found" });
+      if (wt.status !== "Received")
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Only received wire transfers can be allocated" });
+
+      // Group scope of the sender
+      const sender = await db.getCustomer(wt.customerId);
+      if (!sender) throw new TRPCError({ code: "NOT_FOUND", message: "Sender customer not found" });
+      const groupKey = (sender.customerGroup ?? "").trim() || sender.name;
+      const customers = await db.listCustomers();
+      const memberIds = new Set(
+        customers.filter(c => (((c.customerGroup ?? "").trim() || c.name) === groupKey)).map(c => c.id)
+      );
+
+      // Remaining unallocated amount on the transfer
+      const prior = await db.sumAllocationsByWireTransferIds([wt.id]);
+      const alreadyAllocated = prior.get(wt.id) ?? 0;
+      const totalNew = input.allocations.reduce((s, a) => s + a.amount, 0);
+      if (alreadyAllocated + totalNew > Number(wt.amount) + 0.005) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Allocation total (${(alreadyAllocated + totalNew).toFixed(2)}) exceeds transfer amount (${Number(wt.amount).toFixed(2)})`,
+        });
+      }
+
+      // Validate each invoice, then apply
+      const results: { invoiceId: number; invoiceNumber: string; newStatus: string }[] = [];
+      for (const a of input.allocations) {
+        const inv = await db.getInvoice(a.invoiceId);
+        if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: `Invoice #${a.invoiceId} not found` });
+        if (!memberIds.has(inv.customerId))
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Invoice ${inv.invoiceNumber} does not belong to group ${groupKey}` });
+        if (inv.status === "Paid")
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Invoice ${inv.invoiceNumber} is already paid` });
+        const open = Number(inv.amount) - Number(inv.paidAmount);
+        if (a.amount > open + 0.005)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Amount ${a.amount.toFixed(2)} exceeds outstanding ${open.toFixed(2)} of invoice ${inv.invoiceNumber}`,
+          });
+      }
+      for (const a of input.allocations) {
+        const inv = await db.getInvoice(a.invoiceId);
+        if (!inv) continue;
+        await db.createWireTransferAllocation({
+          wireTransferId: wt.id,
+          invoiceId: a.invoiceId,
+          amount: String(a.amount) as any,
+          createdBy: ctx.user.id,
+        });
+        const newPaid = Number(inv.paidAmount) + a.amount;
+        const fullyPaid = newPaid >= Number(inv.amount) - 0.005;
+        const newStatus = fullyPaid ? "Paid" : "Partially Paid";
+        await db.updateInvoice(a.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
+        results.push({ invoiceId: a.invoiceId, invoiceNumber: inv.invoiceNumber, newStatus });
+        await audit(
+          ctx,
+          "Allocate Wire Transfer",
+          "invoice",
+          a.invoiceId,
+          `WT#${wt.id} → ${inv.invoiceNumber} (${inv.company ?? "—"}): ${inv.currency} ${a.amount.toFixed(2)} → ${newStatus}`
+        );
+      }
+      return { success: true, results };
+    }),
+
+  /** Remove an allocation and revert the invoice's paidAmount/status. */
+  removeWireTransferAllocation: protectedProcedure
+    .input(z.object({ allocationId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const alloc = await db.getWireTransferAllocation(input.allocationId);
+      if (!alloc) throw new TRPCError({ code: "NOT_FOUND", message: "Allocation not found" });
+      const inv = await db.getInvoice(alloc.invoiceId);
+      if (inv) {
+        const newPaid = Math.max(0, Number(inv.paidAmount) - Number(alloc.amount));
+        const newStatus = newPaid <= 0.005 ? "Open" : newPaid >= Number(inv.amount) - 0.005 ? "Paid" : "Partially Paid";
+        await db.updateInvoice(alloc.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
+      }
+      await db.deleteWireTransferAllocation(input.allocationId);
+      await audit(ctx, "Remove Wire Transfer Allocation", "invoice", alloc.invoiceId, `WT#${alloc.wireTransferId} allocation of ${Number(alloc.amount).toFixed(2)} removed`);
+      return { success: true };
     }),
 
   /** Lightweight list of all companies (id + name) for dropdowns. */

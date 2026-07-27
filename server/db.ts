@@ -869,3 +869,58 @@ export async function deleteWireTransfer(id: number) {
   const db = await requireDb();
   await db.delete(wireTransfers).where(eq(wireTransfers.id, id));
 }
+
+// ---------- Wire transfer allocations (συμψηφισμός) ----------
+import { wireTransferAllocations, InsertWireTransferAllocation } from "../drizzle/schema";
+
+export async function createWireTransferAllocation(data: InsertWireTransferAllocation) {
+  const db = await requireDb();
+  const res = await db.insert(wireTransferAllocations).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function listAllocationsByWireTransfer(wireTransferId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: wireTransferAllocations.id,
+      wireTransferId: wireTransferAllocations.wireTransferId,
+      invoiceId: wireTransferAllocations.invoiceId,
+      amount: wireTransferAllocations.amount,
+      createdAt: wireTransferAllocations.createdAt,
+      invoiceNumber: invoices.invoiceNumber,
+      invoiceCompany: invoices.company,
+      invoiceCurrency: invoices.currency,
+      invoiceAmount: invoices.amount,
+      invoiceStatus: invoices.status,
+      invoiceCustomerId: invoices.customerId,
+    })
+    .from(wireTransferAllocations)
+    .leftJoin(invoices, eq(wireTransferAllocations.invoiceId, invoices.id))
+    .where(eq(wireTransferAllocations.wireTransferId, wireTransferId))
+    .orderBy(desc(wireTransferAllocations.createdAt));
+}
+
+export async function getWireTransferAllocation(id: number) {
+  const db = await requireDb();
+  const r = await db.select().from(wireTransferAllocations).where(eq(wireTransferAllocations.id, id)).limit(1);
+  return r[0] || null;
+}
+
+export async function deleteWireTransferAllocation(id: number) {
+  const db = await requireDb();
+  await db.delete(wireTransferAllocations).where(eq(wireTransferAllocations.id, id));
+}
+
+/** Sum of allocated amounts per wire transfer id (for "unallocated" computations). */
+export async function sumAllocationsByWireTransferIds(ids: number[]) {
+  if (ids.length === 0) return new Map<number, number>();
+  const db = await requireDb();
+  const rows = await db
+    .select({ wireTransferId: wireTransferAllocations.wireTransferId, amount: wireTransferAllocations.amount })
+    .from(wireTransferAllocations)
+    .where(inArray(wireTransferAllocations.wireTransferId, ids));
+  const m = new Map<number, number>();
+  for (const r of rows) m.set(r.wireTransferId, (m.get(r.wireTransferId) ?? 0) + Number(r.amount));
+  return m;
+}

@@ -480,3 +480,27 @@ export const wireTransfers = mysqlTable("wire_transfers", {
 
 export type WireTransfer = typeof wireTransfers.$inferSelect;
 export type InsertWireTransfer = typeof wireTransfers.$inferInsert;
+
+/**
+ * Allocation (συμψηφισμός) of a wire transfer against one or more invoices.
+ * Group-level: the invoice may belong to ANY company in the sender's group
+ * (e.g. a DYNACOM transfer can settle CREST invoices).
+ */
+export const wireTransferAllocations = mysqlTable(
+  "wire_transfer_allocations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    wireTransferId: int("wireTransferId").notNull(),
+    invoiceId: int("invoiceId").notNull(),
+    amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+    createdBy: int("createdBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  t => [
+    index("idx_wta_wireTransferId").on(t.wireTransferId),
+    index("idx_wta_invoiceId").on(t.invoiceId),
+  ]
+);
+
+export type WireTransferAllocation = typeof wireTransferAllocations.$inferSelect;
+export type InsertWireTransferAllocation = typeof wireTransferAllocations.$inferInsert;

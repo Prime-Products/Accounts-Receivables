@@ -11,6 +11,7 @@ import { trpc } from "@/lib/trpc";
 import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDialog";
 
 interface WireTransfersProps {
   customerId: number;
@@ -269,14 +270,27 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                     <TableCell className="text-sm">{t.referenceNumber || "-"}</TableCell>
                     <TableCell className="text-sm truncate max-w-xs">{t.notes || "-"}</TableCell>
                     <TableCell>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleDelete(t.id)}
-                        disabled={deleteMutation.isPending}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        {t.status === "Received" && (
+                          <AllocateWireTransferDialog
+                            transfer={{
+                              id: t.id,
+                              customerId: t.customerId,
+                              amount: t.amount,
+                              currency: t.currency,
+                              status: t.status as "Pending" | "Received",
+                            }}
+                          />
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDelete(t.id)}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

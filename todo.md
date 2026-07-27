@@ -648,3 +648,16 @@
 - [x] UI: Currency dropdown (EUR, USD, AED, SGD, GBP, NOK, JPY) instead of free text
 - [x] Tests: Wire transfer with branch + collected integration tests (7 wire transfer tests; 161/161 total)
 - [x] Verify: full test suite, clean test residue, checkpoint
+
+## Wire Transfer → Invoice Allocation (Συμψηφισμός, group-level) — user request 27/7
+
+- [x] Schema: wire_transfer_allocations table (wireTransferId, invoiceId, amount, createdBy) + migration
+- [x] Backend: listGroupOpenInvoices — open/partially-paid invoices of ALL companies in the sender's group
+- [x] Backend: allocateWireTransfer — allocate amounts to invoices (validate total ≤ transfer amount), update invoice paidAmount/status (Open → Partially Paid → Paid)
+- [x] Backend: unallocate/removeAllocation — revert invoice paidAmount/status
+- [x] Backend: listAllocationsByWireTransfer — show existing allocations with invoice + company info
+- [x] Frontend: "Allocate" (Συμψηφισμός) action on Wire Transfers page — dialog listing group open invoices with per-invoice amount inputs, remaining-to-allocate counter, validation
+- [x] Frontend: show allocated/unallocated amount per wire transfer in the table
+- [x] Frontend: allocations visible with company name (credit goes to the invoice's company, e.g. CREST)
+- [x] Tests: allocation across group companies, status transitions, over-allocation rejected, unallocate reverts (7 new tests; 168/168 total)
+- [x] Verify: full test suite, clean test residue, checkpoint

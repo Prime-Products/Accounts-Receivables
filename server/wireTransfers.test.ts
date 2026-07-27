@@ -206,3 +206,219 @@ describe("Wire Transfers", () => {
     await db.deleteWireTransfer(pendingRes.id);
   });
 });
+
+describe("Wire Transfer Allocation (Συμψηφισμός, group-level)", () => {
+  let caller: ReturnType<typeof appRouter.createCaller>;
+  const groupKey = "WTALLOC_GROUP_" + Date.now();
+  let senderId: number; // "DYNACOM"-like company sending the money
+  let sisterId: number; // "CREST"-like sister company whose invoices get settled
+  let invoiceA: number; // sister invoice 6000
+  let invoiceB: number; // sister invoice 5000
+  let transferId: number; // received transfer 10000 from sender
+  const createdInvoices: number[] = [];
+  const createdTransfers: number[] = [];
+
+  beforeAll(async () => {
+    const ctx: TrpcContext = {
+      user: {
+        id: 1,
+        openId: "test-user",
+        email: "test@test.com",
+        name: "Test User",
+        loginMethod: "test",
+        role: "admin",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastSignedIn: new Date(),
+      },
+      req: {} as any,
+      res: {} as any,
+    };
+    caller = appRouter.createCaller(ctx);
+
+    senderId = await db.createCustomer({
+      code: "WTA_SND_" + Date.now(),
+      name: "Alloc Sender Test " + Date.now(),
+      customerGroup: groupKey,
+      tier: "New",
+    } as any);
+    sisterId = await db.createCustomer({
+      code: "WTA_SIS_" + Date.now(),
+      name: "Alloc Sister Test " + Date.now(),
+      customerGroup: groupKey,
+      tier: "New",
+    } as any);
+
+    const now = Date.now();
+    invoiceA = await db.createInvoice({
+      customerId: sisterId,
+      invoiceNumber: "WTA-INV-A-" + now,
+      company: "Prime Products LTD",
+      currency: "EUR",
+      issueDate: now - 40 * 86400000,
+      dueDate: now - 10 * 86400000,
+      amount: "6000" as any,
+      paidAmount: "0" as any,
+      status: "Open" as any,
+    } as any);
+    invoiceB = await db.createInvoice({
+      customerId: sisterId,
+      invoiceNumber: "WTA-INV-B-" + now,
+      company: "Prime Products LTD",
+      currency: "EUR",
+      issueDate: now - 40 * 86400000,
+      dueDate: now - 5 * 86400000,
+      amount: "5000" as any,
+      paidAmount: "0" as any,
+      status: "Open" as any,
+    } as any);
+    createdInvoices.push(invoiceA, invoiceB);
+
+    const wt = await caller.customers.createWireTransfer({
+      customerId: senderId,
+      amount: 10000,
+      currency: "EUR",
+      transferDate: now,
+      status: "Received",
+      receivedDate: now,
+    });
+    transferId = wt.id;
+    createdTransfers.push(transferId);
+  });
+
+  afterAll(async () => {
+    // Remove allocations first, then transfers, invoices, customers
+    for (const tid of createdTransfers) {
+      const allocs = await db.listAllocationsByWireTransfer(tid);
+      for (const a of allocs) await db.deleteWireTransferAllocation(a.id);
+      await db.deleteWireTransfer(tid);
+    }
+    // Mark fixture invoices as Paid so they never appear in open-invoice lists
+    for (const invId of createdInvoices) {
+      await db.updateInvoice(invId, { status: "Paid" as any });
+    }
+  });
+
+  it("lists open invoices of the whole group (sister company included)", async () => {
+    const rows = await caller.customers.listGroupOpenInvoices({ customerId: senderId });
+    const ids = rows.map(r => r.id);
+    expect(ids).toContain(invoiceA);
+    expect(ids).toContain(invoiceB);
+    const a = rows.find(r => r.id === invoiceA)!;
+    expect(a.customerId).toBe(sisterId);
+    expect(a.outstandingOriginal).toBeCloseTo(6000, 2);
+  });
+
+  it("allocates across group: full invoice → Paid, partial → Partially Paid", async () => {
+    const res = await caller.customers.allocateWireTransfer({
+      wireTransferId: transferId,
+      allocations: [
+        { invoiceId: invoiceA, amount: 6000 },
+        { invoiceId: invoiceB, amount: 3000 },
+      ],
+    });
+    expect(res.success).toBe(true);
+
+    const invA = await db.getInvoice(invoiceA);
+    const invB = await db.getInvoice(invoiceB);
+    expect(invA?.status).toBe("Paid");
+    expect(Number(invA?.paidAmount)).toBeCloseTo(6000, 2);
+    expect(invB?.status).toBe("Partially Paid");
+    expect(Number(invB?.paidAmount)).toBeCloseTo(3000, 2);
+
+    // Transfer now shows 9000 allocated / 1000 unallocated
+    const transfers = await caller.customers.getAllWireTransfers();
+    const t = transfers.find(x => x.id === transferId)!;
+    expect(Number(t.allocatedAmount)).toBeCloseTo(9000, 2);
+    expect(Number(t.unallocatedAmount)).toBeCloseTo(1000, 2);
+  });
+
+  it("rejects allocation exceeding the transfer's remaining amount", async () => {
+    await expect(
+      caller.customers.allocateWireTransfer({
+        wireTransferId: transferId,
+        allocations: [{ invoiceId: invoiceB, amount: 1500 }], // remaining is 1000
+      })
+    ).rejects.toThrow(/exceeds transfer amount/i);
+  });
+
+  it("rejects allocation exceeding the invoice's outstanding", async () => {
+    // invoiceB outstanding is 2000; transfer remaining 1000 — use a small transfer to isolate the invoice check
+    const wt2 = await caller.customers.createWireTransfer({
+      customerId: senderId,
+      amount: 50000,
+      currency: "EUR",
+      transferDate: Date.now(),
+      status: "Received",
+      receivedDate: Date.now(),
+    });
+    createdTransfers.push(wt2.id);
+    await expect(
+      caller.customers.allocateWireTransfer({
+        wireTransferId: wt2.id,
+        allocations: [{ invoiceId: invoiceB, amount: 2500 }], // outstanding is 2000
+      })
+    ).rejects.toThrow(/exceeds outstanding/i);
+  });
+
+  it("rejects allocation on a Pending (not received) transfer", async () => {
+    const wtP = await caller.customers.createWireTransfer({
+      customerId: senderId,
+      amount: 100,
+      currency: "EUR",
+      transferDate: Date.now(),
+      status: "Pending",
+    });
+    createdTransfers.push(wtP.id);
+    await expect(
+      caller.customers.allocateWireTransfer({
+        wireTransferId: wtP.id,
+        allocations: [{ invoiceId: invoiceB, amount: 50 }],
+      })
+    ).rejects.toThrow(/only received/i);
+  });
+
+  it("rejects allocation to an invoice outside the group", async () => {
+    // Create an unrelated customer + invoice
+    const strangerId = await db.createCustomer({
+      code: "WTA_STR_" + Date.now(),
+      name: "Alloc Stranger Test " + Date.now(),
+      customerGroup: "OTHER_GROUP_" + Date.now(),
+      tier: "New",
+    } as any);
+    const strangerInv = await db.createInvoice({
+      customerId: strangerId,
+      invoiceNumber: "WTA-INV-S-" + Date.now(),
+      currency: "EUR",
+      issueDate: Date.now(),
+      dueDate: Date.now(),
+      amount: "100" as any,
+      paidAmount: "0" as any,
+      status: "Open" as any,
+    } as any);
+    createdInvoices.push(strangerInv);
+    await expect(
+      caller.customers.allocateWireTransfer({
+        wireTransferId: transferId,
+        allocations: [{ invoiceId: strangerInv, amount: 100 }],
+      })
+    ).rejects.toThrow(/does not belong to group/i);
+  });
+
+  it("removing an allocation reverts the invoice paidAmount and status", async () => {
+    const allocs = await caller.customers.listWireTransferAllocations({ wireTransferId: transferId });
+    const allocA = allocs.find(a => a.invoiceId === invoiceA)!;
+    expect(allocA).toBeTruthy();
+    expect(allocA.invoiceCustomerName).toContain("Alloc Sister Test");
+
+    await caller.customers.removeWireTransferAllocation({ allocationId: allocA.id });
+
+    const invA = await db.getInvoice(invoiceA);
+    expect(invA?.status).toBe("Open");
+    expect(Number(invA?.paidAmount)).toBeCloseTo(0, 2);
+
+    const transfers = await caller.customers.getAllWireTransfers();
+    const t = transfers.find(x => x.id === transferId)!;
+    expect(Number(t.allocatedAmount)).toBeCloseTo(3000, 2);
+  });
+});
