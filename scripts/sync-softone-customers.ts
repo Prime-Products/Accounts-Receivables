@@ -4,6 +4,7 @@ import { syncSoftOneCustomers } from "../server/lib/softoneSql";
 async function main() {
   const result = await syncSoftOneCustomers();
   console.log(`SoftOne customer sync completed: ${result.synced} records.`);
+  process.exit(0);
 }
 
 main().catch(error => {
