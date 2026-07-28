@@ -100,16 +100,7 @@ export function InvoicesTable({
     },
     onError: e => toast.error(e.message),
   });
-  const setContract = trpc.invoices.setContractInstallment.useMutation({
-    onSuccess: (_r, vars) => {
-      toast.success(vars.isContractInstallment ? "Marked as contract installment" : "Contract installment flag removed");
-      utils.invoices.invalidate();
-      utils.customers.invalidate();
-      onDisputeChanged?.();
-    },
-    onError: e => toast.error(e.message),
-  });
-
+  // Per-row contract-installment toggle removed: the flag now comes only from DB sync / bulk Excel upload.
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
       if (sortDir === "asc") setSortDir("desc");
@@ -233,13 +224,6 @@ export function InvoicesTable({
                         Clear dispute
                       </DropdownMenuItem>
                     )}
-                    <DropdownMenuItem
-                      disabled={setContract.isPending}
-                      onClick={() => setContract.mutate({ invoiceId: i.id, isContractInstallment: !i.isContractInstallment })}
-                    >
-                      <FileSignature className="h-4 w-4 mr-2 text-violet-600" />
-                      {i.isContractInstallment ? "Unmark contract installment" : "Mark as contract installment"}
-                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>

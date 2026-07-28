@@ -841,3 +841,6 @@
 - [x] Customer card: add the same Status filter on the invoices table
 - [x] Remove the aging-grouping filter (All invoices / Overdue any / 60+ / 120+) from both cards (aging bucket cards remain, still clickable on group card)
 - [x] Verify visually (both cards show "All statuses" dropdown), tests pass (193; 2 known confirmationStatus parallel flakes pass in isolation), checkpoint & deliver
+## Remove per-row contract toggle (user request 28/7)
+- [x] Remove the "Mark/Unmark contract installment" option from the row Status dropdown in InvoicesTable (flag will come only from DB sync / bulk Excel upload; backend procedure kept for bulk upload)
+- [x] Verify, checkpoint & deliver
