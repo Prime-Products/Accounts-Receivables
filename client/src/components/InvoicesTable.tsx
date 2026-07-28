@@ -114,8 +114,8 @@ export function InvoicesTable({
     });
   }, [rows, sortKey, sortDir]);
 
-  const SortableHead = ({ label, k, align }: { label: string; k: SortKey; align?: "right" }) => (
-    <TableHead className={align === "right" ? "text-right" : undefined}>
+  const SortableHead = ({ label, k, align, className }: { label: string; k: SortKey; align?: "right"; className?: string }) => (
+    <TableHead className={`whitespace-nowrap px-2 ${align === "right" ? "text-right" : ""} ${className ?? ""}`}>
       <button
         type="button"
         onClick={() => toggleSort(k)}
@@ -134,42 +134,42 @@ export function InvoicesTable({
 
   return (
     <>
-      <Table>
+      <Table className="table-fixed [&_td]:px-2 [&_td]:py-2">
         <TableHeader>
           <TableRow>
-            <SortableHead label="Invoice" k="invoiceNumber" />
-            {showCustomer && <SortableHead label="Customer" k="customerName" />}
-            <SortableHead label="Vessel" k="vesselName" />
-            <SortableHead label="Prime Branch" k="company" />
-            <SortableHead label="Doc. Date" k="issueDate" />
-            <SortableHead label="Due Date" k="dueDate" />
-            <SortableHead label="Status" k="status" />
-            <SortableHead label="Amount" k="amount" align="right" />
-            <SortableHead label="Paid" k="paidAmount" align="right" />
-            <SortableHead label="Outstanding" k="outstanding" align="right" />
-            <SortableHead label="Days Overdue" k="daysOverdue" align="right" />
+            <SortableHead label="Invoice" k="invoiceNumber" className="w-[9%]" />
+            {showCustomer && <SortableHead label="Customer" k="customerName" className="w-[13.5%]" />}
+            <SortableHead label="Vessel" k="vesselName" className="w-[7.5%]" />
+            <SortableHead label="Branch" k="company" className="w-[8%]" />
+            <SortableHead label="Doc. Date" k="issueDate" className="w-[9%]" />
+            <SortableHead label="Due Date" k="dueDate" className="w-[9%]" />
+            <SortableHead label="Status" k="status" className="w-[8%]" />
+            <SortableHead label="Amount" k="amount" align="right" className="w-[9%]" />
+            <SortableHead label="Paid" k="paidAmount" align="right" className="w-[7%]" />
+            <SortableHead label="Outstanding" k="outstanding" align="right" className="w-[11.5%]" />
+            <SortableHead label="Days Ovd" k="daysOverdue" align="right" className="w-[8.5%]" />
           </TableRow>
         </TableHeader>
         <TableBody>
           {sortedRows.map(i => (
             <TableRow key={i.id}>
-              <TableCell className="font-mono text-sm">{i.invoiceNumber}</TableCell>
+              <TableCell className="font-mono text-xs whitespace-nowrap">{i.invoiceNumber}</TableCell>
               {showCustomer && (
-                <TableCell className="font-medium max-w-64">
+                <TableCell className="font-medium max-w-44 text-sm">
                   <span className="block truncate" title={i.customerName ?? undefined}>{i.customerName ?? "—"}</span>
                 </TableCell>
               )}
-              <TableCell className="max-w-48">
+              <TableCell className="max-w-28">
                 {i.vesselName ? (
                   i.vesselId ? (
                     <Link href={`/vessels/${i.vesselId}`}>
-                      <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-44 cursor-pointer hover:bg-sky-100 transition-colors" title={`View vessel: ${i.vesselName}`}>
+                      <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-24 cursor-pointer hover:bg-sky-100 transition-colors" title={`View vessel: ${i.vesselName}`}>
                         <Ship className="h-3 w-3 shrink-0" />
                         <span className="truncate">{i.vesselName}</span>
                       </Badge>
                     </Link>
                   ) : (
-                    <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-44" title={`Vessel: ${i.vesselName}`}>
+                    <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-24" title={`Vessel: ${i.vesselName}`}>
                       <Ship className="h-3 w-3 shrink-0" />
                       <span className="truncate">{i.vesselName}</span>
                     </Badge>
@@ -183,8 +183,8 @@ export function InvoicesTable({
                   {branchShort(i.company)}
                 </Badge>
               </TableCell>
-              <TableCell className="text-sm whitespace-nowrap">{fmtDate(i.issueDate)}</TableCell>
-              <TableCell className="text-sm whitespace-nowrap">{fmtDate(i.dueDate)}</TableCell>
+              <TableCell className="text-xs whitespace-nowrap">{fmtDate(i.issueDate)}</TableCell>
+              <TableCell className="text-xs whitespace-nowrap">{fmtDate(i.dueDate)}</TableCell>
               <TableCell>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -210,7 +210,7 @@ export function InvoicesTable({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>
-              <TableCell className="text-right font-mono">
+              <TableCell className="text-right font-mono text-sm whitespace-nowrap">
                 {i.currency && i.currency !== "EUR" ? (
                   <span>
                     {fmtCur(i.amount, i.currency, 2)}
@@ -220,10 +220,10 @@ export function InvoicesTable({
                   fmtEur(i.amount)
                 )}
               </TableCell>
-              <TableCell className="text-right font-mono">
+              <TableCell className="text-right font-mono text-sm whitespace-nowrap">
                 {i.currency && i.currency !== "EUR" ? fmtCur(i.paidAmount, i.currency, 2) : fmtEur(i.paidAmount)}
               </TableCell>
-              <TableCell className="text-right font-mono font-semibold">
+              <TableCell className="text-right font-mono text-sm font-semibold whitespace-nowrap">
                 {i.currency && i.currency !== "EUR" ? (
                   <span>
                     {fmtCur(Number(i.amount) - Number(i.paidAmount), i.currency, 2)}
@@ -233,7 +233,7 @@ export function InvoicesTable({
                   fmtEur(i.outstanding)
                 )}
               </TableCell>
-              <TableCell className={`text-right font-mono ${i.daysOverdue > 0 ? "text-red-600 font-semibold" : ""}`}>
+              <TableCell className={`text-right font-mono text-sm whitespace-nowrap ${i.daysOverdue > 0 ? "text-red-600 font-semibold" : ""}`}>
                 {i.daysOverdue > 0 ? i.daysOverdue : "—"}
               </TableCell>
             </TableRow>

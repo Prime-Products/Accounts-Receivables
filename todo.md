@@ -801,3 +801,7 @@
 - [x] GroupDetail header: clickable confirmation badge — linked task opens inline TaskDetailDialog; otherwise opens Log Call dialog
 - [x] TaskDetailDialog invalidates customers.groupDetail so the group card refreshes after task/promise actions
 - [x] Verify visually, checkpoint
+
+## Days Overdue column cut off (user bug report 28/7)
+- [x] Invoices table: Days Overdue column clipped at the right edge — make it fully visible (check horizontal overflow/padding in InvoicesTable and page containers)
+- [ ] Verify visually, checkpoint
