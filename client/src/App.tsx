@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { lazy, Suspense } from "react";
-import { Route, Switch } from "wouter";
+import { Redirect, Route, Switch } from "wouter";
 import DashboardLayout from "./components/DashboardLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -17,7 +17,6 @@ const Invoices = lazy(() => import("./pages/Invoices"));
 const Contracts = lazy(() => import("./pages/Contracts"));
 const Contacts = lazy(() => import("./pages/Contacts"));
 const Tasks = lazy(() => import("./pages/Tasks"));
-const Forecast = lazy(() => import("./pages/Forecast"));
 const Reports = lazy(() => import("./pages/Reports"));
 const Settings = lazy(() => import("./pages/Settings"));
 const WireTransfersPage = lazy(() => import("./pages/WireTransfersPage"));
@@ -49,7 +48,8 @@ function Router() {
           <Route path={"/contacts"} component={Contacts} />
           <Route path={"/tasks"} component={Tasks} />
           <Route path={"/wire-transfers"} component={WireTransfersPage} />
-          <Route path={"/forecast"} component={Forecast} />
+          {/* Forecast page removed — everything happens on Customers now */}
+          <Route path={"/forecast"}>{() => <Redirect to="/customers" />}</Route>
           <Route path={"/reports"} component={Reports} />
           <Route path={"/team"} component={Team} />
           <Route path={"/settings"} component={Settings} />

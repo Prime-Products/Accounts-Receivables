@@ -1854,6 +1854,7 @@ export const invoicesRouter = router({
         issueDate: i.issueDate,
         dueDate: i.dueDate,
         vesselId: i.vesselId,
+        isContractInstallment: !!i.isContractInstallment,
         customerName: byId.get(i.customerId)?.name ?? "—",
         customerTier: byId.get(i.customerId)?.tier ?? "New",
         customerGroup: (byId.get(i.customerId)?.customerGroup ?? "").trim() || (byId.get(i.customerId)?.name ?? "—"),
@@ -1925,6 +1926,55 @@ export const invoicesRouter = router({
       const v = input.vesselId ? await db.getVesselById(input.vesselId) : null;
       await audit(ctx, "Set Invoice Vessel", "invoice", input.invoiceId, v ? `Vessel "${v.name}" set on ${inv.invoiceNumber}` : `Vessel cleared on ${inv.invoiceNumber}`);
       return { success: true };
+    }),
+  /** Toggle the simple "contract installment" flag on a single invoice. */
+  setContractInstallment: protectedProcedure
+    .input(z.object({ invoiceId: z.number(), isContractInstallment: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const inv = await db.getInvoice(input.invoiceId);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      await db.updateInvoice(input.invoiceId, { isContractInstallment: input.isContractInstallment } as any);
+      await audit(
+        ctx,
+        "Set Contract Installment Flag",
+        "invoice",
+        input.invoiceId,
+        `${inv.invoiceNumber} ${input.isContractInstallment ? "marked as" : "unmarked as"} contract installment`
+      );
+      return { success: true };
+    }),
+  /**
+   * Bulk-mark invoices as contract installments from an uploaded list of invoice
+   * numbers (parsed client-side from Excel/CSV). Matching is exact on invoiceNumber
+   * after trimming. Returns how many matched and which numbers were not found.
+   */
+  bulkMarkContractInstallments: protectedProcedure
+    .input(z.object({
+      invoiceNumbers: z.array(z.string().min(1)).min(1).max(5000),
+      value: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const wanted = Array.from(new Set(input.invoiceNumbers.map(n => n.trim()).filter(Boolean)));
+      const all = await db.listInvoices();
+      const byNumber = new Map(all.map(i => [i.invoiceNumber.trim(), i]));
+      const matched: string[] = [];
+      const notFound: string[] = [];
+      for (const num of wanted) {
+        const inv = byNumber.get(num);
+        if (!inv) { notFound.push(num); continue; }
+        if (!!inv.isContractInstallment !== input.value) {
+          await db.updateInvoice(inv.id, { isContractInstallment: input.value } as any);
+        }
+        matched.push(num);
+      }
+      await audit(
+        ctx,
+        "Bulk Mark Contract Installments",
+        "invoice",
+        0,
+        `${matched.length} invoice(s) ${input.value ? "marked" : "unmarked"} as contract installments (${notFound.length} not found)`
+      );
+      return { matchedCount: matched.length, notFound };
     }),
   markDisputed: protectedProcedure
     .input(z.object({ id: z.number(), disputed: z.boolean(), reason: z.string().max(1000).optional() }))
@@ -2435,6 +2485,10 @@ export const forecastRouter = router({
     const underReview = watchRowsDash.filter(w => w.status === "Under Review").length;
     const onHoldGroups = watchRowsDash.filter(w => w.status === "On Hold" || w.status === "Legal").length;
     const problematicGroups = watchRowsDash.filter(w => w.status === "Problematic").length;
+    // Contract installments are "must pay on time" invoices — even 1 day overdue is a red flag.
+    const overdueContractInvoices = invoices.filter(i => i.isContractInstallment && isOpenInvoice(i) && daysOverdue(i.dueDate, now) > 0);
+    const overdueContractCount = overdueContractInvoices.length;
+    const overdueContractAmount = overdueContractInvoices.reduce((s, i) => s + outstanding(i), 0);
     return {
       year,
       month,
@@ -2448,6 +2502,8 @@ export const forecastRouter = router({
       forecast,
       pendingTasks: tasksPending.length,
       escalations,
+      overdueContractCount,
+      overdueContractAmount,
       onHoldPending: underReview,
       onHoldGroups,
       problematicGroups,

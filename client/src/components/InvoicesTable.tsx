@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Ship, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, FileSignature, Ship, Undo2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
@@ -19,6 +19,7 @@ export interface InvoiceRowData {
   customerName?: string | null;
   vesselId?: number | null;
   vesselName?: string | null;
+  isContractInstallment?: boolean;
   company?: string | null;
   currency?: string | null;
   amount: string | number;
@@ -90,6 +91,15 @@ export function InvoicesTable({
     },
     onError: e => toast.error(e.message),
   });
+  const setContract = trpc.invoices.setContractInstallment.useMutation({
+    onSuccess: (_r, vars) => {
+      toast.success(vars.isContractInstallment ? "Marked as contract installment" : "Contract installment flag removed");
+      utils.invoices.invalidate();
+      utils.customers.invalidate();
+      onDisputeChanged?.();
+    },
+    onError: e => toast.error(e.message),
+  });
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -153,7 +163,14 @@ export function InvoicesTable({
         <TableBody>
           {sortedRows.map(i => (
             <TableRow key={i.id}>
-              <TableCell className="font-mono text-xs whitespace-nowrap">{i.invoiceNumber}</TableCell>
+              <TableCell className="font-mono text-xs whitespace-nowrap">
+                <span className="inline-flex items-center gap-1">
+                  {i.invoiceNumber}
+                  {i.isContractInstallment && (
+                    <FileSignature className="h-3.5 w-3.5 text-violet-600 shrink-0" aria-label="Contract installment" role="img" />
+                  )}
+                </span>
+              </TableCell>
               {showCustomer && (
                 <TableCell className="font-medium max-w-44 text-sm">
                   <span className="block truncate" title={i.customerName ?? undefined}>{i.customerName ?? "—"}</span>
@@ -207,6 +224,13 @@ export function InvoicesTable({
                         Clear dispute
                       </DropdownMenuItem>
                     )}
+                    <DropdownMenuItem
+                      disabled={setContract.isPending}
+                      onClick={() => setContract.mutate({ invoiceId: i.id, isContractInstallment: !i.isContractInstallment })}
+                    >
+                      <FileSignature className="h-4 w-4 mr-2 text-violet-600" />
+                      {i.isContractInstallment ? "Unmark contract installment" : "Mark as contract installment"}
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>

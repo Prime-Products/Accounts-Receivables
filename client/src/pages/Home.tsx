@@ -16,6 +16,7 @@ import {
   Target,
   TrendingUp,
   Wallet,
+  FileSignature,
 } from "lucide-react";
 import { useState } from "react";
 import {
@@ -66,7 +67,7 @@ export default function Home() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => navigate("/forecast")}>
+          <Button variant="outline" className="gap-2" onClick={() => navigate("/customers")}>
             <Target className="h-4 w-4" /> Monthly Target (from Forecast)
           </Button>
         </div>
@@ -128,7 +129,7 @@ export default function Home() {
       </div>
 
       {/* Smart tasks & workflow strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <button
           onClick={() => navigate("/tasks")}
           className="text-left rounded-lg border bg-card p-4 hover:shadow-md transition-shadow flex items-center gap-4"
@@ -163,6 +164,18 @@ export default function Home() {
           <div>
             <div className="text-xl font-bold">{data.onHoldGroups ?? 0}</div>
             <div className="text-sm text-muted-foreground">On Hold / Legal groups</div>
+          </div>
+        </button>
+        <button
+          onClick={() => navigate("/invoices?contract=overdue")}
+          className={`text-left rounded-lg border p-4 hover:shadow-md transition-shadow flex items-center gap-4 ${(data.overdueContractCount ?? 0) > 0 ? "bg-red-50 border-red-200" : "bg-card"}`}
+        >
+          <div className="h-11 w-11 rounded-lg bg-violet-100 flex items-center justify-center">
+            <FileSignature className="h-5 w-5 text-violet-700" />
+          </div>
+          <div>
+            <div className={`text-xl font-bold ${(data.overdueContractCount ?? 0) > 0 ? "text-red-700" : ""}`}>{data.overdueContractCount ?? 0}</div>
+            <div className="text-sm text-muted-foreground">Overdue contract installments{(data.overdueContractAmount ?? 0) > 0 ? ` · ${fmtEur(data.overdueContractAmount)}` : ""}</div>
           </div>
         </button>
       </div>

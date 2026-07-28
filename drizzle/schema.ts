@@ -115,6 +115,8 @@ export const invoices = mysqlTable("invoices", {
   paidAmount: decimal("paidAmount", { precision: 14, scale: 2 }).default("0").notNull(),
   status: mysqlEnum("status", invoiceStatuses).default("Open").notNull(),
   contractInstallmentId: int("contractInstallmentId"),
+  /** Simple flag: this invoice is a contract installment (must be paid on time). Link to a specific contract comes later. */
+  isContractInstallment: boolean("isContractInstallment").default(false).notNull(),
   softoneId: varchar("softoneId", { length: 64 }),
   /** Optional vessel the invoice concerns (shipping clients); FK to vessels.id. */
   vesselId: int("vesselId"),

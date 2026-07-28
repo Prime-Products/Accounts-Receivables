@@ -54,7 +54,6 @@ const menuItems = [
   { icon: ScrollText, label: "Contracts", path: "/contracts" },
   { icon: ListChecks, label: "Tasks", path: "/tasks" },
   { icon: Banknote, label: "Wire Transfers", path: "/wire-transfers" },
-  { icon: TrendingUp, label: "Forecast", path: "/forecast" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
   { icon: UserCog, label: "Team", path: "/team" },
   { icon: Settings, label: "Settings", path: "/settings" },

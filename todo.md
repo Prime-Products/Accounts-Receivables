@@ -814,3 +814,15 @@
 - [x] Companies inherit the group's status everywhere (no per-company on-hold status; rating factor uses unified group status)
 - [x] Remove ON_HOLD_TRANSITIONS/canTransitionOnHold, on-hold proposal db helpers, and stale on-hold tests
 - [x] Tests updated/added for unified status; visual verification; checkpoint
+
+## Remove Forecast tab (user request 28/7)
+- [x] Remove Forecast nav entry from DashboardLayout and the /forecast route from App.tsx
+- [x] Check for links pointing to /forecast elsewhere and redirect/remove them (/forecast now redirects to /customers; Home button points to /customers)
+- [x] Verify, checkpoint
+
+## Contract installment flag on invoices (user request 28/7)
+- [x] Backend: isContractInstallment boolean on invoices + toggle procedure + bulk mark via Excel upload (invoice numbers list)
+- [x] Badge "Contract" on invoice rows everywhere (InvoicesTable shared component)
+- [x] Invoices page: filter for contract installments; bulk upload dialog to mark from Excel
+- [x] Dashboard: overdue contract installments surfaced distinctly (4th card, links to /invoices?contract=overdue)
+- [x] Tests (3 new contract installment tests, 194 total), verify, checkpoint

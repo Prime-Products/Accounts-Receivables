@@ -12,7 +12,7 @@ import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDa
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { ChevronRight, FileDown, FileText, HandCoins, Plus, Users } from "lucide-react";
+import { ChevronRight, FileDown, FileSignature, FileText, HandCoins, Plus, Upload, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -34,6 +34,16 @@ export default function Invoices() {
   });
   const [branchFilter, setBranchFilter] = useState<string>("all");
   const [vesselFilter, setVesselFilter] = useState<string>("all");
+  const [contractFilter, setContractFilter] = useState<string>(() => {
+    if (typeof window === "undefined") return "all";
+    const c = new URLSearchParams(window.location.search).get("contract");
+    return c === "overdue" || c === "contract" ? "contract" : "all";
+  });
+  /** When arriving from the dashboard "overdue contract installments" card, also show only overdue rows. */
+  const [overdueOnly] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("contract") === "overdue";
+  });
   const [groupView, setGroupView] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("view") === "group";
@@ -81,6 +91,53 @@ export default function Invoices() {
     onError: e => toast.error(e.message),
   });
 
+  // Bulk mark contract installments via Excel/CSV upload
+  const [contractDlgOpen, setContractDlgOpen] = useState(false);
+  const [contractNumbers, setContractNumbers] = useState<string[]>([]);
+  const [contractFileName, setContractFileName] = useState<string>("");
+  const [contractParsing, setContractParsing] = useState(false);
+  const bulkMark = trpc.invoices.bulkMarkContractInstallments.useMutation({
+    onSuccess: r => {
+      toast.success(`${r.matchedCount} invoice(s) marked as contract installments${r.notFound.length ? ` — ${r.notFound.length} number(s) not found` : ""}`);
+      if (r.notFound.length) {
+        toast.warning(`Not found: ${r.notFound.slice(0, 10).join(", ")}${r.notFound.length > 10 ? ` +${r.notFound.length - 10} more` : ""}`, { duration: 10000 });
+      }
+      utils.invoices.invalidate();
+      utils.customers.invalidate();
+      setContractDlgOpen(false);
+      setContractNumbers([]);
+      setContractFileName("");
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  async function parseContractFile(file: File) {
+    setContractParsing(true);
+    try {
+      const XLSX = await import("xlsx");
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
+      // Collect every non-empty cell of the first column (skip a header cell if it isn't invoice-like)
+      const values = rows
+        .map(r => String(r?.[0] ?? "").trim())
+        .filter(Boolean);
+      const looksLikeHeader = values.length > 0 && /invoice|number|no\.?|τιμολ/i.test(values[0]) && !/\d{3,}/.test(values[0]);
+      const nums = Array.from(new Set(looksLikeHeader ? values.slice(1) : values));
+      if (nums.length === 0) {
+        toast.error("No invoice numbers found in the first column of the file");
+        return;
+      }
+      setContractNumbers(nums);
+      setContractFileName(file.name);
+    } catch (err: any) {
+      toast.error(`Could not read file: ${err?.message ?? err}`);
+    } finally {
+      setContractParsing(false);
+    }
+  }
+
   const rcCustomerInvoices = useMemo(() => {
     if (!invoices || !rcForm.customerId) return [];
     return invoices.filter(i => i.customerId === Number(rcForm.customerId) && i.status !== "Paid");
@@ -113,6 +170,9 @@ export default function Invoices() {
       if (statusFilter !== "all" && i.status !== statusFilter) return false;
       if (branchFilter !== "all" && i.company !== branchFilter) return false;
       if (vesselFilter !== "all" && String((i as any).vesselId ?? "") !== vesselFilter) return false;
+      if (contractFilter === "contract" && !(i as any).isContractInstallment) return false;
+      if (contractFilter === "non-contract" && (i as any).isContractInstallment) return false;
+      if (overdueOnly && contractFilter === "contract" && i.daysOverdue <= 0) return false;
       if (groupDrill && ((i as any).customerGroup ?? i.customerName) !== groupDrill) return false;
       if (bucketFilter !== "all") {
         if (i.daysOverdue <= 0) return false;
@@ -127,14 +187,14 @@ export default function Invoices() {
       }
       return true;
     });
-  }, [invoices, statusFilter, bucketFilter, branchFilter, vesselFilter, search, groupDrill]);
+  }, [invoices, statusFilter, bucketFilter, branchFilter, vesselFilter, contractFilter, search, groupDrill]);
 
   // Incremental rendering: mounting 5000+ table rows freezes the browser for
   // seconds. Render a window and grow it on demand.
   const [visibleCount, setVisibleCount] = useState(100);
   useEffect(() => {
     setVisibleCount(200);
-  }, [statusFilter, bucketFilter, branchFilter, vesselFilter, search, groupDrill]);
+  }, [statusFilter, bucketFilter, branchFilter, vesselFilter, contractFilter, search, groupDrill]);
   const visibleRows = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
   /** Totals of the currently filtered list: EUR + per-currency breakdown. */
@@ -185,6 +245,61 @@ export default function Invoices() {
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => exportReport.mutate({ report: "aging", format: "pdf" })} disabled={exportReport.isPending}>
             <FileDown className="h-4 w-4" /> Aging (PDF)
           </Button>
+          <Dialog open={contractDlgOpen} onOpenChange={o => { setContractDlgOpen(o); if (!o) { setContractNumbers([]); setContractFileName(""); } }}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <FileSignature className="h-4 w-4 text-violet-600" /> Contract Installments
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileSignature className="h-5 w-5 text-violet-600" />
+                  Bulk mark contract installments
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Upload an Excel or CSV file with the invoice numbers in the <strong>first column</strong> (one per row, header row optional).
+                  All matching invoices will be marked as contract installments — they must always be paid on time and are tracked separately.
+                </p>
+                <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg p-6 cursor-pointer hover:bg-muted/50 transition-colors">
+                  <Upload className="h-6 w-6 text-muted-foreground" />
+                  <span className="text-sm font-medium">{contractParsing ? "Reading file…" : contractFileName || "Choose .xlsx / .csv file"}</span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={e => {
+                      const f = e.target.files?.[0];
+                      if (f) void parseContractFile(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {contractNumbers.length > 0 && (
+                  <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+                    <div className="font-medium">{contractNumbers.length} invoice number(s) found</div>
+                    <div className="text-xs text-muted-foreground font-mono truncate" title={contractNumbers.slice(0, 50).join(", ")}>
+                      {contractNumbers.slice(0, 8).join(", ")}{contractNumbers.length > 8 ? ` +${contractNumbers.length - 8} more` : ""}
+                    </div>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Tip: you can also mark or unmark a single invoice from the status dropdown on each row.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setContractDlgOpen(false)}>Cancel</Button>
+                <Button
+                  disabled={contractNumbers.length === 0 || bulkMark.isPending}
+                  onClick={() => bulkMark.mutate({ invoiceNumbers: contractNumbers, value: true })}
+                >
+                  {bulkMark.isPending ? "Marking…" : `Mark ${contractNumbers.length || ""} invoice(s)`}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <Dialog open={rcOpen} onOpenChange={setRcOpen}>
             <DialogTrigger asChild>
               <Button variant="secondary" size="sm" className="gap-1.5">
@@ -427,6 +542,16 @@ export default function Invoices() {
             </SelectContent>
           </Select>
         )}
+        <Select value={contractFilter} onValueChange={setContractFilter}>
+          <SelectTrigger className="w-56">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Contract: all invoices</SelectItem>
+            <SelectItem value="contract">Contract installments only</SelectItem>
+            <SelectItem value="non-contract">Non-contract only</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Filtered totals: EUR + per-currency */}
