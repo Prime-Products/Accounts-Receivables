@@ -95,6 +95,10 @@ export default function LogCallDialog({
         return;
       }
     }
+    if (confirmationStatus === "Pending Follow-up" && !followUpDate) {
+      toast.error("Please select the follow-up date");
+      return;
+    }
 
     const payload: any = {
       group,

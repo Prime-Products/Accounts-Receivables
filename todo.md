@@ -865,3 +865,11 @@
 - [x] Benchmark against credit-control / AR best practices (Upflow, CreditPulse, Gaviti, HighRadius)
 - [x] Write analysis report with gaps and recommendations (docs/workflow-review.md)
 - [x] Deliver report to user
+
+## Confirmation status month-reset fix (user request 28/7)
+- [x] Fix isConfirmationStale logic: preserve Promise/Pending until their targetDate passes, not just until month changes
+- [ ] Update effectiveConfirmation to check targetDate instead of updatedAt month
+- [ ] Verify tests still pass (confirmationStatus tests may need adjustment)
+- [ ] Checkpoint after fix
+- [x] Make promisedDate mandatory for Promise to Pay (Confirmed) in logCall backend + LogCallDialog UI
+- [x] Promise/Pending carryover: statuses stay active until their target date passes (no month-boundary reset); Broken persists until manually changed; monthRollover tests rewritten

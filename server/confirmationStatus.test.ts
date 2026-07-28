@@ -327,9 +327,11 @@ describe("Confirmation Status Tracking", () => {
       const groupName = `trpc-test-${Date.now()}`;
 
       // Insert confirmation status
+      // Promise to Pay now carries a target date and stays active until it passes.
       await db.upsertGroupConfirmationStatus(groupName, {
         status: "Confirmed",
         amount: "50000",
+        followUpDate: Date.now() + 7 * 24 * 60 * 60 * 1000,
         notes: "Test confirmation",
         updatedBy: 1,
       });
@@ -395,9 +397,12 @@ describe("Confirmation Status Tracking", () => {
       const groupName = `trpc-test-${Date.now()}`;
 
       // Insert confirmation status
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 7); // 7 days in the future
       await db.upsertGroupConfirmationStatus(groupName, {
         status: "Confirmed",
         amount: "50000",
+        followUpDate: futureDate.getTime(),
         notes: "Test confirmation",
         updatedBy: 1,
       });
@@ -475,17 +480,20 @@ describe("Confirmation Status Tracking", () => {
       let result = await db.getGroupConfirmationStatus(groupName);
       expect(result?.followUpDate).not.toBeNull();
 
-      // Second call: customer confirms — follow-up must be cleared
+      // Second call: customer confirms — promise date is now mandatory and is stored
+      // as the confirmation's target date (status stays active until it passes).
+      const promisedDate = Date.now() + 5 * 24 * 60 * 60 * 1000;
       await caller.calls.logCall({
         group: groupName,
         outcome: "Promised Payment",
         confirmationStatus: "Confirmed",
         confirmationAmount: 15000,
+        promisedDate,
       });
 
       result = await db.getGroupConfirmationStatus(groupName);
       expect(result?.status).toBe("Confirmed");
-      expect(result?.followUpDate).toBeNull();
+      expect(result?.followUpDate).toBe(promisedDate);
     });
 
     it("logCall with Confirmed creates a Promise-to-Pay for the group's customer", async () => {

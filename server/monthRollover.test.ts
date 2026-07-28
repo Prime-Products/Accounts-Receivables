@@ -30,28 +30,44 @@ async function backdateConfirmation(group: string) {
   await db.setGroupConfirmationUpdatedAt(group, prevMonth);
 }
 
-describe("month rollover — confirmation statuses reset each month", () => {
-  it("a Promise to Pay recorded last month is presented as Not Contacted this month", async () => {
+describe("promise carryover — statuses stay active until their target date", () => {
+  it("a Promise to Pay recorded last month with a future date stays Confirmed; an expired one falls back to Not Contacted", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const customers = await db.listCustomers();
     const cust = customers[0];
     expect(cust).toBeTruthy();
     const group = (cust.customerGroup ?? "").trim() || cust.name;
 
-    // Record a Confirmed (Promise to Pay) status now
-    await caller.calls.updateConfirmationStatus({ group, status: "Confirmed", amount: 12345 });
+    // Record a Confirmed (Promise to Pay) status with a future promise date
+    const futureDate = Date.now() + 10 * 24 * 60 * 60 * 1000;
+    await caller.calls.updateConfirmationStatus({ group, status: "Confirmed", amount: 12345, followUpDate: futureDate });
     const fresh = await caller.calls.getConfirmationStatus({ group });
     expect(fresh?.status).toBe("Confirmed");
 
-    // Backdate the row to last month → the effective status must fall back to Not Contacted
+    // Backdate the row's updatedAt to last month → status must STILL be Confirmed
+    // because the promise date is in the future (carryover across month boundary).
     await backdateConfirmation(group);
+    const carried = await caller.calls.getConfirmationStatus({ group });
+    expect(carried?.status).toBe("Confirmed");
+    expect(Number(carried?.amount ?? 0)).toBe(12345);
+
+    // groups list must also keep the promise (expected = promised amount)
+    let groups = await caller.customers.groups();
+    let row = groups.find((g: any) => g.group === group) as any;
+    expect(row).toBeTruthy();
+    expect(row.confirmationStatus).toBe("Confirmed");
+    expect(row.expectedToCollect).toBeCloseTo(12345, 2);
+
+    // Now set the promise date to the past → the status must fall back to Not Contacted
+    const pastDate = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    await caller.calls.updateConfirmationStatus({ group, status: "Confirmed", amount: 12345, followUpDate: pastDate });
     const stale = await caller.calls.getConfirmationStatus({ group });
     expect(stale?.status).toBe("Not Contacted");
     expect(Number(stale?.amount ?? 0)).toBe(0);
 
     // groups list must also treat it as Not Contacted (expected = forecast, not the stale promise)
-    const groups = await caller.customers.groups();
-    const row = groups.find((g: any) => g.group === group) as any;
+    groups = await caller.customers.groups();
+    row = groups.find((g: any) => g.group === group) as any;
     expect(row).toBeTruthy();
     expect(row.confirmationStatus).toBe("Not Contacted");
     expect(row.expectedToCollect).toBe(row.forecastExpected);
@@ -100,7 +116,7 @@ describe("groups payload — promise date under badge", () => {
     const group = groupOf(cust);
 
     const promised = Date.now() + 7 * 24 * 60 * 60 * 1000;
-    await caller.calls.updateConfirmationStatus({ group, status: "Confirmed", amount: 1234 });
+    await caller.calls.updateConfirmationStatus({ group, status: "Confirmed", amount: 1234, followUpDate: promised });
     await caller.forecast.addPromise({ customerId: cust.id, amount: 1234, promisedDate: promised, notes: "badge date test" });
 
     const groups = await caller.customers.groups();

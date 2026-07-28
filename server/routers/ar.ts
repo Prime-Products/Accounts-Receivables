@@ -70,25 +70,32 @@ function endOfCurrentMonth(now = new Date()): number {
 }
 
 /**
- * Confirmation statuses are a *monthly* workflow: a "Promise to Pay" or "Broken"
- * recorded in July says nothing about August. A status row is considered stale
- * once the calendar month of its last update differs from the current month —
- * stale rows are treated as "Not Contacted" (amount 0) everywhere they are read,
- * so every group starts the new month with a clean slate without losing history.
+ * Confirmation statuses are tracked with a target date (followUpDate).
+ * A "Promise to Pay" or "Pending Follow-up" remains active until its followUpDate passes.
+ * Once the followUpDate is in the past, the status is considered stale and treated as "Not Contacted".
+ * This allows promises/pending follow-ups to carry over across month boundaries until their target date.
  */
-function isConfirmationStale(updatedAt: Date | string | null | undefined, now = new Date()): boolean {
-  if (!updatedAt) return true;
-  const d = updatedAt instanceof Date ? updatedAt : new Date(updatedAt);
-  if (Number.isNaN(d.getTime())) return true;
-  return d.getUTCFullYear() !== now.getUTCFullYear() || d.getUTCMonth() !== now.getUTCMonth();
+function isConfirmationStale(
+  status: string | null | undefined,
+  followUpDate: number | null | undefined,
+  now = new Date(),
+): boolean {
+  // "Not Contacted" is always stale (no active follow-up).
+  if (!status || status === "Not Contacted") return true;
+  // "Broken" is never stale — it remains "Broken" until explicitly changed.
+  if (status === "Broken") return false;
+  // "Confirmed" (Promise to Pay) and "Pending Follow-up" are stale only if their followUpDate has passed.
+  if (!followUpDate) return true; // No target date = stale.
+  const targetDate = new Date(followUpDate);
+  return targetDate < now;
 }
 
-/** Effective (month-aware) view of a confirmation row: stale → Not Contacted / €0. */
-function effectiveConfirmation<T extends { status: string; amount: string | null; updatedAt: Date | string | null } | null | undefined>(
+/** Effective view of a confirmation row: stale → Not Contacted / €0. */
+function effectiveConfirmation<T extends { status: string; amount: string | null; followUpDate: number | null | undefined } | null | undefined>(
   row: T,
 ): { status: string; amount: number; stale: boolean } {
   if (!row) return { status: "Not Contacted", amount: 0, stale: false };
-  if (isConfirmationStale(row.updatedAt)) return { status: "Not Contacted", amount: 0, stale: true };
+  if (isConfirmationStale(row.status || null, row.followUpDate)) return { status: "Not Contacted", amount: 0, stale: true };
   return { status: row.status, amount: row.amount ? Number(row.amount) : 0, stale: false };
 }
 
@@ -3266,6 +3273,19 @@ export const callsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Promise to Pay must always carry a target date — it stays active until that date passes.
+      if (
+        input.confirmationStatus === "Confirmed" &&
+        input.confirmationAmount !== undefined &&
+        input.confirmationAmount > 0 &&
+        !input.promisedDate
+      ) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A promised payment date is required for Promise to Pay." });
+      }
+      // Pending Follow-up must always carry a follow-up date.
+      if (input.confirmationStatus === "Pending Follow-up" && !input.followUpDate) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A follow-up date is required for Pending Follow-up." });
+      }
       const parts: string[] = [];
       if (input.contactName) parts.push(`Contact: ${input.contactName}`);
       if (input.notes) parts.push(input.notes);
@@ -3290,8 +3310,13 @@ export const callsRouter = router({
             input.confirmationStatus === "Not Contacted" || input.confirmationStatus === "Broken"
               ? "0.00"
               : String(input.confirmationAmount ?? 0),
-          // Follow-up date only applies to "Pending Follow-up"; clear it on any other status
-          followUpDate: input.confirmationStatus === "Pending Follow-up" ? input.followUpDate : null,
+          // Follow-up date applies to "Pending Follow-up" (from followUpDate) and "Confirmed" (from promisedDate)
+          followUpDate:
+            input.confirmationStatus === "Pending Follow-up"
+              ? input.followUpDate
+              : input.confirmationStatus === "Confirmed"
+                ? input.promisedDate ?? null
+                : null,
           notes: input.notes,
           updatedBy: ctx.user.id,
         });
@@ -3352,9 +3377,8 @@ export const callsRouter = router({
     .query(async ({ input }) => {
       const row = await db.getGroupConfirmationStatus(input.group);
       if (!row) return null;
-      // Month-aware: statuses reset each month. A row last updated in a previous
-      // month is presented as "Not Contacted" so the badge/dialog start fresh.
-      if (isConfirmationStale(row.updatedAt)) {
+      // Check if the confirmation status is stale based on its followUpDate.
+      if (isConfirmationStale(row.status, row.followUpDate)) {
         return { ...row, status: "Not Contacted" as typeof row.status, amount: "0.00", followUpDate: null, notes: null };
       }
       return row;
@@ -3387,8 +3411,11 @@ export const callsRouter = router({
           input.status === "Not Contacted" || input.status === "Broken"
             ? "0.00"
             : String(input.amount ?? 0),
-        // Follow-up date only applies to "Pending Follow-up"; clear it on any other status
-        followUpDate: input.status === "Pending Follow-up" ? input.followUpDate : null,
+        // Target date applies to "Pending Follow-up" and "Confirmed" (promise date); clear on other statuses
+        followUpDate:
+          input.status === "Pending Follow-up" || input.status === "Confirmed"
+            ? (input.followUpDate ?? null)
+            : null,
         notes: input.notes,
         updatedBy: ctx.user.id,
       });
