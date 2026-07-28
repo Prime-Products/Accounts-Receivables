@@ -10,7 +10,7 @@ describe("computeCreditRating", () => {
       overdue90Plus: 0,
       promisesKept: 2,
       promisesBroken: 0,
-      onHoldStatus: "Active",
+      onHoldStatus: "Normal",
       turnoverYtd: 500_000,
       turnoverLastYear: 600_000,
     });
@@ -40,7 +40,7 @@ describe("computeCreditRating", () => {
       overdue90Plus: 0,
       promisesKept: 0,
       promisesBroken: 0,
-      onHoldStatus: "Active",
+      onHoldStatus: "Normal",
     });
     // 18 + 25 + 12 + 6 + 5 + 6 + 6 = 78 → B
     expect(r.rating).toBe("B");
@@ -55,7 +55,7 @@ describe("computeCreditRating", () => {
       overdue90Plus: 0,
       promisesKept: 1,
       promisesBroken: 0,
-      onHoldStatus: "Active",
+      onHoldStatus: "Normal",
     };
     const good = computeCreditRating(base);
     const held = computeCreditRating({ ...base, onHoldStatus: "On Hold", promisesBroken: 2 });
@@ -84,7 +84,7 @@ describe("computeCreditRating", () => {
       overdue90Plus: 0,
       promisesKept: 1,
       promisesBroken: 0,
-      onHoldStatus: "Active",
+      onHoldStatus: "Normal",
     };
     // Healthy turnover: large and stable.
     const healthy = computeCreditRating({ ...base, turnoverYtd: 900_000, turnoverLastYear: 1_000_000 });
@@ -108,7 +108,7 @@ describe("computeCreditRating", () => {
       overdue90Plus: 0,
       promisesKept: 0,
       promisesBroken: 0,
-      onHoldStatus: "Active",
+      onHoldStatus: "Normal",
     });
     expect(r.factors.find(f => f.label === "Turnover trend")!.detail).toContain("neutral");
     expect(r.factors.find(f => f.label === "Overdue vs turnover")!.detail).toContain("neutral");

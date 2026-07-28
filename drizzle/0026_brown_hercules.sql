@@ -1,0 +1,1 @@
+ALTER TABLE `group_watch_status` MODIFY COLUMN `status` enum('Auto','Problematic','On Watch','Normal','Critical','Legal','Resolved','Under Review','On Hold') NOT NULL DEFAULT 'Auto';

@@ -142,27 +142,27 @@ export default function Home() {
           </div>
         </button>
         <button
-          onClick={() => navigate("/customers?status=critical")}
+          onClick={() => navigate("/customers?status=problematic")}
           className="text-left rounded-lg border bg-card p-4 hover:shadow-md transition-shadow flex items-center gap-4"
         >
           <div className="h-11 w-11 rounded-lg bg-amber-100 flex items-center justify-center">
             <AlertOctagon className="h-5 w-5 text-amber-700" />
           </div>
           <div>
-            <div className="text-xl font-bold">{data.criticalGroups ?? 0}</div>
-            <div className="text-sm text-muted-foreground">Critical groups (30+ days Problematic)</div>
+            <div className="text-xl font-bold">{data.problematicGroups ?? 0}</div>
+            <div className="text-sm text-muted-foreground">Problematic groups</div>
           </div>
         </button>
         <button
-          onClick={() => navigate("/tasks")}
+          onClick={() => navigate("/customers?status=on-hold")}
           className="text-left rounded-lg border bg-card p-4 hover:shadow-md transition-shadow flex items-center gap-4"
         >
           <div className="h-11 w-11 rounded-lg bg-red-100 flex items-center justify-center">
             <Flag className="h-5 w-5 text-red-700" />
           </div>
           <div>
-            <div className="text-xl font-bold">{data.escalations}</div>
-            <div className="text-sm text-muted-foreground">Escalations (+30 days) needing review</div>
+            <div className="text-xl font-bold">{data.onHoldGroups ?? 0}</div>
+            <div className="text-sm text-muted-foreground">On Hold / Legal groups</div>
           </div>
         </button>
       </div>

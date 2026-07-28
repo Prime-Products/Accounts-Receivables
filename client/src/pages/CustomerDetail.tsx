@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
+import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, FileDown, HandCoins, Layers, Plus } from "lucide-react";
 import { useState } from "react";
@@ -96,11 +96,6 @@ export default function CustomerDetail() {
                 title={`Credit score ${data.rating.score}/100\n${data.rating.factors.map(f => `${f.label}: ${f.points}/${f.max} (${f.detail})`).join("\n")}`}
               >
                 {data.rating.rating} · {data.rating.score}
-              </Badge>
-            )}
-            {customer.onHoldStatus !== "Active" && (
-              <Badge variant="outline" className={onHoldStatusColors[customer.onHoldStatus] ?? ""}>
-                {customer.onHoldStatus}
               </Badge>
             )}
             <WatchStatusSelect group={data.groupKey} effective={data.watchStatus ?? null} />

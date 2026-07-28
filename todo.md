@@ -804,4 +804,13 @@
 
 ## Days Overdue column cut off (user bug report 28/7)
 - [x] Invoices table: Days Overdue column clipped at the right edge — make it fully visible (check horizontal overflow/padding in InvoicesTable and page containers)
-- [ ] Verify visually, checkpoint
+- [x] Verify visually, checkpoint
+
+## Unified Account Status workflow (user request 28/7)
+- [x] Backend: single Account Status per group — Normal / Problematic / Under Review / On Hold / Legal (Problematic auto from 80% forecast rule or manual; others manual)
+- [x] Migrate existing watch-status overrides and on-hold statuses to the unified status
+- [x] UI: one status dropdown/badge on Customers list, group card, Customer 360; filter includes all 5 statuses
+- [x] Remove the separate On-Hold workflow (proposals page, Propose On-Hold dialogs/buttons, approval flow, nav entry)
+- [x] Companies inherit the group's status everywhere (no per-company on-hold status; rating factor uses unified group status)
+- [x] Remove ON_HOLD_TRANSITIONS/canTransitionOnHold, on-hold proposal db helpers, and stale on-hold tests
+- [x] Tests updated/added for unified status; visual verification; checkpoint

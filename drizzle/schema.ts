@@ -298,17 +298,19 @@ export type GroupNote = typeof groupNotes.$inferSelect;
  * ("On Watch" is legacy and treated as "Problematic" in business logic.)
  */
 /**
- * Unified group status workflow: Normal → Problematic → Critical → Legal / Resolved.
- * "Auto" means "follow the forecast rule" (no manual override). Legacy "On Watch"
- * remains in the DB enum for backward compatibility and is treated as Problematic.
+ * Unified group Account Status workflow: Normal → Problematic → Under Review → On Hold → Legal.
+ * "Auto" means "follow the forecast rule" (no manual override). Legacy values
+ * ("On Watch", "Critical", "Resolved") remain in the DB enum for backward
+ * compatibility and are normalized at read time (On Watch/Critical → Problematic,
+ * Resolved → Normal).
  */
-export const watchStatuses = ["Auto", "Problematic", "On Watch", "Normal", "Critical", "Legal", "Resolved"] as const;
+export const watchStatuses = ["Auto", "Problematic", "On Watch", "Normal", "Critical", "Legal", "Resolved", "Under Review", "On Hold"] as const;
 export type WatchStatus = (typeof watchStatuses)[number];
 export const groupWatchStatus = mysqlTable("group_watch_status", {
   id: int("id").autoincrement().primaryKey(),
   groupName: varchar("groupName", { length: 255 }).notNull().unique(),
   status: mysqlEnum("status", watchStatuses).default("Auto").notNull(),
-  /** Epoch ms of when the group first became (and stayed) Problematic; used for auto-escalation to Critical after 30 consecutive days. Null when not problematic. */
+  /** Epoch ms of when the group first became (and stayed) Problematic. Null when not problematic. */
   problematicSince: bigint("problematicSince", { mode: "number" }),
   updatedBy: int("updatedBy"),
   updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),

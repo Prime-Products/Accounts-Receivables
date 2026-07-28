@@ -183,6 +183,13 @@
       "when": 1785186683769,
       "tag": "0025_odd_magik",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1785227171736,
+      "tag": "0026_brown_hercules",
+      "breakpoints": true
     }
   ]
 }

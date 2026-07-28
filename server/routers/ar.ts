@@ -5,17 +5,15 @@ import {
   confirmationStatuses,
   customerTiers,
   invoiceStatuses,
-  onHoldStatuses,
   receiptMethods,
   taskStatuses,
   taskTypes,
 } from "../../drizzle/schema";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
-import { resolveGroupStatus } from "../lib/statusWorkflow";
+import { resolveGroupStatus, normalizeStoredStatus } from "../lib/statusWorkflow";
 import {
   buildForecast,
-  canTransitionOnHold,
   computeAging,
   computeDso,
   computeCreditRating,
@@ -436,7 +434,8 @@ export const customersRouter = router({
         overdue90Plus,
         promisesKept: prom.kept,
         promisesBroken: prom.broken,
-        onHoldStatus: c.onHoldStatus,
+        // Per-company view: status lives at group level; neutral here.
+        onHoldStatus: "Normal",
         turnoverYtd: c.turnoverYtd != null ? Number(c.turnoverYtd) : null,
         turnoverLastYear: c.turnoverLastYear != null ? Number(c.turnoverLastYear) : null,
       });
@@ -541,7 +540,6 @@ export const customersRouter = router({
       }
       promisesByCustomer.set(p.customerId, e);
     }
-    const HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
     const day90 = 90 * 24 * 60 * 60 * 1000;
     const teamById = new Map((await db.listTeamMembers(true)).map(m => [m.id, m]));
     const managerByGroup = new Map<string, { id: number; name: string } | null>();
@@ -559,7 +557,6 @@ export const customersRouter = router({
         overdue90Plus: number;
         promisesKept: number;
         promisesBroken: number;
-        worstHold: string;
         turnoverYtd: number;
         turnoverLastYear: number;
         collected: number;
@@ -572,7 +569,7 @@ export const customersRouter = router({
       const key = (c.customerGroup ?? "").trim() || c.name;
       let g = groups.get(key);
       if (!g) {
-        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set(), overdue90Plus: 0, promisesKept: 0, promisesBroken: 0, worstHold: "Active", turnoverYtd: 0, turnoverLastYear: 0, collected: 0, openPromiseDate: null, openPromiseId: null };
+        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set(), overdue90Plus: 0, promisesKept: 0, promisesBroken: 0, turnoverYtd: 0, turnoverLastYear: 0, collected: 0, openPromiseDate: null, openPromiseId: null };
         groups.set(key, g);
       }
       let gInv = groupInvoices.get(key);
@@ -597,7 +594,6 @@ export const customersRouter = router({
         g.openPromiseDate = opd;
         g.openPromiseId = openPromiseIdByCustomer.get(c.id) ?? null;
       }
-      if ((HOLD_SEVERITY[c.onHoldStatus] ?? 0) > (HOLD_SEVERITY[g.worstHold] ?? 0)) g.worstHold = c.onHoldStatus;
       for (const inv of byCustomer.get(c.id) ?? []) {
         if (!isOpenInvoice(inv)) continue;
         gInv.push(inv);
@@ -616,6 +612,18 @@ export const customersRouter = router({
     return Array.from(groups.values())
       .map(g => {
         const beh = groupBehavior.get(g.group);
+        const forecastExpected = forecastByGroup.get(g.group) ?? 0;
+        // Business rule: problematic when the month's forecast covers < 80% of what will be overdue by EOM.
+        const hasForecast = forecastByGroup.has(g.group);
+        const forecastForRule = hasForecast ? forecastExpected : 0;
+        const autoProblematic = g.overdueEomBalance > 0 && forecastForRule < 0.8 * g.overdueEomBalance;
+        // Unified workflow: Normal → Problematic → Under Review → On Hold → Legal.
+        const row = watchByGroup.get(g.group) ?? null;
+        const resolved = resolveGroupStatus(row, autoProblematic);
+        const watchStatus = resolved.status;
+        const watchOverride = row && row.status !== "Auto" ? normalizeStoredStatus(row.status) : null;
+        const problematic = watchStatus === "Problematic";
+        // Rating uses the group's unified account status (companies inherit it).
         const ratingResult = computeCreditRating({
           daysLate: beh?.medianDaysLate ?? beh?.avgDaysLate ?? null,
           openBalance: g.openBalance,
@@ -623,22 +631,11 @@ export const customersRouter = router({
           overdue90Plus: g.overdue90Plus,
           promisesKept: g.promisesKept,
           promisesBroken: g.promisesBroken,
-          onHoldStatus: g.worstHold,
+          onHoldStatus: watchStatus,
           turnoverYtd: g.turnoverYtd,
           turnoverLastYear: g.turnoverLastYear,
         });
-        const forecastExpected = forecastByGroup.get(g.group) ?? 0;
-        // Business rule: problematic when the month's forecast covers < 80% of what will be overdue by EOM.
-        const hasForecast = forecastByGroup.has(g.group);
-        const forecastForRule = hasForecast ? forecastExpected : 0;
-        const autoProblematic = g.overdueEomBalance > 0 && forecastForRule < 0.8 * g.overdueEomBalance;
-        // Unified workflow: Normal → Problematic → Critical (auto after 30 days) → Legal / Resolved.
-        const row = watchByGroup.get(g.group) ?? null;
-        const resolved = resolveGroupStatus(row, autoProblematic);
-        const watchStatus = resolved.status;
-        const watchOverride = row && row.status !== "Auto" ? (row.status === "On Watch" ? "Problematic" : row.status) : null;
-        const problematic = watchStatus === "Problematic" || watchStatus === "Critical";
-        const { overdue90Plus, promisesKept, promisesBroken, worstHold, turnoverYtd, turnoverLastYear, collected, openPromiseDate, openPromiseId, ...rest } = g;
+        const { overdue90Plus, promisesKept, promisesBroken, turnoverYtd, turnoverLastYear, collected, openPromiseDate, openPromiseId, ...rest } = g;
         const confirmation = confirmationByGroup.get(g.group);
         const aging = computeAging(groupInvoices.get(g.group) ?? [], now);
         // Expected to Collect: live estimate driven by log calls.
@@ -745,23 +742,22 @@ export const customersRouter = router({
       followUpTs: number | null;
       turnoverYtd: number;
       turnoverLastYear: number;
-      worstHold: string;
+      // (per-company on-hold removed — unified status is resolved per group below)
       contacts: { name: string; phone: string | null; email: string | null; contactPerson: string | null }[];
       memberIds: number[];
     };
-    const HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
+
     const aggs = new Map<string, Agg>();
     for (const c of customers) {
       const key = groupKeyOf(c);
       let g = aggs.get(key);
       if (!g) {
-        g = { group: key, openBalance: 0, overdueBalance: 0, overdueEom: 0, overdue6190: 0, overdue90Plus: 0, overdueCount: 0, promisesKept: 0, promisesBroken: 0, promisesOverduePending: 0, pendingPromiseAmount: 0, lastPaymentTs: null, followUpTs: null, turnoverYtd: 0, turnoverLastYear: 0, worstHold: "Active", contacts: [], memberIds: [] };
+        g = { group: key, openBalance: 0, overdueBalance: 0, overdueEom: 0, overdue6190: 0, overdue90Plus: 0, overdueCount: 0, promisesKept: 0, promisesBroken: 0, promisesOverduePending: 0, pendingPromiseAmount: 0, lastPaymentTs: null, followUpTs: null, turnoverYtd: 0, turnoverLastYear: 0, contacts: [], memberIds: [] };
         aggs.set(key, g);
       }
       g.memberIds.push(c.id);
       g.turnoverYtd += c.turnoverYtd ? Number(c.turnoverYtd) : 0;
       g.turnoverLastYear += c.turnoverLastYear ? Number(c.turnoverLastYear) : 0;
-      if ((HOLD_SEVERITY[c.onHoldStatus] ?? 0) > (HOLD_SEVERITY[g.worstHold] ?? 0)) g.worstHold = c.onHoldStatus;
       if (c.phone || c.email || c.contactPerson) {
         g.contacts.push({ name: c.name, phone: c.phone, email: c.email, contactPerson: c.contactPerson });
       }
@@ -813,17 +809,6 @@ export const customersRouter = router({
       .filter(g => g.overdueBalance > 0.005)
       .map(g => {
         const beh = groupBehavior.get(g.group);
-        const rating = computeCreditRating({
-          daysLate: beh?.medianDaysLate ?? beh?.avgDaysLate ?? null,
-          openBalance: g.openBalance,
-          overdueBalance: g.overdueBalance,
-          overdue90Plus: g.overdue90Plus,
-          promisesKept: g.promisesKept,
-          promisesBroken: g.promisesBroken,
-          onHoldStatus: g.worstHold,
-          turnoverYtd: g.turnoverYtd,
-          turnoverLastYear: g.turnoverLastYear,
-        });
         const expected = forecastByGroup.get(g.group) ?? 0;
         const coverage = forecastGroups.has(g.group) && g.overdueEom > 0 ? expected / g.overdueEom : null;
         const daysSinceLastPayment = g.lastPaymentTs !== null ? Math.floor((now - g.lastPaymentTs) / (24 * 60 * 60 * 1000)) : null;
@@ -831,6 +816,18 @@ export const customersRouter = router({
         const expectedForRule = forecastGroups.has(g.group) ? expected : 0;
         const autoProblematic = g.overdueEom > 0 && expectedForRule < 0.8 * g.overdueEom;
         const resolvedStatus = resolveGroupStatus(watchByGroupCl.get(g.group) ?? null, autoProblematic, now);
+        // Rating uses the group's unified account status.
+        const rating = computeCreditRating({
+          daysLate: beh?.medianDaysLate ?? beh?.avgDaysLate ?? null,
+          openBalance: g.openBalance,
+          overdueBalance: g.overdueBalance,
+          overdue90Plus: g.overdue90Plus,
+          promisesKept: g.promisesKept,
+          promisesBroken: g.promisesBroken,
+          onHoldStatus: resolvedStatus.status,
+          turnoverYtd: g.turnoverYtd,
+          turnoverLastYear: g.turnoverLastYear,
+        });
         const priority = computeCallPriority({
           overdueBalance: g.overdueBalance,
           overdue6190: g.overdue6190,
@@ -929,19 +926,6 @@ export const customersRouter = router({
       const eomTs = endOfCurrentMonth();
       const gOverdueEom = gOpen.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
       const memberPromises = (await db.listPromises()).filter(p => memberIds.has(p.customerId));
-      const HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
-      const worstHold = members.reduce((w, m) => ((HOLD_SEVERITY[m.onHoldStatus] ?? 0) > (HOLD_SEVERITY[w] ?? 0) ? m.onHoldStatus : w), "Active");
-      const ratingResult = computeCreditRating({
-        daysLate: groupBehavior?.medianDaysLate ?? groupBehavior?.avgDaysLate ?? null,
-        openBalance: gOpen.reduce((s, i) => s + outstanding(i), 0),
-        overdueBalance: gOverdue.reduce((s, i) => s + outstanding(i), 0),
-        overdue90Plus: gOverdue.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0),
-        promisesKept: memberPromises.filter(p => p.status === "Kept").length,
-        promisesBroken: memberPromises.filter(p => p.status === "Broken").length,
-        onHoldStatus: worstHold,
-        turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
-        turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
-      });
       const todayD = new Date();
       const forecastRows = await db.listForecastEntries(todayD.getUTCFullYear(), todayD.getUTCMonth() + 1);
       const groupForecast = forecastRows.filter(f => (f.customerGroup ?? "").trim() === input.group).reduce((s, f) => s + Number(f.expectedAmount), 0);
@@ -951,7 +935,19 @@ export const customersRouter = router({
       const watchRow = await db.getGroupWatchStatus(input.group).catch(() => null);
       const resolvedDetail = resolveGroupStatus(watchRow, problematic);
       const watchStatus = resolvedDetail.status;
-      const watchOverride = watchRow && watchRow.status !== "Auto" ? (watchRow.status === "On Watch" ? "Problematic" : watchRow.status) : null;
+      const watchOverride = watchRow && watchRow.status !== "Auto" ? normalizeStoredStatus(watchRow.status) : null;
+      // Rating uses the group's unified account status (companies inherit it).
+      const ratingResult = computeCreditRating({
+        daysLate: groupBehavior?.medianDaysLate ?? groupBehavior?.avgDaysLate ?? null,
+        openBalance: gOpen.reduce((s, i) => s + outstanding(i), 0),
+        overdueBalance: gOverdue.reduce((s, i) => s + outstanding(i), 0),
+        overdue90Plus: gOverdue.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0),
+        promisesKept: memberPromises.filter(p => p.status === "Kept").length,
+        promisesBroken: memberPromises.filter(p => p.status === "Broken").length,
+        onHoldStatus: watchStatus,
+        turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
+        turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
+      });
       const companies = members
         .map(m => {
           const mine = branchScoped.filter(i => i.customerId === m.id);
@@ -962,7 +958,8 @@ export const customersRouter = router({
             id: m.id,
             name: m.name,
             code: m.code,
-            onHoldStatus: m.onHoldStatus,
+            // Companies inherit the group's unified account status.
+            onHoldStatus: watchStatus,
             openBalance: mOpen.reduce((s, i) => s + outstanding(i), 0),
             overdueBalance: mOverdue.reduce((s, i) => s + outstanding(i), 0),
             invoiceCount: mOpen.length,
@@ -978,11 +975,8 @@ export const customersRouter = router({
       const customerNames = new Map(members.map(m => [m.id, m.name]));
       const allVesselRows = await db.listVessels();
       const vesselNameById = new Map(allVesselRows.map(v => [v.id, v.name]));
-      const DETAIL_HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
-      const groupHoldStatus = members.reduce(
-        (worst, m) => ((DETAIL_HOLD_SEVERITY[m.onHoldStatus] ?? 0) > (DETAIL_HOLD_SEVERITY[worst] ?? 0) ? m.onHoldStatus : worst),
-        "Active" as string,
-      );
+      // Unified: the group's account status IS the hold status (companies inherit it).
+      const groupHoldStatus = watchStatus;
       const activityLogs = await db.listActivityLog(input.group, 200).catch(() => []);
       // Month-aware: a confirmation from a previous month is stale → Not Contacted.
       const gConf = effectiveConfirmation(confirmation);
@@ -1198,10 +1192,10 @@ export const customersRouter = router({
     }),
   /** Manual watch-status override: Problematic forces the flag, Normal clears it, Auto follows the forecast rule. */
   setWatchStatus: protectedProcedure
-    .input(z.object({ group: z.string().min(1), status: z.enum(["Auto", "Normal", "Problematic", "Critical", "Legal", "Resolved"]) }))
+    .input(z.object({ group: z.string().min(1), status: z.enum(["Auto", "Normal", "Problematic", "Under Review", "On Hold", "Legal"]) }))
     .mutation(async ({ ctx, input }) => {
       await db.setGroupWatchStatus(input.group, input.status, ctx.user.id);
-      await audit(ctx, "Set Watch Status", "group", input.group, `Status → ${input.status}`);
+      await audit(ctx, "Set Account Status", "group", input.group, `Status → ${input.status}`);
       await db.createGroupNote({
         groupName: input.group,
         content: `Status changed to "${input.status === "Auto" ? "Auto (forecast rule)" : input.status}" by ${ctx.user.name ?? "user"}.`,
@@ -1232,7 +1226,6 @@ export const customersRouter = router({
     const behavior = allBehavior.filter(b => memberIds.has(b.customerId));
     const promises = allPromises.filter(p => memberIds.has(p.customerId));
     const pendingTasks = allTasks.filter(t => memberIds.has(t.customerId) && (t.status === "Pending" || t.status === "In Progress"));
-    const onHold = members.filter(m => m.onHoldStatus !== "Active");
     // Current-month forecast & collection status
     const todayD = new Date();
     const curYear = todayD.getUTCFullYear();
@@ -1282,7 +1275,6 @@ export const customersRouter = router({
       paymentBehavior: behavior.slice(0, 10).map(b => ({ company: names.get(b.customerId), avgDaysLate: b.avgDaysLate, medianDaysLate: b.medianDaysLate, payments: b.payments })),
       promises: promises.slice(0, 20).map(p => ({ company: names.get(p.customerId), amountEur: Number(p.amount), promisedDate: new Date(p.promisedDate).toISOString().slice(0, 10), status: p.status, notes: p.notes })),
       pendingTasks: pendingTasks.slice(0, 20).map(t => ({ company: names.get(t.customerId), type: t.type, title: t.title, dueDate: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : null })),
-      onHoldStatuses: onHold.map(m => ({ company: m.name, status: m.onHoldStatus })),
       recentNotes: notes.slice(0, 10).map(n => ({ date: new Date(n.createdAt).toISOString().slice(0, 10), content: n.content })),
     };
     const response = await invokeLLM({
@@ -1322,17 +1314,6 @@ export const customersRouter = router({
     const openInv = invoices.filter(isOpenInvoice);
     const overdueInv = openInv.filter(i => now > i.dueDate);
     const behaviorRow = await db.getPaymentBehavior(input.id).catch(() => null);
-    const ratingResult = computeCreditRating({
-      daysLate: behaviorRow?.medianDaysLate ?? behaviorRow?.avgDaysLate ?? null,
-      openBalance: openInv.reduce((s, i) => s + outstanding(i), 0),
-      overdueBalance: overdueInv.reduce((s, i) => s + outstanding(i), 0),
-      overdue90Plus: overdueInv.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0),
-      promisesKept: promises.filter(p => p.status === "Kept").length,
-      promisesBroken: promises.filter(p => p.status === "Broken").length,
-      onHoldStatus: customer.onHoldStatus,
-      turnoverYtd: customer.turnoverYtd != null ? Number(customer.turnoverYtd) : null,
-      turnoverLastYear: customer.turnoverLastYear != null ? Number(customer.turnoverLastYear) : null,
-    });
     // Group-level watch status & forecast coverage (customer belongs to a group; watch status lives on the group)
     const groupKey = (customer.customerGroup ?? "").trim() || customer.name;
     const eomTs = endOfCurrentMonth();
@@ -1353,7 +1334,19 @@ export const customersRouter = router({
     const autoProblematic = groupOverdueEom > 0 && forecastForRule < 0.8 * groupOverdueEom;
     const resolvedCd = resolveGroupStatus(watchRow, autoProblematic);
     const watchStatus = resolvedCd.status;
-    const watchOverride = watchRow && watchRow.status !== "Auto" ? (watchRow.status === "On Watch" ? "Problematic" : watchRow.status) : null;
+    const watchOverride = watchRow && watchRow.status !== "Auto" ? normalizeStoredStatus(watchRow.status) : null;
+    // Rating uses the group's unified account status (the company inherits it).
+    const ratingResult = computeCreditRating({
+      daysLate: behaviorRow?.medianDaysLate ?? behaviorRow?.avgDaysLate ?? null,
+      openBalance: openInv.reduce((s, i) => s + outstanding(i), 0),
+      overdueBalance: overdueInv.reduce((s, i) => s + outstanding(i), 0),
+      overdue90Plus: overdueInv.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0),
+      promisesKept: promises.filter(p => p.status === "Kept").length,
+      promisesBroken: promises.filter(p => p.status === "Broken").length,
+      onHoldStatus: watchStatus,
+      turnoverYtd: customer.turnoverYtd != null ? Number(customer.turnoverYtd) : null,
+      turnoverLastYear: customer.turnoverLastYear != null ? Number(customer.turnoverLastYear) : null,
+    });
     const vesselRows360 = await db.listVessels();
     const vesselName360 = new Map(vesselRows360.map(v => [v.id, v.name]));
     const team360 = await db.listTeamMembers(true);
@@ -2415,69 +2408,6 @@ export const teamRouter = router({
   }),
 });
 
-export const onHoldRouter = router({
-  list: protectedProcedure.query(async () => {
-    const rows = await db.listOnHoldProposals();
-    const customers = await db.listCustomers();
-    const byId = new Map(customers.map(c => [c.id, c]));
-    return rows.map(p => ({ ...p, customerName: byId.get(p.customerId)?.name ?? "—", customerTier: byId.get(p.customerId)?.tier ?? "New" }));
-  }),
-  /** Collections Manager (Credit Controller) submits a proposal with auto-aggregated supporting data. */
-  submit: protectedProcedure
-    .input(z.object({ customerId: z.number(), reason: z.string().min(1) }))
-    .mutation(async ({ ctx, input }) => {
-      const role = await getAppRole(ctx.user.id);
-      requireRole(role, ["Administrator", "Credit Controller"]);
-      const invoices = await db.listInvoices({ customerId: input.customerId });
-      const now = Date.now();
-      const overdue = invoices.filter(i => isOpenInvoice(i) && now > i.dueDate);
-      if (overdue.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Customer has no overdue invoices" });
-      const totalOverdue = overdue.reduce((s, i) => s + outstanding(i), 0);
-      const oldestDays = Math.max(...overdue.map(i => daysOverdue(i.dueDate, now)));
-      const supporting = overdue.map(i => ({
-        invoiceNumber: i.invoiceNumber,
-        dueDate: new Date(i.dueDate).toISOString().slice(0, 10),
-        outstanding: outstanding(i).toFixed(2),
-        daysOverdue: daysOverdue(i.dueDate, now),
-      }));
-      const id = await db.createOnHoldProposal({
-        customerId: input.customerId,
-        reason: input.reason,
-        totalOverdue: eur(totalOverdue),
-        overdueInvoiceCount: overdue.length,
-        oldestOverdueDays: oldestDays,
-        supportingData: JSON.stringify(supporting),
-        submittedBy: ctx.user.id,
-      });
-      await db.updateCustomer(input.customerId, { onHoldStatus: "Under Review" });
-      await audit(ctx, "Submit On-Hold Proposal", "onHoldProposal", id, `Customer #${input.customerId}, €${eur(totalOverdue)} overdue across ${overdue.length} invoice(s)`);
-      return { id };
-    }),
-  /** Management approves/rejects and advances workflow: Under Review → Eligible for On Hold → On Hold → Legal. */
-  transition: protectedProcedure
-    .input(z.object({ id: z.number(), to: z.enum(onHoldStatuses), notes: z.string().optional() }))
-    .mutation(async ({ ctx, input }) => {
-      const role = await getAppRole(ctx.user.id);
-      requireRole(role, ["Administrator", "Management"]);
-      const proposal = await db.getOnHoldProposal(input.id);
-      if (!proposal) throw new TRPCError({ code: "NOT_FOUND" });
-      if (!canTransitionOnHold(proposal.status, input.to)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Invalid transition from "${proposal.status}" to "${input.to}"` });
-      }
-      await db.updateOnHoldProposal(input.id, {
-        status: input.to,
-        decidedBy: ctx.user.id,
-        decisionNotes: input.notes,
-        decidedAt: Date.now(),
-      });
-      const customerStatus =
-        input.to === "Rejected" || input.to === "Resolved" ? "Active" : (input.to as any);
-      await db.updateCustomer(proposal.customerId, { onHoldStatus: customerStatus });
-      await audit(ctx, `On-Hold: ${proposal.status} → ${input.to}`, "onHoldProposal", input.id, input.notes);
-      return { success: true };
-    }),
-});
-
 export const forecastRouter = router({
   /** Dashboard KPIs + 6-month forecast. */
   dashboard: protectedProcedure.query(async () => {
@@ -2486,13 +2416,12 @@ export const forecastRouter = router({
     const year = nowDate.getUTCFullYear();
     const month = nowDate.getUTCMonth() + 1;
     const { start, end } = monthRange(year, month);
-    const [invoices, installments, forecastTarget, receiptsCollected, tasksPending, proposals, dashMonthWires] = await Promise.all([
+    const [invoices, installments, forecastTarget, receiptsCollected, tasksPending, dashMonthWires] = await Promise.all([
       db.listInvoices(),
       db.listInstallments(),
       db.sumForecastExpected(year, month),
       db.sumReceiptsInRange(start, end),
       db.listTasks({ statuses: ["Pending", "In Progress"] }),
-      db.listOnHoldProposals(),
       db.listReceivedWireTransfersInRange(start, end).catch(() => []),
     ]);
     const collectedThisMonth = receiptsCollected + dashMonthWires.reduce((s, w) => s + Number(w.amount), 0);
@@ -2502,14 +2431,10 @@ export const forecastRouter = router({
     const dso = computeDso(arBalance, last90Sales, 90);
     const forecast = buildForecast(invoices, installments, now, 6);
     const escalations = tasksPending.filter(t => t.type === "Escalation +30").length;
-    const underReview = proposals.filter(p => p.status === "Under Review" || p.status === "Eligible for On Hold").length;
     const watchRowsDash = await db.listGroupWatchStatuses().catch(() => []);
-    const dayMs = 24 * 60 * 60 * 1000;
-    const criticalGroups = watchRowsDash.filter(
-      w =>
-        w.status === "Critical" ||
-        (w.status === "Problematic" && w.problematicSince != null && now - w.problematicSince >= 30 * dayMs)
-    ).length;
+    const underReview = watchRowsDash.filter(w => w.status === "Under Review").length;
+    const onHoldGroups = watchRowsDash.filter(w => w.status === "On Hold" || w.status === "Legal").length;
+    const problematicGroups = watchRowsDash.filter(w => w.status === "Problematic").length;
     return {
       year,
       month,
@@ -2524,7 +2449,8 @@ export const forecastRouter = router({
       pendingTasks: tasksPending.length,
       escalations,
       onHoldPending: underReview,
-      criticalGroups,
+      onHoldGroups,
+      problematicGroups,
     };
   }),
   plans: protectedProcedure.query(async () => {

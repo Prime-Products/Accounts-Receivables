@@ -20,7 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
+import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
@@ -774,7 +774,6 @@ export default function GroupDetail() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Company</TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead className="text-right">Behavior</TableHead>
                     <TableHead className="text-right">Open Balance</TableHead>
                     <TableHead className="text-right">Overdue</TableHead>
@@ -790,15 +789,6 @@ export default function GroupDetail() {
                       onClick={() => setCompanyId(String(c.id) === companyId ? "all" : String(c.id))}
                     >
                       <TableCell className="font-medium">{c.name}</TableCell>
-                      <TableCell>
-                        {c.onHoldStatus && c.onHoldStatus !== "Active" ? (
-                          <Badge variant="outline" className={onHoldStatusColors[c.onHoldStatus] ?? ""}>
-                            {c.onHoldStatus}
-                          </Badge>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
                       <TableCell className="text-right">
                         {c.medianDaysLate !== null ? (
                           <span

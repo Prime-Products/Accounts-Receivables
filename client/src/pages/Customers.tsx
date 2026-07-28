@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fmtEur, onHoldStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
+import { fmtEur, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -259,7 +259,10 @@ export default function Customers() {
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    const p = new URLSearchParams(window.location.search).get("status");
+    return p && ["problematic", "under-review", "on-hold", "legal", "normal"].includes(p) ? p : "all";
+  });
   const [ratingFilter, setRatingFilter] = useState<string>("all");
   const [confirmationFilter, setConfirmationFilter] = useState<string>("all");
   const [managerFilter, setManagerFilter] = useState<string>("all");
@@ -345,9 +348,9 @@ export default function Customers() {
       const matchesStatus =
         statusFilter === "all" ||
         (statusFilter === "problematic" && g.watchStatus === "Problematic") ||
-        (statusFilter === "critical" && g.watchStatus === "Critical") ||
+        (statusFilter === "under-review" && g.watchStatus === "Under Review") ||
+        (statusFilter === "on-hold" && g.watchStatus === "On Hold") ||
         (statusFilter === "legal" && g.watchStatus === "Legal") ||
-        (statusFilter === "resolved" && g.watchStatus === "Resolved") ||
         (statusFilter === "normal" && !g.watchStatus);
       const matchesRating = ratingFilter === "all" || g.rating === ratingFilter;
       const matchesConfirmation =
@@ -575,9 +578,9 @@ export default function Customers() {
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
                 <SelectItem value="problematic">Problematic</SelectItem>
-                <SelectItem value="critical">Critical</SelectItem>
+                <SelectItem value="under-review">Under Review</SelectItem>
+                <SelectItem value="on-hold">On Hold</SelectItem>
                 <SelectItem value="legal">Legal</SelectItem>
-                <SelectItem value="resolved">Resolved</SelectItem>
                 <SelectItem value="normal">Normal</SelectItem>
               </SelectContent>
             </Select>
@@ -771,23 +774,23 @@ export default function Customers() {
                       <TableCell className="font-medium max-w-72">
                         <div className="flex items-center gap-1.5">
                           <div className="truncate" title={g.group}>{g.group}</div>
-                          {g.watchStatus && g.watchStatus !== "Resolved" && (
+                          {g.watchStatus && (
                             <span
                               className={`inline-flex items-center justify-center h-4 w-4 rounded-full text-[10px] font-bold shrink-0 ${
-                                g.watchStatus === "Critical"
-                                  ? "bg-red-600 text-white"
-                                  : g.watchStatus === "Legal"
-                                    ? "bg-purple-100 text-purple-700"
-                                    : "bg-red-100 text-red-700"
+                                g.watchStatus === "On Hold"
+                                  ? "bg-orange-500 text-white"
+                                  : g.watchStatus === "Under Review"
+                                    ? "bg-amber-100 text-amber-800"
+                                    : g.watchStatus === "Legal"
+                                      ? "bg-purple-100 text-purple-700"
+                                      : "bg-red-100 text-red-700"
                               }`}
                               title={
-                                g.watchStatus === "Critical"
-                                  ? "Critical: Problematic for 30+ consecutive days — discuss on-hold / escalation"
-                                  : g.watchStatus === "Legal"
-                                    ? "Legal"
-                                    : g.watchOverride
-                                      ? "Problematic (manually set)"
-                                      : "Problematic: Forecast covers less than 80% of overdue end-of-month"
+                                g.watchStatus === "Problematic"
+                                  ? g.watchOverride
+                                    ? "Problematic (manually set)"
+                                    : "Problematic: Forecast covers less than 80% of overdue end-of-month"
+                                  : g.watchStatus
                               }
                             >
                               {g.watchStatus.charAt(0)}
@@ -886,7 +889,6 @@ export default function Customers() {
                 <TableRow>
                   <TableHead>Code</TableHead>
                   <TableHead>Name</TableHead>
-                  <TableHead>Status</TableHead>
                   <SortableHead label="Open Balance" active={companySort.key === "open"} dir={companySort.dir} onClick={() => toggleCompanySort("open")} />
                   <SortableHead label="Overdue" active={companySort.key === "overdue"} dir={companySort.dir} onClick={() => toggleCompanySort("overdue")} />
                   <SortableHead label="Overdue EOM" active={companySort.key === "overdueEom"} dir={companySort.dir} onClick={() => toggleCompanySort("overdueEom")} />
@@ -917,15 +919,6 @@ export default function Customers() {
                       >
                         {c.rating}
                       </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {c.onHoldStatus !== "Active" ? (
-                        <Badge variant="outline" className={onHoldStatusColors[c.onHoldStatus] ?? ""}>
-                          {c.onHoldStatus}
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
                     </TableCell>
                     <TableCell className="text-right font-mono">{fmtEur(c.openBalance)}</TableCell>
                     <TableCell className={`text-right font-mono ${c.overdueBalance > 0 ? "text-red-600 font-semibold" : ""}`}>

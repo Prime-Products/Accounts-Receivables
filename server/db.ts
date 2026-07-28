@@ -20,13 +20,11 @@ import {
   InsertForecastEntry,
   InsertGroupConfirmationStatus,
   InsertInvoice,
-  InsertOnHoldProposal,
   InsertPaymentContact,
   InsertReceipt,
   InsertTask,
   InsertUser,
   invoices,
-  onHoldProposals,
   paymentBehavior,
   paymentContacts,
   promisesToPay,
@@ -391,28 +389,6 @@ export async function findTaskByContractAndType(contractId: number, type: string
   return r[0];
 }
 
-// ---------- On-Hold proposals ----------
-export async function listOnHoldProposals() {
-  const db = await requireDb();
-  return db.select().from(onHoldProposals).orderBy(desc(onHoldProposals.createdAt));
-}
-
-export async function getOnHoldProposal(id: number) {
-  const db = await requireDb();
-  const r = await db.select().from(onHoldProposals).where(eq(onHoldProposals.id, id)).limit(1);
-  return r[0];
-}
-
-export async function createOnHoldProposal(data: InsertOnHoldProposal) {
-  const db = await requireDb();
-  const res = await db.insert(onHoldProposals).values(data);
-  return Number((res as any)[0].insertId);
-}
-
-export async function updateOnHoldProposal(id: number, data: Partial<InsertOnHoldProposal>) {
-  const db = await requireDb();
-  await db.update(onHoldProposals).set(data).where(eq(onHoldProposals.id, id));
-}
 
 // ---------- Collection plans & promises ----------
 export async function getPlan(year: number, month: number) {
@@ -621,11 +597,11 @@ export async function getGroupWatchStatus(groupName: string) {
 }
 export async function setGroupWatchStatus(
   groupName: string,
-  status: "Auto" | "Problematic" | "Normal" | "Critical" | "Legal" | "Resolved",
+  status: "Auto" | "Problematic" | "Normal" | "Under Review" | "On Hold" | "Legal",
   updatedBy: number | null,
 ) {
   const db = await requireDb();
-  // Manual "Problematic" starts the 30-day escalation clock; any other manual status stops it.
+  // Track when the group became Problematic (display only); other statuses clear it.
   const problematicSince = status === "Problematic" ? Date.now() : null;
   await db
     .insert(groupWatchStatus)

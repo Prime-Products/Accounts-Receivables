@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   agingBucket,
   buildForecast,
-  canTransitionOnHold,
   computeAging,
   computeDso,
   daysOverdue,
@@ -61,23 +60,6 @@ describe("SOP task offsets (+2, +15, +20, +30)", () => {
   it("returns none before +2 days", () => {
     const due = NOW - 1 * DAY_MS;
     expect(dueSopOffsets(due, NOW)).toHaveLength(0);
-  });
-});
-
-describe("on-hold workflow transitions", () => {
-  it("follows Under Review → Eligible for On Hold → On Hold → Legal", () => {
-    expect(canTransitionOnHold("Under Review", "Eligible for On Hold")).toBe(true);
-    expect(canTransitionOnHold("Eligible for On Hold", "On Hold")).toBe(true);
-    expect(canTransitionOnHold("On Hold", "Legal")).toBe(true);
-  });
-  it("rejects skipping stages", () => {
-    expect(canTransitionOnHold("Under Review", "On Hold")).toBe(false);
-    expect(canTransitionOnHold("Under Review", "Legal")).toBe(false);
-    expect(canTransitionOnHold("Legal", "Under Review")).toBe(false);
-  });
-  it("allows rejection and resolution", () => {
-    expect(canTransitionOnHold("Under Review", "Rejected")).toBe(true);
-    expect(canTransitionOnHold("On Hold", "Resolved")).toBe(true);
   });
 });
 
