@@ -826,3 +826,13 @@
 - [x] Invoices page: filter for contract installments; bulk upload dialog to mark from Excel
 - [x] Dashboard: overdue contract installments surfaced distinctly (4th card, links to /invoices?contract=overdue)
 - [x] Tests (3 new contract installment tests, 194 total), verify, checkpoint
+## Vessel inline dialog (user request 28/7)
+- [x] Reusable VesselDetailDialog: vessel info, KPIs (open balance, overdue, invoiced, paid), invoices list — same content as vessel detail page
+- [x] Vessels page: clicking a vessel opens the dialog instead of navigating to /vessels/:id (supports ?vessel=id param)
+- [x] Vessel badges elsewhere (InvoicesTable) open the dialog inline instead of navigating
+- [x] Verify visually (screenshot of /vessels?vessel=150001 shows modal with info, KPIs, invoices)
+- [x] Resolve/confirm the 1 failing vitest before checkpoint (confirmationStatus parallel-run flake; passes in isolation 31/31)
+## Contract installment demo samples (user request 28/7)
+- [x] Mark a few sample invoices as contract installments in the DB (6 demo invoices: mix Open/Overdue, 3 vessels)
+- [x] Verify visuals: contract icon on rows, Invoices filter (6 shown), Dashboard card (5 overdue · €2,878)
+- [ ] Checkpoint & deliver

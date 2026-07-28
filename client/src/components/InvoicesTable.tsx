@@ -8,9 +8,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, FileSignature, Ship, Undo2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Link } from "wouter";
+
+// Lazy import to break the circular dependency (VesselDetailDialog renders InvoicesTable).
+const VesselDetailDialog = lazy(() =>
+  import("@/components/VesselDetailDialog").then(m => ({ default: m.VesselDetailDialog })),
+);
 
 /** The unified invoice row shape shared by invoices.list, groupDetail and get360. */
 export interface InvoiceRowData {
@@ -69,16 +73,21 @@ export function InvoicesTable({
   rows,
   showCustomer = true,
   onDisputeChanged,
+  disableVesselDialog = false,
 }: {
   rows: InvoiceRowData[];
   /** Show the Customer column (hidden on the single-customer card). */
   showCustomer?: boolean;
   /** Called after a dispute change so the parent can refresh its own query. */
   onDisputeChanged?: () => void;
+  /** Disable the inline vessel dialog (used inside VesselDetailDialog to avoid nesting). */
+  disableVesselDialog?: boolean;
 }) {
   const utils = trpc.useUtils();
   const [dispTarget, setDispTarget] = useState<{ id: number; invoiceNumber: string } | null>(null);
   const [dispReason, setDispReason] = useState("");
+  const [vesselDialogId, setVesselDialogId] = useState<number | null>(null);
+  const [vesselDialogOpen, setVesselDialogOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const markDisputed = trpc.invoices.markDisputed.useMutation({
@@ -178,13 +187,13 @@ export function InvoicesTable({
               )}
               <TableCell className="max-w-28">
                 {i.vesselName ? (
-                  i.vesselId ? (
-                    <Link href={`/vessels/${i.vesselId}`}>
+                  i.vesselId && !disableVesselDialog ? (
+                    <button type="button" onClick={() => { setVesselDialogId(i.vesselId!); setVesselDialogOpen(true); }} className="max-w-full">
                       <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-24 cursor-pointer hover:bg-sky-100 transition-colors" title={`View vessel: ${i.vesselName}`}>
                         <Ship className="h-3 w-3 shrink-0" />
                         <span className="truncate">{i.vesselName}</span>
                       </Badge>
-                    </Link>
+                    </button>
                   ) : (
                     <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-24" title={`Vessel: ${i.vesselName}`}>
                       <Ship className="h-3 w-3 shrink-0" />
@@ -298,6 +307,16 @@ export function InvoicesTable({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {!disableVesselDialog && vesselDialogId != null && (
+        <Suspense fallback={null}>
+          <VesselDetailDialog
+            vesselId={vesselDialogId}
+            open={vesselDialogOpen}
+            onOpenChange={setVesselDialogOpen}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

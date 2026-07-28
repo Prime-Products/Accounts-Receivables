@@ -2,11 +2,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { VesselDetailDialog } from "@/components/VesselDetailDialog";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowDown, ArrowUp, ArrowUpDown, Ship } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link } from "wouter";
 
 type SortKey = "name" | "ownerGroup" | "vesselType" | "flag" | "openBalance" | "overdueAmount" | "invoiceCount";
 
@@ -15,6 +15,17 @@ export default function Vessels() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("openBalance");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [dialogVesselId, setDialogVesselId] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const v = new URLSearchParams(window.location.search).get("vessel");
+    const n = v ? Number(v) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  });
+  const [dialogOpen, setDialogOpen] = useState(dialogVesselId != null);
+  const openVessel = (id: number) => {
+    setDialogVesselId(id);
+    setDialogOpen(true);
+  };
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -142,13 +153,15 @@ export default function Vessels() {
                 {filtered.map(v => (
                   <TableRow key={v.id}>
                     <TableCell className="font-medium">
-                      <Link
-                        href={`/vessels/${v.id}`}
+                      <button
+                        type="button"
+                        onClick={() => openVessel(v.id)}
                         className="inline-flex items-center gap-1.5 text-sky-700 hover:underline underline-offset-2"
+                        title={`View vessel: ${v.name}`}
                       >
                         <Ship className="h-3.5 w-3.5 shrink-0" />
                         {v.name}
-                      </Link>
+                      </button>
                     </TableCell>
                     <TableCell className="font-mono text-sm text-muted-foreground">{v.imo || "—"}</TableCell>
                     <TableCell className="text-sm">{v.vesselType || "—"}</TableCell>
@@ -178,6 +191,12 @@ export default function Vessels() {
           )}
         </CardContent>
       </Card>
+
+      <VesselDetailDialog
+        vesselId={dialogVesselId}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+      />
     </div>
   );
 }
