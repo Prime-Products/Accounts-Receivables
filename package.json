@@ -10,7 +10,9 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "test:softone-sql": "tsx scripts/test-softone-sql.ts",
+    "sync:softone-customers": "tsx scripts/sync-softone-customers.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
@@ -62,6 +64,8 @@
     "input-otp": "^1.4.2",
     "jose": "6.1.0",
     "lucide-react": "^0.453.0",
+    "msnodesqlv8": "5.2.3",
+    "mssql": "12.7.0",
     "mysql2": "^3.15.0",
     "nanoid": "^5.1.5",
     "next-themes": "^0.4.6",
@@ -89,6 +93,7 @@
     "@types/compression": "^1.8.1",
     "@types/express": "4.17.21",
     "@types/google.maps": "^3.58.1",
+    "@types/mssql": "9.1.8",
     "@types/node": "^24.7.0",
     "@types/pdfkit": "^0.17.6",
     "@types/react": "^19.2.1",

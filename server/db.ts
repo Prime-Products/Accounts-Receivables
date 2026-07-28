@@ -238,6 +238,41 @@ export async function updateCustomer(id: number, data: Partial<InsertCustomer>) 
   invalidateCache("customers:");
 }
 
+export async function upsertSoftOneCustomers(records: InsertCustomer[]) {
+  const database = await requireDb();
+  const batchSize = 250;
+
+  await database.transaction(async tx => {
+    for (let index = 0; index < records.length; index += batchSize) {
+      const batch = records.slice(index, index + batchSize);
+      await tx
+        .insert(customers)
+        .values(batch)
+        .onDuplicateKeyUpdate({
+          set: {
+            name: sql`VALUES(${customers.name})`,
+            customerGroup: sql`VALUES(${customers.customerGroup})`,
+            masterSoftoneId: sql`VALUES(${customers.masterSoftoneId})`,
+            turnoverYtd: sql`VALUES(${customers.turnoverYtd})`,
+            turnoverLastYear: sql`VALUES(${customers.turnoverLastYear})`,
+            turnoverTwoYearsAgo: sql`VALUES(${customers.turnoverTwoYearsAgo})`,
+            balance: sql`VALUES(${customers.balance})`,
+            uncovered: sql`VALUES(${customers.uncovered})`,
+            unpaid: sql`VALUES(${customers.unpaid})`,
+            overdue: sql`VALUES(${customers.overdue})`,
+            overdueEndOfMonth: sql`VALUES(${customers.overdueEndOfMonth})`,
+            averageOverdueDays: sql`VALUES(${customers.averageOverdueDays})`,
+            openOrders: sql`VALUES(${customers.openOrders})`,
+            ordersAmount: sql`VALUES(${customers.ordersAmount})`,
+            collections: sql`VALUES(${customers.collections})`,
+            softoneId: sql`VALUES(${customers.softoneId})`,
+            softoneSyncedAt: sql`VALUES(${customers.softoneSyncedAt})`,
+          },
+        });
+    }
+  });
+}
+
 // ---------- Invoices ----------
 export async function listInvoices(filter?: { customerId?: number; statuses?: string[] }) {
   const cacheable = !filter?.customerId && (!filter?.statuses || filter.statuses.length === 0);
