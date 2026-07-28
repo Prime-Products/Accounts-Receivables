@@ -1,0 +1,50 @@
+import { describe, expect, it } from "vitest";
+import {
+  normalizeSoftOneCustomerRows,
+  softOneCustomersQuery,
+} from "./lib/softoneSql";
+
+const sourceRow = {
+  TRDR: 101,
+  MASTERTRDR: 100,
+  TRDGROUP: 10,
+  NAME: " Customer A ",
+  LBAL: "120.50",
+  LTURNOVR: 500,
+  LTURNOVRLY: 450,
+  LTURNOVRLYLY: 400,
+  Uncovered: null,
+  Unpaid: 12,
+  Overdue: 30,
+  OVERDUEMONTHVAL: 42,
+  DAYSAVG: 8.5,
+  OpenOrders: 2,
+  OrdersAmount: 80,
+  Collections: 75,
+};
+
+describe("SoftOne read-only SQL sync", () => {
+  it("normalizes the approved CustomerGroupFinData fields", () => {
+    const [record] = normalizeSoftOneCustomerRows([sourceRow], new Date("2026-07-28T00:00:00Z"));
+    expect(record).toMatchObject({
+      code: "101",
+      name: "Customer A",
+      softoneId: "101",
+      masterSoftoneId: "100",
+      customerGroup: "10",
+      balance: "120.5000",
+      collections: "75.0000",
+    });
+  });
+
+  it("rejects duplicate identifiers and malformed values", () => {
+    expect(() => normalizeSoftOneCustomerRows([sourceRow, sourceRow])).toThrow(/duplicate TRDR/);
+    expect(() => normalizeSoftOneCustomerRows([{ ...sourceRow, LBAL: "bad" }])).toThrow(/LBAL/);
+  });
+
+  it("keeps NAME last for the production unixODBC driver", () => {
+    expect(softOneCustomersQuery.indexOf("CAST([NAME]")).toBeGreaterThan(
+      softOneCustomersQuery.indexOf("[Collections]"),
+    );
+  });
+});
