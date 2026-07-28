@@ -153,7 +153,12 @@ export async function syncSoftOneCustomers() {
   } catch (error) {
     throw new Error(classifySoftOneSqlError(error));
   } finally {
-    await pool?.close().catch(() => undefined);
+    if (pool) {
+      await Promise.race([
+        pool.close().catch(() => undefined),
+        new Promise<void>(resolve => setTimeout(resolve, 5_000)),
+      ]);
+    }
   }
 }
 
