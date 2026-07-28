@@ -835,4 +835,9 @@
 ## Contract installment demo samples (user request 28/7)
 - [x] Mark a few sample invoices as contract installments in the DB (6 demo invoices: mix Open/Overdue, 3 vessels)
 - [x] Verify visuals: contract icon on rows, Invoices filter (6 shown), Dashboard card (5 overdue · €2,878)
-- [ ] Checkpoint & deliver
+- [x] Checkpoint & deliver (51bc1c9d)
+## Group/Customer card invoice filters (user request 28/7)
+- [x] Group card: add Status filter (All statuses / Open / Overdue / ...) on the invoices table
+- [x] Customer card: add the same Status filter on the invoices table
+- [x] Remove the aging-grouping filter (All invoices / Overdue any / 60+ / 120+) from both cards (aging bucket cards remain, still clickable on group card)
+- [x] Verify visually (both cards show "All statuses" dropdown), tests pass (193; 2 known confirmationStatus parallel flakes pass in isolation), checkpoint & deliver

@@ -251,6 +251,7 @@ export default function GroupDetail() {
   const [companyId, setCompanyId] = useState<string>("all");
   const [branch, setBranch] = useState<string>("all");
   const [agingFilter, setAgingFilter] = useState<AgingBucket>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [companiesOpen, setCompaniesOpen] = useState(false);
   const [invoiceView, setInvoiceView] = useState<"list" | "byBranch">("list");
 
@@ -323,17 +324,20 @@ export default function GroupDetail() {
     return { buckets, current, currentCount };
   }, [data?.invoices]);
 
-  // Invoices matching the selected aging bucket — powers the list and totals row.
+  // Invoices matching the selected status + aging bucket — powers the list and totals row.
   const filteredInvoices = useMemo(() => {
     if (!data?.invoices) return [];
-    if (agingFilter === "all") return data.invoices;
     const now = Date.now();
     return data.invoices.filter(inv => {
-      if (inv.status === "Paid") return false;
-      if (Number(inv.amount) - Number(inv.paidAmount) <= 0) return false;
-      return bucketOf(inv.dueDate, now) === agingFilter;
+      if (statusFilter !== "all" && inv.status !== statusFilter) return false;
+      if (agingFilter !== "all") {
+        if (inv.status === "Paid") return false;
+        if (Number(inv.amount) - Number(inv.paidAmount) <= 0) return false;
+        if (bucketOf(inv.dueDate, now) !== agingFilter) return false;
+      }
+      return true;
     });
-  }, [data?.invoices, agingFilter]);
+  }, [data?.invoices, agingFilter, statusFilter]);
 
   /** Totals of the currently filtered invoice list: EUR + per-currency (like Invoices page). */
   const filteredTotals = useMemo(() => {
@@ -369,11 +373,12 @@ export default function GroupDetail() {
     });
 
   const scopeLabel =
-    companyId === "all" && branch === "all" && agingFilter === "all"
+    companyId === "all" && branch === "all" && agingFilter === "all" && statusFilter === "all"
       ? "Whole group"
       : [
           companyId !== "all" ? data?.companies.find(c => String(c.id) === companyId)?.name : null,
           branch !== "all" ? branchShort(branch) : null,
+          statusFilter !== "all" ? statusFilter : null,
           agingFilter !== "all" ? `${agingFilter} days overdue` : null,
         ]
           .filter(Boolean)
@@ -474,17 +479,17 @@ export default function GroupDetail() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={agingFilter} onValueChange={(v) => setAgingFilter(v as AgingBucket)}>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-44 h-9">
-              <SelectValue placeholder="Aging" />
+              <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All invoices</SelectItem>
-              <SelectItem value="0-30">0-30 days overdue</SelectItem>
-              <SelectItem value="31-60">31-60 days overdue</SelectItem>
-              <SelectItem value="61-90">61-90 days overdue</SelectItem>
-              <SelectItem value="91-120">91-120 days overdue</SelectItem>
-              <SelectItem value="120+">120+ days overdue</SelectItem>
+              <SelectItem value="all">All statuses</SelectItem>
+              {(["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const).map(s => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -635,6 +640,18 @@ export default function GroupDetail() {
           {filteredInvoices.length > 0 && (
             <div className="rounded-lg border bg-muted/30 px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
               <span className="text-muted-foreground">{filteredTotals.count} invoice(s) shown</span>
+              {statusFilter !== "all" && (
+                <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30">
+                  {statusFilter}
+                  <button
+                    className="ml-0.5 text-muted-foreground hover:text-foreground"
+                    title="Clear status filter"
+                    onClick={() => setStatusFilter("all")}
+                  >
+                    ×
+                  </button>
+                </Badge>
+              )}
               {agingFilter !== "all" && (
                 <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30">
                   {agingFilter} days overdue

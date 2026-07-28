@@ -46,7 +46,7 @@ export default function CustomerDetail() {
     onError: e => toast.error(e.message),
   });
 
-  const [agingFilter, setAgingFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const exportSoa = trpc.reports.export.useMutation({
     onSuccess: r => {
@@ -70,14 +70,10 @@ export default function CustomerDetail() {
   const openInvoices = invoices.filter(i => i.status !== "Paid");
   const agingAny = aging as any;
   const now = Date.now();
-  const dayMs = 24 * 60 * 60 * 1000;
   const visibleInvoices =
-    agingFilter === "all"
+    statusFilter === "all"
       ? invoices
-      : invoices.filter(i => {
-          if (i.status === "Paid" || now <= i.dueDate) return false;
-          return (now - i.dueDate) / dayMs >= Number(agingFilter);
-        });
+      : invoices.filter(i => i.status === statusFilter);
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -314,19 +310,21 @@ export default function CustomerDetail() {
           <Card>
             <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-1 flex-wrap">
               <div className="text-xs text-muted-foreground">
-                {agingFilter === "all"
+                {statusFilter === "all"
                   ? `${invoices.length} invoices`
-                  : `${visibleInvoices.length} overdue ${agingFilter === "1" ? "" : `${agingFilter}+ days `}invoice(s) · outstanding ${fmtEur(visibleInvoices.reduce((s, i) => s + Number((i as any).amountEur != null && Number(i.amount) > 0 ? ((Number(i.amount) - Number(i.paidAmount)) / Number(i.amount)) * Number((i as any).amountEur) : Number(i.amount) - Number(i.paidAmount)), 0))}`}
+                  : `${visibleInvoices.length} ${statusFilter} invoice(s) · outstanding ${fmtEur(visibleInvoices.reduce((s, i) => s + Number((i as any).amountEur != null && Number(i.amount) > 0 ? ((Number(i.amount) - Number(i.paidAmount)) / Number(i.amount)) * Number((i as any).amountEur) : Number(i.amount) - Number(i.paidAmount)), 0))}`}
               </div>
-              <Select value={agingFilter} onValueChange={setAgingFilter}>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-44 h-8 text-xs">
-                  <SelectValue placeholder="Aging" />
+                  <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All invoices</SelectItem>
-                  <SelectItem value="1">Overdue (any)</SelectItem>
-                  <SelectItem value="60">Overdue 60+ days</SelectItem>
-                  <SelectItem value="120">Overdue 120+ days</SelectItem>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  {(["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const).map(s => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
