@@ -878,3 +878,23 @@
 - [x] Expose carriedOver flag (status recorded in a previous month & still active) in groups payload + getConfirmationStatus
 - [x] Show "carried over" hint on confirmation badges in Customers list and GroupDetail
 - [x] Explain auto-Broken option to user
+
+## Overdue badge (task-driven) — no auto-reset (user request 29/7)
+- [x] Backend: remove auto-reset of expired Promise/Pending statuses (isConfirmationStale no longer treats past followUpDate as stale)
+- [x] Backend: expose taskOverdue flag (linked auto-task open + past due) in effectiveConfirmation, groups list, groupDetail, getConfirmationStatus
+- [x] Frontend: red badge on Customers list when confirmationTaskOverdue=true (+ "Overdue task" hint)
+- [x] Frontend: red badge on GroupDetail header when taskOverdue=true (+ hint)
+- [x] Frontend: CustomerDetail has no confirmation badge (group-level only) — n/a
+- [x] Update tests (no auto-reset, taskOverdue flag), run tsc + vitest (193 pass; 2 known confirmationStatus parallel flakes pass in isolation), verify visually, checkpoint & deliver
+
+## Internal collaboration via tasks (user request 29/7)
+- [ ] Backend: tasks.create accepts assignedTo (team member); tasks list returns assignee + creator names
+- [ ] Backend: invoice attachments on tasks (taskInvoices link or invoiceIds field) exposed on task detail
+- [ ] Backend: task comments table + add/list procedures
+- [ ] Backend: tasks list filter by assignedTo/createdBy (Assigned to me / Created by me)
+- [ ] Frontend: New Task dialog gets "Assign to" picker (team members)
+- [ ] Frontend: invoice tables — select invoices → "Send to colleague" → prefilled New Task with linked invoices
+- [ ] Frontend: group/customer card — "Assign to colleague" button creating a task linked to the card
+- [ ] Frontend: Tasks page — Assigned to me / Created by me filter + assignee column
+- [ ] Frontend: Task detail dialog — show linked invoices + comments thread (add comment)
+- [ ] Tests + tsc + visual verification, checkpoint & deliver

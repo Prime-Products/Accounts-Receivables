@@ -31,7 +31,7 @@ async function backdateConfirmation(group: string) {
 }
 
 describe("promise carryover — statuses stay active until their target date", () => {
-  it("a Promise to Pay recorded last month with a future date stays Confirmed; an expired one falls back to Not Contacted", async () => {
+  it("a Promise to Pay recorded last month stays Confirmed; when its date passes it stays Confirmed but flags taskOverdue", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const customers = await db.listCustomers();
     const cust = customers[0];
@@ -60,19 +60,21 @@ describe("promise carryover — statuses stay active until their target date", (
     // The badge must expose the carried-over hint (recorded in a previous month, still active).
     expect(row.confirmationCarriedOver).toBe(true);
 
-    // Now set the promise date to the past → the status must fall back to Not Contacted
+    // Now set the promise date to the past → the status must STAY Confirmed
+    // (no auto-reset) but flag the badge as overdue (taskOverdue).
     const pastDate = Date.now() - 2 * 24 * 60 * 60 * 1000;
     await caller.calls.updateConfirmationStatus({ group, status: "Confirmed", amount: 12345, followUpDate: pastDate });
     const stale = await caller.calls.getConfirmationStatus({ group });
-    expect(stale?.status).toBe("Not Contacted");
-    expect(Number(stale?.amount ?? 0)).toBe(0);
+    expect(stale?.status).toBe("Confirmed");
+    expect(Number(stale?.amount ?? 0)).toBe(12345);
+    expect((stale as any)?.taskOverdue).toBe(true);
 
-    // groups list must also treat it as Not Contacted (expected = forecast, not the stale promise)
+    // groups list keeps the Confirmed status and flags the overdue linked task
     groups = await caller.customers.groups();
     row = groups.find((g: any) => g.group === group) as any;
     expect(row).toBeTruthy();
-    expect(row.confirmationStatus).toBe("Not Contacted");
-    expect(row.expectedToCollect).toBe(row.forecastExpected);
+    expect(row.confirmationStatus).toBe("Confirmed");
+    expect(row.confirmationTaskOverdue).toBe(true);
 
     // Cleanup: reset to Not Contacted "now" so no state leaks to other tests
     await caller.calls.updateConfirmationStatus({ group, status: "Not Contacted" });

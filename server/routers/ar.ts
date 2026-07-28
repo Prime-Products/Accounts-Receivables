@@ -71,23 +71,21 @@ function endOfCurrentMonth(now = new Date()): number {
 
 /**
  * Confirmation statuses are tracked with a target date (followUpDate).
- * A "Promise to Pay" or "Pending Follow-up" remains active until its followUpDate passes.
- * Once the followUpDate is in the past, the status is considered stale and treated as "Not Contacted".
- * This allows promises/pending follow-ups to carry over across month boundaries until their target date.
+ * A "Promise to Pay" or "Pending Follow-up" NEVER expires automatically: it stays
+ * active until a human logs a new call / changes the status. When the followUpDate
+ * passes and the linked auto-task is still open, the badge turns red (taskOverdue)
+ * instead of resetting the status.
  */
 function isConfirmationStale(
   status: string | null | undefined,
-  followUpDate: number | null | undefined,
-  now = new Date(),
+  _followUpDate?: number | null | undefined,
+  _now = new Date(),
 ): boolean {
   // "Not Contacted" is always stale (no active follow-up).
   if (!status || status === "Not Contacted") return true;
-  // "Broken" is never stale — it remains "Broken" until explicitly changed.
-  if (status === "Broken") return false;
-  // "Confirmed" (Promise to Pay) and "Pending Follow-up" are stale only if their followUpDate has passed.
-  if (!followUpDate) return true; // No target date = stale.
-  const targetDate = new Date(followUpDate);
-  return targetDate < now;
+  // All other statuses (Confirmed, Pending Follow-up, Broken) persist until
+  // explicitly changed by a human — no date-based auto-reset.
+  return false;
 }
 
 /** True when the row was last updated in a previous calendar month (used for the "carried over" hint). */
@@ -95,6 +93,14 @@ function isFromPreviousMonth(updatedAt: Date | number | null | undefined, now = 
   if (!updatedAt) return false;
   const d = new Date(updatedAt);
   return d.getUTCFullYear() !== now.getUTCFullYear() || d.getUTCMonth() !== now.getUTCMonth();
+}
+
+/** True when a linked auto-task is still open (Pending/In Progress) and past its due date → red badge. */
+function isTaskOverdue(task: { status: string; dueDate: number | null } | null | undefined, now = Date.now()): boolean {
+  if (!task) return false;
+  if (task.status !== "Pending" && task.status !== "In Progress") return false;
+  if (!task.dueDate) return false;
+  return task.dueDate < now;
 }
 
 /** Effective view of a confirmation row: stale → Not Contacted / €0. carriedOver = active status recorded in a previous month. */
@@ -493,13 +499,13 @@ export const customersRouter = router({
     const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] })).filter(
       t => t.description?.includes("(Follow-up: ") || t.description?.includes("(Promise #"),
     );
-    const followUpTaskByGroup = new Map<string, number>();
-    const promiseTaskByPromiseId = new Map<number, number>();
+    const followUpTaskByGroup = new Map<string, { id: number; status: string; dueDate: number | null }>();
+    const promiseTaskByPromiseId = new Map<number, { id: number; status: string; dueDate: number | null }>();
     for (const t of openAutoTasks) {
       const fm = t.description?.match(/\(Follow-up: (.+)\)/);
-      if (fm && !followUpTaskByGroup.has(fm[1])) followUpTaskByGroup.set(fm[1], t.id);
+      if (fm && !followUpTaskByGroup.has(fm[1])) followUpTaskByGroup.set(fm[1], { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
       const pm = t.description?.match(/\(Promise #(\d+)\)/);
-      if (pm && !promiseTaskByPromiseId.has(Number(pm[1]))) promiseTaskByPromiseId.set(Number(pm[1]), t.id);
+      if (pm && !promiseTaskByPromiseId.has(Number(pm[1]))) promiseTaskByPromiseId.set(Number(pm[1]), { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
     }
     const eom = endOfCurrentMonth();
     const collectedByCustomer = new Map<number, number>();
@@ -675,12 +681,20 @@ export const customersRouter = router({
               : confAmount;
         // Linked task for the badge: Pending Follow-up → the group's follow-up-call
         // task; Promise to Pay → the open promise's check task.
-        const confirmationTaskId =
+        const confirmationTask =
           confStatus === "Pending Follow-up"
             ? (followUpTaskByGroup.get(g.group) ?? null)
             : confStatus === "Confirmed"
               ? (openPromiseId !== null ? (promiseTaskByPromiseId.get(openPromiseId) ?? null) : null)
               : null;
+        const confirmationTaskId = confirmationTask?.id ?? null;
+        // Red badge: the linked task is still open and past its due date.
+        // Fallback: no linked open task found but the status target date has passed.
+        const confirmationTaskOverdue =
+          (confStatus === "Pending Follow-up" || confStatus === "Confirmed") &&
+          (confirmationTask
+            ? isTaskOverdue(confirmationTask, now)
+            : ((confirmation?.followUpDate ?? null) !== null && (confirmation!.followUpDate as number) < now));
         return {
           ...rest,
           turnoverYtd,
@@ -706,6 +720,7 @@ export const customersRouter = router({
           confirmationFollowUpDate: confirmation?.followUpDate ?? null,
           confirmationCarriedOver: conf.carriedOver,
           confirmationTaskId,
+          confirmationTaskOverdue,
           accountManager: managerByGroup.get(g.group) ?? null,
           collector: collectorByGroup.get(g.group) ?? null,
           // Earliest open promise date — shown under the "Promise to Pay" badge.
@@ -1003,28 +1018,37 @@ export const customersRouter = router({
       // Unified: the group's account status IS the hold status (companies inherit it).
       const groupHoldStatus = watchStatus;
       const activityLogs = await db.listActivityLog(input.group, 200).catch(() => []);
-      // Month-aware: a confirmation from a previous month is stale → Not Contacted.
+      // Statuses persist until a human changes them; the red badge flags an overdue linked task.
       const gConf = effectiveConfirmation(confirmation);
       const gConfStatus = gConf.status;
       const gConfAmount = gConf.amount;
       // Linked task for the confirmation badge (same logic as customers.groups):
       // Pending Follow-up → "(Follow-up: <group>)" task; Promise to Pay → "(Promise #<id>)" check task.
-      let gConfirmationTaskId: number | null = null;
+      let gConfirmationTask: { id: number; status: string; dueDate: number | null } | null = null;
       if (gConfStatus === "Pending Follow-up" || gConfStatus === "Confirmed") {
         const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => [])).filter(
           t => t.description?.includes("(Follow-up: ") || t.description?.includes("(Promise #"),
         );
         if (gConfStatus === "Pending Follow-up") {
-          gConfirmationTaskId = openAutoTasks.find(t => t.description?.includes(`(Follow-up: ${input.group})`))?.id ?? null;
+          const t = openAutoTasks.find(t => t.description?.includes(`(Follow-up: ${input.group})`));
+          gConfirmationTask = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
         } else {
           const openPromise = (await db.listPromises().catch(() => []))
             .filter(p => p.status === "Pending" && memberIds.has(p.customerId))
             .sort((a, b) => b.id - a.id)[0];
           if (openPromise) {
-            gConfirmationTaskId = openAutoTasks.find(t => t.description?.includes(`(Promise #${openPromise.id})`))?.id ?? null;
+            const t = openAutoTasks.find(t => t.description?.includes(`(Promise #${openPromise.id})`));
+            gConfirmationTask = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
           }
         }
       }
+      const gConfirmationTaskId = gConfirmationTask?.id ?? null;
+      // Red badge: linked task still open and past due (fallback: target date passed with no open task found).
+      const gConfirmationTaskOverdue =
+        (gConfStatus === "Pending Follow-up" || gConfStatus === "Confirmed") &&
+        (gConfirmationTask
+          ? isTaskOverdue(gConfirmationTask, now)
+          : ((confirmation?.followUpDate ?? null) !== null && (confirmation!.followUpDate as number) < now));
       const gExpectedToCollect =
         gConfStatus === "Not Contacted" ? groupForecast : gConfStatus === "Broken" ? 0 : gConfAmount;
       const groupForecastInitial = forecastRows
@@ -1063,6 +1087,7 @@ export const customersRouter = router({
         confirmationStatus: gConfStatus,
         confirmationAmount: gConfAmount,
         confirmationTaskId: gConfirmationTaskId,
+        confirmationTaskOverdue: gConfirmationTaskOverdue,
         confirmationFollowUpDate: confirmation?.followUpDate ?? null,
         confirmationCarriedOver: gConf.carriedOver,
         confirmationNotes: confirmation?.notes ?? null,
@@ -3391,11 +3416,34 @@ export const callsRouter = router({
     .query(async ({ input }) => {
       const row = await db.getGroupConfirmationStatus(input.group);
       if (!row) return null;
-      // Check if the confirmation status is stale based on its followUpDate.
+      // Only "Not Contacted" (or missing status) is treated as no active status —
+      // Promise/Pending/Broken persist until a human changes them.
       if (isConfirmationStale(row.status, row.followUpDate)) {
         return { ...row, status: "Not Contacted" as typeof row.status, amount: "0.00", followUpDate: null, notes: null, carriedOver: false };
       }
-      return { ...row, carriedOver: isFromPreviousMonth((row as any).updatedAt ?? null) };
+      // Red-badge flag: linked auto-task still open and past due.
+      let taskOverdue = false;
+      if (row.status === "Pending Follow-up" || row.status === "Confirmed") {
+        const nowTs = Date.now();
+        const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => [])).filter(
+          t => t.description?.includes("(Follow-up: ") || t.description?.includes("(Promise #"),
+        );
+        let linked: { id: number; status: string; dueDate: number | null } | null = null;
+        if (row.status === "Pending Follow-up") {
+          const t = openAutoTasks.find(t => t.description?.includes(`(Follow-up: ${input.group})`));
+          linked = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
+        } else {
+          const openPromise = await findOpenGroupPromise(input.group).catch(() => null);
+          if (openPromise) {
+            const t = openAutoTasks.find(t => t.description?.includes(`(Promise #${openPromise.id})`));
+            linked = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
+          }
+        }
+        taskOverdue = linked
+          ? isTaskOverdue(linked, nowTs)
+          : ((row.followUpDate ?? null) !== null && (row.followUpDate as number) < nowTs);
+      }
+      return { ...row, carriedOver: isFromPreviousMonth((row as any).updatedAt ?? null), taskOverdue };
     }),
 
   /** Most recent open (Pending) promise for a group — used by Log Call to offer rescheduling. */

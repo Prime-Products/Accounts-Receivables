@@ -22,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -132,30 +132,43 @@ function CompanyPicker({
 /**
  * Clickable confirmation-status badge for the group header — same behavior as the
  * groups list: a linked task opens inline in TaskDetailDialog, otherwise Log Call.
+ * Turns red when the linked task is still open past its due date.
  */
 function GroupConfirmationBadge({
   group,
   companies,
   status,
   taskId,
+  taskOverdue,
 }: {
   group: string;
   companies: { id: number; name: string }[];
   status: string;
   taskId: number | null;
+  taskOverdue?: boolean;
 }) {
   const [taskOpen, setTaskOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
   const hasLinkedTask = taskId !== null && (status === "Pending Follow-up" || status === "Confirmed");
+  const isOverdue = !!taskOverdue && (status === "Pending Follow-up" || status === "Confirmed");
   return (
     <>
       <button
         className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors hover:opacity-80 ${
-          confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
+          isOverdue
+            ? "bg-red-100 text-red-700 border-red-300"
+            : confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
         }`}
-        title={hasLinkedTask ? "Click to open the linked follow-up task" : "Click to log a call and change the confirmation status"}
+        title={
+          isOverdue
+            ? "Overdue task — the target date has passed and the linked task is still open. Click to open it."
+            : hasLinkedTask
+              ? "Click to open the linked follow-up task"
+              : "Click to log a call and change the confirmation status"
+        }
         onClick={() => (hasLinkedTask ? setTaskOpen(true) : setCallOpen(true))}
       >
+        {isOverdue && <AlertTriangle className="h-3 w-3 text-red-600" />}
         {confirmationStatusLabels[status] ?? status}
         <Phone className="h-3 w-3 opacity-40" />
       </button>
@@ -419,7 +432,16 @@ export default function GroupDetail() {
                   companies={data.companies}
                   status={(data as any).confirmationStatus}
                   taskId={(data as any).confirmationTaskId ?? null}
+                  taskOverdue={(data as any).confirmationTaskOverdue ?? false}
                 />
+              )}
+              {data && (data as any).confirmationTaskOverdue && (
+                <span
+                  className="text-[11px] text-red-600 font-medium inline-flex items-center gap-1"
+                  title="The linked task is past its due date and still open"
+                >
+                  Overdue task
+                </span>
               )}
               {data && (data as any).confirmationCarriedOver && (
                 <span

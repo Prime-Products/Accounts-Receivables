@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtEur, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
@@ -165,10 +165,12 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
   group,
   status,
   taskId,
+  taskOverdue,
 }: {
   group: string;
   status: string;
   taskId?: number | null;
+  taskOverdue?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
@@ -186,14 +188,23 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
     [members]
   );
   const hasLinkedTask = taskId != null && (status === "Confirmed" || status === "Pending Follow-up");
+  const isOverdue = !!taskOverdue && (status === "Confirmed" || status === "Pending Follow-up");
   return (
     <>
       <button
         type="button"
         className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border cursor-pointer transition-transform hover:shadow-sm active:scale-[0.97] ${
-          confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
+          isOverdue
+            ? "bg-red-100 text-red-700 border-red-300"
+            : confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
         }`}
-        title={hasLinkedTask ? "Click to open the linked follow-up task" : "Click to log a call and change the confirmation status"}
+        title={
+          isOverdue
+            ? "Overdue task — the target date has passed and the linked task is still open. Click to open it."
+            : hasLinkedTask
+              ? "Click to open the linked follow-up task"
+              : "Click to log a call and change the confirmation status"
+        }
         onClick={() => {
           if (hasLinkedTask) {
             setTaskOpen(true);
@@ -203,6 +214,7 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
           setOpen(true);
         }}
       >
+        {isOverdue && <AlertTriangle className="h-3 w-3 text-red-600" />}
         {confirmationStatusLabels[status] ?? status}
         {hasLinkedTask ? <ExternalLink className="h-3 w-3 opacity-40" /> : <Phone className="h-3 w-3 opacity-40" />}
       </button>
@@ -872,7 +884,17 @@ export default function Customers() {
                         )}
                       </TableCell>
                       <TableCell onClick={e => e.stopPropagation()}>
-                        <ConfirmationBadgeButton group={g.group} status={g.confirmationStatus} taskId={(g as any).confirmationTaskId} />
+                        <ConfirmationBadgeButton
+                          group={g.group}
+                          status={g.confirmationStatus}
+                          taskId={(g as any).confirmationTaskId}
+                          taskOverdue={(g as any).confirmationTaskOverdue}
+                        />
+                        {(g as any).confirmationTaskOverdue && (
+                          <div className="text-[11px] text-red-600 mt-1 inline-flex items-center gap-1 font-medium" title="The linked task is past its due date and still open">
+                            <span>Overdue task</span>
+                          </div>
+                        )}
                         {(g as any).confirmationCarriedOver && (
                           <div className="text-[11px] text-amber-600 mt-1 inline-flex items-center gap-1" title="Recorded in a previous month — still active until its date">
                             <span>↻</span>
