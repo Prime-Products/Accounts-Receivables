@@ -153,6 +153,7 @@ export default function Team() {
                   <TableHead>Phone</TableHead>
                   <TableHead className="text-center">Groups</TableHead>
                   <TableHead className="text-center">Companies</TableHead>
+                  <TableHead className="text-center" title="Groups assigned for collection">Collecting</TableHead>
                   <TableHead className="text-center">Open Tasks</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-24"></TableHead>
@@ -167,6 +168,7 @@ export default function Team() {
                     <TableCell className="text-sm">{m.phone || "—"}</TableCell>
                     <TableCell className="text-center font-mono text-sm">{m.groups}</TableCell>
                     <TableCell className="text-center font-mono text-sm">{m.companies}</TableCell>
+                    <TableCell className="text-center font-mono text-sm">{(m as any).collectingGroups ?? 0}</TableCell>
                     <TableCell className="text-center font-mono text-sm">{m.openTasks}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={m.active ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-gray-100 text-gray-500"}>
@@ -254,4 +256,3 @@ export default function Team() {
     </div>
   );
 }
-

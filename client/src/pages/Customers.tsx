@@ -306,6 +306,7 @@ export default function Customers() {
   const [ratingFilter, setRatingFilter] = useState<string>("all");
   const [confirmationFilter, setConfirmationFilter] = useState<string>("all");
   const [managerFilter, setManagerFilter] = useState<string>("all");
+  const [collectorFilter, setCollectorFilter] = useState<string>("all");
   const { data: teamMembers } = trpc.team.list.useQuery();
   const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
   const [companySort, setCompanySort] = useState<{ key: CompanySortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
@@ -406,7 +407,12 @@ export default function Customers() {
         managerFilter === "all" ||
         (managerFilter === "unassigned" && !gManager) ||
         (managerFilter !== "unassigned" && managerFilter !== "all" && gManager?.id === Number(managerFilter));
-      return matchesSearch && matchesStatus && matchesRating && matchesConfirmation && matchesManager;
+      const gCollector = (g as any).collector as { id: number; name: string } | null;
+      const matchesCollector =
+        collectorFilter === "all" ||
+        (collectorFilter === "unassigned" && !gCollector) ||
+        (collectorFilter !== "unassigned" && collectorFilter !== "all" && gCollector?.id === Number(collectorFilter));
+      return matchesSearch && matchesStatus && matchesRating && matchesConfirmation && matchesManager && matchesCollector;
     });
     if (groupSort.key) {
       const getVal = (g: (typeof rows)[number]): number => {
@@ -439,7 +445,7 @@ export default function Customers() {
       });
     }
     return rows;
-  }, [groups, search, statusFilter, ratingFilter, confirmationFilter, managerFilter, groupSort]);
+  }, [groups, search, statusFilter, ratingFilter, confirmationFilter, managerFilter, collectorFilter, groupSort]);
 
   const groupTotals = useMemo(
     () =>
@@ -652,6 +658,20 @@ export default function Customers() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={collectorFilter} onValueChange={setCollectorFilter}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Collector" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All collectors</SelectItem>
+                <SelectItem value="unassigned">No collector</SelectItem>
+                {(teamMembers ?? []).map(m => (
+                  <SelectItem key={m.id} value={String(m.id)}>
+                    {m.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </>
         )}
         <Select value={ratingFilter} onValueChange={setRatingFilter}>
@@ -842,6 +862,12 @@ export default function Customers() {
                         {(g as any).accountManager && (
                           <div className="text-[11px] text-sky-700 mt-0.5 truncate">
                             {(g as any).accountManager.name}
+                          </div>
+                        )}
+                        {(g as any).collector && (
+                          <div className="text-[11px] text-emerald-700 mt-0.5 truncate inline-flex items-center gap-1 max-w-full">
+                            <HandCoins className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{(g as any).collector.name}</span>
                           </div>
                         )}
                       </TableCell>

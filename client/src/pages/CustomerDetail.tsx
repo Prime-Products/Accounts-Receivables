@@ -110,6 +110,12 @@ export default function CustomerDetail() {
               customerId={id}
               onChanged={() => utils.customers.get360.invalidate({ id })}
             />
+            <AccountManagerControl
+              role="collector"
+              manager={(data as any).collector ?? null}
+              customerId={id}
+              onChanged={() => utils.customers.get360.invalidate({ id })}
+            />
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             {customer.code} · VAT {customer.vatNumber || "—"} · {customer.email || "no email"} · terms{" "}

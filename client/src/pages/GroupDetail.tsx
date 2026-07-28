@@ -427,6 +427,13 @@ export default function GroupDetail() {
                   groupName={group}
                 />
               )}
+              {data && (
+                <AccountManagerControl
+                  role="collector"
+                  manager={(data as any).collector ?? null}
+                  groupName={group}
+                />
+              )}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               Group card — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}

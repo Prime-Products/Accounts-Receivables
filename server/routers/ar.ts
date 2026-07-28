@@ -543,6 +543,7 @@ export const customersRouter = router({
     const day90 = 90 * 24 * 60 * 60 * 1000;
     const teamById = new Map((await db.listTeamMembers(true)).map(m => [m.id, m]));
     const managerByGroup = new Map<string, { id: number; name: string } | null>();
+    const collectorByGroup = new Map<string, { id: number; name: string } | null>();
     const groups = new Map<
       string,
       {
@@ -580,6 +581,9 @@ export const customersRouter = router({
       g.companyCount += 1;
       if (!managerByGroup.get(key) && c.accountManagerId && teamById.has(c.accountManagerId)) {
         managerByGroup.set(key, { id: c.accountManagerId, name: teamById.get(c.accountManagerId)!.name });
+      }
+      if (!collectorByGroup.get(key) && (c as any).collectorId && teamById.has((c as any).collectorId)) {
+        collectorByGroup.set(key, { id: (c as any).collectorId as number, name: teamById.get((c as any).collectorId)!.name });
       }
       g.turnoverYtd += c.turnoverYtd ? Number(c.turnoverYtd) : 0;
       g.turnoverLastYear += c.turnoverLastYear ? Number(c.turnoverLastYear) : 0;
@@ -683,6 +687,7 @@ export const customersRouter = router({
           confirmationFollowUpDate: confirmation?.followUpDate ?? null,
           confirmationTaskId,
           accountManager: managerByGroup.get(g.group) ?? null,
+          collector: collectorByGroup.get(g.group) ?? null,
           // Earliest open promise date — shown under the "Promise to Pay" badge.
           confirmationPromiseDate: confStatus === "Confirmed" ? openPromiseDate : null,
         };
@@ -1012,12 +1017,17 @@ export const customersRouter = router({
       const accountManager = managerMember
         ? { id: (managerMember as any).accountManagerId as number, name: teamMap.get((managerMember as any).accountManagerId)!.name }
         : null;
+      const collectorMember = members.find(m => (m as any).collectorId && teamMap.has((m as any).collectorId));
+      const collector = collectorMember
+        ? { id: (collectorMember as any).collectorId as number, name: teamMap.get((collectorMember as any).collectorId)!.name }
+        : null;
       return {
         group: input.group,
         companies,
         branches,
         aging,
         accountManager,
+        collector,
         behavior: groupBehavior,
         rating: ratingResult,
         holdStatus: groupHoldStatus,
@@ -1354,9 +1364,13 @@ export const customersRouter = router({
     const accountManager = (customer as any).accountManagerId && teamMap360.has((customer as any).accountManagerId)
       ? { id: (customer as any).accountManagerId as number, name: teamMap360.get((customer as any).accountManagerId)!.name }
       : null;
+    const collector = (customer as any).collectorId && teamMap360.has((customer as any).collectorId)
+      ? { id: (customer as any).collectorId as number, name: teamMap360.get((customer as any).collectorId)!.name }
+      : null;
     return {
       customer,
       accountManager,
+      collector,
       invoices: invoices.map(i => ({
         ...i,
         vesselName: i.vesselId ? (vesselName360.get(i.vesselId) ?? null) : null,
@@ -1827,6 +1841,37 @@ export const customersRouter = router({
           `${customer.name} → ${managerName ?? "unassigned"}`);
       }
       return { success: true, managerName };
+    }),
+  /**
+   * Assign a collector (credit controller responsible for chasing payment)
+   * either to a single company or to every company of a customer group.
+   */
+  setCollector: protectedProcedure
+    .input(z.object({
+      collectorId: z.number().nullable(),
+      customerId: z.number().optional(),
+      groupName: z.string().min(1).optional(),
+    }).refine(v => v.customerId !== undefined || v.groupName !== undefined, { message: "customerId or groupName required" }))
+    .mutation(async ({ ctx, input }) => {
+      let collectorName: string | null = null;
+      if (input.collectorId !== null) {
+        const member = await db.getTeamMemberById(input.collectorId);
+        if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+        if (!member.active) throw new TRPCError({ code: "BAD_REQUEST", message: "Team member is inactive" });
+        collectorName = member.name;
+      }
+      if (input.groupName) {
+        await db.setGroupCollector(input.groupName, input.collectorId);
+        await audit(ctx, "Set Collector", "customerGroup", undefined,
+          `Group "${input.groupName}" → ${collectorName ?? "unassigned"}`);
+      } else if (input.customerId !== undefined) {
+        const customer = await db.getCustomer(input.customerId);
+        if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+        await db.updateCustomer(input.customerId, { collectorId: input.collectorId } as any);
+        await audit(ctx, "Set Collector", "customer", input.customerId,
+          `${customer.name} → ${collectorName ?? "unassigned"}`);
+      }
+      return { success: true, collectorName };
     }),
 });
 
@@ -2453,7 +2498,16 @@ export const teamRouter = router({
       const managed = allCustomers.filter(c => c.accountManagerId === m.id);
       const groups = new Set(managed.map(c => (c.customerGroup ?? "").trim() || c.name));
       const openTasks = allTasks.filter(t => t.assigneeId === m.id).length;
-      return { ...m, companies: managed.length, groups: groups.size, openTasks };
+      const collecting = allCustomers.filter(c => (c as any).collectorId === m.id);
+      const collectingGroups = new Set(collecting.map(c => (c.customerGroup ?? "").trim() || c.name));
+      return {
+        ...m,
+        companies: managed.length,
+        groups: groups.size,
+        collectingCompanies: collecting.length,
+        collectingGroups: collectingGroups.size,
+        openTasks,
+      };
     });
   }),
 });

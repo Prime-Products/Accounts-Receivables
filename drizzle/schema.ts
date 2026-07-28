@@ -93,6 +93,8 @@ export const customers = mysqlTable("customers", {
   onHoldStatus: mysqlEnum("onHoldStatus", ["Active", "Under Review", "Eligible for On Hold", "On Hold", "Legal"]).default("Active").notNull(),
   /** Responsible team member (account manager); FK to team_members.id. */
   accountManagerId: int("accountManagerId"),
+  /** Team member assigned to collect this customer's receivables (Collector / Credit Controller). */
+  collectorId: int("collectorId"),
   softoneId: varchar("softoneId", { length: 64 }),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

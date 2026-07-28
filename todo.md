@@ -852,3 +852,10 @@
 - [x] Apply resizable columns to Contacts, Tasks, Wire Transfers page and customer wire-transfer tables
 - [x] Make dialogs/modals resizable by dragging edges/corner (vessel modal, group notes, log call, new task, task detail, send email, AI summary, allocate wire transfer), size persisted per dialog, double-click to reset
 - [x] Verify visually, run tests (192/193; 1 known confirmationStatus parallel flake passes in isolation), checkpoint & deliver
+## Collector + Account Manager assignments (user request 28/7)
+- [x] Schema: existing accountManagerId stays Account Manager; new collectorId column added on customers (migration 0028 applied)
+- [x] Backend: groups list + group/customer detail return both collector and accountManager; setCollector procedure added
+- [x] Customers list: collector name shown under manager (emerald + HandCoins) + separate Collector filter dropdown
+- [x] Group/customer card: assignment controls for both roles in header
+- [x] Team page: new "Collecting" column shows groups assigned for collection per member
+- [x] Tests (191/193; 2 known confirmationStatus parallel flakes pass in isolation), checkpoint & deliver

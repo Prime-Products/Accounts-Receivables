@@ -197,6 +197,13 @@
       "when": 1785231270238,
       "tag": "0027_bored_santa_claus",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "5",
+      "when": 1785268104383,
+      "tag": "0028_wet_starbolt",
+      "breakpoints": true
     }
   ]
 }

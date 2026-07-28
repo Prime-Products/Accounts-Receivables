@@ -934,6 +934,7 @@ export async function deleteTeamMember(id: number) {
   const db = await requireDb();
   // Detach from customers and tasks first, then delete.
   await db.update(customers).set({ accountManagerId: null }).where(eq(customers.accountManagerId, id));
+  await db.update(customers).set({ collectorId: null }).where(eq(customers.collectorId, id));
   await db.update(tasks).set({ assigneeId: null }).where(eq(tasks.assigneeId, id));
   await db.delete(teamMembers).where(eq(teamMembers.id, id));
   invalidateCache("customers:");
@@ -946,6 +947,17 @@ export async function setGroupAccountManager(groupName: string, managerId: numbe
   await db
     .update(customers)
     .set({ accountManagerId: managerId })
+    .where(or(eq(customers.customerGroup, trimmed), eq(customers.name, trimmed)));
+  invalidateCache("customers:");
+}
+
+/** Assign a collector (credit controller) to every company of a customer group. */
+export async function setGroupCollector(groupName: string, collectorId: number | null) {
+  const db = await requireDb();
+  const trimmed = groupName.trim();
+  await db
+    .update(customers)
+    .set({ collectorId })
     .where(or(eq(customers.customerGroup, trimmed), eq(customers.name, trimmed)));
   invalidateCache("customers:");
 }
