@@ -57,6 +57,8 @@ describe("promise carryover — statuses stay active until their target date", (
     expect(row).toBeTruthy();
     expect(row.confirmationStatus).toBe("Confirmed");
     expect(row.expectedToCollect).toBeCloseTo(12345, 2);
+    // The badge must expose the carried-over hint (recorded in a previous month, still active).
+    expect(row.confirmationCarriedOver).toBe(true);
 
     // Now set the promise date to the past → the status must fall back to Not Contacted
     const pastDate = Date.now() - 2 * 24 * 60 * 60 * 1000;

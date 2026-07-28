@@ -90,13 +90,25 @@ function isConfirmationStale(
   return targetDate < now;
 }
 
-/** Effective view of a confirmation row: stale → Not Contacted / €0. */
-function effectiveConfirmation<T extends { status: string; amount: string | null; followUpDate: number | null | undefined } | null | undefined>(
+/** True when the row was last updated in a previous calendar month (used for the "carried over" hint). */
+function isFromPreviousMonth(updatedAt: Date | number | null | undefined, now = new Date()): boolean {
+  if (!updatedAt) return false;
+  const d = new Date(updatedAt);
+  return d.getUTCFullYear() !== now.getUTCFullYear() || d.getUTCMonth() !== now.getUTCMonth();
+}
+
+/** Effective view of a confirmation row: stale → Not Contacted / €0. carriedOver = active status recorded in a previous month. */
+function effectiveConfirmation<T extends { status: string; amount: string | null; followUpDate: number | null | undefined; updatedAt?: Date | number | null } | null | undefined>(
   row: T,
-): { status: string; amount: number; stale: boolean } {
-  if (!row) return { status: "Not Contacted", amount: 0, stale: false };
-  if (isConfirmationStale(row.status || null, row.followUpDate)) return { status: "Not Contacted", amount: 0, stale: true };
-  return { status: row.status, amount: row.amount ? Number(row.amount) : 0, stale: false };
+): { status: string; amount: number; stale: boolean; carriedOver: boolean } {
+  if (!row) return { status: "Not Contacted", amount: 0, stale: false, carriedOver: false };
+  if (isConfirmationStale(row.status || null, row.followUpDate)) return { status: "Not Contacted", amount: 0, stale: true, carriedOver: false };
+  return {
+    status: row.status,
+    amount: row.amount ? Number(row.amount) : 0,
+    stale: false,
+    carriedOver: isFromPreviousMonth(row.updatedAt ?? null),
+  };
 }
 
 /**
@@ -692,6 +704,7 @@ export const customersRouter = router({
           confirmationStatus: confStatus,
           confirmationAmount: confAmount,
           confirmationFollowUpDate: confirmation?.followUpDate ?? null,
+          confirmationCarriedOver: conf.carriedOver,
           confirmationTaskId,
           accountManager: managerByGroup.get(g.group) ?? null,
           collector: collectorByGroup.get(g.group) ?? null,
@@ -1051,6 +1064,7 @@ export const customersRouter = router({
         confirmationAmount: gConfAmount,
         confirmationTaskId: gConfirmationTaskId,
         confirmationFollowUpDate: confirmation?.followUpDate ?? null,
+        confirmationCarriedOver: gConf.carriedOver,
         confirmationNotes: confirmation?.notes ?? null,
         totals: {
           openBalance: open.reduce((s, i) => s + outstanding(i), 0),
@@ -3379,9 +3393,9 @@ export const callsRouter = router({
       if (!row) return null;
       // Check if the confirmation status is stale based on its followUpDate.
       if (isConfirmationStale(row.status, row.followUpDate)) {
-        return { ...row, status: "Not Contacted" as typeof row.status, amount: "0.00", followUpDate: null, notes: null };
+        return { ...row, status: "Not Contacted" as typeof row.status, amount: "0.00", followUpDate: null, notes: null, carriedOver: false };
       }
-      return row;
+      return { ...row, carriedOver: isFromPreviousMonth((row as any).updatedAt ?? null) };
     }),
 
   /** Most recent open (Pending) promise for a group — used by Log Call to offer rescheduling. */

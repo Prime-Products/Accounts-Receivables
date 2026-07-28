@@ -873,6 +873,12 @@ export default function Customers() {
                       </TableCell>
                       <TableCell onClick={e => e.stopPropagation()}>
                         <ConfirmationBadgeButton group={g.group} status={g.confirmationStatus} taskId={(g as any).confirmationTaskId} />
+                        {(g as any).confirmationCarriedOver && (
+                          <div className="text-[11px] text-amber-600 mt-1 inline-flex items-center gap-1" title="Recorded in a previous month — still active until its date">
+                            <span>↻</span>
+                            <span>Carried over</span>
+                          </div>
+                        )}
                         {g.confirmationFollowUpDate && (
                           <div className="text-xs text-muted-foreground mt-1">
                             Follow-up: {fmtDate(g.confirmationFollowUpDate)}

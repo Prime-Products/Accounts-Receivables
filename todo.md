@@ -868,8 +868,13 @@
 
 ## Confirmation status month-reset fix (user request 28/7)
 - [x] Fix isConfirmationStale logic: preserve Promise/Pending until their targetDate passes, not just until month changes
-- [ ] Update effectiveConfirmation to check targetDate instead of updatedAt month
-- [ ] Verify tests still pass (confirmationStatus tests may need adjustment)
-- [ ] Checkpoint after fix
+- [x] Update effectiveConfirmation to check targetDate instead of updatedAt month
+- [x] Verify tests still pass (confirmationStatus tests may need adjustment)
+- [x] Checkpoint after fix (85a5e3d4)
 - [x] Make promisedDate mandatory for Promise to Pay (Confirmed) in logCall backend + LogCallDialog UI
 - [x] Promise/Pending carryover: statuses stay active until their target date passes (no month-boundary reset); Broken persists until manually changed; monthRollover tests rewritten
+
+## Carried-over indicator (user request 28/7)
+- [x] Expose carriedOver flag (status recorded in a previous month & still active) in groups payload + getConfirmationStatus
+- [x] Show "carried over" hint on confirmation badges in Customers list and GroupDetail
+- [x] Explain auto-Broken option to user
