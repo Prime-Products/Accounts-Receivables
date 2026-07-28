@@ -4,9 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
+import TaskCommentsThread from "@/components/TaskCommentsThread";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, HandCoins, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, HandCoins, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
@@ -140,6 +141,27 @@ export default function TaskDetailDialog({
                 </div>
               )}
 
+              {(task as any).attachedInvoices && (task as any).attachedInvoices.length > 0 && (
+                <div className="rounded-md border p-3 space-y-2">
+                  <div className="text-sm font-medium flex items-center gap-1.5">
+                    <FileText className="h-4 w-4" /> Attached invoices ({(task as any).attachedInvoices.length})
+                  </div>
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {(task as any).attachedInvoices.map((inv: any) => (
+                      <div key={inv.id} className="flex items-center justify-between text-xs border-b last:border-b-0 py-1">
+                        <span className="font-mono">{inv.invoiceNumber}</span>
+                        <span className="text-muted-foreground truncate max-w-32" title={inv.customerName}>{inv.customerName}</span>
+                        <span className="text-muted-foreground">{fmtDate(inv.dueDate)}</span>
+                        <span className="font-mono font-medium">
+                          {inv.currency && inv.currency !== "EUR" ? `${inv.currency} ` : "€"}
+                          {Number(inv.amount).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {task.promise && (
                 <div className="rounded-md border p-3 space-y-2">
                   <div className="text-sm font-medium flex items-center gap-1.5">
@@ -206,6 +228,8 @@ export default function TaskDetailDialog({
                   </Button>
                 </div>
               )}
+
+              <TaskCommentsThread taskId={task.id} />
             </div>
           </>
         )}

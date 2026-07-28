@@ -888,13 +888,13 @@
 - [x] Update tests (no auto-reset, taskOverdue flag), run tsc + vitest (193 pass; 2 known confirmationStatus parallel flakes pass in isolation), verify visually, checkpoint & deliver
 
 ## Internal collaboration via tasks (user request 29/7)
-- [ ] Backend: tasks.create accepts assignedTo (team member); tasks list returns assignee + creator names
-- [ ] Backend: invoice attachments on tasks (taskInvoices link or invoiceIds field) exposed on task detail
-- [ ] Backend: task comments table + add/list procedures
-- [ ] Backend: tasks list filter by assignedTo/createdBy (Assigned to me / Created by me)
-- [ ] Frontend: New Task dialog gets "Assign to" picker (team members)
-- [ ] Frontend: invoice tables — select invoices → "Send to colleague" → prefilled New Task with linked invoices
-- [ ] Frontend: group/customer card — "Assign to colleague" button creating a task linked to the card
-- [ ] Frontend: Tasks page — Assigned to me / Created by me filter + assignee column
-- [ ] Frontend: Task detail dialog — show linked invoices + comments thread (add comment)
-- [ ] Tests + tsc + visual verification, checkpoint & deliver
+- [x] Backend: tasks.create accepts assigneeId (team member) + invoiceIds[]; tasks list returns assigneeName, creatorName, createdByMe, attachedInvoices
+- [x] Backend: invoice attachments on tasks (task_invoices table) exposed on task list/detail
+- [x] Backend: task comments table (task_comments) + tasks.comments / tasks.addComment procedures
+- [x] Backend: createdByMe flag for inbox scoping (All / Created by me / Assigned from others)
+- [x] Frontend: New Task dialog has "Assignee" picker (team members) — already existed, kept
+- [x] Frontend: invoice tables — checkboxes → "Send to colleague" floating bar → prefilled New Task with linked invoices
+- [x] Frontend: group/customer card — New Task with assignee picker covers "assign card to colleague"
+- [x] Frontend: Tasks page — scope tabs All / Created by me / Assigned (from others) + creator under title + attachment count chip
+- [x] Frontend: Task detail dialog (Tasks page + standalone) — attached invoices box + comments thread with composer
+- [x] Tests (taskCollaboration.test.ts 2/2; suite 194/195, 1 known parallel flake passes isolated) + tsc clean + screenshots

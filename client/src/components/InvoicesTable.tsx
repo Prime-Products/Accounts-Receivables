@@ -1,14 +1,16 @@
 import { Badge } from "@/components/ui/badge";
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import NewTaskDialog from "@/components/NewTaskDialog";
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, FileSignature, Ship, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, FileSignature, Send, Ship, Undo2, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -21,6 +23,7 @@ const VesselDetailDialog = lazy(() =>
 export interface InvoiceRowData {
   id: number;
   invoiceNumber: string;
+  customerId?: number | null;
   customerName?: string | null;
   vesselId?: number | null;
   vesselName?: string | null;
@@ -75,6 +78,7 @@ export function InvoicesTable({
   showCustomer = true,
   onDisputeChanged,
   disableVesselDialog = false,
+  enableSelection = true,
 }: {
   rows: InvoiceRowData[];
   /** Show the Customer column (hidden on the single-customer card). */
@@ -83,6 +87,8 @@ export function InvoicesTable({
   onDisputeChanged?: () => void;
   /** Disable the inline vessel dialog (used inside VesselDetailDialog to avoid nesting). */
   disableVesselDialog?: boolean;
+  /** Enable row selection + "Send to colleague" bulk action. */
+  enableSelection?: boolean;
 }) {
   const utils = trpc.useUtils();
   const [dispTarget, setDispTarget] = useState<{ id: number; invoiceNumber: string } | null>(null);
@@ -91,6 +97,8 @@ export function InvoicesTable({
   const [vesselDialogOpen, setVesselDialogOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [sendOpen, setSendOpen] = useState(false);
   const markDisputed = trpc.invoices.markDisputed.useMutation({
     onSuccess: (_r, vars) => {
       toast.success(vars.disputed ? "Invoice marked as Disputed" : "Dispute cleared");
@@ -143,6 +151,25 @@ export function InvoicesTable({
     });
   }, [rows, sortKey, sortDir]);
 
+  const selectedRows = useMemo(() => rows.filter(r => selectedIds.has(r.id)), [rows, selectedIds]);
+  const toggleRow = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const allVisibleSelected = sortedRows.length > 0 && sortedRows.every(r => selectedIds.has(r.id));
+  const toggleAll = () => {
+    setSelectedIds(prev => {
+      if (allVisibleSelected) return new Set();
+      return new Set(sortedRows.map(r => r.id));
+    });
+  };
+  // Default the task's customer to the customer of the first selected invoice (when known).
+  const sendDefaultCustomerId = selectedRows.find(r => r.customerId != null)?.customerId ?? undefined;
+
   const SortableHead = ({ label, k, align }: { label: string; k: SortKey; align?: "right" }) => (
     <TableHead className={`relative whitespace-nowrap px-2 ${align === "right" ? "text-right" : ""}`} style={cols.style(k)}>
       <button
@@ -167,6 +194,11 @@ export function InvoicesTable({
       <Table className="table-fixed [&_td]:px-2 [&_td]:py-2" style={{ width: cols.totalWidth, minWidth: "100%" }}>
         <TableHeader>
           <TableRow>
+            {enableSelection && (
+              <TableHead className="w-8 px-2">
+                <Checkbox checked={allVisibleSelected} onCheckedChange={toggleAll} aria-label="Select all invoices" />
+              </TableHead>
+            )}
             <SortableHead label="Invoice" k="invoiceNumber" />
             {showCustomer && <SortableHead label="Customer" k="customerName" />}
             <SortableHead label="Vessel" k="vesselName" />
@@ -183,6 +215,15 @@ export function InvoicesTable({
         <TableBody>
           {sortedRows.map(i => (
             <TableRow key={i.id}>
+              {enableSelection && (
+                <TableCell className="w-8" onClick={e => e.stopPropagation()}>
+                  <Checkbox
+                    checked={selectedIds.has(i.id)}
+                    onCheckedChange={() => toggleRow(i.id)}
+                    aria-label={`Select invoice ${i.invoiceNumber}`}
+                  />
+                </TableCell>
+              )}
               <TableCell className="font-mono text-xs whitespace-nowrap">
                 <span className="inline-flex items-center gap-1">
                   {i.invoiceNumber}
@@ -320,6 +361,34 @@ export function InvoicesTable({
             onOpenChange={setVesselDialogOpen}
           />
         </Suspense>
+      )}
+
+      {/* Floating bulk-action bar for selected invoices */}
+      {enableSelection && selectedIds.size > 0 && (
+        <div className="sticky bottom-3 z-20 mx-auto w-fit flex items-center gap-3 rounded-full border bg-background shadow-lg px-4 py-2">
+          <span className="text-sm font-medium">{selectedIds.size} invoice(s) selected</span>
+          <Button size="sm" className="gap-1.5 rounded-full" onClick={() => setSendOpen(true)}>
+            <Send className="h-3.5 w-3.5" /> Send to colleague
+          </Button>
+          <Button size="sm" variant="ghost" className="gap-1 rounded-full text-muted-foreground" onClick={() => setSelectedIds(new Set())}>
+            <X className="h-3.5 w-3.5" /> Clear
+          </Button>
+        </div>
+      )}
+      {sendOpen && (
+        <NewTaskDialog
+          key={`send-${Array.from(selectedIds).join("-")}`}
+          open={sendOpen}
+          onOpenChange={o => {
+            setSendOpen(o);
+            if (!o) setSelectedIds(new Set());
+          }}
+          defaultCustomerId={sendDefaultCustomerId}
+          defaultTitle={`Help needed: review ${selectedIds.size} invoice(s)`}
+          defaultDescription={`Please take a look at the attached invoice(s):\n${selectedRows.map(r => `• ${r.invoiceNumber} — ${r.customerName ?? ""} (${r.currency && r.currency !== "EUR" ? r.currency + " " : "€"}${Number(r.amount).toLocaleString()})`).join("\n")}`}
+          attachInvoices={selectedRows.map(r => ({ id: r.id, invoiceNumber: r.invoiceNumber, amount: r.amount, currency: r.currency }))}
+          trigger={<span className="hidden" />}
+        />
       )}
     </>
   );

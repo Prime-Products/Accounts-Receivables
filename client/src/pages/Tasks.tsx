@@ -15,13 +15,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import NewTaskDialog, { TASK_TYPES } from "@/components/NewTaskDialog";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
+import TaskCommentsThread from "@/components/TaskCommentsThread";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, HandCoins, ListChecks, RefreshCw, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, HandCoins, ListChecks, RefreshCw, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link, useSearch } from "wouter";
@@ -43,6 +45,8 @@ export default function Tasks() {
   const [statusFilter, setStatusFilter] = useState<string>("Pending");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
+  /** Inbox scope: all | mine (assigned to my linked team member) | created (created by me). */
+  const [scopeFilter, setScopeFilter] = useState<string>("all");
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
   // Deep link: /tasks?task=<id> opens that task's detail dialog (used by the
   // confirmation badges in the groups list).
@@ -98,9 +102,11 @@ export default function Tasks() {
       if (typeFilter !== "all" && t.type !== typeFilter) return false;
       if (assigneeFilter === "unassigned" && t.assigneeId != null) return false;
       if (assigneeFilter !== "all" && assigneeFilter !== "unassigned" && t.assigneeId !== Number(assigneeFilter)) return false;
+      if (scopeFilter === "created" && !(t as any).createdByMe) return false;
+      if (scopeFilter === "received" && ((t as any).createdByMe || t.assigneeId == null)) return false;
       return true;
     });
-  }, [tasks, statusFilter, typeFilter, assigneeFilter]);
+  }, [tasks, statusFilter, typeFilter, assigneeFilter, scopeFilter]);
 
   const openTask = useMemo(() => (tasks ?? []).find(t => t.id === openTaskId) ?? null, [tasks, openTaskId]);
   const promiseStatusColors: Record<string, string> = {
@@ -146,6 +152,13 @@ export default function Tasks() {
       </div>
 
       <div className="flex flex-wrap gap-3">
+        <Tabs value={scopeFilter} onValueChange={setScopeFilter}>
+          <TabsList>
+            <TabsTrigger value="all">All tasks</TabsTrigger>
+            <TabsTrigger value="created">Created by me</TabsTrigger>
+            <TabsTrigger value="received">Assigned (from others)</TabsTrigger>
+          </TabsList>
+        </Tabs>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40">
             <SelectValue />
@@ -239,7 +252,18 @@ export default function Tasks() {
                       <span className="block truncate" title={t.customerName ?? undefined}>{t.customerName ?? "—"}</span>
                     </TableCell>
                     <TableCell className="text-sm overflow-hidden">
-                      <span className="block truncate" title={t.title}>{t.title}</span>
+                      <span className="block truncate" title={t.title}>
+                        {t.title}
+                        {(t as any).attachedInvoices?.length > 0 && (
+                          <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-blue-700 bg-blue-50 border border-blue-200 rounded px-1" title={`${(t as any).attachedInvoices.length} attached invoice(s)`}>
+                            <FileText className="h-3 w-3" />
+                            {(t as any).attachedInvoices.length}
+                          </span>
+                        )}
+                      </span>
+                      {(t as any).creatorName && (
+                        <span className="block text-[10px] text-muted-foreground truncate">by {(t as any).creatorName}</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm font-mono">{t.invoiceNumber ?? "—"}</TableCell>
                     <TableCell className="text-sm" onClick={e => e.stopPropagation()}>
@@ -360,6 +384,27 @@ export default function Tasks() {
                   </div>
                 )}
 
+                {(openTask as any).attachedInvoices?.length > 0 && (
+                  <div className="rounded-md border p-3 space-y-2">
+                    <div className="text-sm font-medium flex items-center gap-1.5">
+                      <FileText className="h-4 w-4" /> Attached invoices ({(openTask as any).attachedInvoices.length})
+                    </div>
+                    <div className="max-h-40 overflow-y-auto space-y-1">
+                      {(openTask as any).attachedInvoices.map((inv: any) => (
+                        <div key={inv.id} className="flex items-center justify-between text-xs border-b last:border-b-0 py-1">
+                          <span className="font-mono">{inv.invoiceNumber}</span>
+                          <span className="text-muted-foreground truncate max-w-32" title={inv.customerName}>{inv.customerName}</span>
+                          <span className="text-muted-foreground">{fmtDate(inv.dueDate)}</span>
+                          <span className="font-mono font-medium">
+                            {inv.currency && inv.currency !== "EUR" ? `${inv.currency} ` : "€"}
+                            {Number(inv.amount).toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {openTask.promise && (
                   <div className="rounded-md border p-3 space-y-2">
                     <div className="text-sm font-medium flex items-center gap-1.5">
@@ -428,6 +473,8 @@ export default function Tasks() {
                     </Button>
                   </div>
                 )}
+
+                <TaskCommentsThread taskId={openTask.id} />
               </div>
             </>
           )}

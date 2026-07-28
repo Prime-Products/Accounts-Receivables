@@ -2402,6 +2402,8 @@ export const tasksRouter = router({
       dueDate: z.number(),
       invoiceId: z.number().optional(),
       assigneeId: z.number().optional(),
+      /** Invoices to attach — used when sending invoices to a colleague for help. */
+      invoiceIds: z.array(z.number()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const customer = await db.getCustomer(input.customerId);
@@ -2417,38 +2419,84 @@ export const tasksRouter = router({
         status: "Pending",
         assignedTo: ctx.user.id,
       });
+      if (input.invoiceIds && input.invoiceIds.length > 0) {
+        await db.addTaskInvoices(id, input.invoiceIds);
+      }
       await audit(ctx, "Create Task", "task", id, `Manual task "${input.title}" for ${customer.name}`);
       return { id };
     }),
   list: protectedProcedure
     .input(z.object({ statuses: z.array(z.enum(taskStatuses)).optional() }).optional())
-    .query(async ({ input }) => {
-      const [rows, customers, invoices, allPromises, members] = await Promise.all([
+    .query(async ({ ctx, input }) => {
+      const [rows, customers, invoices, allPromises, members, allAttached, allUsers] = await Promise.all([
         db.listTasks({ statuses: input?.statuses }),
         db.listCustomers(),
         db.listInvoices(),
         db.listPromises(),
         db.listTeamMembers(true),
+        db.listAllTaskInvoices(),
+        db.listUsers().catch(() => [] as any[]),
       ]);
       const byId = new Map(customers.map(c => [c.id, c]));
       const invById = new Map(invoices.map(i => [i.id, i]));
       const promById = new Map(allPromises.map(p => [p.id, p]));
       const memberById = new Map(members.map(mb => [mb.id, mb]));
+      const userById = new Map(allUsers.map((u: any) => [u.id, u]));
+      const attachedByTask = new Map<number, number[]>();
+      for (const ti of allAttached) {
+        const arr = attachedByTask.get(ti.taskId) ?? [];
+        arr.push(ti.invoiceId);
+        attachedByTask.set(ti.taskId, arr);
+      }
       return rows.map(t => {
         // Promise follow-up tasks embed "(Promise #<id>)" in their description.
         const m = t.description?.match(/\(Promise #(\d+)\)/);
         const promise = m ? promById.get(Number(m[1])) : undefined;
+        const attachedIds = attachedByTask.get(t.id) ?? [];
+        const attachedInvoices = attachedIds
+          .map(iid => invById.get(iid))
+          .filter(Boolean)
+          .map((inv: any) => ({
+            id: inv.id,
+            invoiceNumber: inv.invoiceNumber,
+            amount: inv.amount,
+            currency: inv.currency,
+            dueDate: inv.dueDate,
+            status: inv.status,
+            customerName: byId.get(inv.customerId)?.name ?? "—",
+          }));
         return {
           ...t,
           customerName: byId.get(t.customerId)?.name ?? "—",
           invoiceNumber: t.invoiceId ? invById.get(t.invoiceId)?.invoiceNumber : undefined,
           assigneeName: t.assigneeId ? (memberById.get(t.assigneeId)?.name ?? null) : null,
+          creatorName: t.assignedTo ? ((userById.get(t.assignedTo) as any)?.name ?? null) : null,
+          createdByMe: t.assignedTo === ctx.user.id,
+          attachedInvoices,
           promiseId: promise?.id,
           promise: promise
             ? { id: promise.id, promisedDate: promise.promisedDate, amount: promise.amount, status: promise.status, notes: promise.notes }
             : undefined,
         };
       });
+    }),
+  /** Comments thread on a task — internal collaboration between colleagues. */
+  comments: protectedProcedure
+    .input(z.object({ taskId: z.number() }))
+    .query(async ({ input }) => db.listTaskComments(input.taskId)),
+  addComment: protectedProcedure
+    .input(z.object({ taskId: z.number(), body: z.string().min(1).max(4000) }))
+    .mutation(async ({ ctx, input }) => {
+      const task = await db.getTask(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      const id = await db.addTaskComment({
+        taskId: input.taskId,
+        authorId: ctx.user.id,
+        authorName: ctx.user.name ?? ctx.user.email ?? "User",
+        body: input.body.trim(),
+      });
+      await audit(ctx, "Task Comment", "task", input.taskId, input.body.slice(0, 120));
+      return { id };
     }),
   /** Assign or re-assign a task to a team member (null clears the assignment). */
   assign: protectedProcedure

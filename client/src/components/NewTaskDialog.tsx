@@ -21,6 +21,7 @@ export const TASK_TYPES = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA",
  * - `customerIds`: restrict the pickable customers (e.g. member companies of a group).
  * - `hideCustomerPicker`: hide the customer selector entirely (e.g. group card — task is recorded against the group's primary member).
  * - `trigger`: custom trigger element; defaults to a "New Task" button.
+ * - `attachInvoices`: invoices pre-attached to the task (send-invoices-to-colleague flow).
  */
 export default function NewTaskDialog({
   defaultCustomerId,
@@ -29,6 +30,9 @@ export default function NewTaskDialog({
   trigger,
   open: externalOpen,
   onOpenChange,
+  attachInvoices,
+  defaultTitle,
+  defaultDescription,
 }: {
   defaultCustomerId?: number;
   customerIds?: number[];
@@ -36,6 +40,9 @@ export default function NewTaskDialog({
   trigger?: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  attachInvoices?: { id: number; invoiceNumber: string; amount: number | string; currency?: string | null }[];
+  defaultTitle?: string;
+  defaultDescription?: string;
 }) {
   const utils = trpc.useUtils();
   const [internalOpen, setInternalOpen] = useState(false);
@@ -50,8 +57,8 @@ export default function NewTaskDialog({
   const [customerOpen, setCustomerOpen] = useState(false);
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
   const [type, setType] = useState<string>("Manual");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(defaultTitle ?? "");
+  const [description, setDescription] = useState(defaultDescription ?? "");
   const [dueDate, setDueDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [assigneeId, setAssigneeId] = useState<number | null>(null);
 
@@ -86,6 +93,7 @@ export default function NewTaskDialog({
       description: description.trim() || undefined,
       dueDate: new Date(`${dueDate}T12:00:00`).getTime(),
       assigneeId: assigneeId ?? undefined,
+      invoiceIds: attachInvoices && attachInvoices.length > 0 ? attachInvoices.map(i => i.id) : undefined,
     });
   };
 
@@ -169,6 +177,23 @@ export default function NewTaskDialog({
             <Label>Assignee (optional)</Label>
             <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} />
           </div>
+          {attachInvoices && attachInvoices.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Attached invoices ({attachInvoices.length})</Label>
+              <div className="rounded-md border bg-muted/40 p-2 max-h-32 overflow-y-auto space-y-1">
+                {attachInvoices.map(inv => (
+                  <div key={inv.id} className="flex items-center justify-between text-xs">
+                    <span className="font-mono">{inv.invoiceNumber}</span>
+                    <span className="font-mono text-muted-foreground">
+                      {inv.currency && inv.currency !== "EUR" ? `${inv.currency} ` : "€"}
+                      {Number(inv.amount).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">These invoices will be linked to the task so your colleague sees exactly what to look at.</p>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>Title</Label>
             <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Call customer about overdue balance" />

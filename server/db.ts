@@ -32,6 +32,8 @@ import {
   receipts,
   syncLogs,
   tasks,
+  taskComments,
+  taskInvoices,
   userProfiles,
   users,
 } from "../drizzle/schema";
@@ -127,6 +129,12 @@ export async function getUserByOpenId(openId: string) {
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
+}
+
+/** All login users — used to resolve task creator names. */
+export async function listUsers() {
+  const db = await requireDb();
+  return db.select().from(users);
 }
 
 async function requireDb() {
@@ -387,6 +395,49 @@ export async function findTaskByContractAndType(contractId: number, type: string
     .where(and(eq(tasks.contractId, contractId), eq(tasks.type, type as any)))
     .limit(1);
   return r[0];
+}
+
+export async function getTask(id: number) {
+  const db = await requireDb();
+  const r = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+  return r[0];
+}
+
+// ---------- Task comments (internal collaboration) ----------
+export async function listTaskComments(taskId: number) {
+  const db = await requireDb();
+  return db.select().from(taskComments).where(eq(taskComments.taskId, taskId)).orderBy(taskComments.createdAt);
+}
+
+export async function addTaskComment(data: { taskId: number; authorId?: number | null; authorName: string; body: string }) {
+  const db = await requireDb();
+  const res = await db.insert(taskComments).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function deleteTaskComment(id: number) {
+  const db = await requireDb();
+  await db.delete(taskComments).where(eq(taskComments.id, id));
+}
+
+// ---------- Task ↔ invoice attachments ----------
+export async function listTaskInvoices(taskId: number) {
+  const db = await requireDb();
+  return db.select().from(taskInvoices).where(eq(taskInvoices.taskId, taskId));
+}
+
+export async function listAllTaskInvoices() {
+  const db = await requireDb();
+  return db.select().from(taskInvoices);
+}
+
+export async function addTaskInvoices(taskId: number, invoiceIds: number[]) {
+  if (invoiceIds.length === 0) return;
+  const db = await requireDb();
+  await db
+    .insert(taskInvoices)
+    .values(invoiceIds.map(invoiceId => ({ taskId, invoiceId })))
+    .onDuplicateKeyUpdate({ set: { taskId } });
 }
 
 

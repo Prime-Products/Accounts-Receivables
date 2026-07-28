@@ -210,6 +210,29 @@ export const tasks = mysqlTable("tasks", {
   index("idx_tasks_dueDate").on(t.dueDate),
 ]);
 
+/** Free-form discussion thread on a task — used for internal collaboration between colleagues. */
+export const taskComments = mysqlTable("task_comments", {
+  id: int("id").autoincrement().primaryKey(),
+  taskId: int("taskId").notNull(),
+  /** users.id of the author (nullable — team members without login). */
+  authorId: int("authorId"),
+  authorName: varchar("authorName", { length: 191 }).default("").notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [index("idx_task_comments_taskId").on(t.taskId)]);
+export type TaskComment = typeof taskComments.$inferSelect;
+export type InsertTaskComment = typeof taskComments.$inferInsert;
+
+/** Invoices attached to a task — lets a colleague see exactly which invoices need attention. */
+export const taskInvoices = mysqlTable("task_invoices", {
+  id: int("id").autoincrement().primaryKey(),
+  taskId: int("taskId").notNull(),
+  invoiceId: int("invoiceId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [index("idx_task_invoices_taskId").on(t.taskId)]);
+export type TaskInvoice = typeof taskInvoices.$inferSelect;
+export type InsertTaskInvoice = typeof taskInvoices.$inferInsert;
+
 export const onHoldStatuses = ["Under Review", "Eligible for On Hold", "On Hold", "Legal", "Rejected", "Resolved"] as const;
 
 export const onHoldProposals = mysqlTable("on_hold_proposals", {
