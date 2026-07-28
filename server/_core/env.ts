@@ -1,4 +1,5 @@
 export const ENV = {
+  authDisabled: process.env.AUTH_DISABLED === "true",
   appId: process.env.VITE_APP_ID ?? "",
   cookieSecret: process.env.JWT_SECRET ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
