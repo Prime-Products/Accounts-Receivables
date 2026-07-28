@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtCur, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
@@ -21,6 +22,24 @@ const CURRENCIES = ["EUR", "USD", "AED", "SGD", "GBP", "NOK", "JPY"];
 
 export function WireTransfers({ customerId }: WireTransfersProps) {
   const utils = trpc.useUtils();
+  const wtCols = useResizableColumns("wire-transfers", {
+    date: 110,
+    branch: 150,
+    amount: 130,
+    status: 120,
+    reference: 160,
+    notes: 220,
+    actions: 100,
+  });
+  const payCols = useResizableColumns("wire-payments", {
+    date: 110,
+    amount: 130,
+    invoice: 130,
+    branch: 130,
+    fromBranch: 130,
+    viaFrom: 190,
+    transfer: 200,
+  });
   const { data: transfers = [], isLoading } = trpc.customers.listWireTransfers.useQuery({ customerId });
   const { data: branches = [] } = trpc.customers.listBranches.useQuery();
   // Amounts credited to THIS company's invoices from any wire transfer (incl. other group members)
@@ -237,16 +256,25 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
       ) : (
         <Card>
           <CardContent className="pt-6">
-            <Table>
+            <Table className="table-fixed" style={{ width: wtCols.totalWidth, minWidth: "100%" }}>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Branch</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Reference</TableHead>
-                  <TableHead>Notes</TableHead>
-                  <TableHead className="w-20">Actions</TableHead>
+                  {(
+                    [
+                      ["date", "Date"],
+                      ["branch", "Branch"],
+                      ["amount", "Amount"],
+                      ["status", "Status"],
+                      ["reference", "Reference"],
+                      ["notes", "Notes"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <TableHead key={key} className="relative" style={wtCols.style(key)}>
+                      <span className="block truncate pr-1">{label}</span>
+                      <ColResizer col={key} api={wtCols} />
+                    </TableHead>
+                  ))}
+                  <TableHead style={wtCols.style("actions")}>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -269,8 +297,12 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                         </SelectContent>
                       </Select>
                     </TableCell>
-                    <TableCell className="text-sm">{t.referenceNumber || "-"}</TableCell>
-                    <TableCell className="text-sm truncate max-w-xs">{t.notes || "-"}</TableCell>
+                    <TableCell className="text-sm overflow-hidden">
+                      <span className="block truncate">{t.referenceNumber || "-"}</span>
+                    </TableCell>
+                    <TableCell className="text-sm overflow-hidden">
+                      <span className="block truncate" title={t.notes ?? undefined}>{t.notes || "-"}</span>
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
                         {t.status === "Received" && (
@@ -314,16 +346,25 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
+            <Table className="table-fixed" style={{ width: payCols.totalWidth, minWidth: "100%" }}>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Branch</TableHead>
-                  <TableHead>From branch</TableHead>
-                  <TableHead>Via wire transfer from</TableHead>
-                  <TableHead>Transfer</TableHead>
+                  {(
+                    [
+                      ["date", "Date"],
+                      ["amount", "Amount"],
+                      ["invoice", "Invoice"],
+                      ["branch", "Branch"],
+                      ["fromBranch", "From branch"],
+                      ["viaFrom", "Via wire transfer from"],
+                      ["transfer", "Transfer"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <TableHead key={key} className="relative" style={payCols.style(key)}>
+                      <span className="block truncate pr-1">{label}</span>
+                      <ColResizer col={key} api={payCols} />
+                    </TableHead>
+                  ))}
                 </TableRow>
               </TableHeader>
               <TableBody>

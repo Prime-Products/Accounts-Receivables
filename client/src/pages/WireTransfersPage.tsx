@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -164,6 +165,17 @@ function CustomerCombobox({
 }
 
 export default function WireTransfersPage() {
+  const wtpCols = useResizableColumns("wire-transfers-page", {
+    chevron: 36,
+    customer: 280,
+    branch: 160,
+    amount: 110,
+    allocated: 100,
+    date: 120,
+    status: 100,
+    ref: 130,
+    actions: 170,
+  });
   const [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "Received">("All");
   const [customerFilter, setCustomerFilter] = useState("all");
   const [branchFilter, setBranchFilter] = useState("all");
@@ -405,18 +417,27 @@ export default function WireTransfersPage() {
             <div className="text-center py-8 text-muted-foreground">No wire transfers found</div>
           ) : (
             <div className="overflow-x-auto">
-              <Table className="table-fixed w-full">
+              <Table className="table-fixed" style={{ width: wtpCols.totalWidth, minWidth: "100%" }}>
                 <TableHeader>
                   <TableRow>
-                    <TableCell className="w-8"></TableCell>
-                    <TableCell className="w-[23%]">Customer</TableCell>
-                    <TableCell className="w-[13%]">Branch</TableCell>
-                    <TableCell className="w-[9%]">Amount</TableCell>
-                    <TableCell className="w-[8%]">Allocated</TableCell>
-                    <TableCell className="w-[10%]">Date</TableCell>
-                    <TableCell className="w-[8%]">Status</TableCell>
-                    <TableCell className="w-[10%]">Ref / Notes</TableCell>
-                    <TableCell className="w-[15%]">Actions</TableCell>
+                    <TableCell style={wtpCols.style("chevron")}></TableCell>
+                    {(
+                      [
+                        ["customer", "Customer"],
+                        ["branch", "Branch"],
+                        ["amount", "Amount"],
+                        ["allocated", "Allocated"],
+                        ["date", "Date"],
+                        ["status", "Status"],
+                        ["ref", "Ref / Notes"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <TableCell key={key} className="relative" style={wtpCols.style(key)}>
+                        <span className="block truncate pr-1">{label}</span>
+                        <ColResizer col={key} api={wtpCols} />
+                      </TableCell>
+                    ))}
+                    <TableCell style={wtpCols.style("actions")}>Actions</TableCell>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

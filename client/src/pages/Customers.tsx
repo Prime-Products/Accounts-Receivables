@@ -1,3 +1,4 @@
+import { ColResizer, useResizableColumns, type ResizableColumnsApi } from "@/components/ResizableTable";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -224,16 +225,20 @@ function SortableHead({
   active,
   dir,
   onClick,
+  col,
+  cols,
 }: {
   label: string;
   active: boolean;
   dir: "asc" | "desc";
   onClick: () => void;
+  col?: string;
+  cols?: ResizableColumnsApi;
 }) {
   return (
-    <TableHead className="text-right">
-      <button className="inline-flex items-center gap-1 hover:text-foreground" onClick={onClick}>
-        {label}
+    <TableHead className="relative text-right" style={col && cols ? cols.style(col) : undefined}>
+      <button className="inline-flex items-center gap-1 hover:text-foreground justify-end w-full max-w-full pr-1" onClick={onClick}>
+        <span className="truncate">{label}</span>
         {active ? (
           dir === "desc" ? (
             <ArrowDown className="h-3 w-3" />
@@ -244,9 +249,44 @@ function SortableHead({
           <ArrowUpDown className="h-3 w-3 opacity-40" />
         )}
       </button>
+      {col && cols && <ColResizer col={col} api={cols} />}
     </TableHead>
   );
 }
+
+/** Plain (non-sortable) resizable header cell. */
+function PlainHead({ label, col, cols, className }: { label?: string; col: string; cols: ResizableColumnsApi; className?: string }) {
+  return (
+    <TableHead className={`relative ${className ?? ""}`} style={cols.style(col)}>
+      <span className="block truncate pr-1">{label}</span>
+      <ColResizer col={col} api={cols} />
+    </TableHead>
+  );
+}
+
+const GROUP_COL_DEFAULTS: Record<string, number> = {
+  group: 240,
+  confirmation: 150,
+  promised: 100,
+  open: 120,
+  overdue: 120,
+  overdueEom: 120,
+  forecast: 110,
+  expected: 110,
+  collected: 105,
+  remaining: 105,
+  actions: 44,
+};
+
+const COMPANY_COL_DEFAULTS: Record<string, number> = {
+  code: 90,
+  name: 300,
+  score: 80,
+  open: 130,
+  overdue: 130,
+  overdueEom: 130,
+  credit: 120,
+};
 
 export default function Customers() {
   const [view, setView] = useState<"groups" | "companies">("groups");
@@ -272,6 +312,8 @@ export default function Customers() {
   // Performance: render only the first 100 rows initially; "Show all" reveals the rest.
   const [showAllGroups, setShowAllGroups] = useState(false);
   const [showAllCompanies, setShowAllCompanies] = useState(false);
+  const groupCols = useResizableColumns("customer-groups", GROUP_COL_DEFAULTS);
+  const companyCols = useResizableColumns("customer-companies", COMPANY_COL_DEFAULTS);
 
   const toggleGroupSort = (key: GroupSortKey) =>
     setGroupSort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
@@ -723,20 +765,20 @@ export default function Customers() {
             ) : filteredGroups.length === 0 ? (
               <div className="p-10 text-center text-muted-foreground">No groups found.</div>
             ) : (
-              <Table>
+              <Table className="table-fixed" style={{ width: groupCols.totalWidth, minWidth: "100%" }}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Group</TableHead>
-                    <TableHead>Confirmation</TableHead>
-                    <TableHead className="text-right">Promised</TableHead>
-                    <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} />
-                    <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} />
-                    <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} />
-                    <SortableHead label="Forecast" active={groupSort.key === "forecast"} dir={groupSort.dir} onClick={() => toggleGroupSort("forecast")} />
-                    <SortableHead label="Expected" active={groupSort.key === "expected"} dir={groupSort.dir} onClick={() => toggleGroupSort("expected")} />
-                    <SortableHead label="Collected" active={groupSort.key === "collected"} dir={groupSort.dir} onClick={() => toggleGroupSort("collected")} />
-                    <SortableHead label="Remaining" active={groupSort.key === "remaining"} dir={groupSort.dir} onClick={() => toggleGroupSort("remaining")} />
-                    <TableHead className="w-10"></TableHead>
+                    <PlainHead label="Group" col="group" cols={groupCols} />
+                    <PlainHead label="Confirmation" col="confirmation" cols={groupCols} />
+                    <PlainHead label="Promised" col="promised" cols={groupCols} className="text-right" />
+                    <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} col="open" cols={groupCols} />
+                    <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} col="overdue" cols={groupCols} />
+                    <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} col="overdueEom" cols={groupCols} />
+                    <SortableHead label="Forecast" active={groupSort.key === "forecast"} dir={groupSort.dir} onClick={() => toggleGroupSort("forecast")} col="forecast" cols={groupCols} />
+                    <SortableHead label="Expected" active={groupSort.key === "expected"} dir={groupSort.dir} onClick={() => toggleGroupSort("expected")} col="expected" cols={groupCols} />
+                    <SortableHead label="Collected" active={groupSort.key === "collected"} dir={groupSort.dir} onClick={() => toggleGroupSort("collected")} col="collected" cols={groupCols} />
+                    <SortableHead label="Remaining" active={groupSort.key === "remaining"} dir={groupSort.dir} onClick={() => toggleGroupSort("remaining")} col="remaining" cols={groupCols} />
+                    <TableHead style={groupCols.style("actions")}></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -771,7 +813,7 @@ export default function Customers() {
                       className="cursor-pointer"
                       onClick={() => navigate(`/groups/${encodeURIComponent(g.group)}`)}
                     >
-                      <TableCell className="font-medium max-w-72">
+                      <TableCell className="font-medium overflow-hidden">
                         <div className="flex items-center gap-1.5">
                           <div className="truncate" title={g.group}>{g.group}</div>
                           {g.watchStatus && (
@@ -884,20 +926,21 @@ export default function Customers() {
               No customers yet. Create one or pull them from Softone in Settings.
             </div>
           ) : (
-            <Table>
+            <Table className="table-fixed" style={{ width: companyCols.totalWidth, minWidth: "100%" }}>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Name</TableHead>
-                  <SortableHead label="Open Balance" active={companySort.key === "open"} dir={companySort.dir} onClick={() => toggleCompanySort("open")} />
-                  <SortableHead label="Overdue" active={companySort.key === "overdue"} dir={companySort.dir} onClick={() => toggleCompanySort("overdue")} />
-                  <SortableHead label="Overdue EOM" active={companySort.key === "overdueEom"} dir={companySort.dir} onClick={() => toggleCompanySort("overdueEom")} />
-                  <SortableHead label="Credit Limit" active={companySort.key === "credit"} dir={companySort.dir} onClick={() => toggleCompanySort("credit")} />
+                  <PlainHead label="Code" col="code" cols={companyCols} />
+                  <PlainHead label="Name" col="name" cols={companyCols} />
+                  <SortableHead label="Rating" active={companySort.key === "score"} dir={companySort.dir} onClick={() => toggleCompanySort("score")} col="score" cols={companyCols} />
+                  <SortableHead label="Open Balance" active={companySort.key === "open"} dir={companySort.dir} onClick={() => toggleCompanySort("open")} col="open" cols={companyCols} />
+                  <SortableHead label="Overdue" active={companySort.key === "overdue"} dir={companySort.dir} onClick={() => toggleCompanySort("overdue")} col="overdue" cols={companyCols} />
+                  <SortableHead label="Overdue EOM" active={companySort.key === "overdueEom"} dir={companySort.dir} onClick={() => toggleCompanySort("overdueEom")} col="overdueEom" cols={companyCols} />
+                  <SortableHead label="Credit Limit" active={companySort.key === "credit"} dir={companySort.dir} onClick={() => toggleCompanySort("credit")} col="credit" cols={companyCols} />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
-                  <TableCell colSpan={4}>TOTAL ({filtered.length} companies)</TableCell>
+                  <TableCell colSpan={3}>TOTAL ({filtered.length} companies)</TableCell>
                   <TableCell className="text-right font-mono">{fmtEur(companyTotals.open)}</TableCell>
                   <TableCell className={`text-right font-mono ${companyTotals.overdue > 0 ? "text-red-600" : ""}`}>
                     {fmtEur(companyTotals.overdue)}
@@ -910,7 +953,9 @@ export default function Customers() {
                 {(showAllCompanies ? filtered : filtered.slice(0, 100)).map(c => (
                   <TableRow key={c.id} className="cursor-pointer" onClick={() => navigate(`/customers/${c.id}`)}>
                     <TableCell className="font-mono text-sm">{c.code}</TableCell>
-                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="font-medium overflow-hidden">
+                      <span className="block truncate" title={c.name}>{c.name}</span>
+                    </TableCell>
                     <TableCell className="text-right">
                       <Badge
                         variant="outline"

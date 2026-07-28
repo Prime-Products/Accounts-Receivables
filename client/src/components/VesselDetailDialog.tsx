@@ -1,6 +1,7 @@
+import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { fmtEur } from "@/lib/format";
@@ -34,7 +35,7 @@ export function VesselDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl max-h-[85vh] overflow-y-auto">
+      <ResizableDialogContent storageKey="vessel-detail" className="sm:max-w-none w-[64rem] max-w-[95vw] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Ship className="h-5 w-5 text-sky-600" />
@@ -175,7 +176,7 @@ export function VesselDetailDialog({
             </div>
           </div>
         )}
-      </DialogContent>
+      </ResizableDialogContent>
     </Dialog>
   );
 }

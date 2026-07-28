@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { trpc } from "@/lib/trpc";
 import { Contact, Mail, Pencil, Phone, Plus, Search, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -170,6 +171,15 @@ export default function Contacts() {
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
+  const cols = useResizableColumns("contacts", {
+    name: 200,
+    position: 140,
+    email: 240,
+    phone: 160,
+    company: 220,
+    group: 200,
+    actions: 90,
+  });
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ContactRow | null>(null);
   const [deleting, setDeleting] = useState<ContactRow | null>(null);
@@ -238,16 +248,25 @@ export default function Contacts() {
         </div>
       ) : (
         <div className="rounded-lg border overflow-x-auto">
-          <Table>
+          <Table className="table-fixed" style={{ width: cols.totalWidth, minWidth: "100%" }}>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Position</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Company</TableHead>
-                <TableHead>Group</TableHead>
-                <TableHead className="w-20 text-right">Actions</TableHead>
+                {(
+                  [
+                    ["name", "Name"],
+                    ["position", "Position"],
+                    ["email", "Email"],
+                    ["phone", "Phone"],
+                    ["company", "Company"],
+                    ["group", "Group"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <TableHead key={key} className="relative" style={cols.style(key)}>
+                    <span className="block truncate pr-1">{label}</span>
+                    <ColResizer col={key} api={cols} />
+                  </TableHead>
+                ))}
+                <TableHead className="text-right" style={cols.style("actions")}>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

@@ -844,3 +844,11 @@
 ## Remove per-row contract toggle (user request 28/7)
 - [x] Remove the "Mark/Unmark contract installment" option from the row Status dropdown in InvoicesTable (flag will come only from DB sync / bulk Excel upload; backend procedure kept for bulk upload)
 - [x] Verify, checkpoint & deliver
+## Resizable columns & modals (user request 28/7)
+- [x] Reusable column-resize infrastructure (drag handles on table headers, widths persisted per table in localStorage, double-click reset)
+- [x] Apply resizable columns to InvoicesTable (used in Invoices page, group/customer cards, vessel modal)
+- [x] Apply resizable columns to Vessels list table
+- [x] Apply resizable columns to Customers/Groups list table (groups + companies views)
+- [x] Apply resizable columns to Contacts, Tasks, Wire Transfers page and customer wire-transfer tables
+- [x] Make dialogs/modals resizable by dragging edges/corner (vessel modal, group notes, log call, new task, task detail, send email, AI summary, allocate wire transfer), size persisted per dialog, double-click to reset
+- [x] Verify visually, run tests (192/193; 1 known confirmationStatus parallel flake passes in isolation), checkpoint & deliver

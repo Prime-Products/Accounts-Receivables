@@ -1,5 +1,6 @@
+import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -124,7 +125,7 @@ export default function LogCallDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+      <ResizableDialogContent storageKey="log-call" className="sm:max-w-none w-[28rem] max-w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Phone className="h-4 w-4" /> Log Call — {group}
@@ -341,7 +342,7 @@ export default function LogCallDialog({
             {logCall.isPending ? "Saving…" : "Log Call"}
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </ResizableDialogContent>
     </Dialog>
   );
 }

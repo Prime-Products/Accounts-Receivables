@@ -18,6 +18,7 @@ import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { CheckCircle2, HandCoins, ListChecks, RefreshCw, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
@@ -26,6 +27,16 @@ import { toast } from "sonner";
 import { Link, useSearch } from "wouter";
 
 export default function Tasks() {
+  const cols = useResizableColumns("tasks", {
+    type: 150,
+    customer: 220,
+    task: 280,
+    invoice: 120,
+    assignee: 150,
+    due: 110,
+    status: 110,
+    actions: 120,
+  });
   const { data: tasks, isLoading } = trpc.tasks.list.useQuery();
   const { data: teamMembers } = trpc.team.list.useQuery();
   const utils = trpc.useUtils();
@@ -189,23 +200,32 @@ export default function Tasks() {
               No tasks match the filters. Use "Run Task Engine Now" to generate SOP follow-ups from overdue invoices.
             </div>
           ) : (
-            <Table>
+            <Table className="table-fixed" style={{ width: cols.totalWidth, minWidth: "100%" }}>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Task</TableHead>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Assignee</TableHead>
-                  <TableHead>Due</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  {(
+                    [
+                      ["type", "Type"],
+                      ["customer", "Customer"],
+                      ["task", "Task"],
+                      ["invoice", "Invoice"],
+                      ["assignee", "Assignee"],
+                      ["due", "Due"],
+                      ["status", "Status"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <TableHead key={key} className="relative" style={cols.style(key)}>
+                      <span className="block truncate pr-1">{label}</span>
+                      <ColResizer col={key} api={cols} />
+                    </TableHead>
+                  ))}
+                  <TableHead className="text-right" style={cols.style("actions")}>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.map(t => (
                   <TableRow key={t.id} className="cursor-pointer" onClick={() => setOpenTaskId(t.id)}>
-                    <TableCell>
+                    <TableCell className="overflow-hidden">
                       <Badge variant="outline" className={taskTypeColors[t.type] ?? ""}>
                         {t.type}
                       </Badge>
@@ -215,9 +235,11 @@ export default function Tasks() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="font-medium">{t.customerName ?? "—"}</TableCell>
-                    <TableCell className="text-sm max-w-md">
-                      <div>{t.title}</div>
+                    <TableCell className="font-medium overflow-hidden">
+                      <span className="block truncate" title={t.customerName ?? undefined}>{t.customerName ?? "—"}</span>
+                    </TableCell>
+                    <TableCell className="text-sm overflow-hidden">
+                      <span className="block truncate" title={t.title}>{t.title}</span>
                     </TableCell>
                     <TableCell className="text-sm font-mono">{t.invoiceNumber ?? "—"}</TableCell>
                     <TableCell className="text-sm" onClick={e => e.stopPropagation()}>

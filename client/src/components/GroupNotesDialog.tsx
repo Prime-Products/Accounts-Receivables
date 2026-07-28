@@ -1,6 +1,7 @@
+import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
@@ -56,7 +57,7 @@ export default function GroupNotesDialog({ group, open: externalOpen, onOpenChan
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent className="sm:max-w-xl">
+      <ResizableDialogContent storageKey="group-notes" className="sm:max-w-none w-[36rem] max-w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <StickyNote className="h-4 w-4" /> Group Notes — {group}
@@ -138,7 +139,7 @@ export default function GroupNotesDialog({ group, open: externalOpen, onOpenChan
             </div>
           )}
         </div>
-      </DialogContent>
+      </ResizableDialogContent>
     </Dialog>
   );
 }

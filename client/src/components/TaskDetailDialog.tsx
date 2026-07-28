@@ -1,6 +1,7 @@
+import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
@@ -61,7 +62,7 @@ export default function TaskDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <ResizableDialogContent storageKey="task-detail" className="sm:max-w-none w-[32rem] max-w-[95vw] max-h-[90vh] overflow-y-auto">
         {isLoading ? (
           <div className="space-y-3 py-4">
             <Skeleton className="h-6 w-2/3" />
@@ -208,7 +209,7 @@ export default function TaskDetailDialog({
             </div>
           </>
         )}
-      </DialogContent>
+      </ResizableDialogContent>
     </Dialog>
   );
 }

@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -101,6 +102,24 @@ export function InvoicesTable({
     onError: e => toast.error(e.message),
   });
   // Per-row contract-installment toggle removed: the flag now comes only from DB sync / bulk Excel upload.
+  const colDefaults = useMemo(() => {
+    const d: Record<string, number> = {
+      invoiceNumber: 110,
+      ...(showCustomer ? { customerName: 170 } : {}),
+      vesselName: 100,
+      company: 100,
+      issueDate: 100,
+      dueDate: 100,
+      status: 105,
+      amount: 110,
+      paidAmount: 85,
+      outstanding: 130,
+      daysOverdue: 95,
+    };
+    return d;
+  }, [showCustomer]);
+  const cols = useResizableColumns(showCustomer ? "invoices" : "invoices-nocust", colDefaults);
+
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
       if (sortDir === "asc") setSortDir("desc");
@@ -124,40 +143,41 @@ export function InvoicesTable({
     });
   }, [rows, sortKey, sortDir]);
 
-  const SortableHead = ({ label, k, align, className }: { label: string; k: SortKey; align?: "right"; className?: string }) => (
-    <TableHead className={`whitespace-nowrap px-2 ${align === "right" ? "text-right" : ""} ${className ?? ""}`}>
+  const SortableHead = ({ label, k, align }: { label: string; k: SortKey; align?: "right" }) => (
+    <TableHead className={`relative whitespace-nowrap px-2 ${align === "right" ? "text-right" : ""}`} style={cols.style(k)}>
       <button
         type="button"
         onClick={() => toggleSort(k)}
-        className={`inline-flex items-center gap-1 hover:text-foreground transition-colors select-none ${align === "right" ? "justify-end w-full" : ""} ${sortKey === k ? "text-foreground font-semibold" : ""}`}
+        className={`inline-flex items-center gap-1 hover:text-foreground transition-colors select-none max-w-full pr-1 ${align === "right" ? "justify-end w-full" : ""} ${sortKey === k ? "text-foreground font-semibold" : ""}`}
         title={`Sort by ${label}`}
       >
-        {label}
+        <span className="truncate">{label}</span>
         {sortKey === k ? (
           sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
         ) : (
           <ArrowUpDown className="h-3 w-3 opacity-30" />
         )}
       </button>
+      <ColResizer col={k} api={cols} />
     </TableHead>
   );
 
   return (
     <>
-      <Table className="table-fixed [&_td]:px-2 [&_td]:py-2">
+      <Table className="table-fixed [&_td]:px-2 [&_td]:py-2" style={{ width: cols.totalWidth, minWidth: "100%" }}>
         <TableHeader>
           <TableRow>
-            <SortableHead label="Invoice" k="invoiceNumber" className="w-[9%]" />
-            {showCustomer && <SortableHead label="Customer" k="customerName" className="w-[13.5%]" />}
-            <SortableHead label="Vessel" k="vesselName" className="w-[7.5%]" />
-            <SortableHead label="Branch" k="company" className="w-[8%]" />
-            <SortableHead label="Doc. Date" k="issueDate" className="w-[9%]" />
-            <SortableHead label="Due Date" k="dueDate" className="w-[9%]" />
-            <SortableHead label="Status" k="status" className="w-[8%]" />
-            <SortableHead label="Amount" k="amount" align="right" className="w-[9%]" />
-            <SortableHead label="Paid" k="paidAmount" align="right" className="w-[7%]" />
-            <SortableHead label="Outstanding" k="outstanding" align="right" className="w-[11.5%]" />
-            <SortableHead label="Days Ovd" k="daysOverdue" align="right" className="w-[8.5%]" />
+            <SortableHead label="Invoice" k="invoiceNumber" />
+            {showCustomer && <SortableHead label="Customer" k="customerName" />}
+            <SortableHead label="Vessel" k="vesselName" />
+            <SortableHead label="Branch" k="company" />
+            <SortableHead label="Doc. Date" k="issueDate" />
+            <SortableHead label="Due Date" k="dueDate" />
+            <SortableHead label="Status" k="status" />
+            <SortableHead label="Amount" k="amount" align="right" />
+            <SortableHead label="Paid" k="paidAmount" align="right" />
+            <SortableHead label="Outstanding" k="outstanding" align="right" />
+            <SortableHead label="Days Ovd" k="daysOverdue" align="right" />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -172,21 +192,21 @@ export function InvoicesTable({
                 </span>
               </TableCell>
               {showCustomer && (
-                <TableCell className="font-medium max-w-44 text-sm">
+                <TableCell className="font-medium overflow-hidden text-sm">
                   <span className="block truncate" title={i.customerName ?? undefined}>{i.customerName ?? "—"}</span>
                 </TableCell>
               )}
-              <TableCell className="max-w-28">
+              <TableCell className="overflow-hidden">
                 {i.vesselName ? (
                   i.vesselId && !disableVesselDialog ? (
                     <button type="button" onClick={() => { setVesselDialogId(i.vesselId!); setVesselDialogOpen(true); }} className="max-w-full">
-                      <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-24 cursor-pointer hover:bg-sky-100 transition-colors" title={`View vessel: ${i.vesselName}`}>
+                      <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-full cursor-pointer hover:bg-sky-100 transition-colors" title={`View vessel: ${i.vesselName}`}>
                         <Ship className="h-3 w-3 shrink-0" />
                         <span className="truncate">{i.vesselName}</span>
                       </Badge>
                     </button>
                   ) : (
-                    <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-24" title={`Vessel: ${i.vesselName}`}>
+                    <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-full" title={`Vessel: ${i.vesselName}`}>
                       <Ship className="h-3 w-3 shrink-0" />
                       <span className="truncate">{i.vesselName}</span>
                     </Badge>

@@ -1,3 +1,4 @@
+import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,6 +10,18 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Ship } from "lucide-react";
 import { useMemo, useState } from "react";
 
 type SortKey = "name" | "ownerGroup" | "vesselType" | "flag" | "openBalance" | "overdueAmount" | "invoiceCount";
+
+const COL_DEFAULTS: Record<string, number> = {
+  name: 200,
+  imo: 90,
+  vesselType: 110,
+  flag: 90,
+  ownerGroup: 220,
+  invoiceCount: 90,
+  openBalance: 130,
+  overdueAmount: 130,
+  maxDaysOverdue: 120,
+};
 
 export default function Vessels() {
   const { data: vessels, isLoading } = trpc.vessels.listWithStats.useQuery();
@@ -22,6 +35,7 @@ export default function Vessels() {
     return Number.isFinite(n) && n > 0 ? n : null;
   });
   const [dialogOpen, setDialogOpen] = useState(dialogVesselId != null);
+  const cols = useResizableColumns("vessels", COL_DEFAULTS);
   const openVessel = (id: number) => {
     setDialogVesselId(id);
     setDialogOpen(true);
@@ -70,20 +84,21 @@ export default function Vessels() {
   }, [filtered]);
 
   const SortableHead = ({ label, k, align }: { label: string; k: SortKey; align?: "right" }) => (
-    <TableHead className={align === "right" ? "text-right" : undefined}>
+    <TableHead className={`relative ${align === "right" ? "text-right" : ""}`} style={cols.style(k)}>
       <button
         type="button"
         onClick={() => toggleSort(k)}
-        className={`inline-flex items-center gap-1 hover:text-foreground transition-colors select-none ${align === "right" ? "justify-end w-full" : ""} ${sortKey === k ? "text-foreground font-semibold" : ""}`}
+        className={`inline-flex items-center gap-1 hover:text-foreground transition-colors select-none max-w-full pr-1 ${align === "right" ? "justify-end w-full" : ""} ${sortKey === k ? "text-foreground font-semibold" : ""}`}
         title={`Sort by ${label}`}
       >
-        {label}
+        <span className="truncate">{label}</span>
         {sortKey === k ? (
           sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
         ) : (
           <ArrowUpDown className="h-3 w-3 opacity-30" />
         )}
       </button>
+      <ColResizer col={k} api={cols} />
     </TableHead>
   );
 
@@ -135,38 +150,48 @@ export default function Vessels() {
               {search ? "No vessels match the search." : "No vessels yet — vessels are created from invoice data."}
             </div>
           ) : (
-            <Table>
+            <Table className="table-fixed" style={{ width: cols.totalWidth, minWidth: "100%" }}>
               <TableHeader>
                 <TableRow>
                   <SortableHead label="Vessel" k="name" />
-                  <TableHead>IMO</TableHead>
+                  <TableHead className="relative" style={cols.style("imo")}>
+                    IMO
+                    <ColResizer col="imo" api={cols} />
+                  </TableHead>
                   <SortableHead label="Type" k="vesselType" />
                   <SortableHead label="Flag" k="flag" />
                   <SortableHead label="Owner / Group" k="ownerGroup" />
                   <SortableHead label="Invoices" k="invoiceCount" align="right" />
                   <SortableHead label="Open Balance" k="openBalance" align="right" />
                   <SortableHead label="Overdue" k="overdueAmount" align="right" />
-                  <TableHead className="text-right">Max Days Overdue</TableHead>
+                  <TableHead className="relative text-right" style={cols.style("maxDaysOverdue")}>
+                    Max Days Overdue
+                    <ColResizer col="maxDaysOverdue" api={cols} />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.map(v => (
                   <TableRow key={v.id}>
-                    <TableCell className="font-medium">
+                    <TableCell className="font-medium overflow-hidden">
                       <button
                         type="button"
                         onClick={() => openVessel(v.id)}
-                        className="inline-flex items-center gap-1.5 text-sky-700 hover:underline underline-offset-2"
+                        className="inline-flex items-center gap-1.5 text-sky-700 hover:underline underline-offset-2 max-w-full"
                         title={`View vessel: ${v.name}`}
                       >
                         <Ship className="h-3.5 w-3.5 shrink-0" />
-                        {v.name}
+                        <span className="truncate">{v.name}</span>
                       </button>
                     </TableCell>
                     <TableCell className="font-mono text-sm text-muted-foreground">{v.imo || "—"}</TableCell>
-                    <TableCell className="text-sm">{v.vesselType || "—"}</TableCell>
-                    <TableCell className="text-sm">{v.flag || "—"}</TableCell>
-                    <TableCell className="text-sm max-w-56">
+                    <TableCell className="text-sm overflow-hidden">
+                      <span className="block truncate" title={v.vesselType ?? undefined}>{v.vesselType || "—"}</span>
+                    </TableCell>
+                    <TableCell className="text-sm overflow-hidden">
+                      <span className="block truncate" title={v.flag ?? undefined}>{v.flag || "—"}</span>
+                    </TableCell>
+                    <TableCell className="text-sm overflow-hidden">
                       <span className="block truncate" title={v.ownerGroup ?? undefined}>{v.ownerGroup || "—"}</span>
                     </TableCell>
                     <TableCell className="text-right font-mono">{v.invoiceCount}</TableCell>

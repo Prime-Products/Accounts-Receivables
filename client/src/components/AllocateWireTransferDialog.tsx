@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
+import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
@@ -136,7 +137,7 @@ export function AllocateWireTransferDialog({
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="w-[96vw] sm:max-w-[1200px] max-h-[90vh] overflow-y-auto">
+      <ResizableDialogContent storageKey="allocate-wire" className="sm:max-w-none w-[96vw] max-w-[1200px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             Allocate Wire Transfer — {transfer.customerName ?? `Customer #${transfer.customerId}`}
@@ -315,7 +316,7 @@ export function AllocateWireTransferDialog({
             {allocateMutation.isPending ? "Allocating..." : "Allocate (Συμψηφισμός)"}
           </Button>
         </div>
-      </DialogContent>
+      </ResizableDialogContent>
     </Dialog>
   );
 }

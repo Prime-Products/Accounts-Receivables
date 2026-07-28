@@ -1,5 +1,6 @@
+import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { trpc } from "@/lib/trpc";
@@ -30,7 +31,7 @@ export default function GroupAiSummaryDialog({ group }: { group: string }) {
         <Sparkles className="h-4 w-4" /> AI Summary
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <ResizableDialogContent storageKey="group-ai-summary" className="sm:max-w-none w-[42rem] max-w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="h-4 w-4" /> AI Summary — {group}
@@ -61,7 +62,7 @@ export default function GroupAiSummaryDialog({ group }: { group: string }) {
               {gen.isPending ? "Analyzing…" : summary ? "Regenerate" : "Generate"}
             </Button>
           </div>
-        </DialogContent>
+        </ResizableDialogContent>
       </Dialog>
     </>
   );

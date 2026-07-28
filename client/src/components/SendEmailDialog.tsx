@@ -1,5 +1,6 @@
+import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -154,7 +155,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <ResizableDialogContent storageKey="send-email" className="sm:max-w-none w-[42rem] max-w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Send Email to Customer</DialogTitle>
         </DialogHeader>
@@ -323,7 +324,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
             {sendEmail.isPending ? "Sending…" : "Send Email"}
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </ResizableDialogContent>
     </Dialog>
   );
 }
