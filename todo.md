@@ -859,3 +859,9 @@
 - [x] Group/customer card: assignment controls for both roles in header
 - [x] Team page: new "Collecting" column shows groups assigned for collection per member
 - [x] Tests (191/193; 2 known confirmationStatus parallel flakes pass in isolation), checkpoint & deliver
+
+## Workflow review & best-practice analysis (user request 28/7)
+- [x] Inventory all implemented workflows (forecast, tasks, log call/confirmations, promises, on-hold, assignments, ratings, wire transfers, contract installments, SOA/emails)
+- [x] Benchmark against credit-control / AR best practices (Upflow, CreditPulse, Gaviti, HighRadius)
+- [x] Write analysis report with gaps and recommendations (docs/workflow-review.md)
+- [x] Deliver report to user
