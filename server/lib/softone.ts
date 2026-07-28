@@ -226,25 +226,6 @@ export async function pullInvoices(): Promise<{ synced: number }> {
 
 /** Push a receipt to Softone as a collection document (setData on SALDOC/collection series). */
 export async function pushReceipt(receiptId: number): Promise<{ softoneId: string }> {
-  const cfg = getSoftoneConfig();
-  if (!cfg) throw new Error("Softone is not configured. Please set connection credentials in Settings.");
-  const receiptsAll = await db.listReceipts();
-  const receipt = receiptsAll.find(r => r.id === receiptId);
-  if (!receipt) throw new Error("Receipt not found");
-  const customer = await db.getCustomer(receipt.customerId);
-  if (!customer?.softoneId) throw new Error("Customer is not linked to Softone (missing TRDR)");
-  const clientID = await s1Authenticate(cfg);
-  const data = await s1Call(cfg.baseUrl, {
-    service: "setData",
-    clientID,
-    appId: cfg.appId,
-    OBJECT: "SALDOC",
-    data: {
-      SALDOC: [{ SERIES: process.env.SOFTONE_RECEIPT_SERIES ?? "7001", TRNDATE: new Date(receipt.receiptDate).toISOString().slice(0, 10), TRDR: customer.softoneId, SUMAMNT: Number(receipt.amount) }],
-    },
-  });
-  if (!data?.success) throw new Error(`Softone receipt push failed: ${data?.error ?? "unknown error"}`);
-  const softoneId = String(data.id ?? "");
-  await db.addSyncLog({ direction: "Push", entityType: "receipts", recordCount: 1, status: "Success", message: `Pushed receipt ${receipt.receiptNumber} to Softone (id ${softoneId})` });
-  return { softoneId };
+  void receiptId;
+  throw new Error("SoftOne write-back is disabled by deployment policy.");
 }

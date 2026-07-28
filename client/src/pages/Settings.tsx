@@ -113,14 +113,6 @@ export default function Settings() {
     },
     onError: e => toast.error(e.message),
   });
-  const pullInvoices = trpc.admin.syncPullInvoices.useMutation({
-    onSuccess: r => {
-      toast.success(`Invoices synced: ${r.synced}`);
-      utils.invalidate();
-    },
-    onError: e => toast.error(e.message),
-  });
-
   const setRole = trpc.admin.setRole.useMutation({
     onSuccess: () => {
       toast.success("Role updated");
@@ -129,7 +121,7 @@ export default function Settings() {
     onError: e => toast.error(e.message),
   });
 
-  const syncBusy = pullCustomers.isPending || pullInvoices.isPending;
+  const syncBusy = pullCustomers.isPending;
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -144,7 +136,7 @@ export default function Settings() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
-            <Cable className="h-4 w-4" /> Softone ERP Integration (S1 Web Services)
+            <Cable className="h-4 w-4" /> SoftOne ERP Integration (Read-only SQL)
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -154,29 +146,33 @@ export default function Settings() {
               <Badge
                 variant="outline"
                 className={
-                  syncStatus.configured
+                  syncStatus.configured && syncStatus.enabled
                     ? "bg-emerald-100 text-emerald-800 border-emerald-200"
                     : "bg-amber-100 text-amber-800 border-amber-200"
                 }
               >
-                {syncStatus.configured ? "Configured" : "Demo mode — SOFTONE_* secrets not set"}
+                {syncStatus.configured && syncStatus.enabled
+                  ? "Configured and enabled"
+                  : syncStatus.configured
+                    ? "Configured, sync disabled"
+                    : "Not configured"}
               </Badge>
             ) : (
               <Skeleton className="h-5 w-24" />
             )}
           </div>
           <p className="text-sm text-muted-foreground">
-            Two-way sync: pull customers (TRDR) and sales invoices (FINDOC), push receipts back to Softone. In demo
-            mode, sample data is loaded so every feature can be evaluated before connecting the real ERP.
+            Server-side, read-only synchronization from the approved CustomerGroupFinData reporting view. The browser
+            cannot submit SQL, and write-back to SoftOne is disabled.
           </p>
           <div className="flex gap-2 flex-wrap">
             <Button className="gap-2" onClick={() => pullCustomers.mutate()} disabled={syncBusy}>
               <RefreshCcw className={`h-4 w-4 ${pullCustomers.isPending ? "animate-spin" : ""}`} />
-              {syncStatus?.configured ? "Pull Customers" : "Load Demo Customers"}
+              Pull Customers
             </Button>
-            <Button variant="outline" className="gap-2" onClick={() => pullInvoices.mutate()} disabled={syncBusy}>
-              <RefreshCcw className={`h-4 w-4 ${pullInvoices.isPending ? "animate-spin" : ""}`} />
-              {syncStatus?.configured ? "Pull Invoices" : "Load Demo Invoices"}
+            <Button variant="outline" className="gap-2" disabled>
+              <RefreshCcw className="h-4 w-4" />
+              Invoices pending approved source
             </Button>
           </div>
           {syncStatus && syncStatus.logs.length > 0 && (

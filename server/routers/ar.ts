@@ -33,7 +33,7 @@ import {
 import { buildExcel, buildPdf, TableSpec } from "../lib/exports";
 import { generateMonthlyForecast } from "../lib/smartForecast";
 import { runTaskEngine } from "../lib/taskEngine";
-import * as softone from "../lib/softone";
+import * as softoneSql from "../lib/softoneSql";
 import { invokeLLM } from "../_core/llm";
 
 async function audit(ctx: { user: { id: number; name: string | null } }, action: string, entityType: string, entityId?: string | number, details?: string) {
@@ -1706,9 +1706,10 @@ export const adminRouter = router({
     return { appRole: profile.appRole };
   }),
   syncStatus: protectedProcedure.query(async () => {
-    const configured = softone.getSoftoneConfig() !== null;
+    const configured = softoneSql.isSoftOneSqlConfigured();
+    const enabled = process.env.SOFTONE_SQL_SYNC_ENABLED === "true";
     const logs = await db.listSyncLogs(30);
-    return { configured, logs };
+    return { configured, enabled, mode: "read-only-sql" as const, logs };
   }),
   /** Active FX rates to EUR (defaults + persisted overrides). */
   fxRates: protectedProcedure.query(async () => {
@@ -1741,9 +1742,8 @@ export const adminRouter = router({
     const role = await getAppRole(ctx.user.id);
     requireRole(role, ["Administrator", "Accounting"]);
     try {
-      const configured = softone.getSoftoneConfig() !== null;
-      const res = configured ? await softone.pullCustomers() : await softone.seedDemoCustomers();
-      await audit(ctx, configured ? "Softone Pull Customers" : "Load Demo Customers", "sync", undefined, `${res.synced} records`);
+      const res = await softoneSql.syncSoftOneCustomers();
+      await audit(ctx, "SoftOne SQL Pull Customers", "sync", undefined, `${res.synced} records`);
       return res;
     } catch (e: any) {
       await db.addSyncLog({ direction: "Pull", entityType: "customers", recordCount: 0, status: "Failed", message: e.message });
@@ -1753,26 +1753,9 @@ export const adminRouter = router({
   syncPullInvoices: protectedProcedure.mutation(async ({ ctx }) => {
     const role = await getAppRole(ctx.user.id);
     requireRole(role, ["Administrator", "Accounting"]);
-    try {
-      const configured = softone.getSoftoneConfig() !== null;
-      const res = configured ? await softone.pullInvoices() : await softone.seedDemoInvoices();
-      await audit(ctx, configured ? "Softone Pull Invoices" : "Load Demo Invoices", "sync", undefined, `${res.synced} records`);
-      return res;
-    } catch (e: any) {
-      await db.addSyncLog({ direction: "Pull", entityType: "invoices", recordCount: 0, status: "Failed", message: e.message });
-      throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
-    }
-  }),
-  syncPushReceipt: protectedProcedure.input(z.object({ receiptId: z.number() })).mutation(async ({ ctx, input }) => {
-    const role = await getAppRole(ctx.user.id);
-    requireRole(role, ["Administrator", "Accounting"]);
-    try {
-      const res = await softone.pushReceipt(input.receiptId);
-      await audit(ctx, "Softone Push Receipt", "sync", input.receiptId, `Softone id ${res.softoneId}`);
-      return res;
-    } catch (e: any) {
-      await db.addSyncLog({ direction: "Push", entityType: "receipts", recordCount: 0, status: "Failed", message: e.message });
-      throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
-    }
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "A read-only approved invoice source has not been configured.",
+    });
   }),
 });
