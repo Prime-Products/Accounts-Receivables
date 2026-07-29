@@ -146,16 +146,22 @@ export async function syncSoftOneCustomers() {
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
 
   let pool: ConnectionPool | null = null;
+  let stage = "connect";
   try {
     pool = await connectSoftOneSqlPool();
+    stage = "query CustomerGroupFinData";
     const result = await pool.request().query<SourceRow>(softOneCustomersQuery);
+    stage = "normalize customer groups";
     const records = normalizeSoftOneCustomerRows(result.recordset);
+    stage = "validate existing customers";
     const existingSoftOneCount = (await db.listCustomers()).filter(customer => customer.softoneId).length;
     if (existingSoftOneCount > 0 && records.length < existingSoftOneCount / 2) {
       throw new Error("SoftOne customer dataset is unexpectedly incomplete.");
     }
 
+    stage = "upsert MariaDB customers";
     await db.upsertSoftOneCustomers(records);
+    stage = "write MariaDB sync log";
     await db.addSyncLog({
       direction: "Pull",
       entityType: "customers",
@@ -165,7 +171,7 @@ export async function syncSoftOneCustomers() {
     });
     return { synced: records.length };
   } catch (error) {
-    throw new Error(classifySoftOneSqlError(error));
+    throw new Error(classifySoftOneSqlError(error, stage));
   } finally {
     if (pool) {
       await Promise.race([
@@ -176,7 +182,7 @@ export async function syncSoftOneCustomers() {
   }
 }
 
-function classifySoftOneSqlError(error: unknown) {
+function classifySoftOneSqlError(error: unknown, stage = "unknown stage") {
   const code =
     typeof error === "object" && error !== null && "code" in error
       ? String((error as { code?: unknown }).code ?? "")
@@ -184,5 +190,16 @@ function classifySoftOneSqlError(error: unknown) {
   if (code.includes("TIME")) return "SoftOne SQL connection or query timed out.";
   if (code.includes("LOGIN") || code.includes("EAUTH")) return "SoftOne SQL authentication failed.";
   if (error instanceof Error && error.message.startsWith("SoftOne ")) return error.message;
-  return "SoftOne SQL synchronization failed.";
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const secretNames = [
+    "SOFTONE_SQL_SERVER",
+    "SOFTONE_SQL_DATABASE",
+    "SOFTONE_SQL_USER",
+    "SOFTONE_SQL_PASSWORD",
+  ];
+  const safeMessage = secretNames.reduce((message, name) => {
+    const value = process.env[name];
+    return value ? message.replaceAll(value, "[redacted]") : message;
+  }, rawMessage).slice(0, 500);
+  return `SoftOne SQL synchronization failed during ${stage}${code ? ` (${code})` : ""}: ${safeMessage}`;
 }
