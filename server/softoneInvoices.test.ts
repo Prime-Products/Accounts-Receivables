@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  aggregateSoftOneOpenInvoiceParts,
   normalizeSoftOneCurrencyName,
   normalizeSoftOneOpenInvoiceRows,
   softOneOpenInvoiceAmountSummaryQuery,
@@ -86,21 +87,53 @@ describe("SoftOne open invoice sync", () => {
     expect(normalizeSoftOneCurrencyName("USD")).toBe("USD");
   });
 
-  it("keeps the financial result set fixed-width and read-only", () => {
+  it("aggregates payment-term parts in Node and keeps positive balances", () => {
+    const result = aggregateSoftOneOpenInvoiceParts([
+      {
+        ...row,
+        DUE_DATE: 20260731,
+        ORIGINAL_AMOUNT_PART: 60,
+        OPEN_AMOUNT_PART: 50,
+      },
+      {
+        ...row,
+        DUE_DATE: 20260831,
+        ORIGINAL_AMOUNT_PART: 40,
+        OPEN_AMOUNT_PART: 35.6,
+      },
+      {
+        ...row,
+        FINDOC: 2,
+        ORIGINAL_AMOUNT_PART: 10,
+        OPEN_AMOUNT_PART: -10,
+      },
+    ]);
+    expect(result).toEqual([
+      expect.objectContaining({
+        FINDOC: row.FINDOC,
+        DUE_DATE: 20260831,
+        ORIGINAL_AMOUNT: 100,
+        OPEN_AMOUNT: 85.6,
+      }),
+    ]);
+  });
+
+  it("keeps the payment-term result set fixed-width and read-only", () => {
     expect(softOneOpenInvoiceFinancialsQuery).toContain("CAST(FP.[FINDOC] AS bigint)");
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
-      "SUM(CAST(FP.[TAMNT] AS float)",
+      "CAST(FP.[TAMNT] AS float)",
     );
     expect(softOneOpenInvoiceFinancialsQuery).not.toMatch(
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
     );
-    expect(softOneOpenInvoiceFinancialsQuery).toContain("HAVING");
+    expect(softOneOpenInvoiceFinancialsQuery).not.toContain("GROUP BY");
+    expect(softOneOpenInvoiceFinancialsQuery).not.toContain("HAVING");
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
       "FIN.[SOSOURCE] = 1351",
     );
     expect(softOneOpenInvoiceFinancialsQuery).toContain("FIN.[SOREDIR] = 0");
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
-      "SUM(CAST(FP.[OPNTAMNT] AS float) * CAST(FP.[PAYDEMANDMD] AS float))",
+      "CAST(FP.[OPNTAMNT] AS float) * CAST(FP.[PAYDEMANDMD] AS float)",
     );
     expect(softOneOpenInvoiceAmountSummaryQuery).toContain(
       "CAST(COUNT(*) AS bigint)",
