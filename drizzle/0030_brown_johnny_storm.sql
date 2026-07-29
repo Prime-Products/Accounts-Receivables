@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `rescheduleCount` int DEFAULT 0 NOT NULL;

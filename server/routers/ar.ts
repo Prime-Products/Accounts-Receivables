@@ -253,8 +253,23 @@ async function upsertFollowUpTask(
   const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
   const existing = openTasks.find(t => t.description?.includes(marker));
   if (existing) {
-    await db.updateTask(existing.id, { title, description, dueDate: input.followUpDate });
-    await audit(ctx, "Update Task", "task", existing.id, `Follow-up rescheduled to ${dateStr} (${input.group})`);
+    // Only count it as a reschedule when the date actually moved.
+    const dateChanged = existing.dueDate !== input.followUpDate;
+    await db.updateTask(existing.id, {
+      title,
+      description,
+      dueDate: input.followUpDate,
+      ...(dateChanged ? { rescheduleCount: (existing.rescheduleCount ?? 0) + 1 } : {}),
+    });
+    await audit(
+      ctx,
+      "Update Task",
+      "task",
+      existing.id,
+      dateChanged
+        ? `Follow-up rescheduled to ${dateStr} (${input.group}) — reschedule #${(existing.rescheduleCount ?? 0) + 1}`
+        : `Follow-up updated (${input.group})`
+    );
     return existing.id;
   }
   const taskId = await db.createTask({
@@ -2524,6 +2539,36 @@ export const tasksRouter = router({
       await audit(ctx, `Task ${input.status}`, "task", input.id, input.completionNotes);
       return { success: true };
     }),
+  /** Change an open task's due date; every actual date change increments rescheduleCount. */
+  reschedule: protectedProcedure
+    .input(z.object({ id: z.number(), dueDate: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const task = await db.getTask(input.id);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      if (task.status === "Completed" || task.status === "Cancelled") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can be rescheduled" });
+      }
+      if (task.dueDate === input.dueDate) return { success: true, rescheduleCount: task.rescheduleCount ?? 0 };
+      const newCount = (task.rescheduleCount ?? 0) + 1;
+      await db.updateTask(input.id, { dueDate: input.dueDate, rescheduleCount: newCount });
+      // Keep the group's confirmation-status follow-up date in sync for auto follow-up tasks.
+      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
+      if (followUpMatch) {
+        const group = followUpMatch[1];
+        const conf = await db.getGroupConfirmationStatus(group);
+        if (conf && conf.status === "Pending Follow-up") {
+          await db.upsertGroupConfirmationStatus(group, { followUpDate: input.dueDate, updatedBy: ctx.user.id });
+        }
+      }
+      await audit(
+        ctx,
+        "Reschedule Task",
+        "task",
+        input.id,
+        `Due date moved to ${new Date(input.dueDate).toLocaleDateString("en-GB")} — reschedule #${newCount}`
+      );
+      return { success: true, rescheduleCount: newCount };
+    }),
   runEngine: protectedProcedure.mutation(async ({ ctx }) => {
     const res = await runTaskEngine();
     await audit(ctx, "Run Task Engine", "system", undefined, `Generated ${res.created} task(s)`);
@@ -3500,6 +3545,18 @@ export const callsRouter = router({
     .input(z.object({ group: z.string().min(1).max(255) }))
     .query(async ({ input }) => {
       return findOpenGroupPromise(input.group);
+    }),
+
+  /** Open follow-up-call task for a group — used by Log Call to show the current
+   * follow-up date and how many times it has already been rescheduled. */
+  getOpenFollowUpTask: protectedProcedure
+    .input(z.object({ group: z.string().min(1).max(255) }))
+    .query(async ({ input }) => {
+      const marker = `(Follow-up: ${input.group})`;
+      const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+      const t = openTasks.find(task => task.description?.includes(marker));
+      if (!t) return null;
+      return { id: t.id, dueDate: t.dueDate, rescheduleCount: t.rescheduleCount ?? 0, title: t.title };
     }),
 
   updateConfirmationStatus: protectedProcedure

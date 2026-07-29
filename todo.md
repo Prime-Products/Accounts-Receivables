@@ -928,4 +928,8 @@
 - [x] Cleanup: also deleted remaining "TaskLink Promise" junk customers/tasks/promises (48 customers, 24 tasks, 24 promises)
 - [x] Call list: Problematic status no longer affects score/tier — sorting is purely by risk score; status stays as an informational badge
 - [x] Log Call from a group: contact dropdown lists only that group's contacts, with an inline "Add new contact" option (name/title/email/phone + company when multi-company group; saved contact is auto-selected)
+- [x] Pending Follow-up reschedule: Log Call with existing open follow-up task moves it to the new date instead of creating a duplicate
+- [x] Task detail: editable due date for open tasks (reschedule)
+- [x] Reschedule counter: each date change increments rescheduleCount; shown as "×N" on the task and on the group's communication badge
+- [x] Fix test-data leak: confirmationTaskLink.test.ts now purges its "TaskLink" customers/tasks/promises/statuses after each run (was recreating junk on every test run)
 - [x] Cleanup: delete junk "TaskLink Pending" tasks and their placeholder customers (after verifying no invoices attached)

@@ -7,8 +7,9 @@ import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, FileText, HandCoins, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
-import { useMemo } from "react";
+import { CalendarClock, CheckCircle2, FileText, HandCoins, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
@@ -60,6 +61,19 @@ export default function TaskDetailDialog({
     },
     onError: e => toast.error(e.message),
   });
+  const [editingDue, setEditingDue] = useState(false);
+  const [newDue, setNewDue] = useState("");
+  const reschedule = trpc.tasks.reschedule.useMutation({
+    onSuccess: r => {
+      toast.success(`Due date updated${r.rescheduleCount > 0 ? ` — rescheduled ×${r.rescheduleCount}` : ""}`);
+      setEditingDue(false);
+      utils.tasks.list.invalidate();
+      utils.customers.groups.invalidate();
+      utils.customers.groupDetail.invalidate();
+      utils.calls.getOpenFollowUpTask.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -93,6 +107,11 @@ export default function TaskDetailDialog({
                     Promise {task.promise.status === "Broken" ? "Not Confirmed" : task.promise.status}
                   </Badge>
                 )}
+                {((task as any).rescheduleCount ?? 0) > 0 && (
+                  <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
+                    Rescheduled ×{(task as any).rescheduleCount}
+                  </Badge>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
@@ -107,7 +126,44 @@ export default function TaskDetailDialog({
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">Due date</div>
-                  <div className="font-medium">{fmtDate(task.dueDate)}</div>
+                  {editingDue && (task.status === "Pending" || task.status === "In Progress") ? (
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        type="date"
+                        className="h-7 w-36 text-xs"
+                        value={newDue}
+                        onChange={e => setNewDue(e.target.value)}
+                      />
+                      <Button
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        disabled={!newDue || reschedule.isPending}
+                        onClick={() => reschedule.mutate({ id: task.id, dueDate: new Date(`${newDue}T12:00:00`).getTime() })}
+                      >
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditingDue(false)}>
+                        ✕
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="font-medium flex items-center gap-1.5">
+                      {fmtDate(task.dueDate)}
+                      {(task.status === "Pending" || task.status === "In Progress") && (
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-foreground"
+                          title="Change due date"
+                          onClick={() => {
+                            setNewDue(new Date(task.dueDate).toISOString().slice(0, 10));
+                            setEditingDue(true);
+                          }}
+                        >
+                          <CalendarClock className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="col-span-2">
                   <div className="text-xs text-muted-foreground mb-1">Assignee</div>

@@ -53,6 +53,8 @@ export default function LogCallDialog({
 
   // Existing open promise for this group (offered for rescheduling on Confirmed)
   const { data: openPromise } = trpc.calls.getOpenPromise.useQuery({ group }, { enabled: open });
+  // Existing open follow-up task for this group (shown when rescheduling a Pending Follow-up)
+  const { data: openFollowUp } = trpc.calls.getOpenFollowUpTask.useQuery({ group }, { enabled: open });
   // Payment contacts across all companies of the group
   const { data: groupContacts } = trpc.paymentContacts.listByGroup.useQuery({ group }, { enabled: open });
   const selectedContact =
@@ -374,6 +376,19 @@ export default function LogCallDialog({
           {/* Pending Follow-up - show follow-up date and amount */}
           {confirmationStatus === "Pending Follow-up" && (
             <div className="space-y-1.5 bg-blue-50 p-2 rounded">
+              {openFollowUp && (
+                <div className="rounded border border-blue-300 bg-blue-100/60 p-2 text-xs text-blue-900 space-y-0.5">
+                  <p className="font-medium">
+                    Open follow-up exists — currently due {new Date(openFollowUp.dueDate).toLocaleDateString("en-GB")}
+                    {openFollowUp.rescheduleCount > 0 && (
+                      <span className="ml-1.5 inline-flex items-center rounded bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-900">
+                        rescheduled ×{openFollowUp.rescheduleCount}
+                      </span>
+                    )}
+                  </p>
+                  <p>Saving with a new date will move this follow-up (no duplicate is created) and count it as a reschedule.</p>
+                </div>
+              )}
               <Label>Expected amount (EUR)</Label>
               <Input
                 type="number"

@@ -13,7 +13,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, FileText, HandCoins, ListChecks, Search, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
+import { CalendarClock, CheckCircle2, FileText, HandCoins, ListChecks, Search, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link, useSearch } from "wouter";
@@ -38,6 +38,8 @@ export default function Tasks() {
   /** Inbox scope: all | mine (assigned to my linked team member) | created (created by me). */
   const [scopeFilter, setScopeFilter] = useState<string>("all");
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
+  const [editingDue, setEditingDue] = useState(false);
+  const [newDue, setNewDue] = useState("");
   // Deep link: /tasks?task=<id> opens that task's detail dialog (used by the
   // confirmation badges in the groups list).
   const searchString = useSearch();
@@ -72,6 +74,18 @@ export default function Tasks() {
       toast.success("Task assignment updated");
       utils.tasks.list.invalidate();
       utils.team.workload.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const reschedule = trpc.tasks.reschedule.useMutation({
+    onSuccess: r => {
+      toast.success(`Due date updated${r.rescheduleCount > 0 ? ` — rescheduled ×${r.rescheduleCount}` : ""}`);
+      setEditingDue(false);
+      utils.tasks.list.invalidate();
+      utils.customers.groups.invalidate();
+      utils.customers.groupDetail.invalidate();
+      utils.calls.getOpenFollowUpTask.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -259,7 +273,17 @@ export default function Tasks() {
                         </SelectContent>
                       </Select>
                     </TableCell>
-                    <TableCell className="text-sm">{fmtDate(t.dueDate)}</TableCell>
+                    <TableCell className="text-sm">
+                      {fmtDate(t.dueDate)}
+                      {((t as any).rescheduleCount ?? 0) > 0 && (
+                        <span
+                          className="ml-1 inline-flex items-center rounded bg-amber-100 border border-amber-200 px-1 text-[10px] font-semibold text-amber-800"
+                          title={`Due date pushed back ${(t as any).rescheduleCount} time(s)`}
+                        >
+                          ×{(t as any).rescheduleCount}
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={taskStatusColors[t.status] ?? ""}>
                         {t.status}
@@ -296,7 +320,7 @@ export default function Tasks() {
         </CardContent>
       </Card>
 
-      <Dialog open={openTask !== null} onOpenChange={o => !o && setOpenTaskId(null)}>
+      <Dialog open={openTask !== null} onOpenChange={o => { if (!o) { setOpenTaskId(null); setEditingDue(false); } }}>
         <DialogContent className="sm:max-w-lg">
           {openTask && (
             <>
@@ -310,6 +334,11 @@ export default function Tasks() {
                   {openTask.promise && (
                     <Badge variant="outline" className={promiseStatusColors[openTask.promise.status] ?? ""}>
                       Promise {openTask.promise.status === "Broken" ? "Not Confirmed" : openTask.promise.status}
+                    </Badge>
+                  )}
+                  {((openTask as any).rescheduleCount ?? 0) > 0 && (
+                    <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
+                      Rescheduled ×{(openTask as any).rescheduleCount}
                     </Badge>
                   )}
                 </div>
@@ -326,7 +355,44 @@ export default function Tasks() {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Due date</div>
-                    <div className="font-medium">{fmtDate(openTask.dueDate)}</div>
+                    {editingDue && (openTask.status === "Pending" || openTask.status === "In Progress") ? (
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="date"
+                          className="h-7 w-36 text-xs"
+                          value={newDue}
+                          onChange={e => setNewDue(e.target.value)}
+                        />
+                        <Button
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          disabled={!newDue || reschedule.isPending}
+                          onClick={() => reschedule.mutate({ id: openTask.id, dueDate: new Date(`${newDue}T12:00:00`).getTime() })}
+                        >
+                          Save
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditingDue(false)}>
+                          ✕
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="font-medium flex items-center gap-1.5">
+                        {fmtDate(openTask.dueDate)}
+                        {(openTask.status === "Pending" || openTask.status === "In Progress") && (
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground"
+                            title="Change due date"
+                            onClick={() => {
+                              setNewDue(new Date(openTask.dueDate).toISOString().slice(0, 10));
+                              setEditingDue(true);
+                            }}
+                          >
+                            <CalendarClock className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="col-span-2">
                     <div className="text-xs text-muted-foreground mb-1">Assignee</div>

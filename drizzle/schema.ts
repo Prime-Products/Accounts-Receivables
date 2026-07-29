@@ -201,6 +201,8 @@ export const tasks = mysqlTable("tasks", {
   assigneeId: int("assigneeId"),
   completedAt: bigint("completedAt", { mode: "number" }),
   completionNotes: text("completionNotes"),
+  /** How many times the task's due date has been pushed back (follow-up reschedules). */
+  rescheduleCount: int("rescheduleCount").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, t => [
