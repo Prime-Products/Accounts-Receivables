@@ -8,21 +8,20 @@ const MAX_CUSTOMERS = 50_000;
 // unixODBC driver can return HY010 when variable-length text is fetched
 // alongside the fixed-width financial columns.
 export const softOneCustomersQuery = `SELECT TOP (50000)
-  [TRDR],
-  [MASTERTRDR],
-  [TRDGROUP],
-  [LBAL],
-  [LTURNOVR],
-  [LTURNOVRLY],
-  [LTURNOVRLYLY],
-  [Uncovered],
-  [Unpaid],
-  [Overdue],
-  [OVERDUEMONTHVAL],
-  [DAYSAVG],
-  [OpenOrders],
-  [OrdersAmount],
-  [Collections]
+  CAST([TRDR] AS bigint) AS [TRDR],
+  CAST([MASTERTRDR] AS bigint) AS [MASTERTRDR],
+  CAST([LBAL] AS float) AS [LBAL],
+  CAST([LTURNOVR] AS float) AS [LTURNOVR],
+  CAST([LTURNOVRLY] AS float) AS [LTURNOVRLY],
+  CAST([LTURNOVRLYLY] AS float) AS [LTURNOVRLYLY],
+  CAST([Uncovered] AS float) AS [Uncovered],
+  CAST([Unpaid] AS float) AS [Unpaid],
+  CAST([Overdue] AS float) AS [Overdue],
+  CAST([OVERDUEMONTHVAL] AS float) AS [OVERDUEMONTHVAL],
+  CAST([DAYSAVG] AS float) AS [DAYSAVG],
+  CAST([OpenOrders] AS float) AS [OpenOrders],
+  CAST([OrdersAmount] AS float) AS [OrdersAmount],
+  CAST([Collections] AS float) AS [Collections]
 FROM [dbo].[CustomerGroupFinData]`;
 
 export const softOneGroupNamesQuery = `SELECT
@@ -90,13 +89,9 @@ export function normalizeSoftOneCustomerRows(
     const name = nameBySoftOneId.get(softoneId)!;
     const masterSoftoneId =
       row.MASTERTRDR == null ? null : String(row.MASTERTRDR).trim() || null;
-    const groupCode =
-      row.TRDGROUP == null ? null : String(row.TRDGROUP).trim() || null;
     const customerGroup =
       (masterSoftoneId ? externalGroupNames.get(masterSoftoneId) : undefined) ??
       (masterSoftoneId ? nameBySoftOneId.get(masterSoftoneId) : undefined) ??
-      (groupCode ? nameBySoftOneId.get(groupCode) : undefined) ??
-      groupCode ??
       name;
     return {
       code: softoneId,

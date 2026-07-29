@@ -32,7 +32,7 @@ describe("SoftOne read-only SQL sync", () => {
       name: "Customer A",
       softoneId: "101",
       masterSoftoneId: "100",
-      customerGroup: "10",
+      customerGroup: "Customer A",
       balance: "120.5000",
       collections: "75.0000",
     });
@@ -66,6 +66,8 @@ describe("SoftOne read-only SQL sync", () => {
 
   it("keeps names separate from financials for the production unixODBC driver", () => {
     expect(softOneCustomersQuery).not.toContain("[NAME]");
+    expect(softOneCustomersQuery).not.toContain("[TRDGROUP]");
+    expect(softOneCustomersQuery).toContain("CAST([LBAL] AS float)");
     expect(softOneGroupNamesQuery.indexOf("CAST(master.[NAME]")).toBeGreaterThan(
       softOneGroupNamesQuery.indexOf("master.[TRDR]"),
     );
