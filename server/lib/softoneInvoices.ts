@@ -115,6 +115,16 @@ FROM documents
 GROUP BY [SOSOURCE], [SOREDIR]
 ORDER BY [SOSOURCE], [SOREDIR]`;
 
+export const softOneInvoiceAmountSamplesQuery = `SELECT
+  CAST(FP.[FINDOC] AS bigint) AS [FINDOC],
+  CAST(FP.[PAYDEMANDMD] AS int) AS [PAYDEMANDMD],
+  CAST(FP.[TAMNT] AS float) AS [TAMNT],
+  CAST(FP.[OPNTAMNT] AS float) AS [OPNTAMNT],
+  CAST((FP.[TAMNT] - FP.[OPNTAMNT]) * FP.[PAYDEMANDMD] AS float) AS [REPORT_UNPAID]
+FROM [dbo].[FINPAYTERMS] AS FP
+WHERE FP.[FINDOC] IN (1403582, 1422083, 1397407, 1407203, 1414197)
+ORDER BY FP.[FINDOC], FP.[FINALDATE]`;
+
 export const softOneOpenInvoiceDocumentsQuery = `SELECT
   CAST(FIN.[FINDOC] AS bigint) AS [FINDOC],
   CAST(FIN.[FINCODE] AS nchar(64)) AS [FINCODE]
@@ -361,6 +371,10 @@ export async function inspectSoftOneOpenInvoices() {
     const typeResult = await pool
       .request()
       .query<SourceRow>(softOneOpenInvoiceTypeBreakdownQuery);
+    stage = "query known report invoice amount samples";
+    const sampleResult = await pool
+      .request()
+      .query<SourceRow>(softOneInvoiceAmountSamplesQuery);
     stage = "query positive open invoice candidates";
     const positiveOpenRows = await querySoftOneOpenInvoiceSource(pool);
     stage = "query open invoice lookups";
@@ -400,6 +414,13 @@ export async function inspectSoftOneOpenInvoices() {
         positiveRemaining: numberValue(row, "POSITIVE_REMAINING"),
         zeroRemaining: numberValue(row, "ZERO_REMAINING"),
         negativeRemaining: numberValue(row, "NEGATIVE_REMAINING"),
+      })),
+      amountSamples: sampleResult.recordset.map(row => ({
+        findoc: identity(row, "FINDOC"),
+        direction: numberValue(row, "PAYDEMANDMD"),
+        total: numberValue(row, "TAMNT"),
+        opntamnt: numberValue(row, "OPNTAMNT"),
+        reportUnpaid: numberValue(row, "REPORT_UNPAID"),
       })),
       breakdown: Array.from(counts.entries())
         .sort(([left], [right]) => left.localeCompare(right))
