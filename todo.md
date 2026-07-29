@@ -974,3 +974,9 @@
 
 ## Remove 3-dot actions column from groups list (user request 29/7)
 - [x] Remove the 3-dot (⋯) actions menu column from the Customers groups table (GroupRowActions component deleted, header/total/row cells removed, imports cleaned)
+
+## Replace Under Review with Critical (user request 29/7)
+- [x] Backend: rename "Under Review" watch status to "Critical" (workflow Normal → Problematic → Critical → On Hold → Legal; legacy "Under Review" rows map to Critical)
+- [x] Database: migrate existing "Under Review" rows to "Critical" (0 rows existed; enum already contains Critical)
+- [x] Frontend: status dropdowns, badges, filters, Next Action dialog show "Critical" (dark red styling)
+- [x] Tests + checkpoint + GitHub push (202 tests pass)

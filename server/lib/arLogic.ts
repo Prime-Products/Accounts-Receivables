@@ -350,7 +350,7 @@ export interface RatingInput {
   promisesKept: number;
   /** Broken promises count. */
   promisesBroken: number;
-  /** Unified account status of the group (Normal / Problematic / Under Review / On Hold / Legal). */
+  /** Unified account status of the group (Normal / Problematic / Critical / On Hold / Legal). */
   onHoldStatus: string | null;
   /** Turnover EUR year-to-date (sum for groups). Null/undefined when unknown. */
   turnoverYtd?: number | null;
@@ -418,12 +418,12 @@ export function computeCreditRating(input: RatingInput): RatingResult {
     detail: totalPromises > 0 ? `${input.promisesKept} kept / ${input.promisesBroken} broken` : "No promises recorded — neutral",
   });
 
-  // 5. Account status (5 pts): Normal → full; Problematic/Under Review → 3; On Hold → 1; Legal → 0.
+  // 5. Account status (5 pts): Normal → full; Problematic/Critical → 3; On Hold → 1; Legal → 0.
   const st = input.onHoldStatus ?? "Normal";
   const holdPts =
     st === "Normal" || st === "Active" || st === "Resolved"
       ? 5
-      : st === "Problematic" || st === "Under Review" || st === "Eligible for On Hold"
+      : st === "Problematic" || st === "Critical" || st === "Under Review" || st === "Eligible for On Hold"
         ? 3
         : st === "On Hold"
           ? 1

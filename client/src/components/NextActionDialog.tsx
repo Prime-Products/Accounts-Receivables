@@ -14,7 +14,7 @@ import { toast } from "sonner";
  * The customer did not pay — the user must choose what happens next:
  *  1. Schedule a follow-up call (Pending Follow-up + task)
  *  2. Record a new promise to pay (Promise to Pay)
- *  3. Escalate the group's account status (Problematic / Under Review / On Hold / Legal)
+ *  3. Escalate the group's account status (Problematic / Critical / On Hold / Legal)
  */
 export default function NextActionDialog({
   group,
@@ -36,7 +36,7 @@ export default function NextActionDialog({
   const [promiseDate, setPromiseDate] = useState(tomorrow());
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
-  const [watchStatus, setWatchStatus] = useState<"Problematic" | "Under Review" | "On Hold" | "Legal">("Problematic");
+  const [watchStatus, setWatchStatus] = useState<"Problematic" | "Critical" | "On Hold" | "Legal">("Problematic");
 
   const invalidate = () => {
     utils.customers.groups.invalidate();
@@ -111,7 +111,7 @@ export default function NextActionDialog({
               <ShieldAlert className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
               <div>
                 <div className="font-medium text-sm">Escalate the account</div>
-                <div className="text-xs text-muted-foreground">Change the group status to Problematic, Under Review, On Hold or Legal.</div>
+                <div className="text-xs text-muted-foreground">Change the group status to Problematic, Critical, On Hold or Legal.</div>
               </div>
             </button>
             <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={close}>
@@ -193,7 +193,7 @@ export default function NextActionDialog({
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Problematic">Problematic</SelectItem>
-                  <SelectItem value="Under Review">Under Review</SelectItem>
+                  <SelectItem value="Critical">Critical</SelectItem>
                   <SelectItem value="On Hold">On Hold</SelectItem>
                   <SelectItem value="Legal">Legal</SelectItem>
                 </SelectContent>

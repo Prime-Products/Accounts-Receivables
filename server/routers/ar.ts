@@ -665,7 +665,7 @@ export const customersRouter = router({
         const hasForecast = forecastByGroup.has(g.group);
         const forecastForRule = hasForecast ? forecastExpected : 0;
         const autoProblematic = g.overdueEomBalance > 0 && forecastForRule < 0.8 * g.overdueEomBalance;
-        // Unified workflow: Normal → Problematic → Under Review → On Hold → Legal.
+        // Unified workflow: Normal → Problematic → Critical → On Hold → Legal.
         const row = watchByGroup.get(g.group) ?? null;
         const resolved = resolveGroupStatus(row, autoProblematic);
         const watchStatus = resolved.status;
@@ -1268,7 +1268,7 @@ export const customersRouter = router({
     }),
   /** Manual watch-status override: Problematic forces the flag, Normal clears it, Auto follows the forecast rule. */
   setWatchStatus: protectedProcedure
-    .input(z.object({ group: z.string().min(1), status: z.enum(["Auto", "Normal", "Problematic", "Under Review", "On Hold", "Legal"]) }))
+    .input(z.object({ group: z.string().min(1), status: z.enum(["Auto", "Normal", "Problematic", "Critical", "On Hold", "Legal"]) }))
     .mutation(async ({ ctx, input }) => {
       await db.setGroupWatchStatus(input.group, input.status, ctx.user.id);
       await audit(ctx, "Set Account Status", "group", input.group, `Status → ${input.status}`);
@@ -2681,7 +2681,7 @@ export const forecastRouter = router({
     const forecast = buildForecast(invoices, installments, now, 6);
     const escalations = tasksPending.filter(t => t.type === "Escalation +30").length;
     const watchRowsDash = await db.listGroupWatchStatuses().catch(() => []);
-    const underReview = watchRowsDash.filter(w => w.status === "Under Review").length;
+    const criticalGroups = watchRowsDash.filter(w => w.status === "Critical").length;
     const onHoldGroups = watchRowsDash.filter(w => w.status === "On Hold" || w.status === "Legal").length;
     const problematicGroups = watchRowsDash.filter(w => w.status === "Problematic").length;
     // Contract installments are "must pay on time" invoices — even 1 day overdue is a red flag.
@@ -2703,7 +2703,7 @@ export const forecastRouter = router({
       escalations,
       overdueContractCount,
       overdueContractAmount,
-      onHoldPending: underReview,
+      onHoldPending: criticalGroups,
       onHoldGroups,
       problematicGroups,
     };

@@ -235,7 +235,7 @@ export default function Customers() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(() => {
     const p = new URLSearchParams(window.location.search).get("status");
-    return p && ["problematic", "under-review", "on-hold", "legal", "normal"].includes(p) ? p : "all";
+    return p && ["problematic", "critical", "on-hold", "legal", "normal"].includes(p) ? p : "all";
   });
   const [ratingFilter, setRatingFilter] = useState<string>("all");
   const [confirmationFilter, setConfirmationFilter] = useState<string>("all");
@@ -325,7 +325,7 @@ export default function Customers() {
       const matchesStatus =
         statusFilter === "all" ||
         (statusFilter === "problematic" && g.watchStatus === "Problematic") ||
-        (statusFilter === "under-review" && g.watchStatus === "Under Review") ||
+        (statusFilter === "critical" && g.watchStatus === "Critical") ||
         (statusFilter === "on-hold" && g.watchStatus === "On Hold") ||
         (statusFilter === "legal" && g.watchStatus === "Legal") ||
         (statusFilter === "normal" && !g.watchStatus);
@@ -560,7 +560,7 @@ export default function Customers() {
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
                 <SelectItem value="problematic">Problematic</SelectItem>
-                <SelectItem value="under-review">Under Review</SelectItem>
+                <SelectItem value="critical">Critical</SelectItem>
                 <SelectItem value="on-hold">On Hold</SelectItem>
                 <SelectItem value="legal">Legal</SelectItem>
                 <SelectItem value="normal">Normal</SelectItem>
@@ -773,8 +773,8 @@ export default function Customers() {
                               className={`inline-flex items-center justify-center h-4 w-4 rounded-full text-[10px] font-bold shrink-0 ${
                                 g.watchStatus === "On Hold"
                                   ? "bg-orange-500 text-white"
-                                  : g.watchStatus === "Under Review"
-                                    ? "bg-amber-100 text-amber-800"
+                                  : g.watchStatus === "Critical"
+                                    ? "bg-red-600 text-white"
                                     : g.watchStatus === "Legal"
                                       ? "bg-purple-100 text-purple-700"
                                       : "bg-red-100 text-red-700"

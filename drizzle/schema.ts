@@ -327,7 +327,7 @@ export type GroupNote = typeof groupNotes.$inferSelect;
  * ("On Watch" is legacy and treated as "Problematic" in business logic.)
  */
 /**
- * Unified group Account Status workflow: Normal → Problematic → Under Review → On Hold → Legal.
+ * Unified group Account Status workflow: Normal → Problematic → Critical → On Hold → Legal.
  * "Auto" means "follow the forecast rule" (no manual override). Legacy values
  * ("On Watch", "Critical", "Resolved") remain in the DB enum for backward
  * compatibility and are normalized at read time (On Watch/Critical → Problematic,
