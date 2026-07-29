@@ -4,11 +4,28 @@ import * as db from "../db";
 
 const MAX_CUSTOMERS = 50_000;
 const SOFTONE_NAME_BATCH_SIZE = 250;
+const SOFTONE_CUSTOMER_PAGE_SIZE = 500;
+const MAX_SOFTONE_CUSTOMER_PAGES = 200;
 
 // Keep financial values and text names in separate result sets. The production
 // unixODBC driver can return HY010 when variable-length text is fetched
 // alongside the fixed-width financial columns.
-export const softOneCustomersQuery = `SELECT TOP (50000)
+export function buildSoftOneCustomersQuery(afterTrdr: number) {
+  if (!Number.isSafeInteger(afterTrdr) || afterTrdr < 0) {
+    throw new Error("Invalid SoftOne customer page cursor.");
+  }
+  return `WITH customer_page AS (
+  SELECT TOP (${SOFTONE_CUSTOMER_PAGE_SIZE})
+    customer.[TRDR]
+  FROM [dbo].[TRDR] AS customer
+  WHERE customer.[COMPANY] = 1
+    AND customer.[SODTYPE] = 13
+    AND customer.[ISACTIVE] = 1
+    AND customer.[TRDGROUP] IS NOT NULL
+    AND customer.[TRDR] > ${afterTrdr}
+  ORDER BY customer.[TRDR]
+)
+SELECT
   CAST(customer.[TRDR] AS bigint) AS [TRDR],
   CAST(source.[MASTERTRDR] AS bigint) AS [MASTERTRDR],
   CAST(customer.[TRDGROUP] AS bigint) AS [TRDGROUP],
@@ -25,12 +42,18 @@ export const softOneCustomersQuery = `SELECT TOP (50000)
   CAST(source.[OrdersAmount] AS float) AS [OrdersAmount],
   CAST(source.[Collections] AS float) AS [Collections]
 FROM [dbo].[TRDR] AS customer
+INNER JOIN customer_page AS page
+  ON page.[TRDR] = customer.[TRDR]
 LEFT JOIN [dbo].[CustomerGroupFinData] AS source
   ON source.[TRDR] = customer.[TRDR]
 WHERE customer.[COMPANY] = 1
   AND customer.[SODTYPE] = 13
   AND customer.[ISACTIVE] = 1
-  AND customer.[TRDGROUP] IS NOT NULL`;
+  AND customer.[TRDGROUP] IS NOT NULL
+ORDER BY customer.[TRDR]`;
+}
+
+export const softOneCustomersQuery = buildSoftOneCustomersQuery(0);
 
 export const softOneGroupNamesQuery = `SELECT
   CAST(master.[TRDR] AS bigint) AS [TRDR],
@@ -107,6 +130,33 @@ async function queryNamesInBatches(
     rows.push(...result.recordset);
   }
   return rows;
+}
+
+async function queryCustomersInPages(pool: ConnectionPool) {
+  const rows: SourceRow[] = [];
+  let afterTrdr = 0;
+  for (let page = 0; page < MAX_SOFTONE_CUSTOMER_PAGES; page += 1) {
+    const result = await pool
+      .request()
+      .query<SourceRow>(buildSoftOneCustomersQuery(afterTrdr));
+    if (result.recordset.length === 0) return rows;
+    rows.push(...result.recordset);
+    if (rows.length > MAX_CUSTOMERS) {
+      throw new Error("SoftOne customer row limit exceeded.");
+    }
+    const pageTrdrs = Array.from(
+      new Set(result.recordset.map(row => Number(row.TRDR))),
+    )
+      .filter(Number.isSafeInteger)
+      .sort((left, right) => left - right);
+    const nextCursor = pageTrdrs.at(-1);
+    if (nextCursor === undefined || nextCursor <= afterTrdr) {
+      throw new Error("SoftOne customer pagination did not advance.");
+    }
+    afterTrdr = nextCursor;
+    if (pageTrdrs.length < SOFTONE_CUSTOMER_PAGE_SIZE) return rows;
+  }
+  throw new Error("SoftOne customer page limit exceeded.");
 }
 
 export function isSoftOneSqlConfigured() {
@@ -271,10 +321,10 @@ export async function syncSoftOneCustomers() {
   try {
     pool = await openSoftOneSqlPool();
     stage = "query CustomerGroupFinData financials";
-    const result = await pool.request().query<SourceRow>(softOneCustomersQuery);
+    const customerRows = await queryCustomersInPages(pool);
     const customerAndMasterIds = Array.from(
       new Set(
-        result.recordset.flatMap(row =>
+        customerRows.flatMap(row =>
           [row.TRDR, row.MASTERTRDR]
             .filter(value => value != null && String(value).trim())
             .map(value => String(value).trim()),
@@ -283,7 +333,7 @@ export async function syncSoftOneCustomers() {
     );
     const customerGroupIds = Array.from(
       new Set(
-        result.recordset
+        customerRows
           .map(row => row.TRDGROUP)
           .filter(value => value != null && String(value).trim())
           .map(value => String(value).trim()),
@@ -307,7 +357,7 @@ export async function syncSoftOneCustomers() {
         readIdentity(row, "NAME"),
       ]),
     );
-    const rowsWithNames = result.recordset.map(row => ({
+    const rowsWithNames = customerRows.map(row => ({
       ...row,
       NAME: allNames.get(readIdentity(row, "TRDR")),
     }));

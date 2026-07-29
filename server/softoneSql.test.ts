@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSoftOneCustomersQuery,
   buildSoftOneCustomerGroupNamesQuery,
   buildSoftOneCustomerNamesQuery,
   normalizeSoftOneCustomerRows,
@@ -83,6 +84,8 @@ describe("SoftOne read-only SQL sync", () => {
     expect(softOneCustomersQuery).toContain(
       "LEFT JOIN [dbo].[CustomerGroupFinData] AS source",
     );
+    expect(softOneCustomersQuery).toContain("TOP (500)");
+    expect(softOneCustomersQuery).toContain("customer.[TRDR] > 0");
     expect(softOneCustomersQuery).toContain(
       "customer.[TRDGROUP] IS NOT NULL",
     );
@@ -114,5 +117,14 @@ describe("SoftOne read-only SQL sync", () => {
     expect(() =>
       buildSoftOneCustomerNamesQuery(["1); DROP TABLE TRDR"]),
     ).toThrow(/invalid.*identifiers/i);
+  });
+
+  it("builds safe keyset pages for active grouped customers", () => {
+    expect(buildSoftOneCustomersQuery(12000)).toContain(
+      "customer.[TRDR] > 12000",
+    );
+    expect(() => buildSoftOneCustomersQuery(-1)).toThrow(
+      /invalid.*cursor/i,
+    );
   });
 });
