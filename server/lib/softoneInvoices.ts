@@ -61,6 +61,31 @@ SELECT
   END) AS bigint) AS [POSITIVE_ORIGINAL_WITHOUT_POSITIVE_OPEN]
 FROM source`;
 
+export const softOneOpenInvoiceTypeBreakdownQuery = `WITH documents AS (
+  SELECT
+    CAST(FIN.[SOSOURCE] AS int) AS [SOSOURCE],
+    CAST(FIN.[SOREDIR] AS int) AS [SOREDIR],
+    CAST(SUM(FP.[OPNTAMNT] * FP.[PAYDEMANDMD]) AS float) AS [REMAINING_AMOUNT]
+  FROM [dbo].[FINPAYTERMS] AS FP
+  INNER JOIN [dbo].[FINDOC] AS FIN
+    ON FIN.[COMPANY] = FP.[COMPANY] AND FIN.[FINDOC] = FP.[FINDOC]
+  WHERE FP.[ISCLOSE] = 0
+    AND FP.[ISCANCEL] = 0
+    AND FP.[APPRV] = 1
+    AND FP.[PAYDEMANDMD] IN (-1, 1)
+  GROUP BY FIN.[FINDOC], FIN.[SOSOURCE], FIN.[SOREDIR]
+)
+SELECT
+  [SOSOURCE],
+  [SOREDIR],
+  CAST(COUNT(*) AS bigint) AS [TOTAL_ROWS],
+  CAST(SUM(CASE WHEN [REMAINING_AMOUNT] > 0.005 THEN 1 ELSE 0 END) AS bigint) AS [POSITIVE_REMAINING],
+  CAST(SUM(CASE WHEN ABS([REMAINING_AMOUNT]) <= 0.005 THEN 1 ELSE 0 END) AS bigint) AS [ZERO_REMAINING],
+  CAST(SUM(CASE WHEN [REMAINING_AMOUNT] < -0.005 THEN 1 ELSE 0 END) AS bigint) AS [NEGATIVE_REMAINING]
+FROM documents
+GROUP BY [SOSOURCE], [SOREDIR]
+ORDER BY [SOSOURCE], [SOREDIR]`;
+
 export const softOneOpenInvoiceDocumentsQuery = `SELECT
   CAST(FIN.[FINDOC] AS bigint) AS [FINDOC],
   CAST(FIN.[FINCODE] AS nchar(64)) AS [FINCODE]
@@ -246,6 +271,10 @@ export async function inspectSoftOneOpenInvoices() {
       .query<SourceRow>(softOneOpenInvoiceAmountSummaryQuery);
     const summary = summaryResult.recordset[0];
     if (!summary) throw new Error("SoftOne returned no open invoice amount summary.");
+    stage = "query server-side document type breakdown";
+    const typeResult = await pool
+      .request()
+      .query<SourceRow>(softOneOpenInvoiceTypeBreakdownQuery);
     stage = "query positive open invoice candidates";
     const positiveOpenRows = await querySoftOneOpenInvoiceSource(pool);
     stage = "query open invoice lookups";
@@ -278,6 +307,14 @@ export async function inspectSoftOneOpenInvoices() {
           "POSITIVE_ORIGINAL_WITHOUT_POSITIVE_OPEN",
         ),
       },
+      typeBreakdown: typeResult.recordset.map(row => ({
+        sosource: numberValue(row, "SOSOURCE"),
+        soredir: numberValue(row, "SOREDIR"),
+        total: numberValue(row, "TOTAL_ROWS"),
+        positiveRemaining: numberValue(row, "POSITIVE_REMAINING"),
+        zeroRemaining: numberValue(row, "ZERO_REMAINING"),
+        negativeRemaining: numberValue(row, "NEGATIVE_REMAINING"),
+      })),
       breakdown: Array.from(counts.entries())
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, count]) => ({ key, count })),

@@ -13,6 +13,15 @@ try {
   Zero OPNTAMNT: ${result.sourceSummary.zeroRemaining}
   Negative OPNTAMNT: ${result.sourceSummary.negativeRemaining}
   Positive TAMNT without positive calculated open: ${result.sourceSummary.positiveOriginalWithoutPositiveOpen}
+
+Document type breakdown (SOSOURCE / SOREDIR):
+${result.typeBreakdown
+  .map(
+    row =>
+      `  ${row.sosource} / ${row.soredir}: total ${row.total}, positive remaining ${row.positiveRemaining}, zero ${row.zeroRemaining}, negative ${row.negativeRemaining}`,
+  )
+  .join("\n")}
+
   Current open candidates: ${result.total}
 ${result.breakdown.map(row => `  ${row.key}: ${row.count}`).join("\n")}
 
