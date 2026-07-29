@@ -958,3 +958,8 @@
 
 ## Remove "Pay by" line under Promise to Pay badge (user request 29/7)
 - [x] Removed the "Pay by: <date>" line in the Confirmation column of the groups list; only "Follow-up" remains
+
+## Promise to Pay badge not updating after Kept/Not Confirmed (user bug 29/7)
+- [x] Trace how confirmationStatus is computed in customers.groups and why marking the promise Kept / Not Confirmed leaves the badge as Promise to Pay
+- [x] Fix propagation: forecast.updatePromise now updates the group confirmation row (Kept → Not Contacted, Broken → Not Confirmed); frontend already invalidates customers.groups
+- [x] Tests + checkpoint + GitHub push

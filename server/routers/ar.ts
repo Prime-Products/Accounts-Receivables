@@ -2767,6 +2767,19 @@ export const forecastRouter = router({
         if (promise && cust) {
           const groupKey = cust.customerGroup?.trim() ? cust.customerGroup.trim() : cust.name;
           const dateStr = new Date(promise.promisedDate).toLocaleDateString("en-GB");
+          // Keep the group's confirmation badge in sync: the badge shows "Promise to Pay"
+          // (Confirmed) while the promise is open. When the promise is resolved,
+          // reflect the outcome — Kept → back to Not Contacted (cycle finished),
+          // Broken → "Not Confirmed" (Broken) with amount reset.
+          const conf = await db.getGroupConfirmationStatus(groupKey);
+          if (conf && conf.status === "Confirmed") {
+            await db.upsertGroupConfirmationStatus(groupKey, {
+              status: input.status === "Broken" ? "Broken" : "Not Contacted",
+              amount: "0.00",
+              followUpDate: null,
+              updatedBy: ctx.user.id,
+            });
+          }
           // Log to activity log
           await db.addActivityLog({
             groupName: groupKey,
