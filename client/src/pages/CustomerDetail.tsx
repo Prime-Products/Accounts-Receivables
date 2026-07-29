@@ -7,6 +7,7 @@ import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -47,6 +48,7 @@ export default function CustomerDetail() {
   });
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
 
   const exportSoa = trpc.reports.export.useMutation({
     onSuccess: r => {
@@ -70,10 +72,11 @@ export default function CustomerDetail() {
   const openInvoices = invoices.filter(i => i.status !== "Paid");
   const agingAny = aging as any;
   const now = Date.now();
-  const visibleInvoices =
-    statusFilter === "all"
-      ? invoices
-      : invoices.filter(i => i.status === statusFilter);
+  const visibleInvoices = invoices.filter(i => {
+    if (statusFilter !== "all" && i.status !== statusFilter) return false;
+    if (installmentFilter === "installments" && !(i as any).isContractInstallment) return false;
+    return true;
+  });
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -320,6 +323,8 @@ export default function CustomerDetail() {
                   ? `${invoices.length} invoices`
                   : `${visibleInvoices.length} ${statusFilter} invoice(s) · outstanding ${fmtEur(visibleInvoices.reduce((s, i) => s + Number((i as any).amountEur != null && Number(i.amount) > 0 ? ((Number(i.amount) - Number(i.paidAmount)) / Number(i.amount)) * Number((i as any).amountEur) : Number(i.amount) - Number(i.paidAmount)), 0))}`}
               </div>
+              <div className="flex items-center gap-2 flex-wrap">
+              <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-44 h-8 text-xs">
                   <SelectValue placeholder="Status" />
@@ -333,6 +338,7 @@ export default function CustomerDetail() {
                   ))}
                 </SelectContent>
               </Select>
+              </div>
             </div>
             <CardContent className="p-0">
               {visibleInvoices.length === 0 ? (

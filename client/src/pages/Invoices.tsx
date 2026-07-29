@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import InstallmentToggle from "@/components/InstallmentToggle";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { ChevronRight, FileDown, FileSignature, FileText, HandCoins, Plus, Upload, Users } from "lucide-react";
@@ -37,7 +38,7 @@ export default function Invoices() {
   const [contractFilter, setContractFilter] = useState<string>(() => {
     if (typeof window === "undefined") return "all";
     const c = new URLSearchParams(window.location.search).get("contract");
-    return c === "overdue" || c === "contract" ? "contract" : "all";
+    return c === "overdue" || c === "contract" ? "installments" : "all";
   });
   /** When arriving from the dashboard "overdue contract installments" card, also show only overdue rows. */
   const [overdueOnly] = useState(() => {
@@ -170,9 +171,8 @@ export default function Invoices() {
       if (statusFilter !== "all" && i.status !== statusFilter) return false;
       if (branchFilter !== "all" && i.company !== branchFilter) return false;
       if (vesselFilter !== "all" && String((i as any).vesselId ?? "") !== vesselFilter) return false;
-      if (contractFilter === "contract" && !(i as any).isContractInstallment) return false;
-      if (contractFilter === "non-contract" && (i as any).isContractInstallment) return false;
-      if (overdueOnly && contractFilter === "contract" && i.daysOverdue <= 0) return false;
+      if (contractFilter === "installments" && !(i as any).isContractInstallment) return false;
+      if (overdueOnly && contractFilter === "installments" && i.daysOverdue <= 0) return false;
       if (groupDrill && ((i as any).customerGroup ?? i.customerName) !== groupDrill) return false;
       if (bucketFilter !== "all") {
         if (i.daysOverdue <= 0) return false;
@@ -542,16 +542,10 @@ export default function Invoices() {
             </SelectContent>
           </Select>
         )}
-        <Select value={contractFilter} onValueChange={setContractFilter}>
-          <SelectTrigger className="w-56">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Contract: all invoices</SelectItem>
-            <SelectItem value="contract">Contract installments only</SelectItem>
-            <SelectItem value="non-contract">Non-contract only</SelectItem>
-          </SelectContent>
-        </Select>
+        <InstallmentToggle
+          value={contractFilter === "installments" ? "installments" : "all"}
+          onChange={v => setContractFilter(v)}
+        />
       </div>
 
       {/* Filtered totals: EUR + per-currency */}

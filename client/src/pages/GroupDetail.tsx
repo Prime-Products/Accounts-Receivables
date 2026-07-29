@@ -24,6 +24,7 @@ import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDa
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
+import InstallmentToggle from "@/components/InstallmentToggle";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -267,6 +268,7 @@ export default function GroupDetail() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [companiesOpen, setCompaniesOpen] = useState(false);
   const [invoiceView, setInvoiceView] = useState<"list" | "byBranch">("list");
+  const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
 
   // Convert aging bucket to minDaysOverdue for queries
   const getMinDaysOverdue = (bucket: AgingBucket): number | undefined => {
@@ -343,6 +345,7 @@ export default function GroupDetail() {
     const now = Date.now();
     return data.invoices.filter(inv => {
       if (statusFilter !== "all" && inv.status !== statusFilter) return false;
+      if (installmentFilter === "installments" && !(inv as any).isContractInstallment) return false;
       if (agingFilter !== "all") {
         if (inv.status === "Paid") return false;
         if (Number(inv.amount) - Number(inv.paidAmount) <= 0) return false;
@@ -350,7 +353,7 @@ export default function GroupDetail() {
       }
       return true;
     });
-  }, [data?.invoices, agingFilter, statusFilter]);
+  }, [data?.invoices, agingFilter, statusFilter, installmentFilter]);
 
   /** Totals of the currently filtered invoice list: EUR + per-currency (like Invoices page). */
   const filteredTotals = useMemo(() => {
@@ -716,6 +719,8 @@ export default function GroupDetail() {
           <Card>
             <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Invoices ({scopeLabel})</CardTitle>
+              <div className="flex items-center gap-2">
+              <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
               <div className="flex items-center rounded-md border p-0.5">
                 <Button
                   size="sm"
@@ -733,6 +738,7 @@ export default function GroupDetail() {
                 >
                   By branch
                 </Button>
+              </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">

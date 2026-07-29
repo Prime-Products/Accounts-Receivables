@@ -901,3 +901,10 @@
 
 ## Remove Run Task Engine button (user request 29/7)
 - [x] Remove "Run Task Engine Now" button + confirmation dialog from Tasks page (manual tasks only)
+
+## Installment filter toggle everywhere (user request 29/7)
+- [x] Shared InstallmentToggle component (All invoices / Installments only)
+- [x] Invoices page: replaced 3-option Select with the toggle (dashboard "overdue installments" deep-link still works)
+- [x] Group card: toggle in the Invoices card header, filters the list and totals
+- [x] Customer card: toggle next to the status filter in the Invoices tab
+- [x] tsc clean + screenshots (Invoices, group card, customer card) + checkpoint & deliver
