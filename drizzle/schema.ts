@@ -118,7 +118,7 @@ export const invoiceStatuses = ["Open", "Partially Paid", "Paid", "Overdue", "Di
 export const invoices = mysqlTable("invoices", {
   id: int("id").autoincrement().primaryKey(),
   customerId: int("customerId").notNull(),
-  invoiceNumber: varchar("invoiceNumber", { length: 64 }).notNull().unique(),
+  invoiceNumber: varchar("invoiceNumber", { length: 64 }).notNull(),
   company: varchar("company", { length: 128 }),
   currency: varchar("currency", { length: 8 }).default("EUR").notNull(),
   /** Original amount converted to EUR using the FX rate at import/sync time. */
@@ -131,7 +131,7 @@ export const invoices = mysqlTable("invoices", {
   contractInstallmentId: int("contractInstallmentId"),
   /** Simple flag: this invoice is a contract installment (must be paid on time). Link to a specific contract comes later. */
   isContractInstallment: boolean("isContractInstallment").default(false).notNull(),
-  softoneId: varchar("softoneId", { length: 64 }),
+  softoneId: varchar("softoneId", { length: 64 }).unique(),
   /** Optional vessel the invoice concerns (shipping clients); FK to vessels.id. */
   vesselId: int("vesselId"),
   notes: text("notes"),

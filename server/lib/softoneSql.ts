@@ -116,7 +116,7 @@ export function normalizeSoftOneCustomerRows(
   });
 }
 
-async function connectSoftOneSqlPool() {
+export async function openSoftOneSqlPool() {
   const { default: sql } = await import("mssql/msnodesqlv8.js");
   const port = Number(process.env.SOFTONE_SQL_PORT ?? "1433");
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -146,14 +146,14 @@ async function connectSoftOneSqlPool() {
 
 export async function testSoftOneSqlConnection() {
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
-  const pool = await connectSoftOneSqlPool();
+  const pool = await openSoftOneSqlPool();
   await pool.close();
   return { connected: true as const };
 }
 
 export async function inspectSoftOneGroupResolution() {
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
-  const pool = await connectSoftOneSqlPool();
+  const pool = await openSoftOneSqlPool();
   try {
     const result = await pool.request().query<{
       totalRows: number;
@@ -193,7 +193,7 @@ export async function syncSoftOneCustomers() {
   let pool: ConnectionPool | null = null;
   let stage = "connect";
   try {
-    pool = await connectSoftOneSqlPool();
+    pool = await openSoftOneSqlPool();
     stage = "query CustomerGroupFinData financials";
     const result = await pool.request().query<SourceRow>(softOneCustomersQuery);
     stage = "query customer and master names";
@@ -232,7 +232,7 @@ export async function syncSoftOneCustomers() {
     });
     return { synced: records.length };
   } catch (error) {
-    throw new Error(classifySoftOneSqlError(error, stage));
+    throw new Error(softOneSqlError(error, stage));
   } finally {
     if (pool) {
       await Promise.race([
@@ -243,7 +243,7 @@ export async function syncSoftOneCustomers() {
   }
 }
 
-function classifySoftOneSqlError(error: unknown, stage = "unknown stage") {
+export function softOneSqlError(error: unknown, stage = "unknown stage") {
   const code =
     typeof error === "object" && error !== null && "code" in error
       ? String((error as { code?: unknown }).code ?? "")

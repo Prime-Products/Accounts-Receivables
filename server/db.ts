@@ -315,6 +315,63 @@ export async function updateInvoice(id: number, data: Partial<InsertInvoice>) {
   invalidateCache("invoices:");
 }
 
+export type SoftOneInvoiceUpsert = Omit<InsertInvoice, "customerId"> & {
+  customerSoftoneId: string;
+};
+
+export async function upsertSoftOneInvoices(records: SoftOneInvoiceUpsert[]) {
+  const database = await requireDb();
+  const customerRows = await database
+    .select({ id: customers.id, softoneId: customers.softoneId })
+    .from(customers);
+  const customerIdBySoftOneId = new Map(
+    customerRows
+      .filter(row => row.softoneId)
+      .map(row => [row.softoneId!, row.id]),
+  );
+  const missingCustomers = Array.from(
+    new Set(
+      records
+        .filter(record => !customerIdBySoftOneId.has(record.customerSoftoneId))
+        .map(record => record.customerSoftoneId),
+    ),
+  );
+  if (missingCustomers.length > 0) {
+    throw new Error(
+      `SoftOne invoices reference ${missingCustomers.length} customers that are not synchronized.`,
+    );
+  }
+
+  const values = records.map(({ customerSoftoneId, ...record }) => ({
+    ...record,
+    customerId: customerIdBySoftOneId.get(customerSoftoneId)!,
+  }));
+  const batchSize = 250;
+  await database.transaction(async tx => {
+    for (let index = 0; index < values.length; index += batchSize) {
+      await tx
+        .insert(invoices)
+        .values(values.slice(index, index + batchSize))
+        .onDuplicateKeyUpdate({
+          set: {
+            customerId: sql`VALUES(${invoices.customerId})`,
+            invoiceNumber: sql`VALUES(${invoices.invoiceNumber})`,
+            company: sql`VALUES(${invoices.company})`,
+            currency: sql`VALUES(${invoices.currency})`,
+            amountEur: sql`VALUES(${invoices.amountEur})`,
+            issueDate: sql`VALUES(${invoices.issueDate})`,
+            dueDate: sql`VALUES(${invoices.dueDate})`,
+            amount: sql`VALUES(${invoices.amount})`,
+            paidAmount: sql`VALUES(${invoices.paidAmount})`,
+            status: sql`VALUES(${invoices.status})`,
+            softoneId: sql`VALUES(${invoices.softoneId})`,
+          },
+        });
+    }
+  });
+  invalidateCache("invoices:");
+}
+
 // ---------- Receipts & allocations ----------
 export async function listReceipts(customerId?: number) {
   const db = await requireDb();
