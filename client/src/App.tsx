@@ -1,42 +1,62 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { lazy, Suspense } from "react";
+import { Redirect, Route, Switch } from "wouter";
 import DashboardLayout from "./components/DashboardLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
-import Customers from "./pages/Customers";
-import CustomerDetail from "@/pages/CustomerDetail";
-import GroupDetail from "@/pages/GroupDetail";
-import Invoices from "./pages/Invoices";
-import Contracts from "./pages/Contracts";
-import Tasks from "./pages/Tasks";
-import OnHold from "./pages/OnHold";
-import Forecast from "./pages/Forecast";
-import CallList from "./pages/CallList";
-import Reports from "./pages/Reports";
-import Settings from "./pages/Settings";
+
+// Route-level code splitting: each page loads its own JS chunk on demand,
+// keeping the initial bundle small and first paint fast.
+const Customers = lazy(() => import("./pages/Customers"));
+const CustomerDetail = lazy(() => import("@/pages/CustomerDetail"));
+const GroupDetail = lazy(() => import("@/pages/GroupDetail"));
+const Invoices = lazy(() => import("./pages/Invoices"));
+const Contracts = lazy(() => import("./pages/Contracts"));
+const Contacts = lazy(() => import("./pages/Contacts"));
+const Tasks = lazy(() => import("./pages/Tasks"));
+const Reports = lazy(() => import("./pages/Reports"));
+const Settings = lazy(() => import("./pages/Settings"));
+const WireTransfersPage = lazy(() => import("./pages/WireTransfersPage"));
+const Team = lazy(() => import("./pages/Team"));
+const Vessels = lazy(() => import("./pages/Vessels"));
+const VesselDetail = lazy(() => import("./pages/VesselDetail"));
+
+function PageFallback() {
+  return (
+    <div className="flex items-center justify-center py-24 text-muted-foreground text-sm">
+      Loading…
+    </div>
+  );
+}
 
 function Router() {
   return (
     <DashboardLayout>
-      <Switch>
-        <Route path={"/"} component={Home} />
-        <Route path={"/customers"} component={Customers} />
-        <Route path={"/customers/:id"} component={CustomerDetail} />
-        <Route path={"/groups/:name"} component={GroupDetail} />
-        <Route path={"/invoices"} component={Invoices} />
-        <Route path={"/contracts"} component={Contracts} />
-        <Route path={"/tasks"} component={Tasks} />
-        <Route path={"/on-hold"} component={OnHold} />
-        <Route path={"/forecast"} component={Forecast} />
-        <Route path={"/call-list"} component={CallList} />
-        <Route path={"/reports"} component={Reports} />
-        <Route path={"/settings"} component={Settings} />
-        <Route path={"/404"} component={NotFound} />
-        <Route component={NotFound} />
-      </Switch>
+      <Suspense fallback={<PageFallback />}>
+        <Switch>
+          <Route path={"/"} component={Home} />
+          <Route path={"/customers"} component={Customers} />
+          <Route path={"/customers/:id"} component={CustomerDetail} />
+          <Route path={"/groups/:name"} component={GroupDetail} />
+          <Route path={"/invoices"} component={Invoices} />
+          <Route path={"/vessels"} component={Vessels} />
+          <Route path={"/vessels/:id"} component={VesselDetail} />
+          <Route path={"/contracts"} component={Contracts} />
+          <Route path={"/contacts"} component={Contacts} />
+          <Route path={"/tasks"} component={Tasks} />
+          <Route path={"/wire-transfers"} component={WireTransfersPage} />
+          {/* Forecast page removed — everything happens on Customers now */}
+          <Route path={"/forecast"}>{() => <Redirect to="/customers" />}</Route>
+          <Route path={"/reports"} component={Reports} />
+          <Route path={"/team"} component={Team} />
+          <Route path={"/settings"} component={Settings} />
+          <Route path={"/404"} component={NotFound} />
+          <Route component={NotFound} />
+        </Switch>
+      </Suspense>
     </DashboardLayout>
   );
 }

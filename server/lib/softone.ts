@@ -1,6 +1,6 @@
 /**
  * Softone S1 Web Services integration layer.
- * Uses the standard S1 JSON Web Services flow: login → authenticate → getBrowserInfo/setData.
+ * Legacy read-only Softone web-service integration.
  * When credentials are not configured, sync endpoints report "Not configured".
  */
 import axios from "axios";
@@ -222,10 +222,4 @@ export async function pullInvoices(): Promise<{ synced: number }> {
   }
   await db.addSyncLog({ direction: "Pull", entityType: "invoices", recordCount: synced, status: "Success", message: `Pulled ${synced} invoices from Softone` });
   return { synced };
-}
-
-/** Push a receipt to Softone as a collection document (setData on SALDOC/collection series). */
-export async function pushReceipt(receiptId: number): Promise<{ softoneId: string }> {
-  void receiptId;
-  throw new Error("SoftOne write-back is disabled by deployment policy.");
 }

@@ -2,18 +2,18 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
   appRoles,
+  confirmationStatuses,
   customerTiers,
   invoiceStatuses,
-  onHoldStatuses,
   receiptMethods,
   taskStatuses,
   taskTypes,
 } from "../../drizzle/schema";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { resolveGroupStatus, normalizeStoredStatus } from "../lib/statusWorkflow";
 import {
   buildForecast,
-  canTransitionOnHold,
   computeAging,
   computeDso,
   computeCreditRating,
@@ -69,6 +69,279 @@ function endOfCurrentMonth(now = new Date()): number {
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) - 1;
 }
 
+/**
+ * Confirmation statuses are tracked with a target date (followUpDate).
+ * A "Promise to Pay" or "Pending Follow-up" NEVER expires automatically: it stays
+ * active until a human logs a new call / changes the status. When the followUpDate
+ * passes and the linked auto-task is still open, the badge turns red (taskOverdue)
+ * instead of resetting the status.
+ */
+function isConfirmationStale(
+  status: string | null | undefined,
+  _followUpDate?: number | null | undefined,
+  _now = new Date(),
+): boolean {
+  // "Not Contacted" is always stale (no active follow-up).
+  if (!status || status === "Not Contacted") return true;
+  // All other statuses (Confirmed, Pending Follow-up, Broken) persist until
+  // explicitly changed by a human — no date-based auto-reset.
+  return false;
+}
+
+/** True when the row was last updated in a previous calendar month (used for the "carried over" hint). */
+function isFromPreviousMonth(updatedAt: Date | number | null | undefined, now = new Date()): boolean {
+  if (!updatedAt) return false;
+  const d = new Date(updatedAt);
+  return d.getUTCFullYear() !== now.getUTCFullYear() || d.getUTCMonth() !== now.getUTCMonth();
+}
+
+/** True when a linked auto-task is still open (Pending/In Progress) and past its due date → red badge. */
+function isTaskOverdue(task: { status: string; dueDate: number | null } | null | undefined, now = Date.now()): boolean {
+  if (!task) return false;
+  if (task.status !== "Pending" && task.status !== "In Progress") return false;
+  if (!task.dueDate) return false;
+  return task.dueDate < now;
+}
+
+/** Effective view of a confirmation row: stale → Not Contacted / €0. carriedOver = active status recorded in a previous month. */
+function effectiveConfirmation<T extends { status: string; amount: string | null; followUpDate: number | null | undefined; updatedAt?: Date | number | null } | null | undefined>(
+  row: T,
+): { status: string; amount: number; stale: boolean; carriedOver: boolean } {
+  if (!row) return { status: "Not Contacted", amount: 0, stale: false, carriedOver: false };
+  if (isConfirmationStale(row.status || null, row.followUpDate)) return { status: "Not Contacted", amount: 0, stale: true, carriedOver: false };
+  return {
+    status: row.status,
+    amount: row.amount ? Number(row.amount) : 0,
+    stale: false,
+    carriedOver: isFromPreviousMonth(row.updatedAt ?? null),
+  };
+}
+
+/**
+ * Create a Promise-to-Pay record for a group (used when a Confirmed status is logged).
+ * Resolves the target customer (given id or the group's primary member), creates the promise,
+ * logs the activity, and creates a follow-up task on the promised date — same behavior as addPromise.
+ */
+async function createGroupPromise(
+  ctx: { user: { id: number; name: string | null } },
+  input: { group: string; customerId?: number; amount: number; promisedDate: number; notes?: string }
+) {
+  let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
+  if (!cust) {
+    const customers = await db.listCustomers();
+    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+    if (members.length === 0) return null;
+    cust = members[0];
+  }
+  const id = await db.createPromise({
+    customerId: cust.id,
+    promisedDate: input.promisedDate,
+    amount: eur(input.amount),
+    notes: input.notes,
+    createdBy: ctx.user.id,
+  });
+  await audit(ctx, "Record Promise-to-Pay", "promiseToPay", id, `Customer #${cust.id} promised €${eur(input.amount)} by ${new Date(input.promisedDate).toISOString().slice(0, 10)} (from confirmed call)`);
+  const groupKey = cust.customerGroup?.trim() ? cust.customerGroup.trim() : cust.name;
+  const dateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
+  await db.addActivityLog({
+    groupName: groupKey,
+    customerId: cust.id,
+    activityType: "promise",
+    title: `Promise-to-Pay: €${Number(eur(input.amount)).toLocaleString()} by ${dateStr}`,
+    description: `${cust.name} — confirmed by phone${input.notes ? ` — ${input.notes}` : ""}`,
+    createdBy: ctx.user.id,
+    createdAt: new Date(),
+  }).catch(() => {});
+  const taskId = await db.createTask({
+    customerId: cust.id,
+    type: "Manual",
+    title: `Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
+    description: `Verify that ${cust.name} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${dateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
+    dueDate: input.promisedDate,
+    status: "Pending",
+    assignedTo: ctx.user.id,
+  });
+  await audit(ctx, "Create Task", "task", taskId, `Auto follow-up for promise #${id} (${cust.name})`);
+  return id;
+}
+
+/**
+ * Find the most recent open (Pending) promise for any customer that belongs to a group.
+ * Returns the promise row (with customer name) or null.
+ */
+async function findOpenGroupPromise(group: string) {
+  const customers = await db.listCustomers();
+  const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === group);
+  if (members.length === 0) return null;
+  const memberIds = new Set(members.map(m => m.id));
+  const byId = new Map(members.map(m => [m.id, m]));
+  const all = await db.listPromises();
+  const open = all
+    .filter(p => p.status === "Pending" && memberIds.has(p.customerId))
+    .sort((a, b) => b.id - a.id);
+  if (open.length === 0) return null;
+  const p = open[0];
+  return { ...p, customerName: byId.get(p.customerId)?.name ?? "—" };
+}
+
+/**
+ * Reschedule an existing open promise to a new date/amount (customer moved the payment).
+ * Updates the promise row, moves the linked follow-up task's due date, and logs the change.
+ */
+async function rescheduleGroupPromise(
+  ctx: { user: { id: number; name: string | null } },
+  input: { group: string; promiseId: number; amount: number; promisedDate: number; notes?: string }
+) {
+  const promise = await db.getPromise(input.promiseId);
+  if (!promise || promise.status !== "Pending") return null;
+  const cust = await db.getCustomer(promise.customerId);
+  const oldDateStr = new Date(promise.promisedDate).toLocaleDateString("en-GB");
+  const newDateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
+  await db.updatePromise(input.promiseId, {
+    promisedDate: input.promisedDate,
+    amount: eur(input.amount),
+    notes: input.notes ?? promise.notes,
+  });
+  await audit(ctx, "Reschedule Promise-to-Pay", "promiseToPay", input.promiseId, `${input.group}: €${eur(input.amount)} moved ${oldDateStr} → ${newDateStr}`);
+  await db.addActivityLog({
+    groupName: input.group,
+    customerId: promise.customerId,
+    activityType: "promise",
+    title: `Payment rescheduled: €${Number(eur(input.amount)).toLocaleString()} — ${oldDateStr} → ${newDateStr}`,
+    description: `${cust?.name ?? "—"} moved the promised payment${input.notes ? ` — ${input.notes}` : ""}`,
+    createdBy: ctx.user.id,
+    createdAt: new Date(),
+  }).catch(() => {});
+  // Move the linked follow-up task (identified by "(Promise #id)" marker) to the new date.
+  const marker = `(Promise #${input.promiseId})`;
+  const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+  const linked = openTasks.find(t => t.description?.includes(marker));
+  if (linked) {
+    await db.updateTask(linked.id, {
+      title: `Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
+      description: `Verify that ${cust?.name ?? "the customer"} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${newDateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`,
+      dueDate: input.promisedDate,
+    });
+    await audit(ctx, "Update Task", "task", linked.id, `Follow-up moved to ${newDateStr} (promise #${input.promiseId} rescheduled)`);
+  }
+  return input.promiseId;
+}
+
+/**
+ * Create (or reschedule) a follow-up-call task when a group's confirmation status
+ * is set to "Pending Follow-up" with a follow-up date. Reuses an existing open
+ * follow-up task for the same group instead of creating duplicates.
+ */
+async function upsertFollowUpTask(
+  ctx: { user: { id: number; name: string | null } },
+  input: { group: string; customerId?: number; followUpDate: number; amount?: number; notes?: string }
+) {
+  let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
+  if (!cust) {
+    const customers = await db.listCustomers();
+    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+    if (members.length === 0) return null;
+    cust = members[0];
+  }
+  const marker = `(Follow-up: ${input.group})`;
+  const dateStr = new Date(input.followUpDate).toLocaleDateString("en-GB");
+  const amountStr = input.amount && input.amount > 0 ? ` — expected €${Number(eur(input.amount)).toLocaleString()}` : "";
+  const title = `Follow-up call — ${input.group}${amountStr}`;
+  const description = `Call ${input.group} on ${dateStr} to confirm the expected payment${amountStr}.${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`;
+
+  // Reuse an existing open follow-up task for this group (avoid duplicates)
+  const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+  const existing = openTasks.find(t => t.description?.includes(marker));
+  if (existing) {
+    await db.updateTask(existing.id, { title, description, dueDate: input.followUpDate });
+    await audit(ctx, "Update Task", "task", existing.id, `Follow-up rescheduled to ${dateStr} (${input.group})`);
+    return existing.id;
+  }
+  const taskId = await db.createTask({
+    customerId: cust.id,
+    type: "Manual",
+    title,
+    description,
+    dueDate: input.followUpDate,
+    status: "Pending",
+    assignedTo: ctx.user.id,
+  });
+  await audit(ctx, "Create Task", "task", taskId, `Auto follow-up call task for ${input.group} on ${dateStr}`);
+  return taskId;
+}
+
+/**
+ * Cancel auto-created artifacts that no longer match the group's new confirmation status:
+ * - leaving "Pending Follow-up" → cancel the open "Follow-up call" task
+ * - leaving "Confirmed" (Promise to Pay) → cancel the open promise-check task and mark the open promise Broken? No —
+ *   we only cancel the task and leave the promise history intact unless the new status is Broken/Not Contacted,
+ *   in which case the open promise is cancelled too (customer withdrew the promise).
+ */
+async function cleanupStatusArtifacts(
+  ctx: { user: { id: number; name: string | null } },
+  input: { group: string; previousStatus: string | null; newStatus: string }
+) {
+  // Same-status re-saves are normally handled by the upsert helpers (e.g. Pending →
+  // Pending reschedule) — but "Not Contacted" / "Broken" re-saves must still sweep
+  // stale open promises (promises can be created directly from the Promises page,
+  // leaving them orphaned from the confirmation-status workflow).
+  const sweepStatuses = ["Not Contacted", "Broken"];
+  if (input.previousStatus === input.newStatus && !sweepStatuses.includes(input.newStatus)) return;
+  const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+
+  // Any status other than "Pending Follow-up" makes an open follow-up call task obsolete —
+  // regardless of what the recorded previous status was (covers Confirmed→Broken sequences
+  // where a follow-up task from an earlier Pending state was left open).
+  if (input.newStatus !== "Pending Follow-up") {
+    const marker = `(Follow-up: ${input.group})`;
+    const linked = openTasks.filter(t => t.description?.includes(marker));
+    for (const t of linked) {
+      await db.updateTask(t.id, {
+        status: "Cancelled",
+        completionNotes: `Status changed to ${input.newStatus} — follow-up task auto-cancelled`,
+      });
+      await audit(ctx, "Cancel Task", "task", t.id, `Follow-up task cancelled (status → ${input.newStatus})`);
+    }
+  }
+
+  // "Not Contacted" and "Broken" mean "there is no active promise" — cancel ALL open
+  // promises of the group and their linked check tasks, regardless of the previous
+  // status (promises can also be created directly from the Promises page, so the
+  // confirmation status row may never have been "Confirmed").
+  // Leaving "Confirmed" to any other status also cancels the open promise(s).
+  const promisesObsolete =
+    input.newStatus === "Not Contacted" ||
+    input.newStatus === "Broken" ||
+    (input.previousStatus === "Confirmed" && input.newStatus !== "Confirmed");
+  if (promisesObsolete) {
+    // Cancel every open promise (not just the newest) so nothing stale lingers.
+    for (let guard = 0; guard < 20; guard++) {
+      const open = await findOpenGroupPromise(input.group);
+      if (!open) break;
+      await db.updatePromise(open.id, { status: "Broken" });
+      await audit(ctx, "Cancel Promise-to-Pay", "promiseToPay", open.id, `${input.group}: promise cancelled (status → ${input.newStatus})`);
+      const marker = `(Promise #${open.id})`;
+      const linked = openTasks.filter(t => t.description?.includes(marker));
+      for (const t of linked) {
+        await db.updateTask(t.id, {
+          status: "Cancelled",
+          completionNotes: `Status changed to ${input.newStatus} — promise check task auto-cancelled`,
+        });
+        await audit(ctx, "Cancel Task", "task", t.id, `Promise check task cancelled (status → ${input.newStatus})`);
+      }
+      await db.addActivityLog({
+        groupName: input.group,
+        customerId: open.customerId,
+        activityType: "promise",
+        title: `Promise cancelled — status changed to ${input.newStatus}`,
+        description: `Open promise of €${Number(open.amount).toLocaleString()} was cancelled because the confirmation status changed.`,
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      }).catch(() => {});
+    }
+  }
+}
+
 export const customersRouter = router({
   /** Global search across groups, companies, invoices, notes, and tasks. */
   search: protectedProcedure
@@ -106,6 +379,7 @@ export const customersRouter = router({
             dueDate: i.dueDate,
             customerName: cust?.name ?? "",
             group: cust ? groupKeyOf(cust) : "",
+            vesselName: (i as any).vesselName ?? null,
           };
         }),
         notes: res.notes.map(n => ({
@@ -124,6 +398,30 @@ export const customersRouter = router({
             group: cust ? groupKeyOf(cust) : null,
           };
         }),
+        transfers: (res.transfers ?? []).map(t => ({
+          id: t.id,
+          customerName: t.customerName,
+          amount: Number(t.amount),
+          currency: t.currency,
+          transferDate: t.transferDate,
+          status: t.status,
+          branch: t.branch,
+          referenceNumber: t.referenceNumber,
+          isInternal: !!t.isInternal,
+        })),
+        payments: (res.allocations ?? []).map(a => ({
+          id: a.id,
+          wireTransferId: a.wireTransferId,
+          amount: Number(a.amount),
+          currency: a.transferCurrency,
+          invoiceNumber: a.invoiceNumber,
+          invoiceId: a.invoiceId,
+          payerName: a.payerName,
+          creditedName: a.creditedName,
+          transferAmount: Number(a.transferAmount),
+          transferDate: a.transferDate,
+          transferReference: a.transferReference,
+        })),
       };
     }),
   list: protectedProcedure.query(async () => {
@@ -161,7 +459,8 @@ export const customersRouter = router({
         overdue90Plus,
         promisesKept: prom.kept,
         promisesBroken: prom.broken,
-        onHoldStatus: c.onHoldStatus,
+        // Per-company view: status lives at group level; neutral here.
+        onHoldStatus: "Normal",
         turnoverYtd: c.turnoverYtd != null ? Number(c.turnoverYtd) : null,
         turnoverLastYear: c.turnoverLastYear != null ? Number(c.turnoverLastYear) : null,
       });
@@ -181,24 +480,63 @@ export const customersRouter = router({
   groups: protectedProcedure.query(async () => {
     const now = Date.now();
     const today = new Date();
-    const [customers, invoices, forecastRows, behavior, allPromises, watchRows] = await Promise.all([
+    const monthStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1);
+    const monthEnd = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1);
+    const [customers, invoices, forecastRows, behavior, allPromises, watchRows, receipts, confirmationStatuses, monthWires] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
       db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
       db.listPaymentBehaviorWithGroup().catch(() => []),
       db.listPromises(),
       db.listGroupWatchStatuses().catch(() => []),
+      db.listReceiptsInRange(monthStart, monthEnd),
+      db.listGroupConfirmationStatuses().catch(() => []),
+      db.listReceivedWireTransfersInRange(monthStart, monthEnd).catch(() => []),
     ]);
-    const eom = endOfCurrentMonth();
-    const watchByGroup = new Map<string, string>();
-    for (const w of watchRows) {
-      if (w.status !== "Auto") watchByGroup.set(w.groupName, w.status);
+    // Open auto-created tasks — used to link the confirmation badge to its task:
+    // "Pending Follow-up" → task with "(Follow-up: <group>)" marker;
+    // "Promise to Pay" → promise-check task with "(Promise #<id>)" marker.
+    const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] })).filter(
+      t => t.description?.includes("(Follow-up: ") || t.description?.includes("(Promise #"),
+    );
+    const followUpTaskByGroup = new Map<string, { id: number; status: string; dueDate: number | null }>();
+    const promiseTaskByPromiseId = new Map<number, { id: number; status: string; dueDate: number | null }>();
+    for (const t of openAutoTasks) {
+      const fm = t.description?.match(/\(Follow-up: (.+)\)/);
+      if (fm && !followUpTaskByGroup.has(fm[1])) followUpTaskByGroup.set(fm[1], { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
+      const pm = t.description?.match(/\(Promise #(\d+)\)/);
+      if (pm && !promiseTaskByPromiseId.has(Number(pm[1]))) promiseTaskByPromiseId.set(Number(pm[1]), { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
     }
-    const forecastByGroup = new Map<string, number>();
+    const eom = endOfCurrentMonth();
+    const collectedByCustomer = new Map<number, number>();
+    for (const r of receipts) {
+      if (r.receiptDate >= monthStart && r.receiptDate < monthEnd) {
+        collectedByCustomer.set(r.customerId, (collectedByCustomer.get(r.customerId) ?? 0) + Number(r.amount));
+      }
+    }
+    // Received wire transfers count as collected within the month (manual invoice matching happens separately)
+    for (const w of monthWires) {
+      collectedByCustomer.set(w.customerId, (collectedByCustomer.get(w.customerId) ?? 0) + Number(w.amount));
+    }
+    const watchByGroup = new Map<string, { status: string; problematicSince: number | null }>();
+    for (const w of watchRows) {
+      watchByGroup.set(w.groupName, { status: w.status, problematicSince: w.problematicSince ?? null });
+    }
+    const confirmationByGroup = new Map<string, any>();
+    for (const c of confirmationStatuses) {
+      confirmationByGroup.set(c.groupName, c);
+    }
+   const forecastByGroup = new Map<string, number>();
     for (const f of forecastRows) {
       const key = (f.customerGroup ?? "").trim();
       if (!key) continue;
       forecastByGroup.set(key, (forecastByGroup.get(key) ?? 0) + Number(f.expectedAmount));
+    }
+    const forecastInitialByGroup = new Map<string, number>();
+    for (const f of forecastRows) {
+      const key = (f.customerGroup ?? "").trim();
+      if (!key) continue;
+      forecastInitialByGroup.set(key, (forecastInitialByGroup.get(key) ?? 0) + Number((f as any).initialForecast ?? 0));
     }
     const byCustomer = new Map<number, typeof invoices>();
     for (const inv of invoices) {
@@ -209,14 +547,28 @@ export const customersRouter = router({
     // Per-group behavior (weighted) and promise tallies for ratings
     const groupBehavior = aggregateGroupBehavior(behavior as BehaviorRow[]);
     const promisesByCustomer = new Map<number, { kept: number; broken: number }>();
+    // Earliest open (Pending) promise date per customer — surfaced under the
+    // "Promise to Pay" badge in the groups table (mirrors the follow-up date).
+    const openPromiseDateByCustomer = new Map<number, number>();
+    // Matching promise id (earliest open promise) — used to find its check task.
+    const openPromiseIdByCustomer = new Map<number, number>();
     for (const p of allPromises) {
       const e = promisesByCustomer.get(p.customerId) ?? { kept: 0, broken: 0 };
       if (p.status === "Kept") e.kept++;
       else if (p.status === "Broken") e.broken++;
+      else if (p.status === "Pending") {
+        const cur = openPromiseDateByCustomer.get(p.customerId);
+        if (cur === undefined || p.promisedDate < cur) {
+          openPromiseDateByCustomer.set(p.customerId, p.promisedDate);
+          openPromiseIdByCustomer.set(p.customerId, p.id);
+        }
+      }
       promisesByCustomer.set(p.customerId, e);
     }
-    const HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
     const day90 = 90 * 24 * 60 * 60 * 1000;
+    const teamById = new Map((await db.listTeamMembers(true)).map(m => [m.id, m]));
+    const managerByGroup = new Map<string, { id: number; name: string } | null>();
+    const collectorByGroup = new Map<string, { id: number; name: string } | null>();
     const groups = new Map<
       string,
       {
@@ -231,29 +583,49 @@ export const customersRouter = router({
         overdue90Plus: number;
         promisesKept: number;
         promisesBroken: number;
-        worstHold: string;
         turnoverYtd: number;
         turnoverLastYear: number;
+        collected: number;
+        openPromiseDate: number | null;
+        openPromiseId: number | null;
       }
     >();
+    const groupInvoices = new Map<string, typeof invoices>();
     for (const c of customers) {
       const key = (c.customerGroup ?? "").trim() || c.name;
       let g = groups.get(key);
       if (!g) {
-        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set(), overdue90Plus: 0, promisesKept: 0, promisesBroken: 0, worstHold: "Active", turnoverYtd: 0, turnoverLastYear: 0 };
+        g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set(), overdue90Plus: 0, promisesKept: 0, promisesBroken: 0, turnoverYtd: 0, turnoverLastYear: 0, collected: 0, openPromiseDate: null, openPromiseId: null };
         groups.set(key, g);
       }
+      let gInv = groupInvoices.get(key);
+      if (!gInv) {
+        gInv = [];
+        groupInvoices.set(key, gInv);
+      }
       g.companyCount += 1;
+      if (!managerByGroup.get(key) && c.accountManagerId && teamById.has(c.accountManagerId)) {
+        managerByGroup.set(key, { id: c.accountManagerId, name: teamById.get(c.accountManagerId)!.name });
+      }
+      if (!collectorByGroup.get(key) && (c as any).collectorId && teamById.has((c as any).collectorId)) {
+        collectorByGroup.set(key, { id: (c as any).collectorId as number, name: teamById.get((c as any).collectorId)!.name });
+      }
       g.turnoverYtd += c.turnoverYtd ? Number(c.turnoverYtd) : 0;
       g.turnoverLastYear += c.turnoverLastYear ? Number(c.turnoverLastYear) : 0;
+      g.collected += collectedByCustomer.get(c.id) ?? 0;
       const prom = promisesByCustomer.get(c.id);
       if (prom) {
         g.promisesKept += prom.kept;
         g.promisesBroken += prom.broken;
       }
-      if ((HOLD_SEVERITY[c.onHoldStatus] ?? 0) > (HOLD_SEVERITY[g.worstHold] ?? 0)) g.worstHold = c.onHoldStatus;
+      const opd = openPromiseDateByCustomer.get(c.id);
+      if (opd !== undefined && (g.openPromiseDate === null || opd < g.openPromiseDate)) {
+        g.openPromiseDate = opd;
+        g.openPromiseId = openPromiseIdByCustomer.get(c.id) ?? null;
+      }
       for (const inv of byCustomer.get(c.id) ?? []) {
         if (!isOpenInvoice(inv)) continue;
+        gInv.push(inv);
         g.openBalance += outstanding(inv);
         const cur = inv.currency ?? "EUR";
         g.openByCurrency[cur] = (g.openByCurrency[cur] ?? 0) + outstandingOriginal(inv);
@@ -269,6 +641,18 @@ export const customersRouter = router({
     return Array.from(groups.values())
       .map(g => {
         const beh = groupBehavior.get(g.group);
+        const forecastExpected = forecastByGroup.get(g.group) ?? 0;
+        // Business rule: problematic when the month's forecast covers < 80% of what will be overdue by EOM.
+        const hasForecast = forecastByGroup.has(g.group);
+        const forecastForRule = hasForecast ? forecastExpected : 0;
+        const autoProblematic = g.overdueEomBalance > 0 && forecastForRule < 0.8 * g.overdueEomBalance;
+        // Unified workflow: Normal → Problematic → Under Review → On Hold → Legal.
+        const row = watchByGroup.get(g.group) ?? null;
+        const resolved = resolveGroupStatus(row, autoProblematic);
+        const watchStatus = resolved.status;
+        const watchOverride = row && row.status !== "Auto" ? normalizeStoredStatus(row.status) : null;
+        const problematic = watchStatus === "Problematic";
+        // Rating uses the group's unified account status (companies inherit it).
         const ratingResult = computeCreditRating({
           daysLate: beh?.medianDaysLate ?? beh?.avgDaysLate ?? null,
           openBalance: g.openBalance,
@@ -276,25 +660,54 @@ export const customersRouter = router({
           overdue90Plus: g.overdue90Plus,
           promisesKept: g.promisesKept,
           promisesBroken: g.promisesBroken,
-          onHoldStatus: g.worstHold,
+          onHoldStatus: watchStatus,
           turnoverYtd: g.turnoverYtd,
           turnoverLastYear: g.turnoverLastYear,
         });
-        const forecastExpected = forecastByGroup.get(g.group) ?? 0;
-        // Business rule: problematic when the month's forecast covers < 80% of what will be overdue by EOM.
-        const hasForecast = forecastByGroup.has(g.group);
-        const autoProblematic = hasForecast && g.overdueEomBalance > 0 && forecastExpected < 0.8 * g.overdueEomBalance;
-        // Manual override: "Problematic" or "On Watch" replaces the automatic verdict.
-        const watchOverride = watchByGroup.get(g.group) ?? null;
-        const watchStatus = watchOverride ?? (autoProblematic ? "Problematic" : null);
-        const problematic = watchStatus === "Problematic";
-        const { overdue90Plus, promisesKept, promisesBroken, worstHold, turnoverYtd, turnoverLastYear, ...rest } = g;
+        const { overdue90Plus, promisesKept, promisesBroken, turnoverYtd, turnoverLastYear, collected, openPromiseDate, openPromiseId, ...rest } = g;
+        const confirmation = confirmationByGroup.get(g.group);
+        const aging = computeAging(groupInvoices.get(g.group) ?? [], now);
+        // Expected to Collect: live estimate driven by log calls.
+        // Not Contacted → forecast; Confirmed/Pending → confirmation amount; Broken → 0.
+        // A status recorded in a previous month is stale → treated as Not Contacted.
+        const conf = effectiveConfirmation(confirmation);
+        const confStatus = conf.status;
+        const confAmount = conf.amount;
+        const expectedToCollect =
+          confStatus === "Not Contacted"
+            ? forecastExpected
+            : confStatus === "Broken"
+              ? 0
+              : confAmount;
+        // Linked task for the badge: Pending Follow-up → the group's follow-up-call
+        // task; Promise to Pay → the open promise's check task.
+        const confirmationTask =
+          confStatus === "Pending Follow-up"
+            ? (followUpTaskByGroup.get(g.group) ?? null)
+            : confStatus === "Confirmed"
+              ? (openPromiseId !== null ? (promiseTaskByPromiseId.get(openPromiseId) ?? null) : null)
+              : null;
+        const confirmationTaskId = confirmationTask?.id ?? null;
+        // Red badge: the linked task is still open and past its due date.
+        // Fallback: no linked open task found but the status target date has passed.
+        const confirmationTaskOverdue =
+          (confStatus === "Pending Follow-up" || confStatus === "Confirmed") &&
+          (confirmationTask
+            ? isTaskOverdue(confirmationTask, now)
+            : ((confirmation?.followUpDate ?? null) !== null && (confirmation!.followUpDate as number) < now));
         return {
           ...rest,
           turnoverYtd,
           turnoverLastYear,
           branches: Array.from(g.branches).sort(),
           forecastExpected,
+          forecastInitial: forecastInitialByGroup.get(g.group) ?? 0,
+          expectedToCollect,
+          expectedVariance: expectedToCollect - forecastExpected,
+          hasForecast,
+          aging: { current: aging.current, currentCount: aging.currentCount, buckets: aging.buckets },
+          collected,
+          remaining: Math.max(0, forecastExpected - collected),
           forecastCoverage: g.overdueEomBalance > 0 ? forecastExpected / g.overdueEomBalance : null,
           problematic,
           watchStatus,
@@ -302,6 +715,16 @@ export const customersRouter = router({
           rating: ratingResult.rating,
           ratingScore: ratingResult.score,
           ratingFactors: ratingResult.factors,
+          confirmationStatus: confStatus,
+          confirmationAmount: confAmount,
+          confirmationFollowUpDate: confirmation?.followUpDate ?? null,
+          confirmationCarriedOver: conf.carriedOver,
+          confirmationTaskId,
+          confirmationTaskOverdue,
+          accountManager: managerByGroup.get(g.group) ?? null,
+          collector: collectorByGroup.get(g.group) ?? null,
+          // Earliest open promise date — shown under the "Promise to Pay" badge.
+          confirmationPromiseDate: confStatus === "Confirmed" ? openPromiseDate : null,
         };
       })
       .sort((a, b) => b.openBalance - a.openBalance);
@@ -314,7 +737,7 @@ export const customersRouter = router({
   callList: protectedProcedure.query(async () => {
     const now = Date.now();
     const today = new Date();
-    const [customers, invoices, forecastRows, behavior, allPromises, receipts, openTasks] = await Promise.all([
+    const [customers, invoices, forecastRows, behavior, allPromises, receipts, openTasks, watchRowsCl] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
       db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
@@ -322,10 +745,15 @@ export const customersRouter = router({
       db.listPromises(),
       db.listReceipts(),
       db.listTasks({ statuses: ["Pending", "In Progress"] }),
+      db.listGroupWatchStatuses().catch(() => []),
     ]);
     const eom = endOfCurrentMonth();
     const day61 = 61 * 24 * 60 * 60 * 1000;
     const day90 = 90 * 24 * 60 * 60 * 1000;
+    const watchByGroupCl = new Map<string, { status: string; problematicSince: number | null }>();
+    for (const w of watchRowsCl) {
+      watchByGroupCl.set(w.groupName, { status: w.status, problematicSince: w.problematicSince ?? null });
+    }
     const forecastByGroup = new Map<string, number>();
     const forecastGroups = new Set<string>();
     for (const f of forecastRows) {
@@ -354,23 +782,22 @@ export const customersRouter = router({
       followUpTs: number | null;
       turnoverYtd: number;
       turnoverLastYear: number;
-      worstHold: string;
+      // (per-company on-hold removed — unified status is resolved per group below)
       contacts: { name: string; phone: string | null; email: string | null; contactPerson: string | null }[];
       memberIds: number[];
     };
-    const HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
+
     const aggs = new Map<string, Agg>();
     for (const c of customers) {
       const key = groupKeyOf(c);
       let g = aggs.get(key);
       if (!g) {
-        g = { group: key, openBalance: 0, overdueBalance: 0, overdueEom: 0, overdue6190: 0, overdue90Plus: 0, overdueCount: 0, promisesKept: 0, promisesBroken: 0, promisesOverduePending: 0, pendingPromiseAmount: 0, lastPaymentTs: null, followUpTs: null, turnoverYtd: 0, turnoverLastYear: 0, worstHold: "Active", contacts: [], memberIds: [] };
+        g = { group: key, openBalance: 0, overdueBalance: 0, overdueEom: 0, overdue6190: 0, overdue90Plus: 0, overdueCount: 0, promisesKept: 0, promisesBroken: 0, promisesOverduePending: 0, pendingPromiseAmount: 0, lastPaymentTs: null, followUpTs: null, turnoverYtd: 0, turnoverLastYear: 0, contacts: [], memberIds: [] };
         aggs.set(key, g);
       }
       g.memberIds.push(c.id);
       g.turnoverYtd += c.turnoverYtd ? Number(c.turnoverYtd) : 0;
       g.turnoverLastYear += c.turnoverLastYear ? Number(c.turnoverLastYear) : 0;
-      if ((HOLD_SEVERITY[c.onHoldStatus] ?? 0) > (HOLD_SEVERITY[g.worstHold] ?? 0)) g.worstHold = c.onHoldStatus;
       if (c.phone || c.email || c.contactPerson) {
         g.contacts.push({ name: c.name, phone: c.phone, email: c.email, contactPerson: c.contactPerson });
       }
@@ -422,6 +849,14 @@ export const customersRouter = router({
       .filter(g => g.overdueBalance > 0.005)
       .map(g => {
         const beh = groupBehavior.get(g.group);
+        const expected = forecastByGroup.get(g.group) ?? 0;
+        const coverage = forecastGroups.has(g.group) && g.overdueEom > 0 ? expected / g.overdueEom : null;
+        const daysSinceLastPayment = g.lastPaymentTs !== null ? Math.floor((now - g.lastPaymentTs) / (24 * 60 * 60 * 1000)) : null;
+        // Unified status: manual/auto Problematic → Critical after 30 days; drives the tier.
+        const expectedForRule = forecastGroups.has(g.group) ? expected : 0;
+        const autoProblematic = g.overdueEom > 0 && expectedForRule < 0.8 * g.overdueEom;
+        const resolvedStatus = resolveGroupStatus(watchByGroupCl.get(g.group) ?? null, autoProblematic, now);
+        // Rating uses the group's unified account status.
         const rating = computeCreditRating({
           daysLate: beh?.medianDaysLate ?? beh?.avgDaysLate ?? null,
           openBalance: g.openBalance,
@@ -429,13 +864,10 @@ export const customersRouter = router({
           overdue90Plus: g.overdue90Plus,
           promisesKept: g.promisesKept,
           promisesBroken: g.promisesBroken,
-          onHoldStatus: g.worstHold,
+          onHoldStatus: resolvedStatus.status,
           turnoverYtd: g.turnoverYtd,
           turnoverLastYear: g.turnoverLastYear,
         });
-        const expected = forecastByGroup.get(g.group) ?? 0;
-        const coverage = forecastGroups.has(g.group) && g.overdueEom > 0 ? expected / g.overdueEom : null;
-        const daysSinceLastPayment = g.lastPaymentTs !== null ? Math.floor((now - g.lastPaymentTs) / (24 * 60 * 60 * 1000)) : null;
         const priority = computeCallPriority({
           overdueBalance: g.overdueBalance,
           overdue6190: g.overdue6190,
@@ -445,11 +877,14 @@ export const customersRouter = router({
           promisesOverduePending: g.promisesOverduePending,
           forecastCoverage: coverage,
           daysSinceLastPayment,
+          groupStatus: resolvedStatus.status,
         });
         return {
           group: g.group,
           score: priority.score,
           reasons: priority.reasons,
+          tier: priority.tier,
+          watchStatus: resolvedStatus.status,
          rating: rating.rating,
          ratingScore: rating.score,
          overdueBalance: g.overdueBalance,
@@ -470,7 +905,8 @@ export const customersRouter = router({
           followUpDate: g.followUpTs,
         };
       })
-      .sort((a, b) => b.score - a.score);
+      // Status-first: Critical/Legal, then Problematic, then Normal; score orders within each tier.
+      .sort((a, b) => (b.tier - a.tier) || (b.score - a.score));
     return rows;
   }),
   /** Group card: aggregates + invoices, scoped by optional member company and/or Prime Branch. */
@@ -488,9 +924,10 @@ export const customersRouter = router({
       const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
       if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
       const memberIds = new Set(members.map(m => m.id));
-      const [allInvoices, allBehavior] = await Promise.all([
+      const [allInvoices, allBehavior, confirmation] = await Promise.all([
         db.listInvoices(),
         db.listPaymentBehaviorWithGroup().catch(() => []),
+        db.getGroupConfirmationStatus(input.group).catch(() => null),
       ]);
       const now = Date.now();
       // Full group scope (for the branch list and per-company summary regardless of filters)
@@ -501,7 +938,7 @@ export const customersRouter = router({
         i =>
           (input.customerId === undefined || i.customerId === input.customerId) &&
           (input.branch === undefined || i.company === input.branch) &&
-          (input.minDaysOverdue === undefined || (isOpenInvoice(i) && now > i.dueDate && daysOverdue(i.dueDate, now) >= input.minDaysOverdue)),
+          true, // Don't filter by minDaysOverdue here; let frontend handle aging bucket filtering
       );
       const aging = computeAging(scoped, now);
       const open = scoped.filter(isOpenInvoice);
@@ -529,8 +966,17 @@ export const customersRouter = router({
       const eomTs = endOfCurrentMonth();
       const gOverdueEom = gOpen.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
       const memberPromises = (await db.listPromises()).filter(p => memberIds.has(p.customerId));
-      const HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
-      const worstHold = members.reduce((w, m) => ((HOLD_SEVERITY[m.onHoldStatus] ?? 0) > (HOLD_SEVERITY[w] ?? 0) ? m.onHoldStatus : w), "Active");
+      const todayD = new Date();
+      const forecastRows = await db.listForecastEntries(todayD.getUTCFullYear(), todayD.getUTCMonth() + 1);
+      const groupForecast = forecastRows.filter(f => (f.customerGroup ?? "").trim() === input.group).reduce((s, f) => s + Number(f.expectedAmount), 0);
+      const hasForecast = forecastRows.some(f => (f.customerGroup ?? "").trim() === input.group);
+      const forecastForRule = hasForecast ? groupForecast : 0;
+      const problematic = gOverdueEom > 0 && forecastForRule < 0.8 * gOverdueEom;
+      const watchRow = await db.getGroupWatchStatus(input.group).catch(() => null);
+      const resolvedDetail = resolveGroupStatus(watchRow, problematic);
+      const watchStatus = resolvedDetail.status;
+      const watchOverride = watchRow && watchRow.status !== "Auto" ? normalizeStoredStatus(watchRow.status) : null;
+      // Rating uses the group's unified account status (companies inherit it).
       const ratingResult = computeCreditRating({
         daysLate: groupBehavior?.medianDaysLate ?? groupBehavior?.avgDaysLate ?? null,
         openBalance: gOpen.reduce((s, i) => s + outstanding(i), 0),
@@ -538,18 +984,10 @@ export const customersRouter = router({
         overdue90Plus: gOverdue.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0),
         promisesKept: memberPromises.filter(p => p.status === "Kept").length,
         promisesBroken: memberPromises.filter(p => p.status === "Broken").length,
-        onHoldStatus: worstHold,
+        onHoldStatus: watchStatus,
         turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
         turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
       });
-      const todayD = new Date();
-      const forecastRows = await db.listForecastEntries(todayD.getUTCFullYear(), todayD.getUTCMonth() + 1);
-      const groupForecast = forecastRows.filter(f => (f.customerGroup ?? "").trim() === input.group).reduce((s, f) => s + Number(f.expectedAmount), 0);
-      const hasForecast = forecastRows.some(f => (f.customerGroup ?? "").trim() === input.group);
-      const problematic = hasForecast && gOverdueEom > 0 && groupForecast < 0.8 * gOverdueEom;
-      const watchRow = await db.getGroupWatchStatus(input.group).catch(() => null);
-      const watchOverride = watchRow && watchRow.status !== "Auto" ? watchRow.status : null;
-      const watchStatus = watchOverride ?? (problematic ? "Problematic" : null);
       const companies = members
         .map(m => {
           const mine = branchScoped.filter(i => i.customerId === m.id);
@@ -560,7 +998,8 @@ export const customersRouter = router({
             id: m.id,
             name: m.name,
             code: m.code,
-            onHoldStatus: m.onHoldStatus,
+            // Companies inherit the group's unified account status.
+            onHoldStatus: watchStatus,
             openBalance: mOpen.reduce((s, i) => s + outstanding(i), 0),
             overdueBalance: mOverdue.reduce((s, i) => s + outstanding(i), 0),
             invoiceCount: mOpen.length,
@@ -570,18 +1009,69 @@ export const customersRouter = router({
           };
         })
         .sort((a, b) => b.openBalance - a.openBalance);
+      // Match the Invoices page ordering: dueDate DESC (newest due first) so
+      // not-yet-due invoices appear at the top instead of a wall of old overdue rows.
       const sortedInvoices = [...scoped].sort((a, b) => b.dueDate - a.dueDate);
       const customerNames = new Map(members.map(m => [m.id, m.name]));
-      const DETAIL_HOLD_SEVERITY: Record<string, number> = { Active: 0, Resolved: 0, Rejected: 0, "Under Review": 1, "Eligible for On Hold": 2, "On Hold": 3, Legal: 4 };
-      const groupHoldStatus = members.reduce(
-        (worst, m) => ((DETAIL_HOLD_SEVERITY[m.onHoldStatus] ?? 0) > (DETAIL_HOLD_SEVERITY[worst] ?? 0) ? m.onHoldStatus : worst),
-        "Active" as string,
-      );
+      const allVesselRows = await db.listVessels();
+      const vesselNameById = new Map(allVesselRows.map(v => [v.id, v.name]));
+      // Unified: the group's account status IS the hold status (companies inherit it).
+      const groupHoldStatus = watchStatus;
+      const activityLogs = await db.listActivityLog(input.group, 200).catch(() => []);
+      // Statuses persist until a human changes them; the red badge flags an overdue linked task.
+      const gConf = effectiveConfirmation(confirmation);
+      const gConfStatus = gConf.status;
+      const gConfAmount = gConf.amount;
+      // Linked task for the confirmation badge (same logic as customers.groups):
+      // Pending Follow-up → "(Follow-up: <group>)" task; Promise to Pay → "(Promise #<id>)" check task.
+      let gConfirmationTask: { id: number; status: string; dueDate: number | null } | null = null;
+      if (gConfStatus === "Pending Follow-up" || gConfStatus === "Confirmed") {
+        const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => [])).filter(
+          t => t.description?.includes("(Follow-up: ") || t.description?.includes("(Promise #"),
+        );
+        if (gConfStatus === "Pending Follow-up") {
+          const t = openAutoTasks.find(t => t.description?.includes(`(Follow-up: ${input.group})`));
+          gConfirmationTask = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
+        } else {
+          const openPromise = (await db.listPromises().catch(() => []))
+            .filter(p => p.status === "Pending" && memberIds.has(p.customerId))
+            .sort((a, b) => b.id - a.id)[0];
+          if (openPromise) {
+            const t = openAutoTasks.find(t => t.description?.includes(`(Promise #${openPromise.id})`));
+            gConfirmationTask = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
+          }
+        }
+      }
+      const gConfirmationTaskId = gConfirmationTask?.id ?? null;
+      // Red badge: linked task still open and past due (fallback: target date passed with no open task found).
+      const gConfirmationTaskOverdue =
+        (gConfStatus === "Pending Follow-up" || gConfStatus === "Confirmed") &&
+        (gConfirmationTask
+          ? isTaskOverdue(gConfirmationTask, now)
+          : ((confirmation?.followUpDate ?? null) !== null && (confirmation!.followUpDate as number) < now));
+      const gExpectedToCollect =
+        gConfStatus === "Not Contacted" ? groupForecast : gConfStatus === "Broken" ? 0 : gConfAmount;
+      const groupForecastInitial = forecastRows
+        .filter(f => (f.customerGroup ?? "").trim() === input.group)
+        .reduce((s, f) => s + Number((f as any).initialForecast ?? 0), 0);
+      // Group account manager: the first member company with a manager set.
+      const teamAll = await db.listTeamMembers(true);
+      const teamMap = new Map(teamAll.map(m => [m.id, m]));
+      const managerMember = members.find(m => (m as any).accountManagerId && teamMap.has((m as any).accountManagerId));
+      const accountManager = managerMember
+        ? { id: (managerMember as any).accountManagerId as number, name: teamMap.get((managerMember as any).accountManagerId)!.name }
+        : null;
+      const collectorMember = members.find(m => (m as any).collectorId && teamMap.has((m as any).collectorId));
+      const collector = collectorMember
+        ? { id: (collectorMember as any).collectorId as number, name: teamMap.get((collectorMember as any).collectorId)!.name }
+        : null;
       return {
         group: input.group,
         companies,
         branches,
         aging,
+        accountManager,
+        collector,
         behavior: groupBehavior,
         rating: ratingResult,
         holdStatus: groupHoldStatus,
@@ -590,7 +1080,17 @@ export const customersRouter = router({
         watchStatus,
         watchOverride,
         forecastExpected: groupForecast,
+        forecastInitial: groupForecastInitial,
+        expectedToCollect: gExpectedToCollect,
+        expectedVariance: gExpectedToCollect - groupForecast,
         overdueEomBalance: gOverdueEom,
+        confirmationStatus: gConfStatus,
+        confirmationAmount: gConfAmount,
+        confirmationTaskId: gConfirmationTaskId,
+        confirmationTaskOverdue: gConfirmationTaskOverdue,
+        confirmationFollowUpDate: confirmation?.followUpDate ?? null,
+        confirmationCarriedOver: gConf.carriedOver,
+        confirmationNotes: confirmation?.notes ?? null,
         totals: {
           openBalance: open.reduce((s, i) => s + outstanding(i), 0),
           overdueBalance: overdue.reduce((s, i) => s + outstanding(i), 0),
@@ -600,7 +1100,14 @@ export const customersRouter = router({
           turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
           turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
         },
-        invoices: sortedInvoices.slice(0, 500).map(i => ({ ...i, customerName: customerNames.get(i.customerId) ?? "" })),
+        invoices: sortedInvoices.map(i => ({
+          ...i,
+          customerName: customerNames.get(i.customerId) ?? "",
+          vesselName: i.vesselId ? (vesselNameById.get(i.vesselId) ?? null) : null,
+          outstanding: outstanding(i),
+          daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, Date.now()) : 0,
+        })),
+        activityLogs,
       };
     }),
   /** All promises-to-pay for the member companies of a group. */
@@ -620,10 +1127,11 @@ export const customersRouter = router({
     const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
     const memberIds = new Set(members.map(m => m.id));
     const names = new Map(members.map(m => [m.id, m.name]));
-    const [receipts, contracts, tasks] = await Promise.all([
+    const [receipts, contracts, tasks, emailHistories] = await Promise.all([
       db.listReceipts().catch(() => []),
       db.listContracts().catch(() => []),
       db.listTasks({}).catch(() => []),
+      Promise.all(Array.from(memberIds).map(id => db.listEmailHistory(id, 300).catch(() => []))).then(results => results.flat()),
     ]);
     return {
       receipts: receipts
@@ -639,6 +1147,10 @@ export const customersRouter = router({
         .sort((a, b) => (b.dueDate ?? 0) - (a.dueDate ?? 0))
         .slice(0, 300)
         .map(t => ({ ...t, customerName: names.get(t.customerId) ?? "—" })),
+      emails: emailHistories
+        .sort((a, b) => (b.createdAt?.getTime?.() ?? 0) - (a.createdAt?.getTime?.() ?? 0))
+        .slice(0, 300)
+        .map(e => ({ ...e, customerName: names.get(e.customerId) ?? "—" })),
     };
   }),
   /** Notes attached to a group. */
@@ -655,7 +1167,6 @@ export const customersRouter = router({
     const month = now.getUTCMonth() + 1;
     const entries = await db.listForecastEntries(year, month);
     const entry = entries.find(e => (e.customerGroup ?? "").trim() === input.group);
-    if (!entry) return null;
     const customers = await db.listCustomers();
     const memberIds = new Set(
       customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group).map(c => c.id),
@@ -663,9 +1174,30 @@ export const customersRouter = router({
     const receipts = await db.listReceipts();
     const start = Date.UTC(year, month - 1, 1);
     const end = Date.UTC(year, month, 1);
-    const collected = receipts
+    const monthWires = await db.listReceivedWireTransfersInRange(start, end).catch(() => []);
+    const wireCollected = monthWires.filter(w => memberIds.has(w.customerId)).reduce((s, w) => s + Number(w.amount), 0);
+    const collected = wireCollected + receipts
       .filter(r => memberIds.has(r.customerId) && r.receiptDate >= start && r.receiptDate < end)
       .reduce((s, r) => s + Number(r.amount), 0);
+    if (!entry) {
+      // No forecast entry this month — still report collected so the group card
+      // shows receipts + received wire transfers under "Paid (this month)".
+      return {
+        year,
+        month,
+        dueAmount: 0,
+        overdueAmount: 0,
+        aiSuggestedAmount: 0,
+        aiReasoning: null as string | null,
+        expectedAmount: 0,
+        initialForecast: 0,
+        userAdjusted: false,
+        adjustmentNote: null as string | null,
+        collected,
+        remaining: 0,
+        hasForecast: false,
+      };
+    }
     return {
       year,
       month,
@@ -674,10 +1206,12 @@ export const customersRouter = router({
       aiSuggestedAmount: Number(entry.aiSuggestedAmount),
       aiReasoning: entry.aiReasoning,
       expectedAmount: Number(entry.expectedAmount),
+      initialForecast: Number(entry.initialForecast ?? 0),
       userAdjusted: entry.userAdjusted,
       adjustmentNote: entry.adjustmentNote,
       collected,
       remaining: Math.max(0, Number(entry.expectedAmount) - collected),
+      hasForecast: true,
     };
   }),
   addGroupNote: protectedProcedure
@@ -690,6 +1224,14 @@ export const customersRouter = router({
         createdAt: Date.now(),
       });
       await audit(ctx, "Add Group Note", "groupNote", id, `Group ${input.group}`);
+      await db.addActivityLog({
+        groupName: input.group,
+        activityType: "note",
+        title: "Note added",
+        description: input.content.substring(0, 200),
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      }).catch(() => {});
       return { id };
     }),
   deleteGroupNote: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
@@ -704,15 +1246,15 @@ export const customersRouter = router({
       await audit(ctx, "Update Group Note", "groupNote", input.id);
       return { success: true };
     }),
-  /** Manual watch-status override: Problematic ↔ On Watch ↔ Auto (follow the forecast rule). */
+  /** Manual watch-status override: Problematic forces the flag, Normal clears it, Auto follows the forecast rule. */
   setWatchStatus: protectedProcedure
-    .input(z.object({ group: z.string().min(1), status: z.enum(["Auto", "Problematic", "On Watch"]) }))
+    .input(z.object({ group: z.string().min(1), status: z.enum(["Auto", "Normal", "Problematic", "Under Review", "On Hold", "Legal"]) }))
     .mutation(async ({ ctx, input }) => {
       await db.setGroupWatchStatus(input.group, input.status, ctx.user.id);
-      await audit(ctx, "Set Watch Status", "group", input.group, `Status → ${input.status}`);
+      await audit(ctx, "Set Account Status", "group", input.group, `Status → ${input.status}`);
       await db.createGroupNote({
         groupName: input.group,
-        content: `Watch status changed to "${input.status === "Auto" ? "Auto (forecast rule)" : input.status}" by ${ctx.user.name ?? "user"}.`,
+        content: `Status changed to "${input.status === "Auto" ? "Auto (forecast rule)" : input.status}" by ${ctx.user.name ?? "user"}.`,
         createdBy: ctx.user.id,
         createdAt: Date.now(),
       });
@@ -740,7 +1282,34 @@ export const customersRouter = router({
     const behavior = allBehavior.filter(b => memberIds.has(b.customerId));
     const promises = allPromises.filter(p => memberIds.has(p.customerId));
     const pendingTasks = allTasks.filter(t => memberIds.has(t.customerId) && (t.status === "Pending" || t.status === "In Progress"));
-    const onHold = members.filter(m => m.onHoldStatus !== "Active");
+    // Current-month forecast & collection status
+    const todayD = new Date();
+    const curYear = todayD.getUTCFullYear();
+    const curMonth = todayD.getUTCMonth() + 1;
+    const { start: mStart, end: mEnd } = monthRange(curYear, curMonth);
+    const [forecastRows, monthReceipts] = await Promise.all([
+      db.listForecastEntries(curYear, curMonth),
+      db.listReceiptsInRange(mStart, mEnd).catch(() => []),
+    ]);
+    const groupForecastRows = forecastRows.filter(f => (f.customerGroup ?? "").trim() === input.group);
+    const forecastExpected = groupForecastRows.reduce((s, f) => s + Number(f.expectedAmount), 0);
+    const aiMonthWires = await db.listReceivedWireTransfersInRange(mStart, mEnd).catch(() => []);
+    const collectedThisMonth = aiMonthWires.filter(w => memberIds.has(w.customerId)).reduce((s, w) => s + Number(w.amount), 0) + monthReceipts
+      .filter(r => memberIds.has(r.customerId))
+      .reduce((s, r) => s + Number(r.amount), 0);
+    const remainingToCollect = Math.max(0, forecastExpected - collectedThisMonth);
+    // Invoices due within the current month (collection targets for the forecast)
+    const dueThisMonth = open
+      .filter(i => i.dueDate <= mEnd)
+      .sort((a, b) => b.dueDate - a.dueDate)
+      .slice(0, 40)
+      .map(i => ({
+        company: names.get(i.customerId),
+        invoice: i.invoiceNumber,
+        dueDate: new Date(i.dueDate).toISOString().slice(0, 10),
+        outstandingEur: eur(outstanding(i)),
+        daysOverdue: now > i.dueDate ? Math.floor((now - i.dueDate) / (24 * 60 * 60 * 1000)) : 0,
+      }));
     const facts = {
       group: input.group,
       companies: members.length,
@@ -749,6 +1318,11 @@ export const customersRouter = router({
       overdueInvoices: overdue.length,
       openInvoices: open.length,
       aging,
+      currentMonth: `${curYear}-${String(curMonth).padStart(2, "0")}`,
+      monthlyForecastEur: eur(forecastExpected),
+      collectedThisMonthEur: eur(collectedThisMonth),
+      remainingToCollectEur: eur(remainingToCollect),
+      invoicesDueOrOverdueThisMonth: dueThisMonth,
       topDebtors: [...members]
         .map(m => ({ name: m.name, overdueEur: invs.filter(i => i.customerId === m.id && isOpenInvoice(i) && now > i.dueDate).reduce((s, i) => s + outstanding(i), 0) }))
         .sort((a, b) => b.overdueEur - a.overdueEur)
@@ -757,7 +1331,6 @@ export const customersRouter = router({
       paymentBehavior: behavior.slice(0, 10).map(b => ({ company: names.get(b.customerId), avgDaysLate: b.avgDaysLate, medianDaysLate: b.medianDaysLate, payments: b.payments })),
       promises: promises.slice(0, 20).map(p => ({ company: names.get(p.customerId), amountEur: Number(p.amount), promisedDate: new Date(p.promisedDate).toISOString().slice(0, 10), status: p.status, notes: p.notes })),
       pendingTasks: pendingTasks.slice(0, 20).map(t => ({ company: names.get(t.customerId), type: t.type, title: t.title, dueDate: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : null })),
-      onHoldStatuses: onHold.map(m => ({ company: m.name, status: m.onHoldStatus })),
       recentNotes: notes.slice(0, 10).map(n => ({ date: new Date(n.createdAt).toISOString().slice(0, 10), content: n.content })),
     };
     const response = await invokeLLM({
@@ -766,7 +1339,7 @@ export const customersRouter = router({
         {
           role: "system",
           content:
-            "You are a credit-control analyst. Write a concise, factual snapshot of a customer group for an accounts-receivable team preparing a call. Use short paragraphs and bullet points. Cover: overall exposure and overdue risk, payment behavior, promises to pay (kept/broken/pending), open follow-up tasks, on-hold status, and anything notable from the notes. End with 2-3 recommended next actions. Maximum ~250 words. Respond in English.",
+            "You are a credit-control analyst helping an accounts-receivable user hit this month's collection forecast. Structure your answer in exactly two sections:\n\n**Profile** — 2-3 sentences maximum, STRICTLY about the financials and the debts this customer group owes to us: open balance, overdue amount and aging, payment behavior (average delay, promise reliability), and this month's forecast position. Do NOT describe the company itself (no industry, size, business background or other generic company info).\n\n**Actions this month** — the COMPLETE list of concrete collection items the user must handle THIS month to achieve the monthly forecast (remainingToCollectEur). List EVERY item, not just the top ones: every invoice or company amount that must be collected (use invoicesDueOrOverdueThisMonth and topDebtors), every promise to follow up, every pending task to close, and any escalation (on-hold, legal) if the data justifies it. Each item on its own bullet line, most valuable first, with amounts in EUR and company names. NEVER suggest calling or phoning the customer about invoices — phrase items as amounts to collect or follow up, e.g. 'Collect invoice Y from X (€Z, N days overdue)'. If the forecast is already covered (remainingToCollectEur = 0), say so and list only monitoring items. Respond in English.",
         },
         { role: "user", content: JSON.stringify(facts) },
       ],
@@ -797,17 +1370,6 @@ export const customersRouter = router({
     const openInv = invoices.filter(isOpenInvoice);
     const overdueInv = openInv.filter(i => now > i.dueDate);
     const behaviorRow = await db.getPaymentBehavior(input.id).catch(() => null);
-    const ratingResult = computeCreditRating({
-      daysLate: behaviorRow?.medianDaysLate ?? behaviorRow?.avgDaysLate ?? null,
-      openBalance: openInv.reduce((s, i) => s + outstanding(i), 0),
-      overdueBalance: overdueInv.reduce((s, i) => s + outstanding(i), 0),
-      overdue90Plus: overdueInv.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0),
-      promisesKept: promises.filter(p => p.status === "Kept").length,
-      promisesBroken: promises.filter(p => p.status === "Broken").length,
-      onHoldStatus: customer.onHoldStatus,
-      turnoverYtd: customer.turnoverYtd != null ? Number(customer.turnoverYtd) : null,
-      turnoverLastYear: customer.turnoverLastYear != null ? Number(customer.turnoverLastYear) : null,
-    });
     // Group-level watch status & forecast coverage (customer belongs to a group; watch status lives on the group)
     const groupKey = (customer.customerGroup ?? "").trim() || customer.name;
     const eomTs = endOfCurrentMonth();
@@ -824,12 +1386,43 @@ export const customersRouter = router({
     const groupIds = new Set(groupCustomers.map(c => c.id));
     const groupInvoices = (await db.listInvoices()).filter(i => groupIds.has(i.customerId) && isOpenInvoice(i));
     const groupOverdueEom = groupInvoices.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
-    const autoProblematic = hasForecast && groupOverdueEom > 0 && groupForecast < 0.8 * groupOverdueEom;
-    const watchOverride = watchRow && watchRow.status !== "Auto" ? watchRow.status : null;
-    const watchStatus = watchOverride ?? (autoProblematic ? "Problematic" : null);
+    const forecastForRule = hasForecast ? groupForecast : 0;
+    const autoProblematic = groupOverdueEom > 0 && forecastForRule < 0.8 * groupOverdueEom;
+    const resolvedCd = resolveGroupStatus(watchRow, autoProblematic);
+    const watchStatus = resolvedCd.status;
+    const watchOverride = watchRow && watchRow.status !== "Auto" ? normalizeStoredStatus(watchRow.status) : null;
+    // Rating uses the group's unified account status (the company inherits it).
+    const ratingResult = computeCreditRating({
+      daysLate: behaviorRow?.medianDaysLate ?? behaviorRow?.avgDaysLate ?? null,
+      openBalance: openInv.reduce((s, i) => s + outstanding(i), 0),
+      overdueBalance: overdueInv.reduce((s, i) => s + outstanding(i), 0),
+      overdue90Plus: overdueInv.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0),
+      promisesKept: promises.filter(p => p.status === "Kept").length,
+      promisesBroken: promises.filter(p => p.status === "Broken").length,
+      onHoldStatus: watchStatus,
+      turnoverYtd: customer.turnoverYtd != null ? Number(customer.turnoverYtd) : null,
+      turnoverLastYear: customer.turnoverLastYear != null ? Number(customer.turnoverLastYear) : null,
+    });
+    const vesselRows360 = await db.listVessels();
+    const vesselName360 = new Map(vesselRows360.map(v => [v.id, v.name]));
+    const team360 = await db.listTeamMembers(true);
+    const teamMap360 = new Map(team360.map(m => [m.id, m]));
+    const accountManager = (customer as any).accountManagerId && teamMap360.has((customer as any).accountManagerId)
+      ? { id: (customer as any).accountManagerId as number, name: teamMap360.get((customer as any).accountManagerId)!.name }
+      : null;
+    const collector = (customer as any).collectorId && teamMap360.has((customer as any).collectorId)
+      ? { id: (customer as any).collectorId as number, name: teamMap360.get((customer as any).collectorId)!.name }
+      : null;
     return {
       customer,
-      invoices,
+      accountManager,
+      collector,
+      invoices: invoices.map(i => ({
+        ...i,
+        vesselName: i.vesselId ? (vesselName360.get(i.vesselId) ?? null) : null,
+        outstanding: outstanding(i),
+        daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, Date.now()) : 0,
+      })),
       receipts,
       contracts,
       installments,
@@ -883,6 +1476,449 @@ export const customersRouter = router({
       await audit(ctx, "Update Customer", "customer", id);
       return { success: true };
     }),
+
+  // Bank Details procedures
+  getBankDetails: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .query(async ({ input }) => {
+      return await db.getBankDetailsByCustomerId(input.customerId);
+    }),
+
+  saveBankDetails: protectedProcedure
+    .input(
+      z.object({
+        customerId: z.number(),
+        iban: z.string().optional().nullable(),
+        accountNumber: z.string().optional().nullable(),
+        bankName: z.string().optional().nullable(),
+        swiftCode: z.string().optional().nullable(),
+        beneficiaryName: z.string().optional().nullable(),
+        currency: z.string().default("EUR"),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { customerId, ...data } = input;
+      const existing = await db.getBankDetailsByCustomerId(customerId);
+
+      if (existing) {
+        // Update existing
+        await db.updateBankDetails(customerId, { ...data, updatedBy: ctx.user.id });
+      } else {
+        // Create new
+        await db.createBankDetails({ customerId, ...data, createdBy: ctx.user.id });
+      }
+
+      await audit(ctx, "Save Bank Details", "customer", customerId);
+      return { success: true };
+    }),
+
+  deleteBankDetails: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await db.deleteBankDetails(input.customerId);
+      await audit(ctx, "Delete Bank Details", "customer", input.customerId);
+      return { success: true };
+    }),
+
+  listWireTransfers: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .query(async ({ input }) => {
+      return db.listWireTransfersByCustomerId(input.customerId);
+    }),
+
+  createWireTransfer: protectedProcedure
+    .input(
+      z.object({
+        customerId: z.number(),
+        amount: z.number().positive(),
+        currency: z.string().default("EUR"),
+        transferDate: z.number(),
+        branch: z.string().optional().nullable(),
+        status: z.enum(["Pending", "Received"]).default("Pending"),
+        receivedDate: z.number().optional().nullable(),
+        referenceNumber: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const id = await db.createWireTransfer({
+        ...input,
+        createdBy: ctx.user.id,
+      });
+      await audit(ctx, "Create Wire Transfer", "customer", input.customerId, `${input.currency ?? "EUR"} ${input.amount}${input.branch ? ` @ ${input.branch}` : ""}`);
+      return { id, success: true };
+    }),
+
+  updateWireTransfer: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        customerId: z.number(),
+        branch: z.string().optional().nullable(),
+        status: z.enum(["Pending", "Received"]).optional(),
+        receivedDate: z.number().optional().nullable(),
+        referenceNumber: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, customerId, ...data } = input;
+      await db.updateWireTransfer(id, { ...data, updatedBy: ctx.user.id });
+      await audit(ctx, "Update Wire Transfer", "customer", customerId);
+      return { success: true };
+    }),
+
+  deleteWireTransfer: protectedProcedure
+    .input(z.object({ id: z.number(), customerId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      // Cascade: revert allocations on invoices, delete allocations,
+      // and delete internal inter-office transfers derived from this transfer.
+      const allocs = await db.listAllocationsByWireTransfer(input.id);
+      for (const alloc of allocs) {
+        const inv = await db.getInvoice(alloc.invoiceId);
+        if (inv) {
+          const newPaid = Math.max(0, Number(inv.paidAmount) - Number(alloc.amount));
+          const newStatus = newPaid <= 0.005 ? "Open" : newPaid >= Number(inv.amount) - 0.005 ? "Paid" : "Partially Paid";
+          await db.updateInvoice(alloc.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
+        }
+        await db.deleteInternalTransfersByAllocation(alloc.id);
+        await db.deleteWireTransferAllocation(alloc.id);
+      }
+      await db.deleteInternalTransfersBySource(input.id);
+      await db.deleteWireTransfer(input.id);
+      await audit(ctx, "Delete Wire Transfer", "customer", input.customerId);
+      return { success: true };
+    }),
+
+  /** Distinct branch names (invoice "company" values) for dropdowns. */
+  listBranches: protectedProcedure.query(async () => {
+    const invoices = await db.listInvoices();
+    return Array.from(new Set(invoices.map(i => i.company).filter((b): b is string => !!b))).sort();
+  }),
+
+  getAllWireTransfers: protectedProcedure
+    .query(async () => {
+      const [transfers, customers] = await Promise.all([db.listAllWireTransfers(), db.listCustomers()]);
+      const byId = new Map(customers.map(c => [c.id, c]));
+      const ids = transfers.map(t => t.id);
+      const [allocated, allocRows] = await Promise.all([
+        db.sumAllocationsByWireTransferIds(ids),
+        db.listAllocationsByWireTransferIds(ids),
+      ]);
+      const detailsByTransfer = new Map<number, any[]>();
+      for (const a of allocRows) {
+        const list = detailsByTransfer.get(a.wireTransferId) ?? [];
+        list.push({
+          id: a.id,
+          invoiceId: a.invoiceId,
+          invoiceNumber: a.invoiceNumber,
+          amount: Number(a.amount),
+          currency: a.invoiceCurrency,
+          creditedCompanyName: a.invoiceCustomerId != null ? (byId.get(a.invoiceCustomerId)?.name ?? "—") : "—",
+          creditedCustomerId: a.invoiceCustomerId,
+          branch: a.invoiceCompany,
+          createdAt: a.createdAt,
+        });
+        detailsByTransfer.set(a.wireTransferId, list);
+      }
+      const transferById = new Map(transfers.map(t => [t.id, t]));
+      // Map allocation id → invoice number (for internal rows' "for invoice X" label)
+      const invoiceNoByAllocId = new Map<number, string | null>();
+      for (const a of allocRows) invoiceNoByAllocId.set(a.id, a.invoiceNumber ?? null);
+      return transfers.map(t => {
+        const src = t.sourceWireTransferId != null ? transferById.get(t.sourceWireTransferId) : undefined;
+        return {
+          ...t,
+          customerName: byId.get(t.customerId)?.name ?? `Customer #${t.customerId}`,
+          allocatedAmount: allocated.get(t.id) ?? 0,
+          unallocatedAmount: Math.max(0, Number(t.amount) - (allocated.get(t.id) ?? 0)),
+          allocations: detailsByTransfer.get(t.id) ?? [],
+          // For internal inter-office transfers: who originally sent the money
+          sourceCustomerName: src ? (byId.get(src.customerId)?.name ?? `Customer #${src.customerId}`) : null,
+          settledInvoiceNumber:
+            t.sourceAllocationId != null ? (invoiceNoByAllocId.get(t.sourceAllocationId) ?? null) : null,
+        };
+      });
+    }),
+
+  /**
+   * Open / partially-paid invoices of ALL companies in the sender's group
+   * (συμψηφισμός is group-level: a DYNACOM transfer can settle CREST invoices).
+   */
+  listGroupOpenInvoices: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .query(async ({ input }) => {
+      const cust = await db.getCustomer(input.customerId);
+      if (!cust) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+      const groupKey = (cust.customerGroup ?? "").trim() || cust.name;
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => (((c.customerGroup ?? "").trim() || c.name) === groupKey));
+      const memberIds = new Set(members.map(c => c.id));
+      const names = new Map(members.map(c => [c.id, c.name]));
+      const invoices = await db.listInvoices();
+      return invoices
+        .filter(i => memberIds.has(i.customerId) && i.status !== "Paid" && Number(i.amount) - Number(i.paidAmount) > 0.005)
+        .sort((a, b) => a.dueDate - b.dueDate)
+        .map(i => ({
+          id: i.id,
+          invoiceNumber: i.invoiceNumber,
+          customerId: i.customerId,
+          customerName: names.get(i.customerId) ?? "—",
+          company: i.company,
+          currency: i.currency,
+          amount: Number(i.amount),
+          paidAmount: Number(i.paidAmount),
+          outstandingOriginal: Number(i.amount) - Number(i.paidAmount),
+          dueDate: i.dueDate,
+          status: i.status,
+        }));
+    }),
+
+  /** Existing allocations of a wire transfer (with invoice + company info). */
+  listWireTransferAllocations: protectedProcedure
+    .input(z.object({ wireTransferId: z.number() }))
+    .query(async ({ input }) => {
+      const [rows, customers] = await Promise.all([
+        db.listAllocationsByWireTransfer(input.wireTransferId),
+        db.listCustomers(),
+      ]);
+      const names = new Map(customers.map(c => [c.id, c.name]));
+      return rows.map(r => ({
+        ...r,
+        amount: Number(r.amount),
+        invoiceCustomerName: r.invoiceCustomerId != null ? (names.get(r.invoiceCustomerId) ?? "—") : "—",
+      }));
+    }),
+
+  /**
+   * Incoming allocations for a customer: amounts credited to their invoices
+   * from wire transfers of any group member (e.g. MAGE sees "760 received via
+   * DYNACOM wire transfer" against its invoice).
+   */
+  listIncomingAllocations: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .query(async ({ input }) => {
+      const [rows, customers] = await Promise.all([
+        db.listIncomingAllocationsByCustomer(input.customerId),
+        db.listCustomers(),
+      ]);
+      const names = new Map(customers.map(c => [c.id, c.name]));
+      return rows.map(r => ({
+        id: r.id,
+        wireTransferId: r.wireTransferId,
+        invoiceId: r.invoiceId,
+        invoiceNumber: r.invoiceNumber,
+        invoiceStatus: r.invoiceStatus,
+        invoiceBranch: r.invoiceCompany,
+        amount: Number(r.amount),
+        currency: r.invoiceCurrency,
+        createdAt: r.createdAt,
+        sourceCustomerId: r.sourceCustomerId,
+        sourceCustomerName: names.get(r.sourceCustomerId) ?? `Customer #${r.sourceCustomerId}`,
+        sourceAmount: Number(r.sourceAmount),
+        sourceCurrency: r.sourceCurrency,
+        sourceTransferDate: r.sourceTransferDate,
+        sourceReference: r.sourceReference,
+        sourceBranch: r.sourceBranch,
+      }));
+    }),
+
+  /**
+   * Allocate (συμψηφισμός) a received wire transfer against one or more invoices
+   * of the same group. Validates: transfer received, invoices belong to the
+   * sender's group, per-invoice amount ≤ outstanding (original currency),
+   * total allocated (incl. previous allocations) ≤ transfer amount.
+   * Updates invoice paidAmount and status (Open → Partially Paid → Paid).
+   */
+  allocateWireTransfer: protectedProcedure
+    .input(
+      z.object({
+        wireTransferId: z.number(),
+        allocations: z
+          .array(z.object({ invoiceId: z.number(), amount: z.number().positive() }))
+          .min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const wt = await db.getWireTransfer(input.wireTransferId);
+      if (!wt) throw new TRPCError({ code: "NOT_FOUND", message: "Wire transfer not found" });
+      if (wt.status !== "Received")
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Only received wire transfers can be allocated" });
+
+      // Group scope of the sender
+      const sender = await db.getCustomer(wt.customerId);
+      if (!sender) throw new TRPCError({ code: "NOT_FOUND", message: "Sender customer not found" });
+      const groupKey = (sender.customerGroup ?? "").trim() || sender.name;
+      const customers = await db.listCustomers();
+      const memberIds = new Set(
+        customers.filter(c => (((c.customerGroup ?? "").trim() || c.name) === groupKey)).map(c => c.id)
+      );
+
+      // Remaining unallocated amount on the transfer
+      const prior = await db.sumAllocationsByWireTransferIds([wt.id]);
+      const alreadyAllocated = prior.get(wt.id) ?? 0;
+      const totalNew = input.allocations.reduce((s, a) => s + a.amount, 0);
+      if (alreadyAllocated + totalNew > Number(wt.amount) + 0.005) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Allocation total (${(alreadyAllocated + totalNew).toFixed(2)}) exceeds transfer amount (${Number(wt.amount).toFixed(2)})`,
+        });
+      }
+
+      // Validate each invoice, then apply
+      const results: { invoiceId: number; invoiceNumber: string; newStatus: string }[] = [];
+      for (const a of input.allocations) {
+        const inv = await db.getInvoice(a.invoiceId);
+        if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: `Invoice #${a.invoiceId} not found` });
+        if (!memberIds.has(inv.customerId))
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Invoice ${inv.invoiceNumber} does not belong to group ${groupKey}` });
+        if (inv.status === "Paid")
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Invoice ${inv.invoiceNumber} is already paid` });
+        const open = Number(inv.amount) - Number(inv.paidAmount);
+        if (a.amount > open + 0.005)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Amount ${a.amount.toFixed(2)} exceeds outstanding ${open.toFixed(2)} of invoice ${inv.invoiceNumber}`,
+          });
+      }
+      for (const a of input.allocations) {
+        const inv = await db.getInvoice(a.invoiceId);
+        if (!inv) continue;
+        const allocationId = await db.createWireTransferAllocation({
+          wireTransferId: wt.id,
+          invoiceId: a.invoiceId,
+          amount: String(a.amount) as any,
+          createdBy: ctx.user.id,
+        });
+        const newPaid = Number(inv.paidAmount) + a.amount;
+        const fullyPaid = newPaid >= Number(inv.amount) - 0.005;
+        const newStatus = fullyPaid ? "Paid" : "Partially Paid";
+        await db.updateInvoice(a.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
+        results.push({ invoiceId: a.invoiceId, invoiceNumber: inv.invoiceNumber, newStatus });
+
+        // Cross-branch settlement → record a separate INTERNAL wire transfer between our own offices
+        // (e.g. Prime Products LTD → Prime Products Distribution B.V), referencing the original customer transfer.
+        const receivingBranch = (wt.branch ?? "").trim();
+        const invoiceBranch = (inv.company ?? "").trim();
+        if (invoiceBranch && receivingBranch !== invoiceBranch) {
+          const invoiceOwner = customers.find(c => c.id === inv.customerId);
+          await db.createWireTransfer({
+            customerId: inv.customerId,
+            amount: String(a.amount) as any,
+            currency: inv.currency ?? wt.currency,
+            transferDate: Date.now(),
+            branch: invoiceBranch,
+            status: "Received" as any,
+            receivedDate: Date.now(),
+            referenceNumber: `INT-WT${wt.id}${wt.referenceNumber ? ` (${wt.referenceNumber})` : ""}`,
+            notes: `Internal transfer: ${receivingBranch || "our office"} → ${invoiceBranch} to settle invoice ${inv.invoiceNumber} of ${invoiceOwner?.name ?? `customer #${inv.customerId}`}. Origin: wire transfer #${wt.id} from ${sender.name}.`,
+            isInternal: true,
+            sourceWireTransferId: wt.id,
+            sourceAllocationId: allocationId,
+            fromBranch: receivingBranch || null,
+            toBranch: invoiceBranch,
+            createdBy: ctx.user.id,
+          } as any);
+        }
+        await audit(
+          ctx,
+          "Allocate Wire Transfer",
+          "invoice",
+          a.invoiceId,
+          `WT#${wt.id} → ${inv.invoiceNumber} (${inv.company ?? "—"}): ${inv.currency} ${a.amount.toFixed(2)} → ${newStatus}`
+        );
+      }
+      return { success: true, results };
+    }),
+
+  /** Remove an allocation and revert the invoice's paidAmount/status. */
+  removeWireTransferAllocation: protectedProcedure
+    .input(z.object({ allocationId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const alloc = await db.getWireTransferAllocation(input.allocationId);
+      if (!alloc) throw new TRPCError({ code: "NOT_FOUND", message: "Allocation not found" });
+      const inv = await db.getInvoice(alloc.invoiceId);
+      if (inv) {
+        const newPaid = Math.max(0, Number(inv.paidAmount) - Number(alloc.amount));
+        const newStatus = newPaid <= 0.005 ? "Open" : newPaid >= Number(inv.amount) - 0.005 ? "Paid" : "Partially Paid";
+        await db.updateInvoice(alloc.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
+      }
+      // Remove the internal inter-office transfer that was auto-created for this allocation (if any)
+      await db.deleteInternalTransfersByAllocation(input.allocationId);
+      await db.deleteWireTransferAllocation(input.allocationId);
+      await audit(ctx, "Remove Wire Transfer Allocation", "invoice", alloc.invoiceId, `WT#${alloc.wireTransferId} allocation of ${Number(alloc.amount).toFixed(2)} removed`);
+      return { success: true };
+    }),
+
+  /** Lightweight list of all companies (id + name) for dropdowns. */
+  listCompanies: protectedProcedure.query(async () => {
+    const customers = await db.listCustomers();
+    return customers
+      .map(c => ({ id: c.id, name: c.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }),
+  /**
+   * Assign a responsible team member (account manager) either to a single
+   * company or to every company of a customer group. null clears it.
+   */
+  setAccountManager: protectedProcedure
+    .input(z.object({
+      managerId: z.number().nullable(),
+      customerId: z.number().optional(),
+      groupName: z.string().min(1).optional(),
+    }).refine(v => v.customerId !== undefined || v.groupName !== undefined, { message: "customerId or groupName required" }))
+    .mutation(async ({ ctx, input }) => {
+      let managerName: string | null = null;
+      if (input.managerId !== null) {
+        const member = await db.getTeamMemberById(input.managerId);
+        if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+        if (!member.active) throw new TRPCError({ code: "BAD_REQUEST", message: "Team member is inactive" });
+        managerName = member.name;
+      }
+      if (input.groupName) {
+        await db.setGroupAccountManager(input.groupName, input.managerId);
+        await audit(ctx, "Set Account Manager", "customerGroup", undefined,
+          `Group "${input.groupName}" → ${managerName ?? "unassigned"}`);
+      } else if (input.customerId !== undefined) {
+        const customer = await db.getCustomer(input.customerId);
+        if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+        await db.updateCustomer(input.customerId, { accountManagerId: input.managerId } as any);
+        await audit(ctx, "Set Account Manager", "customer", input.customerId,
+          `${customer.name} → ${managerName ?? "unassigned"}`);
+      }
+      return { success: true, managerName };
+    }),
+  /**
+   * Assign a collector (credit controller responsible for chasing payment)
+   * either to a single company or to every company of a customer group.
+   */
+  setCollector: protectedProcedure
+    .input(z.object({
+      collectorId: z.number().nullable(),
+      customerId: z.number().optional(),
+      groupName: z.string().min(1).optional(),
+    }).refine(v => v.customerId !== undefined || v.groupName !== undefined, { message: "customerId or groupName required" }))
+    .mutation(async ({ ctx, input }) => {
+      let collectorName: string | null = null;
+      if (input.collectorId !== null) {
+        const member = await db.getTeamMemberById(input.collectorId);
+        if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+        if (!member.active) throw new TRPCError({ code: "BAD_REQUEST", message: "Team member is inactive" });
+        collectorName = member.name;
+      }
+      if (input.groupName) {
+        await db.setGroupCollector(input.groupName, input.collectorId);
+        await audit(ctx, "Set Collector", "customerGroup", undefined,
+          `Group "${input.groupName}" → ${collectorName ?? "unassigned"}`);
+      } else if (input.customerId !== undefined) {
+        const customer = await db.getCustomer(input.customerId);
+        if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+        await db.updateCustomer(input.customerId, { collectorId: input.collectorId } as any);
+        await audit(ctx, "Set Collector", "customer", input.customerId,
+          `${customer.name} → ${collectorName ?? "unassigned"}`);
+      }
+      return { success: true, collectorName };
+    }),
 });
 
 export const invoicesRouter = router({
@@ -892,20 +1928,70 @@ export const invoicesRouter = router({
       const invoices = await db.listInvoices({ customerId: input?.customerId, statuses: input?.statuses });
       const customers = await db.listCustomers();
       const byId = new Map(customers.map(c => [c.id, c]));
+      const vessels = await db.listVessels();
+      const vesselById = new Map(vessels.map(v => [v.id, v]));
       const now = Date.now();
-     return invoices.map(i => ({
-       ...i,
-       customerName: byId.get(i.customerId)?.name ?? "—",
-       customerTier: byId.get(i.customerId)?.tier ?? "New",
+      // Trimmed payload: only the fields the UI consumes (5k+ rows, every byte counts)
+      return invoices.map(i => ({
+        id: i.id,
+        customerId: i.customerId,
+        invoiceNumber: i.invoiceNumber,
+        company: i.company,
+        currency: i.currency,
+        amount: i.amount,
+        amountEur: i.amountEur,
+        paidAmount: i.paidAmount,
+        status: i.status,
+        issueDate: i.issueDate,
+        dueDate: i.dueDate,
+        vesselId: i.vesselId,
+        isContractInstallment: !!i.isContractInstallment,
+        customerName: byId.get(i.customerId)?.name ?? "—",
+        customerTier: byId.get(i.customerId)?.tier ?? "New",
         customerGroup: (byId.get(i.customerId)?.customerGroup ?? "").trim() || (byId.get(i.customerId)?.name ?? "—"),
-       outstanding: outstanding(i),
-       daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, now) : 0,
-     }));
+        vesselName: i.vesselId ? (vesselById.get(i.vesselId)?.name ?? null) : null,
+        outstanding: outstanding(i),
+        daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, now) : 0,
+      }));
     }),
   aging: protectedProcedure.query(async () => {
     const invoices = await db.listInvoices();
     return computeAging(invoices, Date.now());
   }),
+
+  /**
+   * Cancel the payment of an invoice: reverts ALL wire-transfer allocations that
+   * settled it — invoice returns to Open (paidAmount reduced), the amounts are
+   * freed on their wire transfers, and derived internal inter-office transfers
+   * are deleted. Everything is audited.
+   */
+  cancelPayment: protectedProcedure
+    .input(z.object({ invoiceId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const inv = await db.getInvoice(input.invoiceId);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      const allocs = await db.listWtAllocationsByInvoice(input.invoiceId);
+      if (allocs.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This invoice has no wire-transfer payment to cancel" });
+      }
+      let reverted = 0;
+      for (const alloc of allocs) {
+        await db.deleteInternalTransfersByAllocation(alloc.id);
+        await db.deleteWireTransferAllocation(alloc.id);
+        reverted += Number(alloc.amount);
+      }
+      const newPaid = Math.max(0, Number(inv.paidAmount) - reverted);
+      const newStatus = newPaid <= 0.005 ? "Open" : newPaid >= Number(inv.amount) - 0.005 ? "Paid" : "Partially Paid";
+      await db.updateInvoice(input.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
+      await audit(
+        ctx,
+        "Cancel Invoice Payment",
+        "invoice",
+        input.invoiceId,
+        `Payment of ${inv.currency ?? "EUR"} ${reverted.toFixed(2)} cancelled on ${inv.invoiceNumber} — ${allocs.length} allocation(s) reverted, invoice → ${newStatus}`
+      );
+      return { success: true, reverted, allocationsRemoved: allocs.length, newStatus };
+    }),
   create: protectedProcedure
     .input(z.object({
       customerId: z.number(),
@@ -913,6 +1999,7 @@ export const invoicesRouter = router({
       issueDate: z.number(),
       dueDate: z.number(),
       amount: z.number().positive(),
+      vesselId: z.number().optional(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -920,17 +2007,247 @@ export const invoicesRouter = router({
       await audit(ctx, "Create Invoice", "invoice", id, `Invoice ${input.invoiceNumber} for customer #${input.customerId}, amount €${eur(input.amount)}`);
       return { id };
     }),
-  markDisputed: protectedProcedure.input(z.object({ id: z.number(), disputed: z.boolean() })).mutation(async ({ ctx, input }) => {
-    const inv = await db.getInvoice(input.id);
-    if (!inv) throw new TRPCError({ code: "NOT_FOUND" });
+  /** Attach or detach a vessel on any invoice. */
+  setVessel: protectedProcedure
+    .input(z.object({ invoiceId: z.number(), vesselId: z.number().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const inv = await db.getInvoice(input.invoiceId);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      await db.updateInvoice(input.invoiceId, { vesselId: input.vesselId } as any);
+      const v = input.vesselId ? await db.getVesselById(input.vesselId) : null;
+      await audit(ctx, "Set Invoice Vessel", "invoice", input.invoiceId, v ? `Vessel "${v.name}" set on ${inv.invoiceNumber}` : `Vessel cleared on ${inv.invoiceNumber}`);
+      return { success: true };
+    }),
+  /** Toggle the simple "contract installment" flag on a single invoice. */
+  setContractInstallment: protectedProcedure
+    .input(z.object({ invoiceId: z.number(), isContractInstallment: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const inv = await db.getInvoice(input.invoiceId);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      await db.updateInvoice(input.invoiceId, { isContractInstallment: input.isContractInstallment } as any);
+      await audit(
+        ctx,
+        "Set Contract Installment Flag",
+        "invoice",
+        input.invoiceId,
+        `${inv.invoiceNumber} ${input.isContractInstallment ? "marked as" : "unmarked as"} contract installment`
+      );
+      return { success: true };
+    }),
+  /**
+   * Bulk-mark invoices as contract installments from an uploaded list of invoice
+   * numbers (parsed client-side from Excel/CSV). Matching is exact on invoiceNumber
+   * after trimming. Returns how many matched and which numbers were not found.
+   */
+  bulkMarkContractInstallments: protectedProcedure
+    .input(z.object({
+      invoiceNumbers: z.array(z.string().min(1)).min(1).max(5000),
+      value: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const wanted = Array.from(new Set(input.invoiceNumbers.map(n => n.trim()).filter(Boolean)));
+      const all = await db.listInvoices();
+      const byNumber = new Map(all.map(i => [i.invoiceNumber.trim(), i]));
+      const matched: string[] = [];
+      const notFound: string[] = [];
+      for (const num of wanted) {
+        const inv = byNumber.get(num);
+        if (!inv) { notFound.push(num); continue; }
+        if (!!inv.isContractInstallment !== input.value) {
+          await db.updateInvoice(inv.id, { isContractInstallment: input.value } as any);
+        }
+        matched.push(num);
+      }
+      await audit(
+        ctx,
+        "Bulk Mark Contract Installments",
+        "invoice",
+        0,
+        `${matched.length} invoice(s) ${input.value ? "marked" : "unmarked"} as contract installments (${notFound.length} not found)`
+      );
+      return { matchedCount: matched.length, notFound };
+    }),
+  markDisputed: protectedProcedure
+    .input(z.object({ id: z.number(), disputed: z.boolean(), reason: z.string().max(1000).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const inv = await db.getInvoice(input.id);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND" });
+      const now = Date.now();
+      const status = input.disputed
+        ? "Disputed"
+        : (deriveInvoiceStatus(Number(inv.amount), Number(inv.paidAmount), inv.dueDate, now, "Open") as any);
+      const update: Record<string, unknown> = { status };
+      if (input.disputed && input.reason?.trim()) {
+        const stamp = new Date(now).toISOString().slice(0, 10);
+        const line = `[Dispute ${stamp}] ${input.reason.trim()}`;
+        update.notes = inv.notes ? `${inv.notes}\n${line}` : line;
+      }
+      await db.updateInvoice(input.id, update);
+      await audit(
+        ctx,
+        input.disputed ? "Mark Disputed" : "Clear Dispute",
+        "invoice",
+        input.id,
+        input.disputed
+          ? `${inv.invoiceNumber} marked Disputed${input.reason?.trim() ? ` — ${input.reason.trim()}` : ""}`
+          : `${inv.invoiceNumber} dispute cleared → ${status}`
+      );
+      return { success: true, status };
+    }),
+});
+
+export const vesselsRouter = router({
+  list: protectedProcedure.query(async () => db.listVessels()),
+  /** Vessels enriched with financial aggregates for the Vessels list page. */
+  listWithStats: protectedProcedure.query(async () => {
+    const [vesselRows, allInvoices, customers] = await Promise.all([
+      db.listVessels(),
+      db.listInvoices(),
+      db.listCustomers(),
+    ]);
+    const custById = new Map(customers.map(c => [c.id, c]));
     const now = Date.now();
-    const status = input.disputed
-      ? "Disputed"
-      : (deriveInvoiceStatus(Number(inv.amount), Number(inv.paidAmount), inv.dueDate, now, "Open") as any);
-    await db.updateInvoice(input.id, { status });
-    await audit(ctx, input.disputed ? "Mark Disputed" : "Clear Dispute", "invoice", input.id);
-    return { success: true };
+    type Agg = {
+      invoiceCount: number;
+      openBalance: number;
+      overdueAmount: number;
+      overdueCount: number;
+      totalInvoiced: number;
+      totalPaid: number;
+      maxDaysOverdue: number;
+      customerIds: Set<number>;
+    };
+    const aggByVessel = new Map<number, Agg>();
+    for (const inv of allInvoices) {
+      if (!inv.vesselId) continue;
+      let agg = aggByVessel.get(inv.vesselId);
+      if (!agg) {
+        agg = { invoiceCount: 0, openBalance: 0, overdueAmount: 0, overdueCount: 0, totalInvoiced: 0, totalPaid: 0, maxDaysOverdue: 0, customerIds: new Set() };
+        aggByVessel.set(inv.vesselId, agg);
+      }
+      agg.invoiceCount += 1;
+      agg.customerIds.add(inv.customerId);
+      const eurAmount = inv.amountEur != null ? Number(inv.amountEur) : Number(inv.amount);
+      const paidFraction = Number(inv.amount) > 0 ? Math.min(1, Math.max(0, Number(inv.paidAmount) / Number(inv.amount))) : 0;
+      agg.totalInvoiced += eurAmount;
+      agg.totalPaid += eurAmount * paidFraction;
+      if (isOpenInvoice(inv)) {
+        const out = outstanding(inv);
+        agg.openBalance += out;
+        const dOver = daysOverdue(inv.dueDate, now);
+        if (dOver > 0) {
+          agg.overdueAmount += out;
+          agg.overdueCount += 1;
+          if (dOver > agg.maxDaysOverdue) agg.maxDaysOverdue = dOver;
+        }
+      }
+    }
+    return vesselRows.map(v => {
+      const agg = aggByVessel.get(v.id);
+      const owner = v.customerId ? custById.get(v.customerId) : undefined;
+      // No explicit owner set → derive from invoicing history (first invoiced customer).
+      let derivedOwner: string | null = null;
+      if (!owner && agg && agg.customerIds.size > 0) {
+        const c = custById.get(Array.from(agg.customerIds)[0]);
+        if (c) derivedOwner = (c.customerGroup ?? "").trim() || c.name;
+      }
+      return {
+        ...v,
+        ownerName: owner ? owner.name : derivedOwner,
+        ownerGroup: owner ? ((owner.customerGroup ?? "").trim() || owner.name) : derivedOwner,
+        invoiceCount: agg?.invoiceCount ?? 0,
+        openBalance: agg?.openBalance ?? 0,
+        overdueAmount: agg?.overdueAmount ?? 0,
+        overdueCount: agg?.overdueCount ?? 0,
+        totalInvoiced: agg?.totalInvoiced ?? 0,
+        totalPaid: agg?.totalPaid ?? 0,
+        maxDaysOverdue: agg?.maxDaysOverdue ?? 0,
+      };
+    });
   }),
+  /** Full vessel card: info + financial summary + its invoices (same row shape as invoices.list). */
+  detail: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+    const vessel = await db.getVesselById(input.id);
+    if (!vessel) throw new TRPCError({ code: "NOT_FOUND", message: "Vessel not found" });
+    const [allInvoices, customers] = await Promise.all([db.listInvoices(), db.listCustomers()]);
+    const custById = new Map(customers.map(c => [c.id, c]));
+    const now = Date.now();
+    const rows = allInvoices.filter(i => i.vesselId === input.id);
+    const invoiceRows = rows.map(i => ({
+      id: i.id,
+      customerId: i.customerId,
+      invoiceNumber: i.invoiceNumber,
+      company: i.company,
+      currency: i.currency,
+      amount: i.amount,
+      amountEur: i.amountEur,
+      paidAmount: i.paidAmount,
+      status: i.status,
+      issueDate: i.issueDate,
+      dueDate: i.dueDate,
+      vesselId: i.vesselId,
+      customerName: custById.get(i.customerId)?.name ?? "—",
+      customerTier: custById.get(i.customerId)?.tier ?? "New",
+      customerGroup: (custById.get(i.customerId)?.customerGroup ?? "").trim() || (custById.get(i.customerId)?.name ?? "—"),
+      vesselName: vessel.name,
+      outstanding: outstanding(i),
+      daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, now) : 0,
+    }));
+    let openBalance = 0, overdueAmount = 0, overdueCount = 0, totalInvoiced = 0, totalPaid = 0, maxDays = 0;
+    for (const i of rows) {
+      const eurAmount = i.amountEur != null ? Number(i.amountEur) : Number(i.amount);
+      const paidFraction = Number(i.amount) > 0 ? Math.min(1, Math.max(0, Number(i.paidAmount) / Number(i.amount))) : 0;
+      totalInvoiced += eurAmount;
+      totalPaid += eurAmount * paidFraction;
+      if (isOpenInvoice(i)) {
+        const out = outstanding(i);
+        openBalance += out;
+        const d = daysOverdue(i.dueDate, now);
+        if (d > 0) { overdueAmount += out; overdueCount += 1; if (d > maxDays) maxDays = d; }
+      }
+    }
+    const owner = vessel.customerId ? custById.get(vessel.customerId) : undefined;
+    // Companies that have invoiced this vessel (context on the card).
+    const relatedCompanies = Array.from(new Set(rows.map(r => r.customerId)))
+      .map(cid => {
+        const c = custById.get(cid);
+        return c ? { id: c.id, name: c.name, group: (c.customerGroup ?? "").trim() || c.name } : null;
+      })
+      .filter((x): x is { id: number; name: string; group: string } => x !== null);
+    return {
+      vessel: {
+        ...vessel,
+        ownerName: owner?.name ?? null,
+        ownerGroup: owner ? ((owner.customerGroup ?? "").trim() || owner.name) : null,
+      },
+      stats: { openBalance, overdueAmount, overdueCount, totalInvoiced, totalPaid, maxDaysOverdue: maxDays, invoiceCount: rows.length },
+      relatedCompanies,
+      invoices: invoiceRows,
+    };
+  }),
+  create: protectedProcedure
+    .input(z.object({ name: z.string().min(1).max(191), customerId: z.number().optional(), imo: z.string().max(32).optional(), vesselType: z.string().max(64).optional(), flag: z.string().max(64).optional(), notes: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const id = await db.createVessel({ name: input.name.trim(), customerId: input.customerId ?? null, imo: input.imo?.trim() || null, vesselType: input.vesselType?.trim() || null, flag: input.flag?.trim() || null, notes: input.notes ?? null });
+      await audit(ctx, "Create Vessel", "vessel", Number(id), `Vessel "${input.name.trim()}" created`);
+      return { id: Number(id) };
+    }),
+  update: protectedProcedure
+    .input(z.object({ id: z.number(), name: z.string().min(1).max(191).optional(), customerId: z.number().nullable().optional(), imo: z.string().max(32).nullable().optional(), vesselType: z.string().max(64).nullable().optional(), flag: z.string().max(64).nullable().optional(), notes: z.string().nullable().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      await db.updateVessel(id, data as any);
+      await audit(ctx, "Update Vessel", "vessel", id);
+      return { success: true };
+    }),
+  remove: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const v = await db.getVesselById(input.id);
+      await db.deleteVessel(input.id);
+      await audit(ctx, "Delete Vessel", "vessel", input.id, v ? `Vessel "${v.name}" deleted (detached from invoices)` : undefined);
+      return { success: true };
+    }),
 });
 
 export const receiptsRouter = router({
@@ -1084,6 +2401,9 @@ export const tasksRouter = router({
       description: z.string().optional(),
       dueDate: z.number(),
       invoiceId: z.number().optional(),
+      assigneeId: z.number().optional(),
+      /** Invoices to attach — used when sending invoices to a colleague for help. */
+      invoiceIds: z.array(z.number()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const customer = await db.getCustomer(input.customerId);
@@ -1095,36 +2415,102 @@ export const tasksRouter = router({
         description: input.description,
         dueDate: input.dueDate,
         invoiceId: input.invoiceId,
+        assigneeId: input.assigneeId ?? null,
         status: "Pending",
         assignedTo: ctx.user.id,
       });
+      if (input.invoiceIds && input.invoiceIds.length > 0) {
+        await db.addTaskInvoices(id, input.invoiceIds);
+      }
       await audit(ctx, "Create Task", "task", id, `Manual task "${input.title}" for ${customer.name}`);
       return { id };
     }),
   list: protectedProcedure
     .input(z.object({ statuses: z.array(z.enum(taskStatuses)).optional() }).optional())
-    .query(async ({ input }) => {
-      const rows = await db.listTasks({ statuses: input?.statuses });
-      const customers = await db.listCustomers();
+    .query(async ({ ctx, input }) => {
+      const [rows, customers, invoices, allPromises, members, allAttached, allUsers] = await Promise.all([
+        db.listTasks({ statuses: input?.statuses }),
+        db.listCustomers(),
+        db.listInvoices(),
+        db.listPromises(),
+        db.listTeamMembers(true),
+        db.listAllTaskInvoices(),
+        db.listUsers().catch(() => [] as any[]),
+      ]);
       const byId = new Map(customers.map(c => [c.id, c]));
-      const invoices = await db.listInvoices();
       const invById = new Map(invoices.map(i => [i.id, i]));
-      const allPromises = await db.listPromises();
       const promById = new Map(allPromises.map(p => [p.id, p]));
+      const memberById = new Map(members.map(mb => [mb.id, mb]));
+      const userById = new Map(allUsers.map((u: any) => [u.id, u]));
+      const attachedByTask = new Map<number, number[]>();
+      for (const ti of allAttached) {
+        const arr = attachedByTask.get(ti.taskId) ?? [];
+        arr.push(ti.invoiceId);
+        attachedByTask.set(ti.taskId, arr);
+      }
       return rows.map(t => {
         // Promise follow-up tasks embed "(Promise #<id>)" in their description.
         const m = t.description?.match(/\(Promise #(\d+)\)/);
         const promise = m ? promById.get(Number(m[1])) : undefined;
+        const attachedIds = attachedByTask.get(t.id) ?? [];
+        const attachedInvoices = attachedIds
+          .map(iid => invById.get(iid))
+          .filter(Boolean)
+          .map((inv: any) => ({
+            id: inv.id,
+            invoiceNumber: inv.invoiceNumber,
+            amount: inv.amount,
+            currency: inv.currency,
+            dueDate: inv.dueDate,
+            status: inv.status,
+            customerName: byId.get(inv.customerId)?.name ?? "—",
+          }));
         return {
           ...t,
           customerName: byId.get(t.customerId)?.name ?? "—",
           invoiceNumber: t.invoiceId ? invById.get(t.invoiceId)?.invoiceNumber : undefined,
+          assigneeName: t.assigneeId ? (memberById.get(t.assigneeId)?.name ?? null) : null,
+          creatorName: t.assignedTo ? ((userById.get(t.assignedTo) as any)?.name ?? null) : null,
+          createdByMe: t.assignedTo === ctx.user.id,
+          attachedInvoices,
           promiseId: promise?.id,
           promise: promise
             ? { id: promise.id, promisedDate: promise.promisedDate, amount: promise.amount, status: promise.status, notes: promise.notes }
             : undefined,
         };
       });
+    }),
+  /** Comments thread on a task — internal collaboration between colleagues. */
+  comments: protectedProcedure
+    .input(z.object({ taskId: z.number() }))
+    .query(async ({ input }) => db.listTaskComments(input.taskId)),
+  addComment: protectedProcedure
+    .input(z.object({ taskId: z.number(), body: z.string().min(1).max(4000) }))
+    .mutation(async ({ ctx, input }) => {
+      const task = await db.getTask(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      const id = await db.addTaskComment({
+        taskId: input.taskId,
+        authorId: ctx.user.id,
+        authorName: ctx.user.name ?? ctx.user.email ?? "User",
+        body: input.body.trim(),
+      });
+      await audit(ctx, "Task Comment", "task", input.taskId, input.body.slice(0, 120));
+      return { id };
+    }),
+  /** Assign or re-assign a task to a team member (null clears the assignment). */
+  assign: protectedProcedure
+    .input(z.object({ id: z.number(), assigneeId: z.number().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.assigneeId !== null) {
+        const member = await db.getTeamMemberById(input.assigneeId);
+        if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+        if (!member.active) throw new TRPCError({ code: "BAD_REQUEST", message: "Team member is inactive" });
+      }
+      await db.updateTask(input.id, { assigneeId: input.assigneeId } as any);
+      const name = input.assigneeId ? (await db.getTeamMemberById(input.assigneeId))?.name : null;
+      await audit(ctx, "Assign Task", "task", input.id, name ? `Assigned to ${name}` : "Assignment cleared");
+      return { success: true };
     }),
   updateStatus: protectedProcedure
     .input(z.object({ id: z.number(), status: z.enum(taskStatuses), completionNotes: z.string().optional() }))
@@ -1144,67 +2530,80 @@ export const tasksRouter = router({
   }),
 });
 
-export const onHoldRouter = router({
-  list: protectedProcedure.query(async () => {
-    const rows = await db.listOnHoldProposals();
-    const customers = await db.listCustomers();
-    const byId = new Map(customers.map(c => [c.id, c]));
-    return rows.map(p => ({ ...p, customerName: byId.get(p.customerId)?.name ?? "—", customerTier: byId.get(p.customerId)?.tier ?? "New" }));
-  }),
-  /** Collections Manager (Credit Controller) submits a proposal with auto-aggregated supporting data. */
-  submit: protectedProcedure
-    .input(z.object({ customerId: z.number(), reason: z.string().min(1) }))
+/**
+ * Team members — collaborators who manage customers (account managers) and
+ * take on tasks. Managed in-app; no login is required for a member.
+ */
+export const teamRouter = router({
+  list: protectedProcedure
+    .input(z.object({ includeInactive: z.boolean().optional() }).optional())
+    .query(async ({ input }) => db.listTeamMembers(input?.includeInactive ?? false)),
+  create: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(191),
+      email: z.string().email().max(320).optional(),
+      phone: z.string().max(64).optional(),
+      title: z.string().max(128).optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
-      const role = await getAppRole(ctx.user.id);
-      requireRole(role, ["Administrator", "Credit Controller"]);
-      const invoices = await db.listInvoices({ customerId: input.customerId });
-      const now = Date.now();
-      const overdue = invoices.filter(i => isOpenInvoice(i) && now > i.dueDate);
-      if (overdue.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Customer has no overdue invoices" });
-      const totalOverdue = overdue.reduce((s, i) => s + outstanding(i), 0);
-      const oldestDays = Math.max(...overdue.map(i => daysOverdue(i.dueDate, now)));
-      const supporting = overdue.map(i => ({
-        invoiceNumber: i.invoiceNumber,
-        dueDate: new Date(i.dueDate).toISOString().slice(0, 10),
-        outstanding: outstanding(i).toFixed(2),
-        daysOverdue: daysOverdue(i.dueDate, now),
-      }));
-      const id = await db.createOnHoldProposal({
-        customerId: input.customerId,
-        reason: input.reason,
-        totalOverdue: eur(totalOverdue),
-        overdueInvoiceCount: overdue.length,
-        oldestOverdueDays: oldestDays,
-        supportingData: JSON.stringify(supporting),
-        submittedBy: ctx.user.id,
+      const id = await db.createTeamMember({
+        name: input.name.trim(),
+        email: input.email?.trim() || null,
+        phone: input.phone?.trim() || null,
+        title: input.title?.trim() || null,
       });
-      await db.updateCustomer(input.customerId, { onHoldStatus: "Under Review" });
-      await audit(ctx, "Submit On-Hold Proposal", "onHoldProposal", id, `Customer #${input.customerId}, €${eur(totalOverdue)} overdue across ${overdue.length} invoice(s)`);
-      return { id };
+      await audit(ctx, "Create Team Member", "teamMember", Number(id), `Member "${input.name.trim()}" created`);
+      return { id: Number(id) };
     }),
-  /** Management approves/rejects and advances workflow: Under Review → Eligible for On Hold → On Hold → Legal. */
-  transition: protectedProcedure
-    .input(z.object({ id: z.number(), to: z.enum(onHoldStatuses), notes: z.string().optional() }))
+  update: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      name: z.string().min(1).max(191).optional(),
+      email: z.string().email().max(320).nullable().optional(),
+      phone: z.string().max(64).nullable().optional(),
+      title: z.string().max(128).nullable().optional(),
+      active: z.boolean().optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
-      const role = await getAppRole(ctx.user.id);
-      requireRole(role, ["Administrator", "Management"]);
-      const proposal = await db.getOnHoldProposal(input.id);
-      if (!proposal) throw new TRPCError({ code: "NOT_FOUND" });
-      if (!canTransitionOnHold(proposal.status, input.to)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Invalid transition from "${proposal.status}" to "${input.to}"` });
-      }
-      await db.updateOnHoldProposal(input.id, {
-        status: input.to,
-        decidedBy: ctx.user.id,
-        decisionNotes: input.notes,
-        decidedAt: Date.now(),
-      });
-      const customerStatus =
-        input.to === "Rejected" || input.to === "Resolved" ? "Active" : (input.to as any);
-      await db.updateCustomer(proposal.customerId, { onHoldStatus: customerStatus });
-      await audit(ctx, `On-Hold: ${proposal.status} → ${input.to}`, "onHoldProposal", input.id, input.notes);
+      const { id, ...data } = input;
+      const member = await db.getTeamMemberById(id);
+      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+      await db.updateTeamMember(id, data as any);
+      await audit(ctx, "Update Team Member", "teamMember", id, data.active === false ? `Member "${member.name}" deactivated` : undefined);
       return { success: true };
     }),
+  remove: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await db.getTeamMemberById(input.id);
+      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+      await db.deleteTeamMember(input.id);
+      await audit(ctx, "Delete Team Member", "teamMember", input.id, `Member "${member.name}" deleted (detached from customers & tasks)`);
+      return { success: true };
+    }),
+  /** Per-member workload: managed companies/groups and open task counts. */
+  workload: protectedProcedure.query(async () => {
+    const [members, allCustomers, allTasks] = await Promise.all([
+      db.listTeamMembers(true),
+      db.listCustomers(),
+      db.listTasks({ statuses: ["Pending", "In Progress"] }),
+    ]);
+    return members.map(m => {
+      const managed = allCustomers.filter(c => c.accountManagerId === m.id);
+      const groups = new Set(managed.map(c => (c.customerGroup ?? "").trim() || c.name));
+      const openTasks = allTasks.filter(t => t.assigneeId === m.id).length;
+      const collecting = allCustomers.filter(c => (c as any).collectorId === m.id);
+      const collectingGroups = new Set(collecting.map(c => (c.customerGroup ?? "").trim() || c.name));
+      return {
+        ...m,
+        companies: managed.length,
+        groups: groups.size,
+        collectingCompanies: collecting.length,
+        collectingGroups: collectingGroups.size,
+        openTasks,
+      };
+    });
+  }),
 });
 
 export const forecastRouter = router({
@@ -1215,21 +2614,29 @@ export const forecastRouter = router({
     const year = nowDate.getUTCFullYear();
     const month = nowDate.getUTCMonth() + 1;
     const { start, end } = monthRange(year, month);
-    const [invoices, installments, forecastTarget, collectedThisMonth, tasksPending, proposals] = await Promise.all([
+    const [invoices, installments, forecastTarget, receiptsCollected, tasksPending, dashMonthWires] = await Promise.all([
       db.listInvoices(),
       db.listInstallments(),
       db.sumForecastExpected(year, month),
       db.sumReceiptsInRange(start, end),
       db.listTasks({ statuses: ["Pending", "In Progress"] }),
-      db.listOnHoldProposals(),
+      db.listReceivedWireTransfersInRange(start, end).catch(() => []),
     ]);
+    const collectedThisMonth = receiptsCollected + dashMonthWires.reduce((s, w) => s + Number(w.amount), 0);
     const aging = computeAging(invoices, now);
     const arBalance = aging.totalOverdue + aging.current;
     const last90Sales = await db.sumInvoicedInRange(now - 90 * 24 * 60 * 60 * 1000, now);
     const dso = computeDso(arBalance, last90Sales, 90);
     const forecast = buildForecast(invoices, installments, now, 6);
     const escalations = tasksPending.filter(t => t.type === "Escalation +30").length;
-    const underReview = proposals.filter(p => p.status === "Under Review" || p.status === "Eligible for On Hold").length;
+    const watchRowsDash = await db.listGroupWatchStatuses().catch(() => []);
+    const underReview = watchRowsDash.filter(w => w.status === "Under Review").length;
+    const onHoldGroups = watchRowsDash.filter(w => w.status === "On Hold" || w.status === "Legal").length;
+    const problematicGroups = watchRowsDash.filter(w => w.status === "Problematic").length;
+    // Contract installments are "must pay on time" invoices — even 1 day overdue is a red flag.
+    const overdueContractInvoices = invoices.filter(i => i.isContractInstallment && isOpenInvoice(i) && daysOverdue(i.dueDate, now) > 0);
+    const overdueContractCount = overdueContractInvoices.length;
+    const overdueContractAmount = overdueContractInvoices.reduce((s, i) => s + outstanding(i), 0);
     return {
       year,
       month,
@@ -1243,7 +2650,11 @@ export const forecastRouter = router({
       forecast,
       pendingTasks: tasksPending.length,
       escalations,
+      overdueContractCount,
+      overdueContractAmount,
       onHoldPending: underReview,
+      onHoldGroups,
+      problematicGroups,
     };
   }),
   plans: protectedProcedure.query(async () => {
@@ -1268,17 +2679,20 @@ export const forecastRouter = router({
     .mutation(async ({ ctx, input }) => {
       const id = await db.createPromise({ ...input, amount: eur(input.amount), createdBy: ctx.user.id });
       await audit(ctx, "Record Promise-to-Pay", "promiseToPay", id, `Customer #${input.customerId} promised €${eur(input.amount)} by ${new Date(input.promisedDate).toISOString().slice(0, 10)}`);
-      // Also record the promise as a group note so the full contact history lives in one stream.
       const cust = await db.getCustomer(input.customerId);
       if (cust) {
         const groupKey = cust.customerGroup || cust.name;
         const dateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
-        await db.createGroupNote({
+        // Log to activity log
+        await db.addActivityLog({
           groupName: groupKey,
-          content: `Promise-to-Pay: ${cust.name} — €${Number(eur(input.amount)).toLocaleString()} by ${dateStr}${input.notes ? ` — ${input.notes}` : ""}`,
+          customerId: input.customerId,
+          activityType: "promise",
+          title: `Promise-to-Pay: €${Number(eur(input.amount)).toLocaleString()} by ${dateStr}`,
+          description: `${cust.name}${input.notes ? ` — ${input.notes}` : ""}`,
           createdBy: ctx.user.id,
-          createdAt: Date.now(),
-        });
+          createdAt: new Date(),
+        }).catch(() => {});
         // Create a follow-up task due on the promised date so the team checks whether the company paid.
         const taskId = await db.createTask({
           customerId: input.customerId,
@@ -1305,12 +2719,16 @@ export const forecastRouter = router({
         if (promise && cust) {
           const groupKey = cust.customerGroup?.trim() ? cust.customerGroup.trim() : cust.name;
           const dateStr = new Date(promise.promisedDate).toLocaleDateString("en-GB");
-          await db.createGroupNote({
+          // Log to activity log
+          await db.addActivityLog({
             groupName: groupKey,
-            content: `Promise-to-Pay ${input.status.toUpperCase()}: ${cust.name} — €${Number(promise.amount).toLocaleString()} promised by ${dateStr}.`,
+            customerId: promise.customerId,
+            activityType: "promise",
+            title: `Promise marked ${input.status}`,
+            description: `${cust.name} — €${Number(promise.amount).toLocaleString()}`,
             createdBy: ctx.user.id,
-            createdAt: Date.now(),
-          });
+            createdAt: new Date(),
+          }).catch(() => {});
           // Auto-complete the follow-up task linked to this promise, if still open.
           const tasks = await db.listTasks({ customerId: promise.customerId });
           const followUp = tasks.find(
@@ -1331,13 +2749,32 @@ export const forecastRouter = router({
 
   /** Generate (or refresh) the smart per-GROUP forecast for a month (manual Refresh only). */
   generateSmart: protectedProcedure
-    .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12), useAi: z.boolean().default(true) }))
+    .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12), useAi: z.boolean().default(true), confirmRerun: z.boolean().default(false) }))
     .mutation(async ({ ctx, input }) => {
       const role = await getAppRole(ctx.user.id);
       requireRole(role, ["Administrator", "Management", "Credit Controller", "Accounting"]);
+      // One forecast per month: if it already ran, an explicit confirmation is required.
+      const existing = await db.listForecastEntries(input.year, input.month);
+      if (existing.length > 0 && !input.confirmRerun) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `The forecast for ${input.month}/${input.year} has already run. Re-running it will alter the month's forecast.`,
+        });
+      }
       const result = await generateMonthlyForecast(input.year, input.month, { useAi: input.useAi });
       await audit(ctx, "Generate Smart Forecast", "forecast", `${input.year}-${input.month}`, `${result.groups} groups (${result.aiCount} AI, ${result.heuristicCount} heuristic)`);
       return result;
+    }),
+
+  /** Whether the month's forecast has already been generated (and when). */
+  smartStatus: protectedProcedure
+    .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12) }))
+    .query(async ({ input }) => {
+      const entries = await db.listForecastEntries(input.year, input.month);
+      if (entries.length === 0) return { hasRun: false as const, generatedAt: null, groups: 0, adjustedCount: 0 };
+      const generatedAt = entries.reduce<Date | null>((min, e) => (!min || e.createdAt < min ? e.createdAt : min), null);
+      const adjustedCount = entries.filter(e => e.userAdjusted === 1).length;
+      return { hasRun: true as const, generatedAt, groups: entries.length, adjustedCount };
     }),
 
   /** Per-GROUP forecast entries for a month, with live collected amounts (EUR). */
@@ -1368,6 +2805,11 @@ export const forecastRouter = router({
           collectedByCustomer.set(r.customerId, (collectedByCustomer.get(r.customerId) ?? 0) + Number(r.amount));
         }
       }
+      // Received wire transfers count toward collected (manual invoice matching is separate)
+      const smartMonthWires = await db.listReceivedWireTransfersInRange(start, end).catch(() => []);
+      for (const w of smartMonthWires) {
+        collectedByCustomer.set(w.customerId, (collectedByCustomer.get(w.customerId) ?? 0) + Number(w.amount));
+      }
       const rows = entries.map(e => {
         const cust = byId.get(e.customerId);
         const groupKey = e.customerGroup ?? (cust?.customerGroup?.trim() ? cust.customerGroup.trim() : cust?.name ?? "—");
@@ -1397,12 +2839,13 @@ export const forecastRouter = router({
           acc.overdue += Number(r.overdueAmount);
           acc.aiSuggested += Number(r.aiSuggestedAmount);
           acc.expected += Number(r.expectedAmount);
+          acc.initial += Number(r.initialForecast ?? 0);
           acc.collected += r.collected;
           return acc;
         },
-        { due: 0, overdue: 0, aiSuggested: 0, expected: 0, collected: 0 },
+        { due: 0, overdue: 0, aiSuggested: 0, expected: 0, initial: 0, collected: 0 },
       );
-      return { entries: rows, totals: { ...totals, remaining: Math.max(0, totals.expected - totals.collected) } };
+      return { entries: rows, totals: { ...totals, remaining: Math.max(0, totals.expected - totals.collected), initial: totals.initial } };
     }),
 
   /** Months that have a generated smart forecast. */
@@ -1438,6 +2881,53 @@ export const forecastRouter = router({
       });
       await audit(ctx, "Reset Forecast Entry", "forecastEntry", input.id);
       return { success: true };
+    }),
+
+  /** Set (correct) a group's current-month forecast from the Customers list. Updates both expectedAmount and initialForecast — the corrected value becomes the month's baseline. */
+  setGroupForecast: protectedProcedure
+    .input(z.object({ group: z.string().min(1), amount: z.number().nonnegative() }))
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date();
+      const year = now.getUTCFullYear();
+      const month = now.getUTCMonth() + 1;
+      const entries = await db.listForecastEntries(year, month);
+      const entry = entries.find(e => (e.customerGroup ?? "").trim() === input.group);
+      if (entry) {
+        await db.updateForecastEntry(entry.id, {
+          expectedAmount: eur(input.amount),
+          initialForecast: eur(input.amount),
+          userAdjusted: 1,
+          adjustedBy: ctx.user.id,
+          adjustmentNote: "Corrected from Customers list",
+        });
+        await audit(ctx, "Set Group Forecast", "forecastEntry", entry.id, `${input.group}: €${eur(Number(entry.expectedAmount))} → €${eur(input.amount)}`);
+        return { success: true, id: entry.id };
+      }
+      // No entry yet for this month — create one keyed to the group's primary member.
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+      if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+      const primary = members[0];
+      const id = await db.upsertForecastEntry({
+        year,
+        month,
+        customerId: primary.id,
+        customerGroup: input.group,
+        dueAmount: "0.00",
+        overdueAmount: "0.00",
+        aiSuggestedAmount: "0.00",
+        aiReasoning: null,
+        expectedAmount: eur(input.amount),
+      } as any);
+      await db.updateForecastEntry(id, {
+        expectedAmount: eur(input.amount),
+        initialForecast: eur(input.amount),
+        userAdjusted: 1,
+        adjustedBy: ctx.user.id,
+        adjustmentNote: "Set from Customers list",
+      });
+      await audit(ctx, "Set Group Forecast", "forecastEntry", id, `${input.group}: new entry €${eur(input.amount)}`);
+      return { success: true, id };
     }),
 });
 
@@ -1758,4 +3248,385 @@ export const adminRouter = router({
       message: "A read-only approved invoice source has not been configured.",
     });
   }),
+});
+
+export const callsRouter = router({
+  sendGroupEmail: protectedProcedure
+    .input(
+      z.object({
+        customerId: z.number(),
+        recipientEmail: z.string().email(),
+        recipientName: z.string().optional(),
+        templateType: z.enum(["Friendly Reminder", "Final Notice", "Statement", "Custom"]),
+        subject: z.string().min(1).max(255),
+        body: z.string().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        // Verify customer exists
+        const customer = await db.getCustomer(input.customerId);
+        if (!customer) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+        }
+
+        // Record email in history with "Pending" status
+        const emailRecord = await db.addEmailHistory({
+          customerId: input.customerId,
+          recipientEmail: input.recipientEmail,
+          recipientName: input.recipientName,
+          templateType: input.templateType,
+          subject: input.subject,
+          body: input.body,
+          status: "Pending",
+          createdBy: ctx.user.id,
+        });
+
+        // TODO: Integrate with actual email sending service (e.g., SendGrid, AWS SES)
+        // For now, we'll just mark it as sent and log it
+        // In production, you would call the email service here and handle errors
+
+        // Audit the email send action
+        await audit(
+          ctx,
+          "Send Email",
+          "email",
+          input.customerId,
+          `To: ${input.recipientEmail}, Template: ${input.templateType}`
+        );
+
+        // Log to activity log
+        const groupKey = customer.customerGroup || customer.name;
+        await db.addActivityLog({
+          groupName: groupKey,
+          customerId: input.customerId,
+          activityType: "email",
+          title: `Email sent: ${input.subject}`,
+          description: `To: ${input.recipientEmail} (${input.templateType})`,
+          createdBy: ctx.user.id,
+          createdAt: new Date(),
+        }).catch(() => {});
+
+        return {
+          success: true,
+          emailId: emailRecord,
+          message: "Email queued for sending",
+        };
+      } catch (error: any) {
+        console.error("[Email] Error sending email:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: error.message || "Failed to send email",
+        });
+      }
+    }),
+
+  getEmailHistory: protectedProcedure
+    .input(z.object({ customerId: z.number(), limit: z.number().default(50) }))
+    .query(async ({ input }) => {
+      return db.listEmailHistory(input.customerId, input.limit);
+    }),
+  logCall: protectedProcedure
+    .input(
+      z.object({
+        group: z.string().min(1).max(255),
+        customerId: z.number().optional(),
+        contactName: z.string().max(255).optional(),
+        outcome: z.enum(["Reached", "No Answer", "Voicemail", "Promised Payment", "Dispute", "Other"]),
+        notes: z.string().max(2000).optional(),
+        confirmationStatus: z.enum(confirmationStatuses).optional(),
+        confirmationAmount: z.number().optional(),
+        followUpDate: z.number().optional(),
+        promisedDate: z.number().optional(),
+        // When Confirmed and an open promise already exists: reschedule it instead of creating a new one.
+        reschedulePromiseId: z.number().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Promise to Pay must always carry a target date — it stays active until that date passes.
+      if (
+        input.confirmationStatus === "Confirmed" &&
+        input.confirmationAmount !== undefined &&
+        input.confirmationAmount > 0 &&
+        !input.promisedDate
+      ) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A promised payment date is required for Promise to Pay." });
+      }
+      // Pending Follow-up must always carry a follow-up date.
+      if (input.confirmationStatus === "Pending Follow-up" && !input.followUpDate) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A follow-up date is required for Pending Follow-up." });
+      }
+      const parts: string[] = [];
+      if (input.contactName) parts.push(`Contact: ${input.contactName}`);
+      if (input.notes) parts.push(input.notes);
+      await db.addActivityLog({
+        groupName: input.group,
+        customerId: input.customerId,
+        activityType: "call",
+        title: `Call logged — ${input.outcome}`,
+        description: parts.length > 0 ? parts.join(" · ") : undefined,
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      });
+
+      // Update confirmation status if provided
+      if (input.confirmationStatus) {
+        const previous = await db.getGroupConfirmationStatus(input.group);
+        await db.upsertGroupConfirmationStatus(input.group, {
+          status: input.confirmationStatus,
+          // Amount always follows the new status: reset to 0 for Not Contacted / Broken,
+          // otherwise use the newly entered value (or 0 if none was provided).
+          amount:
+            input.confirmationStatus === "Not Contacted" || input.confirmationStatus === "Broken"
+              ? "0.00"
+              : String(input.confirmationAmount ?? 0),
+          // Follow-up date applies to "Pending Follow-up" (from followUpDate) and "Confirmed" (from promisedDate)
+          followUpDate:
+            input.confirmationStatus === "Pending Follow-up"
+              ? input.followUpDate
+              : input.confirmationStatus === "Confirmed"
+                ? input.promisedDate ?? null
+                : null,
+          notes: input.notes,
+          updatedBy: ctx.user.id,
+        });
+
+        // Cancel stale auto-created tasks/promises from the previous status
+        await cleanupStatusArtifacts(ctx, {
+          group: input.group,
+          previousStatus: previous?.status ?? null,
+          newStatus: input.confirmationStatus,
+        });
+
+        // "Confirmed" is effectively a Promise-to-Pay: auto-create the promise record
+        // (with follow-up task + activity log) via the shared helper.
+        if (
+          input.confirmationStatus === "Confirmed" &&
+          input.confirmationAmount !== undefined &&
+          input.confirmationAmount > 0
+        ) {
+          let rescheduled: number | null = null;
+          if (input.reschedulePromiseId) {
+            rescheduled = await rescheduleGroupPromise(ctx, {
+              group: input.group,
+              promiseId: input.reschedulePromiseId,
+              amount: input.confirmationAmount,
+              promisedDate: input.promisedDate ?? endOfCurrentMonth(),
+              notes: input.notes,
+            });
+          }
+          if (!rescheduled) {
+            await createGroupPromise(ctx, {
+              group: input.group,
+              customerId: input.customerId,
+              amount: input.confirmationAmount,
+              promisedDate: input.promisedDate ?? endOfCurrentMonth(),
+              notes: input.notes,
+            });
+          }
+        }
+
+        // "Pending Follow-up" with a date: create/reschedule a follow-up-call task
+        if (input.confirmationStatus === "Pending Follow-up" && input.followUpDate) {
+          await upsertFollowUpTask(ctx, {
+            group: input.group,
+            customerId: input.customerId,
+            followUpDate: input.followUpDate,
+            amount: input.confirmationAmount,
+            notes: input.notes,
+          });
+        }
+      }
+
+      await audit(ctx, "Log Call", "call", input.customerId, `${input.group}: ${input.outcome}`);
+      return { success: true };
+    }),
+
+  getConfirmationStatus: protectedProcedure
+    .input(z.object({ group: z.string().min(1).max(255) }))
+    .query(async ({ input }) => {
+      const row = await db.getGroupConfirmationStatus(input.group);
+      if (!row) return null;
+      // Only "Not Contacted" (or missing status) is treated as no active status —
+      // Promise/Pending/Broken persist until a human changes them.
+      if (isConfirmationStale(row.status, row.followUpDate)) {
+        return { ...row, status: "Not Contacted" as typeof row.status, amount: "0.00", followUpDate: null, notes: null, carriedOver: false };
+      }
+      // Red-badge flag: linked auto-task still open and past due.
+      let taskOverdue = false;
+      if (row.status === "Pending Follow-up" || row.status === "Confirmed") {
+        const nowTs = Date.now();
+        const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => [])).filter(
+          t => t.description?.includes("(Follow-up: ") || t.description?.includes("(Promise #"),
+        );
+        let linked: { id: number; status: string; dueDate: number | null } | null = null;
+        if (row.status === "Pending Follow-up") {
+          const t = openAutoTasks.find(t => t.description?.includes(`(Follow-up: ${input.group})`));
+          linked = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
+        } else {
+          const openPromise = await findOpenGroupPromise(input.group).catch(() => null);
+          if (openPromise) {
+            const t = openAutoTasks.find(t => t.description?.includes(`(Promise #${openPromise.id})`));
+            linked = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
+          }
+        }
+        taskOverdue = linked
+          ? isTaskOverdue(linked, nowTs)
+          : ((row.followUpDate ?? null) !== null && (row.followUpDate as number) < nowTs);
+      }
+      return { ...row, carriedOver: isFromPreviousMonth((row as any).updatedAt ?? null), taskOverdue };
+    }),
+
+  /** Most recent open (Pending) promise for a group — used by Log Call to offer rescheduling. */
+  getOpenPromise: protectedProcedure
+    .input(z.object({ group: z.string().min(1).max(255) }))
+    .query(async ({ input }) => {
+      return findOpenGroupPromise(input.group);
+    }),
+
+  updateConfirmationStatus: protectedProcedure
+    .input(
+      z.object({
+        group: z.string().min(1).max(255),
+        status: z.enum(confirmationStatuses),
+        amount: z.number().optional(),
+        followUpDate: z.number().optional(),
+        notes: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const previous = await db.getGroupConfirmationStatus(input.group);
+      await db.upsertGroupConfirmationStatus(input.group, {
+        status: input.status,
+        // Amount always follows the new status: reset to 0 for Not Contacted / Broken,
+        // otherwise use the newly entered value (or 0 if none was provided).
+        amount:
+          input.status === "Not Contacted" || input.status === "Broken"
+            ? "0.00"
+            : String(input.amount ?? 0),
+        // Target date applies to "Pending Follow-up" and "Confirmed" (promise date); clear on other statuses
+        followUpDate:
+          input.status === "Pending Follow-up" || input.status === "Confirmed"
+            ? (input.followUpDate ?? null)
+            : null,
+        notes: input.notes,
+        updatedBy: ctx.user.id,
+      });
+      await cleanupStatusArtifacts(ctx, {
+        group: input.group,
+        previousStatus: previous?.status ?? null,
+        newStatus: input.status,
+      });
+      if (input.status === "Pending Follow-up" && input.followUpDate) {
+        await upsertFollowUpTask(ctx, {
+          group: input.group,
+          followUpDate: input.followUpDate,
+          amount: input.amount,
+          notes: input.notes,
+        });
+      }
+      await audit(ctx, "Update Confirmation Status", "confirmation", input.group, `Status: ${input.status}`);
+      return { success: true };
+    }),
+});
+
+
+
+export const paymentContactsRouter = router({
+  list: protectedProcedure
+    .input(z.object({ customerId: z.number() }))
+    .query(async ({ input }) => {
+      return db.listPaymentContacts(input.customerId);
+    }),
+  /** All payment contacts across every company of a group, with the company name attached. */
+  listByGroup: protectedProcedure
+    .input(z.object({ group: z.string().min(1).max(255) }))
+    .query(async ({ input }) => {
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+      if (members.length === 0) return [];
+      const byId = new Map(members.map(m => [m.id, m.name]));
+      const lists = await Promise.all(members.map(m => db.listPaymentContacts(m.id)));
+      return lists
+        .flat()
+        .map(c => ({ ...c, companyName: byId.get(c.customerId) ?? "—" }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }),
+  /** Every payment contact in the system, with company and group names attached (for the Contacts page). */
+  listAll: protectedProcedure.query(async () => {
+    const [contacts, customers] = await Promise.all([db.listAllPaymentContacts(), db.listCustomers()]);
+    const byId = new Map(customers.map(c => [c.id, c]));
+    return contacts
+      .map(c => {
+        const cust = byId.get(c.customerId);
+        return {
+          ...c,
+          companyName: cust?.name ?? "—",
+          groupName: cust ? (cust.customerGroup ?? "").trim() || cust.name : "—",
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }),
+  add: protectedProcedure
+    .input(
+      z.object({
+        customerId: z.number(),
+        name: z.string().min(1).max(255),
+        email: z.string().email(),
+        phone: z.string().max(20).optional(),
+        title: z.string().max(255).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const customer = await db.getCustomer(input.customerId);
+      if (!customer) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+      }
+      const id = await db.addPaymentContact({
+        customerId: input.customerId,
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        title: input.title,
+      });
+      await audit(ctx, "Add Payment Contact", "paymentContact", id, `${input.name} - ${input.email}`);
+      return { id, ...input };
+    }),
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        customerId: z.number(),
+        name: z.string().min(1).max(255).optional(),
+        email: z.string().email().optional(),
+        phone: z.string().max(20).optional(),
+        title: z.string().max(255).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const contact = await db.getPaymentContact(input.id);
+      if (!contact || contact[0]?.customerId !== input.customerId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Payment contact not found" });
+      }
+      const updates = {
+        ...(input.name && { name: input.name }),
+        ...(input.email && { email: input.email }),
+        ...(input.phone !== undefined && { phone: input.phone }),
+        ...(input.title !== undefined && { title: input.title }),
+      };
+      await db.updatePaymentContact(input.id, updates);
+      await audit(ctx, "Update Payment Contact", "paymentContact", input.id, JSON.stringify(updates));
+      return { id: input.id, ...updates };
+    }),
+  delete: protectedProcedure
+    .input(z.object({ id: z.number(), customerId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const contact = await db.getPaymentContact(input.id);
+      if (!contact || contact[0]?.customerId !== input.customerId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Payment contact not found" });
+      }
+      await db.deletePaymentContact(input.id);
+      await audit(ctx, "Delete Payment Contact", "paymentContact", input.id);
+      return { success: true };
+    }),
 });

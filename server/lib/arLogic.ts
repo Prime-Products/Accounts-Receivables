@@ -155,20 +155,6 @@ export function dueSopOffsets(dueDate: number, now: number) {
   return SOP_OFFSETS.filter(o => now >= dueDate + o.days * DAY_MS);
 }
 
-/** Valid transitions of the On-Hold workflow. */
-export const ON_HOLD_TRANSITIONS: Record<string, string[]> = {
-  "Under Review": ["Eligible for On Hold", "Rejected"],
-  "Eligible for On Hold": ["On Hold", "Rejected"],
-  "On Hold": ["Legal", "Resolved"],
-  Legal: ["Resolved"],
-  Rejected: [],
-  Resolved: [],
-};
-
-export function canTransitionOnHold(from: string, to: string): boolean {
-  return (ON_HOLD_TRANSITIONS[from] ?? []).includes(to);
-}
-
 /** DSO (Days Sales Outstanding), simple method: (AR balance / total credit sales in period) × days. */
 export function computeDso(arBalance: number, creditSales: number, periodDays: number): number {
   if (creditSales <= 0) return 0;
@@ -364,7 +350,7 @@ export interface RatingInput {
   promisesKept: number;
   /** Broken promises count. */
   promisesBroken: number;
-  /** On-hold status of the customer (worst of members for a group). */
+  /** Unified account status of the group (Normal / Problematic / Under Review / On Hold / Legal). */
   onHoldStatus: string | null;
   /** Turnover EUR year-to-date (sum for groups). Null/undefined when unknown. */
   turnoverYtd?: number | null;
@@ -432,10 +418,17 @@ export function computeCreditRating(input: RatingInput): RatingResult {
     detail: totalPromises > 0 ? `${input.promisesKept} kept / ${input.promisesBroken} broken` : "No promises recorded — neutral",
   });
 
-  // 5. On-hold status (5 pts): Active → full; Under Review/Eligible → 3; On Hold → 1; Legal → 0.
-  const st = input.onHoldStatus ?? "Active";
-  const holdPts = st === "Active" || st === "Resolved" ? 5 : st === "Under Review" || st === "Eligible for On Hold" ? 3 : st === "On Hold" ? 1 : 0;
-  factors.push({ label: "On-hold status", points: holdPts, max: 5, detail: st });
+  // 5. Account status (5 pts): Normal → full; Problematic/Under Review → 3; On Hold → 1; Legal → 0.
+  const st = input.onHoldStatus ?? "Normal";
+  const holdPts =
+    st === "Normal" || st === "Active" || st === "Resolved"
+      ? 5
+      : st === "Problematic" || st === "Under Review" || st === "Eligible for On Hold"
+        ? 3
+        : st === "On Hold"
+          ? 1
+          : 0;
+  factors.push({ label: "Account status", points: holdPts, max: 5, detail: st });
 
   // 6. Turnover trend (10 pts): annualized YTD vs last year. Stable/growth (≥ -20%) → full;
   //    decline scales linearly to 0 at -60%. No turnover data → neutral 60%.
@@ -504,6 +497,8 @@ export interface CallPriorityInput {
   forecastCoverage: number | null;
   /** Days since last payment received; null when unknown. */
   daysSinceLastPayment?: number | null;
+  /** Effective unified group status (Problematic/Critical/Legal/Resolved); null = Normal. */
+  groupStatus?: string | null;
 }
 
 export interface CallPriorityResult {
@@ -511,6 +506,15 @@ export interface CallPriorityResult {
   score: number;
   /** Human-readable reasons driving the priority. */
   reasons: string[];
+  /** Status tier: 2 = Critical/Legal, 1 = Problematic, 0 = Normal/Resolved. Call order sorts by tier first, then score. */
+  tier: number;
+}
+
+/** Status tier: flagged groups jump the queue regardless of amount. */
+export function statusTier(groupStatus?: string | null): number {
+  if (groupStatus === "Critical" || groupStatus === "Legal") return 2;
+  if (groupStatus === "Problematic") return 1;
+  return 0; // Normal / Resolved / unknown
 }
 
 /**
@@ -519,6 +523,10 @@ export interface CallPriorityResult {
  *   ×rating multiplier (E=2.0 … A=0.6)
  *   +boosts for broken promises and low forecast coverage
  * 120+ amounts count at reduced weight (separate legal/on-hold flow handles them).
+ *
+ * Status-first ordering: the returned `tier` (Critical/Legal=2, Problematic=1,
+ * Normal=0) is the PRIMARY sort key of the Call List — flagged groups always
+ * appear above unflagged ones; the score orders groups WITHIN a tier.
  */
 export function computeCallPriority(input: CallPriorityInput): CallPriorityResult {
   const reasons: string[] = [];
@@ -550,7 +558,11 @@ export function computeCallPriority(input: CallPriorityInput): CallPriorityResul
     reasons.push("No recent payment");
   }
 
-  return { score: Math.round(score), reasons };
+  const tier = statusTier(input.groupStatus);
+  if (tier === 2) reasons.unshift(input.groupStatus === "Legal" ? "Legal" : "Critical");
+  else if (tier === 1) reasons.unshift("Problematic");
+
+  return { score: Math.round(score), reasons, tier };
 }
 
 /**

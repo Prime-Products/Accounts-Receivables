@@ -1,0 +1,1 @@
+ALTER TABLE `wire_transfers` ADD `branch` varchar(128);

@@ -1,0 +1,1 @@
+ALTER TABLE `invoices` ADD `isContractInstallment` boolean DEFAULT false NOT NULL;

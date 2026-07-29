@@ -1,6 +1,7 @@
+import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
@@ -9,8 +10,16 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 /** Group-level notes dialog, shared by the group card and the customer card. */
-export default function GroupNotesDialog({ group }: { group: string }) {
-  const [open, setOpen] = useState(false);
+export default function GroupNotesDialog({ group, open: externalOpen, onOpenChange }: { group: string; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = externalOpen !== undefined ? externalOpen : internalOpen;
+  const setOpen = (newOpen: boolean) => {
+    if (externalOpen !== undefined) {
+      onOpenChange?.(newOpen);
+    } else {
+      setInternalOpen(newOpen);
+    }
+  };
   const utils = trpc.useUtils();
   const [content, setContent] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -38,15 +47,17 @@ export default function GroupNotesDialog({ group }: { group: string }) {
   });
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="gap-1.5">
-          <StickyNote className="h-4 w-4" /> New Note
-          {typeof noteCount === "number" && noteCount > 0 && (
-            <Badge variant="secondary" className="ml-0.5 h-4 px-1 text-[10px]">{noteCount}</Badge>
-          )}
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-xl">
+      {externalOpen === undefined && (
+        <DialogTrigger asChild>
+          <Button size="sm" variant="outline" className="gap-1.5">
+            <StickyNote className="h-4 w-4" /> New Note
+            {typeof noteCount === "number" && noteCount > 0 && (
+              <Badge variant="secondary" className="ml-0.5 h-4 px-1 text-[10px]">{noteCount}</Badge>
+            )}
+          </Button>
+        </DialogTrigger>
+      )}
+      <ResizableDialogContent storageKey="group-notes" className="sm:max-w-none w-[36rem] max-w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <StickyNote className="h-4 w-4" /> Group Notes — {group}
@@ -128,7 +139,7 @@ export default function GroupNotesDialog({ group }: { group: string }) {
             </div>
           )}
         </div>
-      </DialogContent>
+      </ResizableDialogContent>
     </Dialog>
   );
 }

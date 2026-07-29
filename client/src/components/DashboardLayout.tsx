@@ -19,22 +19,26 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
+import GlobalSearch from "@/components/GlobalSearch";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
   BarChart3,
+  Contact,
   FileSpreadsheet,
   FileText,
   LayoutDashboard,
   ListChecks,
   LogOut,
   PanelLeft,
-  PauseCircle,
   Phone,
   ScrollText,
   Settings,
+  Ship,
   TrendingUp,
   Users,
+  UserCog,
+  Banknote,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -44,13 +48,14 @@ import { Button } from "./ui/button";
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Users, label: "Customers", path: "/customers" },
+  { icon: Contact, label: "Contacts", path: "/contacts" },
   { icon: FileText, label: "Invoices", path: "/invoices" },
+  { icon: Ship, label: "Vessels", path: "/vessels" },
   { icon: ScrollText, label: "Contracts", path: "/contracts" },
   { icon: ListChecks, label: "Tasks", path: "/tasks" },
-  { icon: PauseCircle, label: "On-Hold", path: "/on-hold" },
-  { icon: TrendingUp, label: "Forecast", path: "/forecast" },
-  { icon: Phone, label: "Call List", path: "/call-list" },
+  { icon: Banknote, label: "Wire Transfers", path: "/wire-transfers" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
+  { icon: UserCog, label: "Team", path: "/team" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
@@ -282,6 +287,9 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
+        <div className="sticky top-0 z-40 flex h-12 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:backdrop-blur">
+          <GlobalSearch />
+        </div>
         <main className="flex-1 p-4">{children}</main>
       </SidebarInset>
     </>

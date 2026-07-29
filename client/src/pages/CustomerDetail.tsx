@@ -1,8 +1,13 @@
 import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
-import GroupAiSummaryCard from "@/components/GroupAiSummaryCard";
+import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
+import { BankDetails } from "@/components/BankDetails";
+import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
+import { AccountManagerControl } from "@/components/AccountManagerControl";
+import { InvoicesTable } from "@/components/InvoicesTable";
+import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -13,9 +18,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, onHoldStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
+import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, FileDown, HandCoins, Layers, PauseCircle, Plus } from "lucide-react";
+import { ArrowLeft, FileDown, HandCoins, Layers, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -42,18 +47,8 @@ export default function CustomerDetail() {
     onError: e => toast.error(e.message),
   });
 
-  const [onHoldOpen, setOnHoldOpen] = useState(false);
-  const [onHoldReason, setOnHoldReason] = useState("");
-  const [agingFilter, setAgingFilter] = useState<string>("all");
-  const submitOnHold = trpc.onHold.submit.useMutation({
-    onSuccess: () => {
-      toast.success("On-Hold proposal submitted — status: Under Review");
-      utils.customers.get360.invalidate({ id });
-      utils.onHold.list.invalidate();
-      setOnHoldOpen(false);
-    },
-    onError: e => toast.error(e.message),
-  });
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
 
   const exportSoa = trpc.reports.export.useMutation({
     onSuccess: r => {
@@ -77,14 +72,11 @@ export default function CustomerDetail() {
   const openInvoices = invoices.filter(i => i.status !== "Paid");
   const agingAny = aging as any;
   const now = Date.now();
-  const dayMs = 24 * 60 * 60 * 1000;
-  const visibleInvoices =
-    agingFilter === "all"
-      ? invoices
-      : invoices.filter(i => {
-          if (i.status === "Paid" || now <= i.dueDate) return false;
-          return (now - i.dueDate) / dayMs >= Number(agingFilter);
-        });
+  const visibleInvoices = invoices.filter(i => {
+    if (statusFilter !== "all" && i.status !== statusFilter) return false;
+    if (installmentFilter === "installments" && !(i as any).isContractInstallment) return false;
+    return true;
+  });
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -105,26 +97,7 @@ export default function CustomerDetail() {
                 {data.rating.rating} · {data.rating.score}
               </Badge>
             )}
-            {customer.onHoldStatus !== "Active" && (
-              <Badge variant="outline" className={onHoldStatusColors[customer.onHoldStatus] ?? ""}>
-                {customer.onHoldStatus}
-              </Badge>
-            )}
-            {data.watchStatus === "Problematic" && (
-              <Badge
-                variant="outline"
-                className="bg-red-100 text-red-700 border-red-200"
-                title={data.autoProblematic && !data.watchOverride ? `Group forecast ${fmtEur(data.forecastExpected)} covers less than 80% of the group's overdue end-of-month` : "Manually set to Problematic"}
-              >
-                Problematic
-              </Badge>
-            )}
-            {data.watchStatus === "On Watch" && (
-              <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200" title="Manually set to On Watch">
-                On Watch
-              </Badge>
-            )}
-            <WatchStatusSelect group={data.groupKey} value={data.watchOverride ?? null} />
+            <WatchStatusSelect group={data.groupKey} effective={data.watchStatus ?? null} />
             {customer.customerGroup && (
               <Badge
                 variant="outline"
@@ -135,6 +108,17 @@ export default function CustomerDetail() {
                 <Layers className="h-3 w-3" /> {customer.customerGroup}
               </Badge>
             )}
+            <AccountManagerControl
+              manager={(data as any).accountManager ?? null}
+              customerId={id}
+              onChanged={() => utils.customers.get360.invalidate({ id })}
+            />
+            <AccountManagerControl
+              role="collector"
+              manager={(data as any).collector ?? null}
+              customerId={id}
+              onChanged={() => utils.customers.get360.invalidate({ id })}
+            />
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             {customer.code} · VAT {customer.vatNumber || "—"} · {customer.email || "no email"} · terms{" "}
@@ -151,6 +135,7 @@ export default function CustomerDetail() {
             }
           />
           <GroupNotesDialog group={data.groupKey} />
+          <GroupAiSummaryDialog group={data.groupKey} />
           <Button
             variant="outline"
             size="sm"
@@ -210,35 +195,6 @@ export default function CustomerDetail() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-          <Dialog open={onHoldOpen} onOpenChange={setOnHoldOpen}>
-            <DialogTrigger asChild>
-              <Button variant="destructive" size="sm" className="gap-1.5">
-                <PauseCircle className="h-4 w-4" /> Propose On-Hold
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Submit On-Hold Proposal</DialogTitle>
-              </DialogHeader>
-              <p className="text-sm text-muted-foreground">
-                Supporting data (overdue invoices, amounts, days overdue) is aggregated automatically. The proposal
-                starts as <strong>Under Review</strong> and Management decides the next step.
-              </p>
-              <div className="space-y-1.5">
-                <Label>Reason *</Label>
-                <Textarea value={onHoldReason} onChange={e => setOnHoldReason(e.target.value)} placeholder="Why should this customer be placed on hold?" />
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="destructive"
-                  disabled={!onHoldReason || submitOnHold.isPending}
-                  onClick={() => submitOnHold.mutate({ customerId: id, reason: onHoldReason })}
-                >
-                  Submit Proposal
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 
@@ -267,7 +223,7 @@ export default function CustomerDetail() {
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <div className="text-xs text-muted-foreground">AI Forecast (this month)</div>
+            <div className="text-xs text-muted-foreground">Forecast (this month)</div>
             {groupForecast ? (
               <>
                 <div className="text-xl font-bold font-mono text-emerald-700" title={groupForecast.aiReasoning ?? undefined}>
@@ -355,81 +311,44 @@ export default function CustomerDetail() {
           <TabsTrigger value="receipts">Payment History ({receipts.length})</TabsTrigger>
           <TabsTrigger value="contracts">Contracts ({contracts.length})</TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
+          <TabsTrigger value="bankDetails">Bank Details</TabsTrigger>
+          <TabsTrigger value="wireTransfers">Wire Transfers</TabsTrigger>
         </TabsList>
 
         <TabsContent value="invoices">
           <Card>
             <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-1 flex-wrap">
               <div className="text-xs text-muted-foreground">
-                {agingFilter === "all"
+                {statusFilter === "all"
                   ? `${invoices.length} invoices`
-                  : `${visibleInvoices.length} overdue ${agingFilter === "1" ? "" : `${agingFilter}+ days `}invoice(s) · outstanding ${fmtEur(visibleInvoices.reduce((s, i) => s + Number((i as any).amountEur != null && Number(i.amount) > 0 ? ((Number(i.amount) - Number(i.paidAmount)) / Number(i.amount)) * Number((i as any).amountEur) : Number(i.amount) - Number(i.paidAmount)), 0))}`}
+                  : `${visibleInvoices.length} ${statusFilter} invoice(s) · outstanding ${fmtEur(visibleInvoices.reduce((s, i) => s + Number((i as any).amountEur != null && Number(i.amount) > 0 ? ((Number(i.amount) - Number(i.paidAmount)) / Number(i.amount)) * Number((i as any).amountEur) : Number(i.amount) - Number(i.paidAmount)), 0))}`}
               </div>
-              <Select value={agingFilter} onValueChange={setAgingFilter}>
+              <div className="flex items-center gap-2 flex-wrap">
+              <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-44 h-8 text-xs">
-                  <SelectValue placeholder="Aging" />
+                  <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All invoices</SelectItem>
-                  <SelectItem value="1">Overdue (any)</SelectItem>
-                  <SelectItem value="60">Overdue 60+ days</SelectItem>
-                  <SelectItem value="120">Overdue 120+ days</SelectItem>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  {(["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const).map(s => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              </div>
             </div>
             <CardContent className="p-0">
               {visibleInvoices.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">No invoices for this customer.</div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Invoice</TableHead>
-                      <TableHead>Branch</TableHead>
-                      <TableHead>Doc. Date</TableHead>
-                      <TableHead>Due</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead className="text-right">Paid</TableHead>
-                      <TableHead className="text-right">Outstanding</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {visibleInvoices.map(i => (
-                      <TableRow key={i.id}>
-                        <TableCell className="font-mono text-sm">{i.invoiceNumber}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={branchColors[branchShort(i.company)] ?? "bg-gray-50 text-gray-600 border-gray-200"} title={i.company ?? undefined}>
-                            {branchShort(i.company)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm">{fmtDate(i.issueDate)}</TableCell>
-                        <TableCell className="text-sm">{fmtDate(i.dueDate)}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={invoiceStatusColors[i.status]}>
-                            {i.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {i.currency && i.currency !== "EUR" ? (
-                            <span>
-                              {fmtCur(i.amount, i.currency, 2)}
-                              <span className="block text-xs text-muted-foreground">≈ {fmtEur(Number(i.amountEur ?? i.amount))}</span>
-                            </span>
-                          ) : (
-                            fmtEur(i.amount)
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">{i.currency && i.currency !== "EUR" ? fmtCur(i.paidAmount, i.currency, 2) : fmtEur(i.paidAmount)}</TableCell>
-                        <TableCell className="text-right font-mono font-semibold">
-                          {i.currency && i.currency !== "EUR"
-                            ? fmtCur(Number(i.amount) - Number(i.paidAmount), i.currency, 2)
-                            : fmtEur(Number(i.amount) - Number(i.paidAmount))}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <InvoicesTable
+                  rows={visibleInvoices as any}
+                  showCustomer={false}
+                  onDisputeChanged={() => utils.customers.get360.invalidate()}
+                />
               )}
             </CardContent>
           </Card>
@@ -569,9 +488,15 @@ export default function CustomerDetail() {
             </CardContent>
           </Card>
         </TabsContent>
-      </Tabs>
 
-      <GroupAiSummaryCard group={data.groupKey} />
+        <TabsContent value="bankDetails">
+          <BankDetails customerId={customer.id} />
+        </TabsContent>
+
+        <TabsContent value="wireTransfers">
+          <WireTransfers customerId={customer.id} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

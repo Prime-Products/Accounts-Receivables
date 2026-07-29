@@ -1,12 +1,12 @@
 /**
  * Integration tests for the manual watch-status override, the group activity feed,
- * and the promise-to-pay side effects (auto group note + auto follow-up task).
+ * and the promise-to-pay side effects (auto activity-log entry + auto follow-up task).
  */
 import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 import * as db from "./db";
 import { getDb } from "./db";
-import { tasks as tasksTable, promisesToPay } from "../drizzle/schema";
+import { tasks as tasksTable, promisesToPay, activityLog as activityLogTable } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 
 function callerAs(userId: number) {
@@ -24,19 +24,27 @@ describe("customers.setWatchStatus", () => {
     expect(groups.length).toBeGreaterThan(0);
     const g = groups[0].group;
 
-    await caller.customers.setWatchStatus({ group: g, status: "On Watch" });
+    await caller.customers.setWatchStatus({ group: g, status: "Problematic" });
     const stored = await db.getGroupWatchStatus(g);
-    expect(stored?.status).toBe("On Watch");
+    expect(stored?.status).toBe("Problematic");
 
     // The groups list must surface the manual override
     const refreshed = await caller.customers.groups({});
     const row = refreshed.find(r => r.group === g);
-    expect(row?.watchStatus).toBe("On Watch");
+    expect(row?.watchStatus).toBe("Problematic");
+    expect(row?.problematic).toBe(true);
 
     // A note documenting the change is auto-created
     const notes = await caller.customers.groupNotes({ group: g });
-    const note = notes.find(n => n.content.includes('Watch status changed to "On Watch"'));
+    const note = notes.find(n => n.content.includes('Status changed to "Problematic"'));
     expect(note).toBeTruthy();
+
+    // "Normal" clears the Problematic flag even if the rule would set it
+    await caller.customers.setWatchStatus({ group: g, status: "Normal" });
+    const normalized = await caller.customers.groups({});
+    const normalRow = normalized.find(r => r.group === g);
+    expect(normalRow?.watchStatus ?? null).toBeNull();
+    expect(normalRow?.problematic).toBe(false);
 
     // Reset back to Auto (follow the forecast rule)
     await caller.customers.setWatchStatus({ group: g, status: "Auto" });
@@ -45,7 +53,7 @@ describe("customers.setWatchStatus", () => {
 
     // Clean up the auto-created notes
     const allNotes = await caller.customers.groupNotes({ group: g });
-    for (const n of allNotes.filter(n => n.content.startsWith("Watch status changed"))) {
+    for (const n of allNotes.filter(n => n.content.startsWith("Status changed"))) {
       await caller.customers.deleteGroupNote({ id: n.id });
     }
   });
@@ -80,7 +88,7 @@ describe("customers.groupActivity", () => {
 });
 
 describe("forecast.addPromise side effects", () => {
-  it("creates the promise, a group note, and a follow-up task due on the promised date", async () => {
+  it("creates the promise, an activity-log entry, and a follow-up task due on the promised date", async () => {
     const caller = callerAs(1);
     const customers = await db.listCustomers();
     expect(customers.length).toBeGreaterThan(0);
@@ -96,10 +104,12 @@ describe("forecast.addPromise side effects", () => {
     });
     expect(id).toBeGreaterThan(0);
 
-    // Group note auto-created
-    const notes = await caller.customers.groupNotes({ group: groupKey });
-    const note = notes.find(n => n.content.startsWith("Promise-to-Pay:") && n.content.includes("vitest promise"));
-    expect(note).toBeTruthy();
+    // Activity-log entry auto-created (promises no longer create group notes — by design)
+    const activity = await db.listActivityLog(groupKey);
+    const entry = activity.find(
+      a => a.activityType === "promise" && a.title.startsWith("Promise-to-Pay:") && (a.description ?? "").includes("vitest promise"),
+    );
+    expect(entry).toBeTruthy();
 
     // Follow-up task auto-created, due on the promised date
     const tasks = await db.listTasks({});
@@ -111,8 +121,8 @@ describe("forecast.addPromise side effects", () => {
     expect(task?.type).toBe("Manual");
 
     // Clean up test artifacts
-    if (note) await caller.customers.deleteGroupNote({ id: note.id });
     const dbi = await getDb();
+    if (entry) await dbi.delete(activityLogTable).where(eq(activityLogTable.id, entry.id));
     if (task) await dbi.delete(tasksTable).where(eq(tasksTable.id, task.id));
     await dbi.delete(promisesToPay).where(eq(promisesToPay.id, id));
   });

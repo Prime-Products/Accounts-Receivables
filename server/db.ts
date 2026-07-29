@@ -1,34 +1,48 @@
 import { and, desc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
+  activityLog,
   appSettings,
   auditLogs,
   collectionPlans,
   contractInstallments,
   contracts,
   customers,
+  emailHistory,
   forecastEntries,
+  groupConfirmationStatus,
   groupNotes,
   groupWatchStatus,
+  InsertActivityLog,
   InsertContract,
   InsertCustomer,
+  InsertEmailHistory,
   InsertForecastEntry,
+  InsertGroupConfirmationStatus,
   InsertInvoice,
-  InsertOnHoldProposal,
+  InsertPaymentContact,
   InsertReceipt,
   InsertTask,
   InsertUser,
   invoices,
-  onHoldProposals,
   paymentBehavior,
+  paymentContacts,
   promisesToPay,
   receiptAllocations,
   receipts,
   syncLogs,
   tasks,
+  taskComments,
+  taskInvoices,
   userProfiles,
   users,
 } from "../drizzle/schema";
+import {
+  paymentBankDetails,
+  InsertPaymentBankDetails,
+} from "../drizzle/schema";
+import { vessels, InsertVessel } from "../drizzle/schema";
+import { teamMembers, InsertTeamMember } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -117,6 +131,12 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+/** All login users — used to resolve task creator names. */
+export async function listUsers() {
+  const db = await requireDb();
+  return db.select().from(users);
+}
+
 async function requireDb() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -155,7 +175,46 @@ export async function listUsersWithProfiles() {
 }
 
 // ---------- Customers ----------
+/**
+ * Micro-cache for hot, frequently re-read reference lists (customers / invoices).
+ * The remote DB round-trip is ~150-300ms; many procedures re-fetch the full
+ * customer list just to resolve names. A 10s TTL keeps data effectively live
+ * for interactive use while collapsing bursts of identical reads (page loads
+ * fire 3-5 procedures that each call listCustomers). Any write to the table
+ * clears its cache entry immediately.
+ */
+const microCache = new Map<string, { at: number; data: unknown }>();
+const MICRO_TTL_MS = 10_000;
+
+function cacheGet<T>(key: string): T | undefined {
+  const hit = microCache.get(key);
+  if (!hit) return undefined;
+  if (Date.now() - hit.at > MICRO_TTL_MS) {
+    microCache.delete(key);
+    return undefined;
+  }
+  return hit.data as T;
+}
+
+function cacheSet(key: string, data: unknown) {
+  microCache.set(key, { at: Date.now(), data });
+}
+
+export function invalidateCache(prefix: string) {
+  for (const key of Array.from(microCache.keys())) {
+    if (key.startsWith(prefix)) microCache.delete(key);
+  }
+}
+
 export async function listCustomers() {
+  const cached = cacheGet<Awaited<ReturnType<typeof listCustomersUncached>>>("customers:all");
+  if (cached) return cached;
+  const rows = await listCustomersUncached();
+  cacheSet("customers:all", rows);
+  return rows;
+}
+
+async function listCustomersUncached() {
   const db = await requireDb();
   return db.select().from(customers).orderBy(customers.name);
 }
@@ -169,12 +228,14 @@ export async function getCustomer(id: number) {
 export async function createCustomer(data: InsertCustomer) {
   const db = await requireDb();
   const res = await db.insert(customers).values(data);
+  invalidateCache("customers:");
   return Number((res as any)[0].insertId);
 }
 
 export async function updateCustomer(id: number, data: Partial<InsertCustomer>) {
   const db = await requireDb();
   await db.update(customers).set(data).where(eq(customers.id, id));
+  invalidateCache("customers:");
 }
 
 export async function upsertSoftOneCustomers(records: InsertCustomer[]) {
@@ -214,6 +275,18 @@ export async function upsertSoftOneCustomers(records: InsertCustomer[]) {
 
 // ---------- Invoices ----------
 export async function listInvoices(filter?: { customerId?: number; statuses?: string[] }) {
+  const cacheable = !filter?.customerId && (!filter?.statuses || filter.statuses.length === 0);
+  if (cacheable) {
+    const cached = cacheGet<Awaited<ReturnType<typeof listInvoicesQuery>>>("invoices:all");
+    if (cached) return cached;
+    const rows = await listInvoicesQuery(filter);
+    cacheSet("invoices:all", rows);
+    return rows;
+  }
+  return listInvoicesQuery(filter);
+}
+
+async function listInvoicesQuery(filter?: { customerId?: number; statuses?: string[] }) {
   const db = await requireDb();
   const conds = [];
   if (filter?.customerId) conds.push(eq(invoices.customerId, filter.customerId));
@@ -232,12 +305,14 @@ export async function getInvoice(id: number) {
 export async function createInvoice(data: InsertInvoice) {
   const db = await requireDb();
   const res = await db.insert(invoices).values(data);
+  invalidateCache("invoices:");
   return Number((res as any)[0].insertId);
 }
 
 export async function updateInvoice(id: number, data: Partial<InsertInvoice>) {
   const db = await requireDb();
   await db.update(invoices).set(data).where(eq(invoices.id, id));
+  invalidateCache("invoices:");
 }
 
 // ---------- Receipts & allocations ----------
@@ -245,6 +320,13 @@ export async function listReceipts(customerId?: number) {
   const db = await requireDb();
   const q = db.select().from(receipts);
   return customerId ? q.where(eq(receipts.customerId, customerId)).orderBy(desc(receipts.receiptDate)) : q.orderBy(desc(receipts.receiptDate));
+}
+
+export async function listReceiptsInRange(start: number, end: number, customerId?: number) {
+  const db = await requireDb();
+  const conds = [gte(receipts.receiptDate, start), lt(receipts.receiptDate, end)];
+  if (customerId) conds.push(eq(receipts.customerId, customerId));
+  return db.select().from(receipts).where(and(...conds)).orderBy(desc(receipts.receiptDate));
 }
 
 export async function createReceipt(data: InsertReceipt) {
@@ -350,28 +432,49 @@ export async function findTaskByContractAndType(contractId: number, type: string
   return r[0];
 }
 
-// ---------- On-Hold proposals ----------
-export async function listOnHoldProposals() {
+export async function getTask(id: number) {
   const db = await requireDb();
-  return db.select().from(onHoldProposals).orderBy(desc(onHoldProposals.createdAt));
-}
-
-export async function getOnHoldProposal(id: number) {
-  const db = await requireDb();
-  const r = await db.select().from(onHoldProposals).where(eq(onHoldProposals.id, id)).limit(1);
+  const r = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
   return r[0];
 }
 
-export async function createOnHoldProposal(data: InsertOnHoldProposal) {
+// ---------- Task comments (internal collaboration) ----------
+export async function listTaskComments(taskId: number) {
   const db = await requireDb();
-  const res = await db.insert(onHoldProposals).values(data);
+  return db.select().from(taskComments).where(eq(taskComments.taskId, taskId)).orderBy(taskComments.createdAt);
+}
+
+export async function addTaskComment(data: { taskId: number; authorId?: number | null; authorName: string; body: string }) {
+  const db = await requireDb();
+  const res = await db.insert(taskComments).values(data);
   return Number((res as any)[0].insertId);
 }
 
-export async function updateOnHoldProposal(id: number, data: Partial<InsertOnHoldProposal>) {
+export async function deleteTaskComment(id: number) {
   const db = await requireDb();
-  await db.update(onHoldProposals).set(data).where(eq(onHoldProposals.id, id));
+  await db.delete(taskComments).where(eq(taskComments.id, id));
 }
+
+// ---------- Task ↔ invoice attachments ----------
+export async function listTaskInvoices(taskId: number) {
+  const db = await requireDb();
+  return db.select().from(taskInvoices).where(eq(taskInvoices.taskId, taskId));
+}
+
+export async function listAllTaskInvoices() {
+  const db = await requireDb();
+  return db.select().from(taskInvoices);
+}
+
+export async function addTaskInvoices(taskId: number, invoiceIds: number[]) {
+  if (invoiceIds.length === 0) return;
+  const db = await requireDb();
+  await db
+    .insert(taskInvoices)
+    .values(invoiceIds.map(invoiceId => ({ taskId, invoiceId })))
+    .onDuplicateKeyUpdate({ set: { taskId } });
+}
+
 
 // ---------- Collection plans & promises ----------
 export async function getPlan(year: number, month: number) {
@@ -443,6 +546,8 @@ export async function upsertForecastEntry(data: InsertForecastEntry) {
   if (existing.length > 0) {
     // Preserve user adjustments on regeneration: only refresh due/AI fields.
     const keep = existing[0];
+    // Also preserve initialForecast if it was already set
+    const initialToKeep = keep.initialForecast ?? data.expectedAmount;
     await db
       .update(forecastEntries)
       .set({
@@ -452,12 +557,16 @@ export async function upsertForecastEntry(data: InsertForecastEntry) {
         overdueAmount: data.overdueAmount,
         aiSuggestedAmount: data.aiSuggestedAmount,
         aiReasoning: data.aiReasoning,
+        initialForecast: initialToKeep,
         ...(keep.userAdjusted ? {} : { expectedAmount: data.expectedAmount }),
       })
       .where(eq(forecastEntries.id, keep.id));
     return keep.id;
   }
-  const res = await db.insert(forecastEntries).values(data);
+  const res = await db.insert(forecastEntries).values({
+    ...data,
+    initialForecast: data.expectedAmount,
+  });
   return Number((res as any)[0].insertId);
 }
 
@@ -562,7 +671,7 @@ export async function deleteGroupNote(id: number) {
   await db.delete(groupNotes).where(eq(groupNotes.id, id));
 }
 
-// ---------- Group watch status (manual Problematic / On Watch override) ----------
+// ---------- Group status (unified workflow: Normal → Problematic → Critical → Legal / Resolved) ----------
 export async function listGroupWatchStatuses() {
   const db = await requireDb();
   return db.select().from(groupWatchStatus);
@@ -572,12 +681,41 @@ export async function getGroupWatchStatus(groupName: string) {
   const rows = await db.select().from(groupWatchStatus).where(eq(groupWatchStatus.groupName, groupName)).limit(1);
   return rows[0] ?? null;
 }
-export async function setGroupWatchStatus(groupName: string, status: "Auto" | "Problematic" | "On Watch", updatedBy: number | null) {
+export async function setGroupWatchStatus(
+  groupName: string,
+  status: "Auto" | "Problematic" | "Normal" | "Under Review" | "On Hold" | "Legal",
+  updatedBy: number | null,
+) {
   const db = await requireDb();
+  // Track when the group became Problematic (display only); other statuses clear it.
+  const problematicSince = status === "Problematic" ? Date.now() : null;
   await db
     .insert(groupWatchStatus)
-    .values({ groupName, status, updatedBy, updatedAt: Date.now() })
-    .onDuplicateKeyUpdate({ set: { status, updatedBy, updatedAt: Date.now() } });
+    .values({ groupName, status, problematicSince, updatedBy, updatedAt: Date.now() })
+    .onDuplicateKeyUpdate({ set: { status, problematicSince, updatedBy, updatedAt: Date.now() } });
+}
+/**
+ * Ensure the escalation clock is running for a group flagged Problematic by the
+ * automatic forecast rule (row may not exist yet). Never overwrites an existing
+ * manual status other than "Auto"; only stamps problematicSince when missing.
+ */
+export async function ensureProblematicSince(groupName: string, now = Date.now()) {
+  const db = await requireDb();
+  const existing = await getGroupWatchStatus(groupName);
+  if (!existing) {
+    await db.insert(groupWatchStatus).values({ groupName, status: "Auto", problematicSince: now, updatedBy: null, updatedAt: now });
+    return now;
+  }
+  if (existing.problematicSince == null) {
+    await db.update(groupWatchStatus).set({ problematicSince: now, updatedAt: now }).where(eq(groupWatchStatus.groupName, groupName));
+    return now;
+  }
+  return existing.problematicSince;
+}
+/** Clear the escalation clock when a group is no longer problematic (rule stopped firing under Auto). */
+export async function clearProblematicSince(groupName: string) {
+  const db = await requireDb();
+  await db.update(groupWatchStatus).set({ problematicSince: null, updatedAt: Date.now() }).where(eq(groupWatchStatus.groupName, groupName));
 }
 
 // ---------- Audit & sync logs ----------
@@ -599,6 +737,116 @@ export async function addSyncLog(entry: typeof syncLogs.$inferInsert) {
 export async function listSyncLogs(limit = 50) {
   const db = await requireDb();
   return db.select().from(syncLogs).orderBy(desc(syncLogs.createdAt)).limit(limit);
+}
+
+// ---------- Email history ----------
+export async function addEmailHistory(entry: InsertEmailHistory) {
+  const db = await requireDb();
+  const result = await db.insert(emailHistory).values(entry);
+  return Number((result as any)[0].insertId);
+}
+
+export async function listEmailHistory(customerId: number, limit = 50) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(emailHistory)
+    .where(eq(emailHistory.customerId, customerId))
+    .orderBy(desc(emailHistory.createdAt))
+    .limit(limit);
+}
+
+export async function getEmailHistory(id: number) {
+  const db = await requireDb();
+  return db.select().from(emailHistory).where(eq(emailHistory.id, id)).limit(1);
+}
+
+// ---------- Activity Log ----------
+export async function addActivityLog(entry: InsertActivityLog) {
+  const db = await requireDb();
+  const res = await db.insert(activityLog).values(entry);
+  return Number((res as any)[0].insertId);
+}
+
+export async function listActivityLog(groupName: string, limit = 100) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(activityLog)
+    .where(eq(activityLog.groupName, groupName))
+    .orderBy(desc(activityLog.createdAt))
+    .limit(limit);
+}
+
+export async function getActivityLog(id: number) {
+  const db = await requireDb();
+  return db.select().from(activityLog).where(eq(activityLog.id, id)).limit(1);
+}
+
+// ---------- Group Confirmation Status ----------
+export async function getGroupConfirmationStatus(groupName: string) {
+  const db = await requireDb();
+  const result = await db
+    .select()
+    .from(groupConfirmationStatus)
+    .where(eq(groupConfirmationStatus.groupName, groupName))
+    .limit(1);
+  return result[0] || null;
+}
+
+export async function upsertGroupConfirmationStatus(
+  groupName: string,
+  updates: Omit<InsertGroupConfirmationStatus, "groupName">
+) {
+  const db = await requireDb();
+  const existing = await getGroupConfirmationStatus(groupName);
+  
+  if (existing) {
+    await db
+      .update(groupConfirmationStatus)
+      .set(updates)
+      .where(eq(groupConfirmationStatus.groupName, groupName));
+  } else {
+    await db.insert(groupConfirmationStatus).values({
+      groupName,
+      ...updates,
+    });
+  }
+}
+
+// ---------- Payment Contacts ----------
+export async function addPaymentContact(contact: InsertPaymentContact) {
+  const db = await requireDb();
+  const result = await db.insert(paymentContacts).values(contact);
+  return result[0].insertId;
+}
+
+export async function listPaymentContacts(customerId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(paymentContacts)
+    .where(eq(paymentContacts.customerId, customerId))
+    .orderBy(desc(paymentContacts.createdAt));
+}
+export async function listAllPaymentContacts() {
+  const db = await requireDb();
+  return db.select().from(paymentContacts).orderBy(desc(paymentContacts.createdAt));
+}
+
+export async function getPaymentContact(id: number) {
+  const db = await requireDb();
+  return db.select().from(paymentContacts).where(eq(paymentContacts.id, id)).limit(1);
+}
+
+export async function updatePaymentContact(id: number, updates: Partial<InsertPaymentContact>) {
+  const db = await requireDb();
+  return db.update(paymentContacts).set(updates).where(eq(paymentContacts.id, id));
+}
+
+export async function deletePaymentContact(id: number) {
+  const db = await requireDb();
+  return db.delete(paymentContacts).where(eq(paymentContacts.id, id));
 }
 
 // ---------- Aggregations ----------
@@ -631,9 +879,18 @@ export async function globalSearch(query: string, limitPerType = 8) {
       .where(or(like(customers.name, q), like(customers.code, q), like(customers.customerGroup, q), like(customers.vatNumber, q)))
       .limit(limitPerType * 3),
     db
-      .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber, customerId: invoices.customerId, amount: invoices.amount, status: invoices.status, dueDate: invoices.dueDate })
+      .select({
+        id: invoices.id,
+        invoiceNumber: invoices.invoiceNumber,
+        customerId: invoices.customerId,
+        amount: invoices.amount,
+        status: invoices.status,
+        dueDate: invoices.dueDate,
+        vesselName: vessels.name,
+      })
       .from(invoices)
-      .where(like(invoices.invoiceNumber, q))
+      .leftJoin(vessels, eq(invoices.vesselId, vessels.id))
+      .where(or(like(invoices.invoiceNumber, q), like(vessels.name, q)))
       .limit(limitPerType),
     db
       .select({ id: groupNotes.id, groupName: groupNotes.groupName, content: groupNotes.content, createdAt: groupNotes.createdAt })
@@ -648,5 +905,365 @@ export async function globalSearch(query: string, limitPerType = 8) {
       .orderBy(desc(tasks.dueDate))
       .limit(limitPerType),
   ]);
-  return { customers: custRows, invoices: invRows, notes: noteRows, tasks: taskRows };
+  // Wire transfers & payments (allocations): match by transfer reference, customer name,
+  // or the invoice number an allocation settled — so searching "INV-000013" also surfaces
+  // the payment/transfer that settled that invoice.
+  const transferRows = await db
+    .select({
+      id: wireTransfers.id,
+      customerId: wireTransfers.customerId,
+      amount: wireTransfers.amount,
+      currency: wireTransfers.currency,
+      transferDate: wireTransfers.transferDate,
+      status: wireTransfers.status,
+      branch: wireTransfers.branch,
+      referenceNumber: wireTransfers.referenceNumber,
+      isInternal: wireTransfers.isInternal,
+      customerName: customers.name,
+    })
+    .from(wireTransfers)
+    .innerJoin(customers, eq(wireTransfers.customerId, customers.id))
+    .where(or(like(wireTransfers.referenceNumber, q), like(customers.name, q)))
+    .orderBy(desc(wireTransfers.transferDate))
+    .limit(limitPerType);
+  const allocationRows = await db
+    .select({
+      id: wireTransferAllocations.id,
+      wireTransferId: wireTransferAllocations.wireTransferId,
+      amount: wireTransferAllocations.amount,
+      invoiceNumber: invoices.invoiceNumber,
+      invoiceId: invoices.id,
+      transferAmount: wireTransfers.amount,
+      transferCurrency: wireTransfers.currency,
+      transferDate: wireTransfers.transferDate,
+      transferReference: wireTransfers.referenceNumber,
+      payerName: customers.name,
+      creditedName: sql<string>`(SELECT c2.name FROM customers c2 WHERE c2.id = ${invoices.customerId})`,
+    })
+    .from(wireTransferAllocations)
+    .innerJoin(invoices, eq(wireTransferAllocations.invoiceId, invoices.id))
+    .innerJoin(wireTransfers, eq(wireTransferAllocations.wireTransferId, wireTransfers.id))
+    .innerJoin(customers, eq(wireTransfers.customerId, customers.id))
+    .where(like(invoices.invoiceNumber, q))
+    .orderBy(desc(wireTransferAllocations.createdAt))
+    .limit(limitPerType);
+  return { customers: custRows, invoices: invRows, notes: noteRows, tasks: taskRows, transfers: transferRows, allocations: allocationRows };
+}
+
+export async function listGroupConfirmationStatuses() {
+  const db = await requireDb();
+  return db.select().from(groupConfirmationStatus);
+}
+
+// ---------------------------------------------------------------------------
+// Vessels (ships) — registry usable on all invoices
+// ---------------------------------------------------------------------------
+
+export async function listVessels() {
+  const db = await requireDb();
+  return db.select().from(vessels).orderBy(vessels.name);
+}
+
+export async function createVessel(data: InsertVessel) {
+  const db = await requireDb();
+  const [res] = await db.insert(vessels).values(data);
+  return res.insertId;
+}
+
+export async function updateVessel(id: number, data: Partial<InsertVessel>) {
+  const db = await requireDb();
+  await db.update(vessels).set(data).where(eq(vessels.id, id));
+}
+
+export async function deleteVessel(id: number) {
+  const db = await requireDb();
+  // Detach from invoices first, then delete the vessel.
+  await db.update(invoices).set({ vesselId: null }).where(eq(invoices.vesselId, id));
+  await db.delete(vessels).where(eq(vessels.id, id));
+  invalidateCache("invoices:");
+}
+
+export async function getVesselById(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(vessels).where(eq(vessels.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Team members — collaborators who manage customers and take on tasks
+// ---------------------------------------------------------------------------
+
+export async function listTeamMembers(includeInactive = false) {
+  const db = await requireDb();
+  if (includeInactive) return db.select().from(teamMembers).orderBy(teamMembers.name);
+  return db.select().from(teamMembers).where(eq(teamMembers.active, true)).orderBy(teamMembers.name);
+}
+
+export async function createTeamMember(data: InsertTeamMember) {
+  const db = await requireDb();
+  const [res] = await db.insert(teamMembers).values(data);
+  return res.insertId;
+}
+
+export async function updateTeamMember(id: number, data: Partial<InsertTeamMember>) {
+  const db = await requireDb();
+  await db.update(teamMembers).set(data).where(eq(teamMembers.id, id));
+}
+
+export async function getTeamMemberById(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(teamMembers).where(eq(teamMembers.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function deleteTeamMember(id: number) {
+  const db = await requireDb();
+  // Detach from customers and tasks first, then delete.
+  await db.update(customers).set({ accountManagerId: null }).where(eq(customers.accountManagerId, id));
+  await db.update(customers).set({ collectorId: null }).where(eq(customers.collectorId, id));
+  await db.update(tasks).set({ assigneeId: null }).where(eq(tasks.assigneeId, id));
+  await db.delete(teamMembers).where(eq(teamMembers.id, id));
+  invalidateCache("customers:");
+}
+
+/** Assign an account manager to every company of a customer group. */
+export async function setGroupAccountManager(groupName: string, managerId: number | null) {
+  const db = await requireDb();
+  const trimmed = groupName.trim();
+  await db
+    .update(customers)
+    .set({ accountManagerId: managerId })
+    .where(or(eq(customers.customerGroup, trimmed), eq(customers.name, trimmed)));
+  invalidateCache("customers:");
+}
+
+/** Assign a collector (credit controller) to every company of a customer group. */
+export async function setGroupCollector(groupName: string, collectorId: number | null) {
+  const db = await requireDb();
+  const trimmed = groupName.trim();
+  await db
+    .update(customers)
+    .set({ collectorId })
+    .where(or(eq(customers.customerGroup, trimmed), eq(customers.name, trimmed)));
+  invalidateCache("customers:");
+}
+
+/** Test/maintenance helper: overwrite a confirmation row's updatedAt (bypasses onUpdateNow via raw SQL). */
+export async function setGroupConfirmationUpdatedAt(groupName: string, updatedAt: Date) {
+  const db = await requireDb();
+  const ts = updatedAt.toISOString().slice(0, 19).replace("T", " ");
+  await db.execute(sql`UPDATE group_confirmation_status SET updatedAt = ${ts} WHERE groupName = ${groupName}`);
+}
+
+// ---------- Payment Bank Details ----------
+export async function getBankDetailsByCustomerId(customerId: number) {
+  const db = await requireDb();
+  const r = await db.select().from(paymentBankDetails).where(eq(paymentBankDetails.customerId, customerId)).limit(1);
+  return r[0] || null;
+}
+
+export async function createBankDetails(data: InsertPaymentBankDetails) {
+  const db = await requireDb();
+  const res = await db.insert(paymentBankDetails).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function updateBankDetails(customerId: number, data: Partial<InsertPaymentBankDetails>) {
+  const db = await requireDb();
+  await db.update(paymentBankDetails).set(data).where(eq(paymentBankDetails.customerId, customerId));
+}
+
+export async function deleteBankDetails(customerId: number) {
+  const db = await requireDb();
+  await db.delete(paymentBankDetails).where(eq(paymentBankDetails.customerId, customerId));
+}
+
+
+// ---------- Wire Transfers ----------
+import { wireTransfers, InsertWireTransfer, WireTransfer } from "../drizzle/schema";
+
+export async function createWireTransfer(data: InsertWireTransfer) {
+  const db = await requireDb();
+  const res = await db.insert(wireTransfers).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function getWireTransfer(id: number) {
+  const db = await requireDb();
+  const r = await db.select().from(wireTransfers).where(eq(wireTransfers.id, id)).limit(1);
+  return r[0] || null;
+}
+
+export async function listWireTransfersByCustomerId(customerId: number) {
+  const db = await requireDb();
+  return db.select().from(wireTransfers).where(eq(wireTransfers.customerId, customerId)).orderBy(desc(wireTransfers.transferDate));
+}
+
+export async function listAllWireTransfers() {
+  const db = await requireDb();
+  return db.select().from(wireTransfers).orderBy(desc(wireTransfers.transferDate));
+}
+
+export async function listWireTransfersByStatus(status: "Pending" | "Received") {
+  const db = await requireDb();
+  return db.select().from(wireTransfers).where(eq(wireTransfers.status, status)).orderBy(desc(wireTransfers.transferDate));
+}
+
+/**
+ * Received wire transfers whose effective date (receivedDate, falling back to
+ * transferDate) is within [start, end). Used to include received transfers in
+ * "collected this month" figures. EUR-equivalent handling is done by callers.
+ */
+export async function listReceivedWireTransfersInRange(start: number, end: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(wireTransfers).where(eq(wireTransfers.status, "Received"));
+  return rows.filter(w => {
+    // Internal inter-office transfers are bookkeeping mirrors of an already-counted
+    // customer transfer — excluding them prevents double counting in collected figures.
+    if ((w as any).isInternal) return false;
+    const ts = w.receivedDate ?? w.transferDate;
+    return ts >= start && ts < end;
+  });
+}
+
+export async function updateWireTransfer(id: number, data: Partial<InsertWireTransfer>) {
+  const db = await requireDb();
+  await db.update(wireTransfers).set(data).where(eq(wireTransfers.id, id));
+}
+
+export async function deleteWireTransfer(id: number) {
+  const db = await requireDb();
+  await db.delete(wireTransfers).where(eq(wireTransfers.id, id));
+}
+
+// ---------- Wire transfer allocations (συμψηφισμός) ----------
+import { wireTransferAllocations, InsertWireTransferAllocation } from "../drizzle/schema";
+
+export async function createWireTransferAllocation(data: InsertWireTransferAllocation) {
+  const db = await requireDb();
+  const res = await db.insert(wireTransferAllocations).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+/** Delete internal inter-office transfers that were auto-created for a given allocation. */
+export async function deleteInternalTransfersByAllocation(allocationId: number) {
+  const db = await requireDb();
+  await db
+    .delete(wireTransfers)
+    .where(and(eq(wireTransfers.isInternal, true), eq(wireTransfers.sourceAllocationId, allocationId)));
+}
+
+/** Delete internal inter-office transfers derived from a given source wire transfer. */
+export async function deleteInternalTransfersBySource(sourceWireTransferId: number) {
+  const db = await requireDb();
+  await db
+    .delete(wireTransfers)
+    .where(and(eq(wireTransfers.isInternal, true), eq(wireTransfers.sourceWireTransferId, sourceWireTransferId)));
+}
+
+export async function listAllocationsByWireTransfer(wireTransferId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: wireTransferAllocations.id,
+      wireTransferId: wireTransferAllocations.wireTransferId,
+      invoiceId: wireTransferAllocations.invoiceId,
+      amount: wireTransferAllocations.amount,
+      createdAt: wireTransferAllocations.createdAt,
+      invoiceNumber: invoices.invoiceNumber,
+      invoiceCompany: invoices.company,
+      invoiceCurrency: invoices.currency,
+      invoiceAmount: invoices.amount,
+      invoiceStatus: invoices.status,
+      invoiceCustomerId: invoices.customerId,
+    })
+    .from(wireTransferAllocations)
+    .leftJoin(invoices, eq(wireTransferAllocations.invoiceId, invoices.id))
+    .where(eq(wireTransferAllocations.wireTransferId, wireTransferId))
+    .orderBy(desc(wireTransferAllocations.createdAt));
+}
+
+export async function getWireTransferAllocation(id: number) {
+  const db = await requireDb();
+  const r = await db.select().from(wireTransferAllocations).where(eq(wireTransferAllocations.id, id)).limit(1);
+  return r[0] || null;
+}
+
+/** All wire-transfer allocations that settled a given invoice (for cancelling the payment). */
+export async function listWtAllocationsByInvoice(invoiceId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(wireTransferAllocations)
+    .where(eq(wireTransferAllocations.invoiceId, invoiceId))
+    .orderBy(desc(wireTransferAllocations.createdAt));
+}
+
+export async function deleteWireTransferAllocation(id: number) {
+  const db = await requireDb();
+  await db.delete(wireTransferAllocations).where(eq(wireTransferAllocations.id, id));
+}
+
+/** Sum of allocated amounts per wire transfer id (for "unallocated" computations). */
+export async function sumAllocationsByWireTransferIds(ids: number[]) {
+  if (ids.length === 0) return new Map<number, number>();
+  const db = await requireDb();
+  const rows = await db
+    .select({ wireTransferId: wireTransferAllocations.wireTransferId, amount: wireTransferAllocations.amount })
+    .from(wireTransferAllocations)
+    .where(inArray(wireTransferAllocations.wireTransferId, ids));
+  const m = new Map<number, number>();
+  for (const r of rows) m.set(r.wireTransferId, (m.get(r.wireTransferId) ?? 0) + Number(r.amount));
+  return m;
+}
+
+/** Allocation details (invoice + credited company) for a set of wire transfers — for breakdown rows. */
+export async function listAllocationsByWireTransferIds(ids: number[]) {
+  if (ids.length === 0) return [];
+  const db = await requireDb();
+  return db
+    .select({
+      id: wireTransferAllocations.id,
+      wireTransferId: wireTransferAllocations.wireTransferId,
+      invoiceId: wireTransferAllocations.invoiceId,
+      amount: wireTransferAllocations.amount,
+      createdAt: wireTransferAllocations.createdAt,
+      invoiceNumber: invoices.invoiceNumber,
+      invoiceCompany: invoices.company,
+      invoiceCurrency: invoices.currency,
+      invoiceStatus: invoices.status,
+      invoiceCustomerId: invoices.customerId,
+    })
+    .from(wireTransferAllocations)
+    .leftJoin(invoices, eq(wireTransferAllocations.invoiceId, invoices.id))
+    .where(inArray(wireTransferAllocations.wireTransferId, ids))
+    .orderBy(desc(wireTransferAllocations.createdAt));
+}
+
+/** Incoming allocations for a customer: amounts credited to THEIR invoices from any wire transfer. */
+export async function listIncomingAllocationsByCustomer(customerId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: wireTransferAllocations.id,
+      wireTransferId: wireTransferAllocations.wireTransferId,
+      invoiceId: wireTransferAllocations.invoiceId,
+      amount: wireTransferAllocations.amount,
+      createdAt: wireTransferAllocations.createdAt,
+      invoiceNumber: invoices.invoiceNumber,
+      invoiceCompany: invoices.company,
+      invoiceCurrency: invoices.currency,
+      invoiceStatus: invoices.status,
+      sourceCustomerId: wireTransfers.customerId,
+      sourceAmount: wireTransfers.amount,
+      sourceCurrency: wireTransfers.currency,
+      sourceTransferDate: wireTransfers.transferDate,
+      sourceReference: wireTransfers.referenceNumber,
+      sourceBranch: wireTransfers.branch,
+    })
+    .from(wireTransferAllocations)
+    .innerJoin(invoices, eq(wireTransferAllocations.invoiceId, invoices.id))
+    .innerJoin(wireTransfers, eq(wireTransferAllocations.wireTransferId, wireTransfers.id))
+    .where(eq(invoices.customerId, customerId))
+    .orderBy(desc(wireTransferAllocations.createdAt));
 }

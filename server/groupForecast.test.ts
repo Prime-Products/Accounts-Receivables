@@ -14,10 +14,17 @@ function createCaller() {
 }
 
 describe("customers.groupForecast", () => {
-  it("returns null for a group without a current-month forecast entry", async () => {
+  it("returns a collected-only payload (hasForecast=false) for a group without a current-month forecast entry", async () => {
     const caller = createCaller();
     const res = await caller.customers.groupForecast({ group: "___NO_SUCH_GROUP___" });
-    expect(res).toBeNull();
+    // Behavior change: even without a forecast entry, the procedure reports
+    // collected (receipts + received wire transfers) so the group card can
+    // show "Paid (this month)"; hasForecast=false hides forecast-only cards.
+    expect(res).not.toBeNull();
+    expect((res as any).hasForecast).toBe(false);
+    expect(typeof res!.collected).toBe("number");
+    expect(res!.collected).toBe(0);
+    expect(res!.expectedAmount).toBe(0);
   });
 
   it("returns numeric forecast fields when an entry exists", async () => {

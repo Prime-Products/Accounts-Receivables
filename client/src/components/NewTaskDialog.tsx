@@ -1,11 +1,13 @@
+import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { trpc } from "@/lib/trpc";
 import { ChevronsUpDown, Plus } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -19,26 +21,46 @@ export const TASK_TYPES = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA",
  * - `customerIds`: restrict the pickable customers (e.g. member companies of a group).
  * - `hideCustomerPicker`: hide the customer selector entirely (e.g. group card — task is recorded against the group's primary member).
  * - `trigger`: custom trigger element; defaults to a "New Task" button.
+ * - `attachInvoices`: invoices pre-attached to the task (send-invoices-to-colleague flow).
  */
 export default function NewTaskDialog({
   defaultCustomerId,
   customerIds,
   hideCustomerPicker,
   trigger,
+  open: externalOpen,
+  onOpenChange,
+  attachInvoices,
+  defaultTitle,
+  defaultDescription,
 }: {
   defaultCustomerId?: number;
   customerIds?: number[];
   hideCustomerPicker?: boolean;
   trigger?: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  attachInvoices?: { id: number; invoiceNumber: string; amount: number | string; currency?: string | null }[];
+  defaultTitle?: string;
+  defaultDescription?: string;
 }) {
   const utils = trpc.useUtils();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = externalOpen !== undefined ? externalOpen : internalOpen;
+  const setOpen = (newOpen: boolean) => {
+    if (externalOpen !== undefined) {
+      onOpenChange?.(newOpen);
+    } else {
+      setInternalOpen(newOpen);
+    }
+  };
   const [customerOpen, setCustomerOpen] = useState(false);
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
   const [type, setType] = useState<string>("Manual");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(defaultTitle ?? "");
+  const [description, setDescription] = useState(defaultDescription ?? "");
   const [dueDate, setDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [assigneeId, setAssigneeId] = useState<number | null>(null);
 
   const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: open });
   const customers = customerIds ? (allCustomers ?? []).filter(c => customerIds.includes(c.id)) : (allCustomers ?? []);
@@ -55,6 +77,7 @@ export default function NewTaskDialog({
       setTitle("");
       setDescription("");
       setType("Manual");
+      setAssigneeId(null);
     },
     onError: e => toast.error(e.message),
   });
@@ -69,6 +92,8 @@ export default function NewTaskDialog({
       title: title.trim(),
       description: description.trim() || undefined,
       dueDate: new Date(`${dueDate}T12:00:00`).getTime(),
+      assigneeId: assigneeId ?? undefined,
+      invoiceIds: attachInvoices && attachInvoices.length > 0 ? attachInvoices.map(i => i.id) : undefined,
     });
   };
 
@@ -80,14 +105,16 @@ export default function NewTaskDialog({
         if (o) setCustomerId(defaultCustomerId ?? null);
       }}
     >
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button className="gap-2">
-            <Plus className="h-4 w-4" /> New Task
-          </Button>
-        )}
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      {externalOpen === undefined && (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" /> New Task
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
+      <ResizableDialogContent storageKey="new-task" className="sm:max-w-none w-[32rem] max-w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New Task</DialogTitle>
         </DialogHeader>
@@ -147,6 +174,27 @@ export default function NewTaskDialog({
             </div>
           </div>
           <div className="space-y-1.5">
+            <Label>Assignee (optional)</Label>
+            <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} />
+          </div>
+          {attachInvoices && attachInvoices.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Attached invoices ({attachInvoices.length})</Label>
+              <div className="rounded-md border bg-muted/40 p-2 max-h-32 overflow-y-auto space-y-1">
+                {attachInvoices.map(inv => (
+                  <div key={inv.id} className="flex items-center justify-between text-xs">
+                    <span className="font-mono">{inv.invoiceNumber}</span>
+                    <span className="font-mono text-muted-foreground">
+                      {inv.currency && inv.currency !== "EUR" ? `${inv.currency} ` : "€"}
+                      {Number(inv.amount).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">These invoices will be linked to the task so your colleague sees exactly what to look at.</p>
+            </div>
+          )}
+          <div className="space-y-1.5">
             <Label>Title</Label>
             <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Call customer about overdue balance" />
           </div>
@@ -163,7 +211,7 @@ export default function NewTaskDialog({
             {create.isPending ? "Creating…" : "Create Task"}
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </ResizableDialogContent>
     </Dialog>
   );
 }

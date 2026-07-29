@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "6ca75756-c74b-45ac-8638-fecd2a51964f",
+  "id": "a2112989-83e6-4d91-a1b8-010c0dd4423a",
   "prevId": "0a9f3b31-489a-41bb-8b23-ed5e3e84f431",
   "tables": {
     "app_settings": {
@@ -471,13 +471,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "masterSoftoneId": {
-          "name": "masterSoftoneId",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "tier": {
           "name": "tier",
           "type": "enum('Platinum','Gold','Silver','Bronze','New')",
@@ -516,76 +509,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "turnoverTwoYearsAgo": {
-          "name": "turnoverTwoYearsAgo",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "balance": {
-          "name": "balance",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "uncovered": {
-          "name": "uncovered",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "unpaid": {
-          "name": "unpaid",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "overdue": {
-          "name": "overdue",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "overdueEndOfMonth": {
-          "name": "overdueEndOfMonth",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "averageOverdueDays": {
-          "name": "averageOverdueDays",
-          "type": "decimal(12,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "openOrders": {
-          "name": "openOrders",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ordersAmount": {
-          "name": "ordersAmount",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "collections": {
-          "name": "collections",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "onHoldStatus": {
           "name": "onHoldStatus",
           "type": "enum('Active','Under Review','Eligible for On Hold','On Hold','Legal')",
@@ -597,13 +520,6 @@
         "softoneId": {
           "name": "softoneId",
           "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "softoneSyncedAt": {
-          "name": "softoneSyncedAt",
-          "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -727,6 +643,14 @@
           "type": "decimal(14,2)",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
+          "default": "'0'"
+        },
+        "initialForecast": {
+          "name": "initialForecast",
+          "type": "decimal(14,2)",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false,
           "default": "'0'"
         },
@@ -854,11 +778,18 @@
         },
         "status": {
           "name": "status",
-          "type": "enum('Auto','Problematic','On Watch')",
+          "type": "enum('Auto','Problematic','On Watch','Normal','Critical','Legal','Resolved')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": "'Auto'"
+        },
+        "problematicSince": {
+          "name": "problematicSince",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "updatedBy": {
           "name": "updatedBy",

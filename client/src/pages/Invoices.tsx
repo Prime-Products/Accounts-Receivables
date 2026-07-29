@@ -9,10 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
+import { InvoicesTable } from "@/components/InvoicesTable";
+import InstallmentToggle from "@/components/InstallmentToggle";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { ChevronRight, FileDown, FileText, HandCoins, Plus, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronRight, FileDown, FileSignature, FileText, HandCoins, Plus, Upload, Users } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 const STATUSES = ["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const;
@@ -32,6 +34,17 @@ export default function Invoices() {
     return b && (BUCKETS as readonly string[]).includes(b) ? (b as (typeof BUCKETS)[number]) : "all";
   });
   const [branchFilter, setBranchFilter] = useState<string>("all");
+  const [vesselFilter, setVesselFilter] = useState<string>("all");
+  const [contractFilter, setContractFilter] = useState<string>(() => {
+    if (typeof window === "undefined") return "all";
+    const c = new URLSearchParams(window.location.search).get("contract");
+    return c === "overdue" || c === "contract" ? "installments" : "all";
+  });
+  /** When arriving from the dashboard "overdue contract installments" card, also show only overdue rows. */
+  const [overdueOnly] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("contract") === "overdue";
+  });
   const [groupView, setGroupView] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("view") === "group";
@@ -79,6 +92,53 @@ export default function Invoices() {
     onError: e => toast.error(e.message),
   });
 
+  // Bulk mark contract installments via Excel/CSV upload
+  const [contractDlgOpen, setContractDlgOpen] = useState(false);
+  const [contractNumbers, setContractNumbers] = useState<string[]>([]);
+  const [contractFileName, setContractFileName] = useState<string>("");
+  const [contractParsing, setContractParsing] = useState(false);
+  const bulkMark = trpc.invoices.bulkMarkContractInstallments.useMutation({
+    onSuccess: r => {
+      toast.success(`${r.matchedCount} invoice(s) marked as contract installments${r.notFound.length ? ` — ${r.notFound.length} number(s) not found` : ""}`);
+      if (r.notFound.length) {
+        toast.warning(`Not found: ${r.notFound.slice(0, 10).join(", ")}${r.notFound.length > 10 ? ` +${r.notFound.length - 10} more` : ""}`, { duration: 10000 });
+      }
+      utils.invoices.invalidate();
+      utils.customers.invalidate();
+      setContractDlgOpen(false);
+      setContractNumbers([]);
+      setContractFileName("");
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  async function parseContractFile(file: File) {
+    setContractParsing(true);
+    try {
+      const XLSX = await import("xlsx");
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
+      // Collect every non-empty cell of the first column (skip a header cell if it isn't invoice-like)
+      const values = rows
+        .map(r => String(r?.[0] ?? "").trim())
+        .filter(Boolean);
+      const looksLikeHeader = values.length > 0 && /invoice|number|no\.?|τιμολ/i.test(values[0]) && !/\d{3,}/.test(values[0]);
+      const nums = Array.from(new Set(looksLikeHeader ? values.slice(1) : values));
+      if (nums.length === 0) {
+        toast.error("No invoice numbers found in the first column of the file");
+        return;
+      }
+      setContractNumbers(nums);
+      setContractFileName(file.name);
+    } catch (err: any) {
+      toast.error(`Could not read file: ${err?.message ?? err}`);
+    } finally {
+      setContractParsing(false);
+    }
+  }
+
   const rcCustomerInvoices = useMemo(() => {
     if (!invoices || !rcForm.customerId) return [];
     return invoices.filter(i => i.customerId === Number(rcForm.customerId) && i.status !== "Paid");
@@ -91,11 +151,28 @@ export default function Invoices() {
     return Array.from(new Set(invoices.map(i => i.company).filter((c): c is string => !!c))).sort();
   }, [invoices]);
 
+  /** Vessels present in the invoice data (id + name), for the vessel filter dropdown. */
+  const vesselOptions = useMemo(() => {
+    if (!invoices) return [] as { id: number; name: string }[];
+    const map = new Map<number, string>();
+    for (const i of invoices) {
+      const vid = (i as any).vesselId as number | null;
+      const vname = (i as any).vesselName as string | null;
+      if (vid && vname && !map.has(vid)) map.set(vid, vname);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [invoices]);
+
   const filtered = useMemo(() => {
     if (!invoices) return [];
     return invoices.filter(i => {
       if (statusFilter !== "all" && i.status !== statusFilter) return false;
       if (branchFilter !== "all" && i.company !== branchFilter) return false;
+      if (vesselFilter !== "all" && String((i as any).vesselId ?? "") !== vesselFilter) return false;
+      if (contractFilter === "installments" && !(i as any).isContractInstallment) return false;
+      if (overdueOnly && contractFilter === "installments" && i.daysOverdue <= 0) return false;
       if (groupDrill && ((i as any).customerGroup ?? i.customerName) !== groupDrill) return false;
       if (bucketFilter !== "all") {
         if (i.daysOverdue <= 0) return false;
@@ -103,11 +180,22 @@ export default function Invoices() {
           i.daysOverdue <= 30 ? "0-30" : i.daysOverdue <= 60 ? "31-60" : i.daysOverdue <= 90 ? "61-90" : i.daysOverdue <= 120 ? "91-120" : "120+";
         if (b !== bucketFilter) return false;
       }
-      if (search && !i.invoiceNumber.toLowerCase().includes(search.toLowerCase()) && !i.customerName.toLowerCase().includes(search.toLowerCase()))
-        return false;
+      if (search) {
+        const q = search.toLowerCase();
+        const vessel = ((i as any).vesselName ?? "").toLowerCase();
+        if (!i.invoiceNumber.toLowerCase().includes(q) && !i.customerName.toLowerCase().includes(q) && !vessel.includes(q)) return false;
+      }
       return true;
     });
-  }, [invoices, statusFilter, bucketFilter, branchFilter, search, groupDrill]);
+  }, [invoices, statusFilter, bucketFilter, branchFilter, vesselFilter, contractFilter, search, groupDrill]);
+
+  // Incremental rendering: mounting 5000+ table rows freezes the browser for
+  // seconds. Render a window and grow it on demand.
+  const [visibleCount, setVisibleCount] = useState(100);
+  useEffect(() => {
+    setVisibleCount(200);
+  }, [statusFilter, bucketFilter, branchFilter, vesselFilter, contractFilter, search, groupDrill]);
+  const visibleRows = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
   /** Totals of the currently filtered list: EUR + per-currency breakdown. */
   const filteredTotals = useMemo(() => {
@@ -157,6 +245,61 @@ export default function Invoices() {
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => exportReport.mutate({ report: "aging", format: "pdf" })} disabled={exportReport.isPending}>
             <FileDown className="h-4 w-4" /> Aging (PDF)
           </Button>
+          <Dialog open={contractDlgOpen} onOpenChange={o => { setContractDlgOpen(o); if (!o) { setContractNumbers([]); setContractFileName(""); } }}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <FileSignature className="h-4 w-4 text-violet-600" /> Contract Installments
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileSignature className="h-5 w-5 text-violet-600" />
+                  Bulk mark contract installments
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Upload an Excel or CSV file with the invoice numbers in the <strong>first column</strong> (one per row, header row optional).
+                  All matching invoices will be marked as contract installments — they must always be paid on time and are tracked separately.
+                </p>
+                <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg p-6 cursor-pointer hover:bg-muted/50 transition-colors">
+                  <Upload className="h-6 w-6 text-muted-foreground" />
+                  <span className="text-sm font-medium">{contractParsing ? "Reading file…" : contractFileName || "Choose .xlsx / .csv file"}</span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={e => {
+                      const f = e.target.files?.[0];
+                      if (f) void parseContractFile(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {contractNumbers.length > 0 && (
+                  <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+                    <div className="font-medium">{contractNumbers.length} invoice number(s) found</div>
+                    <div className="text-xs text-muted-foreground font-mono truncate" title={contractNumbers.slice(0, 50).join(", ")}>
+                      {contractNumbers.slice(0, 8).join(", ")}{contractNumbers.length > 8 ? ` +${contractNumbers.length - 8} more` : ""}
+                    </div>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Tip: you can also mark or unmark a single invoice from the status dropdown on each row.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setContractDlgOpen(false)}>Cancel</Button>
+                <Button
+                  disabled={contractNumbers.length === 0 || bulkMark.isPending}
+                  onClick={() => bulkMark.mutate({ invoiceNumbers: contractNumbers, value: true })}
+                >
+                  {bulkMark.isPending ? "Marking…" : `Mark ${contractNumbers.length || ""} invoice(s)`}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <Dialog open={rcOpen} onOpenChange={setRcOpen}>
             <DialogTrigger asChild>
               <Button variant="secondary" size="sm" className="gap-1.5">
@@ -384,6 +527,25 @@ export default function Invoices() {
             ))}
           </SelectContent>
         </Select>
+        {vesselOptions.length > 0 && (
+          <Select value={vesselFilter} onValueChange={setVesselFilter}>
+            <SelectTrigger className="w-52">
+              <SelectValue placeholder="All vessels" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All vessels</SelectItem>
+              {vesselOptions.map(v => (
+                <SelectItem key={v.id} value={String(v.id)}>
+                  {v.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <InstallmentToggle
+          value={contractFilter === "installments" ? "installments" : "all"}
+          onChange={v => setContractFilter(v)}
+        />
       </div>
 
       {/* Filtered totals: EUR + per-currency */}
@@ -494,64 +656,20 @@ export default function Invoices() {
               </TableBody>
             </Table>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Prime Branch</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Outstanding</TableHead>
-                  <TableHead className="text-right">Days Overdue</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map(i => (
-                  <TableRow key={i.id}>
-                    <TableCell className="font-mono text-sm">{i.invoiceNumber}</TableCell>
-                    <TableCell className="font-medium max-w-64">
-                      <span className="block truncate" title={i.customerName}>{i.customerName}</span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={branchColors[branchShort(i.company)] ?? "bg-gray-50 text-gray-600 border-gray-200"} title={i.company ?? undefined}>
-                        {branchShort(i.company)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm">{fmtDate(i.dueDate)}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={invoiceStatusColors[i.status]}>
-                        {i.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {i.currency && i.currency !== "EUR" ? (
-                        <span>
-                          {fmtCur(i.amount, i.currency, 2)}
-                          <span className="block text-xs text-muted-foreground">≈ {fmtEur(Number(i.amountEur ?? i.amount))}</span>
-                        </span>
-                      ) : (
-                        fmtEur(i.amount)
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right font-mono font-semibold">
-                      {i.currency && i.currency !== "EUR" ? (
-                        <span>
-                          {fmtCur(Number(i.amount) - Number(i.paidAmount), i.currency, 2)}
-                          <span className="block text-xs text-muted-foreground font-normal">≈ {fmtEur(i.outstanding)}</span>
-                        </span>
-                      ) : (
-                        fmtEur(i.outstanding)
-                      )}
-                    </TableCell>
-                    <TableCell className={`text-right font-mono ${i.daysOverdue > 0 ? "text-red-600 font-semibold" : ""}`}>
-                      {i.daysOverdue > 0 ? i.daysOverdue : "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <InvoicesTable rows={visibleRows as any} />
+          )}
+          {!isLoading && filtered.length > visibleCount && (
+            <div className="flex items-center justify-center gap-3 py-4 border-t">
+              <span className="text-sm text-muted-foreground">
+                Showing {visibleCount.toLocaleString()} of {filtered.length.toLocaleString()} invoices
+              </span>
+              <Button variant="outline" size="sm" onClick={() => setVisibleCount(c => c + 500)}>
+                Load 500 more
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setVisibleCount(filtered.length)}>
+                Show all
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

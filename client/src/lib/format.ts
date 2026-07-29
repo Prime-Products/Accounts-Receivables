@@ -65,16 +65,6 @@ export const invoiceStatusColors: Record<string, string> = {
   Disputed: "bg-amber-100 text-amber-800 border-amber-200",
 };
 
-export const onHoldStatusColors: Record<string, string> = {
-  "Under Review": "bg-sky-100 text-sky-800 border-sky-200",
-  "Eligible for On Hold": "bg-amber-100 text-amber-800 border-amber-200",
-  "On Hold": "bg-orange-100 text-orange-800 border-orange-200",
-  Legal: "bg-red-100 text-red-700 border-red-200",
-  Rejected: "bg-gray-100 text-gray-600 border-gray-200",
-  Resolved: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  Active: "bg-emerald-100 text-emerald-800 border-emerald-200",
-};
-
 export const taskStatusColors: Record<string, string> = {
   Pending: "bg-sky-100 text-sky-800 border-sky-200",
   "In Progress": "bg-violet-100 text-violet-800 border-violet-200",
@@ -112,3 +102,18 @@ export function downloadBase64(filename: string, mimeType: string, base64: strin
   a.click();
   URL.revokeObjectURL(url);
 }
+
+export const confirmationStatusColors: Record<string, string> = {
+  "Not Contacted": "bg-gray-100 text-gray-700 border-gray-200",
+  Confirmed: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  "Pending Follow-up": "bg-blue-100 text-blue-800 border-blue-200",
+  Broken: "bg-red-100 text-red-700 border-red-200",
+};
+
+/** Display labels for confirmation statuses ("Confirmed" → "Promise to Pay", "Broken" → "Not Confirmed Payment"; DB values stay unchanged). */
+export const confirmationStatusLabels: Record<string, string> = {
+  "Not Contacted": "Not Contacted",
+  Confirmed: "Promise to Pay",
+  "Pending Follow-up": "Pending Follow-up",
+  Broken: "Not Confirmed Payment",
+};
