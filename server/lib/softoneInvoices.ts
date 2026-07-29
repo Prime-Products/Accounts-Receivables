@@ -133,20 +133,24 @@ export function normalizeSoftOneOpenInvoiceRows(
     const dueDate = dateKeyToUtc(row.DUE_DATE, "DUE_DATE");
     const originalAmount = Math.round(numberValue(row, "ORIGINAL_AMOUNT") * 100) / 100;
     const openAmount = Math.round(numberValue(row, "OPEN_AMOUNT") * 100) / 100;
-    if (originalAmount <= 0 || openAmount <= 0 || openAmount > originalAmount + 0.01) {
-      throw new Error(`SoftOne FINDOC ${softoneId} has inconsistent amounts.`);
+    if (openAmount <= 0) {
+      throw new Error(`SoftOne FINDOC ${softoneId} has invalid open amount.`);
     }
-    const paidAmount = Math.max(0, originalAmount - openAmount);
+    // FINPAYTERMS can expose an open balance greater than its aggregated TAMNT
+    // after adjustments or currency/accounting movements. The open balance is
+    // authoritative for this read-only AR sync, so never reduce it to fit TAMNT.
+    const amount = Math.max(originalAmount, openAmount);
+    const paidAmount = Math.max(0, amount - openAmount);
     const currency = normalizeSoftOneCurrencyName(currencyName);
     return {
       customerSoftoneId,
       invoiceNumber,
       company,
       currency,
-      amountEur: toEur(originalAmount, currency).toFixed(2),
+      amountEur: toEur(amount, currency).toFixed(2),
       issueDate,
       dueDate,
-      amount: originalAmount.toFixed(2),
+      amount: amount.toFixed(2),
       paidAmount: paidAmount.toFixed(2),
       status: dueDate < now ? "Overdue" : paidAmount > 0.005 ? "Partially Paid" : "Open",
       softoneId,
