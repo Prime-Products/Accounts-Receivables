@@ -273,6 +273,25 @@ export async function upsertSoftOneCustomers(records: InsertCustomer[]) {
   });
 }
 
+export async function insertMissingSoftOneCustomers(records: InsertCustomer[]) {
+  if (records.length === 0) return;
+  const database = await requireDb();
+  const batchSize = 250;
+  await database.transaction(async tx => {
+    for (let index = 0; index < records.length; index += batchSize) {
+      await tx
+        .insert(customers)
+        .values(records.slice(index, index + batchSize))
+        .onDuplicateKeyUpdate({
+          // Preserve every field of an existing customer. This statement only
+          // supplies invoice-only TRDR rows that CustomerGroupFinData omitted.
+          set: { code: sql`${customers.code}` },
+        });
+    }
+  });
+  invalidateCache("customers:");
+}
+
 // ---------- Invoices ----------
 export async function listInvoices(filter?: { customerId?: number; statuses?: string[] }) {
   const cacheable = !filter?.customerId && (!filter?.statuses || filter.statuses.length === 0);

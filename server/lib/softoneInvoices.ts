@@ -11,6 +11,7 @@ import {
 const MAX_OPEN_INVOICES = 50_000;
 const SOFTONE_INVOICE_PAGE_SIZE = 500;
 const MAX_SOFTONE_INVOICE_PAGES = 200;
+const SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE = 250;
 type SourceRow = Record<string, unknown>;
 
 export function buildSoftOneOpenInvoiceFinancialsQuery(afterFindoc: number) {
@@ -151,6 +152,27 @@ export const softOneCurrenciesQuery = `SELECT
   CAST([SOCURRENCY] AS int) AS [SOCURRENCY],
   CAST([NAME] AS nchar(64)) AS [NAME]
 FROM [dbo].[SOCURRENCY]`;
+
+export function buildSoftOneInvoiceCustomerLookupQuery(softoneIds: string[]) {
+  if (
+    softoneIds.length === 0 ||
+    softoneIds.length > SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE ||
+    softoneIds.some(value => !/^\d+$/.test(value))
+  ) {
+    throw new Error("Invalid SoftOne invoice customer lookup identifiers.");
+  }
+  return `SELECT
+  CAST(customer.[TRDR] AS bigint) AS [TRDR],
+  CAST(customer.[NAME] AS nchar(255)) AS [NAME],
+  CAST(COALESCE(master.[TRDR], customer_group.[TRDR]) AS bigint) AS [MASTERTRDR],
+  CAST(COALESCE(master.[NAME], customer_group.[NAME], customer.[NAME]) AS nchar(255)) AS [GROUP_NAME]
+FROM [dbo].[TRDR] AS customer
+LEFT JOIN [dbo].[TRDR] AS master
+  ON master.[TRDR] = customer.[MASTERTRDR]
+LEFT JOIN [dbo].[TRDR] AS customer_group
+  ON customer_group.[TRDR] = customer.[TRDGROUP]
+WHERE customer.[TRDR] IN (${softoneIds.join(", ")})`;
+}
 
 function identity(row: SourceRow, field: string) {
   const value = String(row[field] ?? "").trim();
@@ -355,6 +377,65 @@ async function loadSoftOneOpenInvoices(pool: ConnectionPool) {
   );
 }
 
+async function ensureInvoiceCustomers(
+  pool: ConnectionPool,
+  records: SoftOneInvoiceUpsert[],
+) {
+  const existingIds = new Set(
+    (await db.listCustomers())
+      .map(customer => customer.softoneId)
+      .filter((value): value is string => Boolean(value)),
+  );
+  const missingIds = Array.from(
+    new Set(
+      records
+        .map(record => record.customerSoftoneId)
+        .filter(softoneId => !existingIds.has(softoneId)),
+    ),
+  );
+  if (missingIds.length === 0) return 0;
+
+  const rows: SourceRow[] = [];
+  for (
+    let index = 0;
+    index < missingIds.length;
+    index += SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE
+  ) {
+    const batch = missingIds.slice(
+      index,
+      index + SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE,
+    );
+    const result = await pool
+      .request()
+      .query<SourceRow>(buildSoftOneInvoiceCustomerLookupQuery(batch));
+    rows.push(...result.recordset);
+  }
+  const synchronizedAt = new Date();
+  const customers = rows.map(row => {
+    const softoneId = identity(row, "TRDR");
+    const name = identity(row, "NAME");
+    const masterSoftoneId =
+      row.MASTERTRDR == null ? null : String(row.MASTERTRDR).trim() || null;
+    return {
+      code: softoneId,
+      name,
+      customerGroup: String(row.GROUP_NAME ?? "").trim() || name,
+      masterSoftoneId,
+      softoneId,
+      softoneSyncedAt: synchronizedAt,
+    };
+  });
+  const resolvedIds = new Set(customers.map(customer => customer.softoneId));
+  const unresolvedIds = missingIds.filter(softoneId => !resolvedIds.has(softoneId));
+  if (unresolvedIds.length > 0) {
+    throw new Error(
+      `SoftOne did not resolve ${unresolvedIds.length} invoice customers.`,
+    );
+  }
+  await db.insertMissingSoftOneCustomers(customers);
+  return customers.length;
+}
+
 export async function inspectSoftOneOpenInvoices() {
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
   let pool: ConnectionPool | null = null;
@@ -445,6 +526,8 @@ export async function syncSoftOneOpenInvoices() {
     pool = await openSoftOneSqlPool();
     stage = "query and normalize open invoices";
     const records = await loadSoftOneOpenInvoices(pool);
+    stage = "resolve invoice-only customers";
+    const insertedCustomers = await ensureInvoiceCustomers(pool, records);
     stage = "upsert MariaDB invoices";
     await db.upsertSoftOneInvoices(records);
     await db.addSyncLog({
@@ -454,7 +537,7 @@ export async function syncSoftOneOpenInvoices() {
       status: "Success",
       message: `Read-only SQL sync upserted ${records.length} open invoices`,
     });
-    return { synced: records.length };
+    return { synced: records.length, insertedCustomers };
   } catch (error) {
     throw new Error(softOneSqlError(error, stage));
   } finally {
