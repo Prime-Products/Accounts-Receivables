@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeSoftOneCustomerRows,
+  softOneGroupNamesQuery,
   softOneCustomersQuery,
 } from "./lib/softoneSql";
 
@@ -54,18 +55,21 @@ describe("SoftOne read-only SQL sync", () => {
     expect(records[0].customerGroup).toBe("Group Alpha");
   });
 
-  it("uses the group name returned by the read-only dbo.TRDR join", () => {
-    const [record] = normalizeSoftOneCustomerRows([
-      { ...sourceRow, GROUPNAME: "External Master Group" },
-    ]);
+  it("uses the group name returned by the separate read-only dbo.TRDR query", () => {
+    const [record] = normalizeSoftOneCustomerRows(
+      [sourceRow],
+      new Date(),
+      new Map([["100", "External Master Group"]]),
+    );
     expect(record.customerGroup).toBe("External Master Group");
   });
 
   it("keeps NAME last for the production unixODBC driver", () => {
-    expect(softOneCustomersQuery.indexOf("CAST(source.[NAME]")).toBeGreaterThan(
-      softOneCustomersQuery.indexOf("source.[Collections]"),
+    expect(softOneCustomersQuery.indexOf("CAST([NAME]")).toBeGreaterThan(
+      softOneCustomersQuery.indexOf("[Collections]"),
     );
-    expect(softOneCustomersQuery).toContain("CAST(master.[NAME] AS nchar(64))");
-    expect(softOneCustomersQuery).toContain("LEFT JOIN [dbo].[TRDR]");
+    expect(softOneGroupNamesQuery.indexOf("CAST(master.[NAME]")).toBeGreaterThan(
+      softOneGroupNamesQuery.indexOf("master.[TRDR]"),
+    );
   });
 });
