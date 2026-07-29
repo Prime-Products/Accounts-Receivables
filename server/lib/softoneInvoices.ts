@@ -34,7 +34,8 @@ HAVING SUM((FP.[TAMNT] - FP.[OPNTAMNT]) * FP.[PAYDEMANDMD]) > 0.005`;
 export const softOneOpenInvoiceAmountSummaryQuery = `WITH source AS (
   SELECT
     CAST(SUM(FP.[TAMNT] * FP.[PAYDEMANDMD]) AS float) AS [ORIGINAL_AMOUNT],
-    CAST(SUM((FP.[TAMNT] - FP.[OPNTAMNT]) * FP.[PAYDEMANDMD]) AS float) AS [OPEN_AMOUNT]
+    CAST(SUM((FP.[TAMNT] - FP.[OPNTAMNT]) * FP.[PAYDEMANDMD]) AS float) AS [OPEN_AMOUNT],
+    CAST(SUM(FP.[OPNTAMNT] * FP.[PAYDEMANDMD]) AS float) AS [REMAINING_AMOUNT]
   FROM [dbo].[FINPAYTERMS] AS FP
   INNER JOIN [dbo].[FINDOC] AS FIN
     ON FIN.[COMPANY] = FP.[COMPANY] AND FIN.[FINDOC] = FP.[FINDOC]
@@ -51,6 +52,9 @@ SELECT
   CAST(SUM(CASE WHEN ABS([OPEN_AMOUNT]) <= 0.005 THEN 1 ELSE 0 END) AS bigint) AS [ZERO_OPEN],
   CAST(SUM(CASE WHEN [OPEN_AMOUNT] < -0.005 THEN 1 ELSE 0 END) AS bigint) AS [NEGATIVE_OPEN],
   CAST(SUM(CASE WHEN [ORIGINAL_AMOUNT] > 0.005 THEN 1 ELSE 0 END) AS bigint) AS [POSITIVE_ORIGINAL],
+  CAST(SUM(CASE WHEN [REMAINING_AMOUNT] > 0.005 THEN 1 ELSE 0 END) AS bigint) AS [POSITIVE_REMAINING],
+  CAST(SUM(CASE WHEN ABS([REMAINING_AMOUNT]) <= 0.005 THEN 1 ELSE 0 END) AS bigint) AS [ZERO_REMAINING],
+  CAST(SUM(CASE WHEN [REMAINING_AMOUNT] < -0.005 THEN 1 ELSE 0 END) AS bigint) AS [NEGATIVE_REMAINING],
   CAST(SUM(CASE
     WHEN [ORIGINAL_AMOUNT] > 0.005 AND [OPEN_AMOUNT] <= 0.005 THEN 1
     ELSE 0
@@ -266,6 +270,9 @@ export async function inspectSoftOneOpenInvoices() {
         zeroOpen: numberValue(summary, "ZERO_OPEN"),
         negativeOpen: numberValue(summary, "NEGATIVE_OPEN"),
         positiveOriginal: numberValue(summary, "POSITIVE_ORIGINAL"),
+        positiveRemaining: numberValue(summary, "POSITIVE_REMAINING"),
+        zeroRemaining: numberValue(summary, "ZERO_REMAINING"),
+        negativeRemaining: numberValue(summary, "NEGATIVE_REMAINING"),
         positiveOriginalWithoutPositiveOpen: numberValue(
           summary,
           "POSITIVE_ORIGINAL_WITHOUT_POSITIVE_OPEN",
