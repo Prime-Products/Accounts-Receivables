@@ -3,6 +3,7 @@ import type { InsertCustomer } from "../../drizzle/schema";
 import * as db from "../db";
 
 const MAX_CUSTOMERS = 50_000;
+const SOFTONE_NAME_BATCH_SIZE = 250;
 
 // Keep financial values and text names in separate result sets. The production
 // unixODBC driver can return HY010 when variable-length text is fetched
@@ -59,6 +60,55 @@ INNER JOIN (
   ON active_groups.[TRDGROUP] = customer_group.[TRDGROUP]`;
 
 type SourceRow = Record<string, unknown>;
+
+function numericIdentifiers(values: string[]) {
+  if (
+    values.length === 0 ||
+    values.length > SOFTONE_NAME_BATCH_SIZE ||
+    values.some(value => !/^\d+$/.test(value))
+  ) {
+    throw new Error("Invalid SoftOne name lookup identifiers.");
+  }
+  return values.join(", ");
+}
+
+export function buildSoftOneCustomerNamesQuery(softoneIds: string[]) {
+  return `SELECT
+  CAST(customer.[TRDR] AS bigint) AS [TRDR],
+  CAST(customer.[NAME] AS nchar(128)) AS [NAME]
+FROM [dbo].[TRDR] AS customer
+WHERE customer.[TRDR] IN (${numericIdentifiers(softoneIds)})`;
+}
+
+export function buildSoftOneCustomerGroupNamesQuery(groupIds: string[]) {
+  return `SELECT
+  CAST(customer_group.[TRDGROUP] AS bigint) AS [TRDGROUP],
+  CAST(customer_group.[CODE] AS nchar(64)) AS [CODE],
+  CAST(customer_group.[NAME] AS nchar(255)) AS [NAME]
+FROM [dbo].[TRDGROUP] AS customer_group
+WHERE customer_group.[TRDGROUP] IN (${numericIdentifiers(groupIds)})`;
+}
+
+async function queryNamesInBatches(
+  pool: ConnectionPool,
+  identifiers: string[],
+  buildQuery: (batch: string[]) => string,
+) {
+  const rows: SourceRow[] = [];
+  for (
+    let index = 0;
+    index < identifiers.length;
+    index += SOFTONE_NAME_BATCH_SIZE
+  ) {
+    const result = await pool
+      .request()
+      .query<SourceRow>(
+        buildQuery(identifiers.slice(index, index + SOFTONE_NAME_BATCH_SIZE)),
+      );
+    rows.push(...result.recordset);
+  }
+  return rows;
+}
 
 export function isSoftOneSqlConfigured() {
   return [
@@ -223,14 +273,37 @@ export async function syncSoftOneCustomers() {
     pool = await openSoftOneSqlPool();
     stage = "query CustomerGroupFinData financials";
     const result = await pool.request().query<SourceRow>(softOneCustomersQuery);
+    const customerAndMasterIds = Array.from(
+      new Set(
+        result.recordset.flatMap(row =>
+          [row.TRDR, row.MASTERTRDR]
+            .filter(value => value != null && String(value).trim())
+            .map(value => String(value).trim()),
+        ),
+      ),
+    );
+    const customerGroupIds = Array.from(
+      new Set(
+        result.recordset
+          .map(row => row.TRDGROUP)
+          .filter(value => value != null && String(value).trim())
+          .map(value => String(value).trim()),
+      ),
+    );
     stage = "query customer and master names";
-    const groupResult = await pool.request().query<SourceRow>(softOneGroupNamesQuery);
+    const customerNameRows = await queryNamesInBatches(
+      pool,
+      customerAndMasterIds,
+      buildSoftOneCustomerNamesQuery,
+    );
     stage = "query active customer group names";
-    const customerGroupResult = await pool
-      .request()
-      .query<SourceRow>(softOneCustomerGroupNamesQuery);
+    const customerGroupRows = await queryNamesInBatches(
+      pool,
+      customerGroupIds,
+      buildSoftOneCustomerGroupNamesQuery,
+    );
     const allNames = new Map(
-      groupResult.recordset.map(row => [
+      customerNameRows.map(row => [
         readIdentity(row, "TRDR"),
         readIdentity(row, "NAME"),
       ]),
@@ -240,7 +313,7 @@ export async function syncSoftOneCustomers() {
       NAME: allNames.get(readIdentity(row, "TRDR")),
     }));
     const customerGroupNames = new Map(
-      customerGroupResult.recordset.map(row => [
+      customerGroupRows.map(row => [
         readIdentity(row, "TRDGROUP"),
         readIdentity(row, "NAME"),
       ]),

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSoftOneCustomerGroupNamesQuery,
+  buildSoftOneCustomerNamesQuery,
   normalizeSoftOneCustomerRows,
   softOneCustomerGroupNamesQuery,
   softOneGroupNamesQuery,
@@ -94,5 +96,17 @@ describe("SoftOne read-only SQL sync", () => {
     expect(softOneCustomerGroupNamesQuery).toContain(
       "CAST(customer_group.[CODE] AS nchar(64))",
     );
+  });
+
+  it("builds bounded numeric name lookups for the unixODBC driver", () => {
+    expect(buildSoftOneCustomerNamesQuery(["101", "100"])).toContain(
+      "customer.[TRDR] IN (101, 100)",
+    );
+    expect(buildSoftOneCustomerGroupNamesQuery(["10"])).toContain(
+      "customer_group.[TRDGROUP] IN (10)",
+    );
+    expect(() =>
+      buildSoftOneCustomerNamesQuery(["1); DROP TABLE TRDR"]),
+    ).toThrow(/invalid.*identifiers/i);
   });
 });
