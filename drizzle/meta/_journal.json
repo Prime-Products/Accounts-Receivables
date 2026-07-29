@@ -211,6 +211,13 @@
       "when": 1785278627624,
       "tag": "0029_misty_payback",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1785312335408,
+      "tag": "0030_freezing_mister_sinister",
+      "breakpoints": true
     }
   ]
 }
