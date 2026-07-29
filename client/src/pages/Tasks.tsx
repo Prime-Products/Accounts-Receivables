@@ -346,15 +346,20 @@ export default function Tasks() {
                     </div>
                     <div className="max-h-40 overflow-y-auto space-y-1">
                       {(openTask as any).attachedInvoices.map((inv: any) => (
-                        <div key={inv.id} className="flex items-center justify-between text-xs border-b last:border-b-0 py-1">
-                          <span className="font-mono">{inv.invoiceNumber}</span>
+                        <a
+                          key={inv.id}
+                          href={`/invoices?q=${encodeURIComponent(inv.invoiceNumber)}`}
+                          className="flex items-center justify-between text-xs border-b last:border-b-0 py-1 hover:bg-muted/50 rounded px-1 -mx-1 cursor-pointer"
+                          title="Open this invoice in the Invoices page"
+                        >
+                          <span className="font-mono text-blue-700 hover:underline">{inv.invoiceNumber}</span>
                           <span className="text-muted-foreground truncate max-w-32" title={inv.customerName}>{inv.customerName}</span>
                           <span className="text-muted-foreground">{fmtDate(inv.dueDate)}</span>
                           <span className="font-mono font-medium">
                             {inv.currency && inv.currency !== "EUR" ? `${inv.currency} ` : "€"}
                             {Number(inv.amount).toLocaleString()}
                           </span>
-                        </div>
+                        </a>
                       ))}
                     </div>
                   </div>

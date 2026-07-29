@@ -918,3 +918,5 @@
 - [x] Remove the "All types" task-type filter dropdown from the Tasks page
 - [x] Tasks page: highlight overdue open tasks in red (due date passed, status not Completed)
 - [x] Log Call: keep only "Reached" and "No Answer" in the Outcome options (remove the rest)
+- [x] Invoices page: remove the "Contract Installments" and "New Invoice" header buttons
+- [x] Task detail: attached invoices should be clickable links that open the invoice (filtered Invoices view)
