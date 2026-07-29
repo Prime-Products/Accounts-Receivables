@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtEur, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, HandCoins, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
@@ -791,17 +791,6 @@ export default function Customers() {
                             </span>
                           )}
                         </div>
-                        {(g as any).accountManager && (
-                          <div className="text-[11px] text-sky-700 mt-0.5 truncate">
-                            {(g as any).accountManager.name}
-                          </div>
-                        )}
-                        {(g as any).collector && (
-                          <div className="text-[11px] text-emerald-700 mt-0.5 truncate inline-flex items-center gap-1 max-w-full">
-                            <HandCoins className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{(g as any).collector.name}</span>
-                          </div>
-                        )}
                       </TableCell>
                       <TableCell onClick={e => e.stopPropagation()}>
                         <ConfirmationBadgeButton

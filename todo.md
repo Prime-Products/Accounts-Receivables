@@ -980,3 +980,7 @@
 - [x] Database: migrate existing "Under Review" rows to "Critical" (0 rows existed; enum already contains Critical)
 - [x] Frontend: status dropdowns, badges, filters, Next Action dialog show "Critical" (dark red styling)
 - [x] Tests + checkpoint + GitHub push (202 tests pass)
+
+## Remove names under group name in groups list (user request 29/7)
+- [x] Remove account manager / collector names shown under the group name in the groups list
+- [x] Column drag-and-drop reordering — requested then CANCELLED by user (not implemented)
