@@ -2739,6 +2739,22 @@ export const forecastRouter = router({
     const overdueContractInvoices = invoices.filter(i => i.isContractInstallment && isOpenInvoice(i) && daysOverdue(i.dueDate, now) > 0);
     const overdueContractCount = overdueContractInvoices.length;
     const overdueContractAmount = overdueContractInvoices.reduce((s, i) => s + outstanding(i), 0);
+    // Groups with a positive forecast this month whose effective confirmation status
+    // is still "Not Contacted" (no row, or stale row) → the collector must call them.
+    const [monthForecastEntries, confirmationRows] = await Promise.all([
+      db.listForecastEntries(year, month).catch(() => []),
+      db.listGroupConfirmationStatuses().catch(() => []),
+    ]);
+    const confirmationByGroup = new Map(confirmationRows.map(r => [r.groupName, r]));
+    const forecastGroups = new Set<string>();
+    for (const fe of monthForecastEntries) {
+      if (fe.customerGroup && Number(fe.expectedAmount) > 0) forecastGroups.add(fe.customerGroup);
+    }
+    let pendingContactGroups = 0;
+    for (const g of Array.from(forecastGroups)) {
+      const eff = effectiveConfirmation(confirmationByGroup.get(g));
+      if (eff.status === "Not Contacted") pendingContactGroups++;
+    }
     return {
       year,
       month,
@@ -2757,6 +2773,7 @@ export const forecastRouter = router({
       onHoldPending: criticalGroups,
       onHoldGroups,
       problematicGroups,
+      pendingContactGroups,
     };
   }),
   plans: protectedProcedure.query(async () => {

@@ -1002,3 +1002,10 @@
 ## AI Summary — Greek shorter format (user request 30/7)
 - [x] Rewrite prompt: output in Greek, ~100 words max, header line with Open Balance + Overdue + invoice count, short paragraph (month status, payment behavior, key invoices), one "Προτεινόμενη ενέργεια" sentence
 - [x] Test with real group data and verify format matches user example (MSC: 68 words, exact format)
+
+## Dashboard: pending contact card (user request 30/7)
+- [x] Backend: count groups with forecast > 0 and confirmationStatus = Not Contacted this month
+- [x] Frontend: render a card on Dashboard showing "Εκκρεμεί επικοινωνία: X groups"
+
+## Groups list: remove Expected column (user request 30/7)
+- [x] Remove the "Expected" column from the groups list (forecast IS the conservative expected amount)

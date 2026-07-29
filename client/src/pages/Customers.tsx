@@ -18,7 +18,7 @@ import { useLocation } from "wouter";
 import LogCallDialog from "@/components/LogCallDialog";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
 
-type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "expected" | "collected" | "remaining" | "overdueCount";
+type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "collected" | "remaining" | "overdueCount";
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
 
 /** Click-to-edit forecast cell. Saving corrects the month's forecast (expected + initial baseline). */
@@ -207,7 +207,6 @@ const GROUP_COL_DEFAULTS: Record<string, number> = {
   overdue: 120,
   overdueEom: 120,
   forecast: 110,
-  expected: 110,
   collected: 105,
   remaining: 105,
 };
@@ -238,7 +237,10 @@ export default function Customers() {
     return p && ["problematic", "critical", "on-hold", "legal", "normal"].includes(p) ? p : "all";
   });
   const [ratingFilter, setRatingFilter] = useState<string>("all");
-  const [confirmationFilter, setConfirmationFilter] = useState<string>("all");
+  const [confirmationFilter, setConfirmationFilter] = useState<string>(() => {
+    const p = new URLSearchParams(window.location.search).get("conf");
+    return p && ["not-contacted", "confirmed", "pending", "broken"].includes(p) ? p : "all";
+  });
   const [managerFilter, setManagerFilter] = useState<string>("all");
   const [collectorFilter, setCollectorFilter] = useState<string>("all");
   const { data: teamMembers } = trpc.team.list.useQuery();
@@ -361,8 +363,6 @@ export default function Customers() {
             return g.overdueEomBalance;
           case "forecast":
             return g.forecastExpected;
-          case "expected":
-            return (g as any).expectedToCollect ?? g.forecastExpected;
           case "collected":
             return g.collected;
           case "remaining":
@@ -384,18 +384,17 @@ export default function Customers() {
   const groupTotals = useMemo(
     () =>
       filteredGroups.reduce(
-        (t: { companies: number; open: number; overdue: number; overdueEom: number; forecast: number; expected: number; collected: number; remaining: number; overdueCount: number }, g) => ({
+        (t: { companies: number; open: number; overdue: number; overdueEom: number; forecast: number; collected: number; remaining: number; overdueCount: number }, g) => ({
           companies: t.companies + g.companyCount,
           open: t.open + g.openBalance,
           overdue: t.overdue + g.overdueBalance,
           overdueEom: t.overdueEom + g.overdueEomBalance,
           forecast: t.forecast + g.forecastExpected,
-          expected: t.expected + ((g as any).expectedToCollect ?? g.forecastExpected),
           collected: t.collected + g.collected,
           remaining: t.remaining + g.remaining,
           overdueCount: t.overdueCount + g.overdueCount,
         }),
-        { companies: 0, open: 0, overdue: 0, overdueEom: 0, forecast: 0, expected: 0, collected: 0, remaining: 0, overdueCount: 0 }
+        { companies: 0, open: 0, overdue: 0, overdueEom: 0, forecast: 0, collected: 0, remaining: 0, overdueCount: 0 }
       ),
     [filteredGroups]
   );
@@ -423,7 +422,6 @@ export default function Customers() {
       overdueCount: 0,
       overdueEom: 0,
       forecastCurrent: 0,
-      expected: 0,
       collected: 0,
       remaining: 0,
       agingCurrent: 0,
@@ -445,7 +443,6 @@ export default function Customers() {
       s.overdueCount += g.overdueCount;
       s.overdueEom += g.overdueEomBalance;
       s.forecastCurrent += g.forecastExpected;
-      s.expected += (g as any).expectedToCollect ?? g.forecastExpected;
       s.collected += g.collected;
       s.remaining += g.remaining;
       const aging = (g as any).aging;
@@ -650,20 +647,7 @@ export default function Customers() {
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Forecast (this month)</div>
                 <div className="text-xl font-bold font-mono text-emerald-700">{fmtEur(summary.forecastCurrent)}</div>
-                <div className="text-[11px] font-mono mt-0.5">
-                  <span className="text-muted-foreground">Expected: </span>
-                  <span className="font-semibold">{fmtEur(summary.expected)}</span>
-                </div>
-                <div
-                  className={`text-[11px] font-mono mt-0.5 ${summary.expected - summary.forecastCurrent >= 0 ? "text-emerald-600" : "text-red-600"}`}
-                  title="Expected to Collect vs Forecast"
-                >
-                  {summary.expected - summary.forecastCurrent >= 0 ? "+" : ""}
-                  {fmtEur(summary.expected - summary.forecastCurrent)}
-                  {summary.forecastCurrent > 0
-                    ? ` (${(((summary.expected - summary.forecastCurrent) / summary.forecastCurrent) * 100).toFixed(1)}%)`
-                    : ""}
-                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">expected to collect this month</div>
               </CardContent>
             </Card>
             <Card>
@@ -729,7 +713,6 @@ export default function Customers() {
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} col="overdue" cols={groupCols} />
                     <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} col="overdueEom" cols={groupCols} />
                     <SortableHead label="Forecast" active={groupSort.key === "forecast"} dir={groupSort.dir} onClick={() => toggleGroupSort("forecast")} col="forecast" cols={groupCols} />
-                    <SortableHead label="Expected" active={groupSort.key === "expected"} dir={groupSort.dir} onClick={() => toggleGroupSort("expected")} col="expected" cols={groupCols} />
                     <SortableHead label="Collected" active={groupSort.key === "collected"} dir={groupSort.dir} onClick={() => toggleGroupSort("collected")} col="collected" cols={groupCols} />
                     <SortableHead label="Remaining" active={groupSort.key === "remaining"} dir={groupSort.dir} onClick={() => toggleGroupSort("remaining")} col="remaining" cols={groupCols} />
                   </TableRow>
@@ -748,9 +731,6 @@ export default function Customers() {
                     </TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.forecast > 0 ? "text-emerald-700" : ""}`}>
                       {fmtEur(groupTotals.forecast)}
-                    </TableCell>
-                    <TableCell className={`text-right font-mono ${groupTotals.expected - groupTotals.forecast >= 0 ? "text-emerald-700" : "text-red-600"}`}>
-                      {fmtEur(groupTotals.expected)}
                     </TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.collected > 0 ? "text-emerald-700" : ""}`}>
                       {fmtEur(groupTotals.collected)}
@@ -824,25 +804,9 @@ export default function Customers() {
                         {fmtEur(g.overdueEomBalance)}
                       </TableCell>
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                        <EditableForecastCell group={g.group} value={g.forecastExpected} />
-                      </TableCell>
-                      <TableCell
-                        className={`text-right font-mono ${
-                          ((g as any).expectedToCollect ?? g.forecastExpected) - g.forecastExpected < 0
-                            ? "text-red-600"
-                            : ((g as any).expectedToCollect ?? g.forecastExpected) - g.forecastExpected > 0
-                              ? "text-emerald-700"
-                              : "text-muted-foreground"
-                        }`}
-                        title={
-                          g.confirmationStatus === "Not Contacted"
-                            ? "Not contacted yet — expected equals forecast"
-                            : `Based on last call (${confirmationStatusLabels[g.confirmationStatus] ?? g.confirmationStatus})`
-                        }
-                      >
-                        {fmtEur((g as any).expectedToCollect ?? g.forecastExpected)}
-                      </TableCell>
-                      <TableCell className={`text-right font-mono ${g.collected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
+                      <EditableForecastCell group={g.group} value={g.forecastExpected} />
+                    </TableCell>
+                     <TableCell className={`text-right font-mono ${g.collected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                         {fmtEur(g.collected)}
                       </TableCell>
                       <TableCell className={`text-right font-mono ${g.remaining > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
@@ -852,7 +816,7 @@ export default function Customers() {
                   ))}
                   {!showAllGroups && filteredGroups.length > 100 && (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={10} className="text-center py-4">
+                      <TableCell colSpan={9} className="text-center py-4">
                         <span className="text-sm text-muted-foreground mr-3">
                           Showing 100 of {filteredGroups.length.toLocaleString()} groups
                         </span>

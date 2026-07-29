@@ -13,6 +13,7 @@ import {
   Flag,
   ListChecks,
   AlertOctagon,
+  PhoneCall,
   Target,
   TrendingUp,
   Wallet,
@@ -129,7 +130,19 @@ export default function Home() {
       </div>
 
       {/* Smart tasks & workflow strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <button
+          onClick={() => navigate("/customers?conf=not-contacted")}
+          className={`text-left rounded-lg border p-4 hover:shadow-md transition-shadow flex items-center gap-4 ${(data.pendingContactGroups ?? 0) > 0 ? "bg-orange-50 border-orange-200" : "bg-card"}`}
+        >
+          <div className="h-11 w-11 rounded-lg bg-orange-100 flex items-center justify-center">
+            <PhoneCall className="h-5 w-5 text-orange-700" />
+          </div>
+          <div>
+            <div className={`text-xl font-bold ${(data.pendingContactGroups ?? 0) > 0 ? "text-orange-700" : ""}`}>{data.pendingContactGroups ?? 0}</div>
+            <div className="text-sm text-muted-foreground">Εκκρεμεί επικοινωνία — groups με forecast χωρίς επιβεβαίωση</div>
+          </div>
+        </button>
         <button
           onClick={() => navigate("/tasks")}
           className="text-left rounded-lg border bg-card p-4 hover:shadow-md transition-shadow flex items-center gap-4"
