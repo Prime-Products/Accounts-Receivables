@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aggregateSoftOneOpenInvoiceParts,
+  buildSoftOneOpenInvoiceFinancialsQuery,
   normalizeSoftOneCurrencyName,
   normalizeSoftOneOpenInvoiceRows,
   softOneOpenInvoiceAmountSummaryQuery,
@@ -126,8 +127,11 @@ describe("SoftOne open invoice sync", () => {
     expect(softOneOpenInvoiceFinancialsQuery).not.toMatch(
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
     );
-    expect(softOneOpenInvoiceFinancialsQuery).not.toContain("GROUP BY");
     expect(softOneOpenInvoiceFinancialsQuery).not.toContain("HAVING");
+    expect(softOneOpenInvoiceFinancialsQuery).toContain("TOP (500)");
+    expect(softOneOpenInvoiceFinancialsQuery).toContain(
+      "FP_PAGE.[FINDOC] > 0",
+    );
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
       "FIN.[SOSOURCE] = 1351",
     );
@@ -149,6 +153,15 @@ describe("SoftOne open invoice sync", () => {
     );
     expect(softOneOpenInvoiceTypeBreakdownQuery).not.toMatch(
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
+    );
+  });
+
+  it("builds numeric keyset pages without accepting an unsafe cursor", () => {
+    expect(buildSoftOneOpenInvoiceFinancialsQuery(1400000)).toContain(
+      "FP_PAGE.[FINDOC] > 1400000",
+    );
+    expect(() => buildSoftOneOpenInvoiceFinancialsQuery(-1)).toThrow(
+      /invalid.*cursor/i,
     );
   });
 });

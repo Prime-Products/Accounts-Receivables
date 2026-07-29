@@ -9,9 +9,32 @@ import {
 } from "./softoneSql";
 
 const MAX_OPEN_INVOICES = 50_000;
+const SOFTONE_INVOICE_PAGE_SIZE = 500;
+const MAX_SOFTONE_INVOICE_PAGES = 200;
 type SourceRow = Record<string, unknown>;
 
-export const softOneOpenInvoiceFinancialsQuery = `SELECT TOP (50000)
+export function buildSoftOneOpenInvoiceFinancialsQuery(afterFindoc: number) {
+  if (!Number.isSafeInteger(afterFindoc) || afterFindoc < 0) {
+    throw new Error("Invalid SoftOne invoice page cursor.");
+  }
+  return `WITH document_page AS (
+  SELECT TOP (${SOFTONE_INVOICE_PAGE_SIZE})
+    FP_PAGE.[FINDOC]
+  FROM [dbo].[FINPAYTERMS] AS FP_PAGE
+  INNER JOIN [dbo].[FINDOC] AS FIN_PAGE
+    ON FIN_PAGE.[COMPANY] = FP_PAGE.[COMPANY]
+    AND FIN_PAGE.[FINDOC] = FP_PAGE.[FINDOC]
+  WHERE FP_PAGE.[ISCLOSE] = 0
+    AND FP_PAGE.[ISCANCEL] = 0
+    AND FP_PAGE.[APPRV] = 1
+    AND FP_PAGE.[PAYDEMANDMD] IN (-1, 1)
+    AND FIN_PAGE.[SOSOURCE] = 1351
+    AND FIN_PAGE.[SOREDIR] = 0
+    AND FP_PAGE.[FINDOC] > ${afterFindoc}
+  GROUP BY FP_PAGE.[FINDOC]
+  ORDER BY FP_PAGE.[FINDOC]
+)
+SELECT
   CAST(FP.[FINDOC] AS bigint) AS [FINDOC],
   CAST(FP.[TRDR] AS bigint) AS [TRDR],
   CAST(FIN.[COMPANY] AS int) AS [COMPANY],
@@ -23,6 +46,8 @@ export const softOneOpenInvoiceFinancialsQuery = `SELECT TOP (50000)
 FROM [dbo].[FINPAYTERMS] AS FP
 INNER JOIN [dbo].[FINDOC] AS FIN
   ON FIN.[COMPANY] = FP.[COMPANY] AND FIN.[FINDOC] = FP.[FINDOC]
+INNER JOIN document_page AS PAGE
+  ON PAGE.[FINDOC] = FP.[FINDOC]
 WHERE FP.[ISCLOSE] = 0
   AND FP.[ISCANCEL] = 0
   AND FP.[APPRV] = 1
@@ -30,6 +55,10 @@ WHERE FP.[ISCLOSE] = 0
   AND FIN.[SOSOURCE] = 1351
   AND FIN.[SOREDIR] = 0
 ORDER BY FP.[FINDOC]`;
+}
+
+export const softOneOpenInvoiceFinancialsQuery =
+  buildSoftOneOpenInvoiceFinancialsQuery(0);
 
 export const softOneOpenInvoiceAmountSummaryQuery = `WITH source AS (
   SELECT
@@ -280,13 +309,29 @@ async function queryMaps(pool: ConnectionPool) {
 }
 
 async function querySoftOneOpenInvoiceSource(pool: ConnectionPool) {
-  const result = await pool
-    .request()
-    .query<SourceRow>(softOneOpenInvoiceFinancialsQuery);
-  if (result.recordset.length >= MAX_OPEN_INVOICES) {
-    throw new Error("SoftOne open invoice source row limit reached.");
+  const records: SourceRow[] = [];
+  let afterFindoc = 0;
+  for (let page = 0; page < MAX_SOFTONE_INVOICE_PAGES; page += 1) {
+    const result = await pool
+      .request()
+      .query<SourceRow>(buildSoftOneOpenInvoiceFinancialsQuery(afterFindoc));
+    if (result.recordset.length === 0) return records;
+    const pageRecords = aggregateSoftOneOpenInvoiceParts(result.recordset);
+    records.push(...pageRecords);
+    if (records.length > MAX_OPEN_INVOICES) {
+      throw new Error("SoftOne open invoice row limit exceeded.");
+    }
+    const pageFindocs = Array.from(
+      new Set(result.recordset.map(row => numberValue(row, "FINDOC"))),
+    ).sort((left, right) => left - right);
+    const nextCursor = pageFindocs.at(-1);
+    if (nextCursor === undefined || nextCursor <= afterFindoc) {
+      throw new Error("SoftOne invoice pagination did not advance.");
+    }
+    afterFindoc = nextCursor;
+    if (pageFindocs.length < SOFTONE_INVOICE_PAGE_SIZE) return records;
   }
-  return aggregateSoftOneOpenInvoiceParts(result.recordset);
+  throw new Error("SoftOne invoice page limit exceeded.");
 }
 
 async function loadSoftOneOpenInvoices(pool: ConnectionPool) {
