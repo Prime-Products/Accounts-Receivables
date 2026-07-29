@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
@@ -12,7 +13,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, FileText, HandCoins, ListChecks, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, HandCoins, ListChecks, Search, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link, useSearch } from "wouter";
@@ -33,6 +34,7 @@ export default function Tasks() {
   const utils = trpc.useUtils();
   const [statusFilter, setStatusFilter] = useState<string>("Pending");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
   /** Inbox scope: all | mine (assigned to my linked team member) | created (created by me). */
   const [scopeFilter, setScopeFilter] = useState<string>("all");
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
@@ -46,7 +48,7 @@ export default function Tasks() {
     if (id && tasks.some(t => t.id === id)) {
       const t = tasks.find(tk => tk.id === id)!;
       // Ensure the task is visible regardless of the current status filter.
-      setStatusFilter(t.status === "Pending" ? "Pending" : "all");
+      setStatusFilter(t.status === "Pending" ? "Pending" : t.status === "Cancelled" ? "Cancelled" : "all");
       setOpenTaskId(id);
     }
     setConsumedParam(true);
@@ -76,15 +78,23 @@ export default function Tasks() {
 
   const filtered = useMemo(() => {
     if (!tasks) return [];
+    const q = search.trim().toLowerCase();
     return tasks.filter(t => {
-      if (statusFilter !== "all" && t.status !== statusFilter) return false;
+      if (statusFilter === "all") {
+        // "All statuses" intentionally hides Cancelled tasks — select "Cancelled" to see them.
+        if (t.status === "Cancelled") return false;
+      } else if (t.status !== statusFilter) return false;
       if (assigneeFilter === "unassigned" && t.assigneeId != null) return false;
       if (assigneeFilter !== "all" && assigneeFilter !== "unassigned" && t.assigneeId !== Number(assigneeFilter)) return false;
       if (scopeFilter === "created" && !(t as any).createdByMe) return false;
       if (scopeFilter === "received" && ((t as any).createdByMe || t.assigneeId == null)) return false;
+      if (q) {
+        const hay = `${(t as any).groupName ?? ""} ${t.customerName ?? ""} ${t.title ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       return true;
     });
-  }, [tasks, statusFilter, assigneeFilter, scopeFilter]);
+  }, [tasks, statusFilter, assigneeFilter, scopeFilter, search]);
 
   const openTask = useMemo(() => (tasks ?? []).find(t => t.id === openTaskId) ?? null, [tasks, openTaskId]);
   const promiseStatusColors: Record<string, string> = {
@@ -129,6 +139,15 @@ export default function Tasks() {
             <SelectItem value="Cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search group or customer…"
+            className="pl-8 w-56"
+          />
+        </div>
         <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
           <SelectTrigger className="w-52">
             <SelectValue />

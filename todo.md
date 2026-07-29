@@ -920,3 +920,5 @@
 - [x] Log Call: keep only "Reached" and "No Answer" in the Outcome options (remove the rest)
 - [x] Invoices page: remove the "Contract Installments" and "New Invoice" header buttons
 - [x] Task detail: attached invoices should be clickable links that open the invoice (filtered Invoices view)
+- [x] Tasks page: hide Cancelled tasks by default; show only when explicitly selected in status filter
+- [x] Tasks page: add search box to filter tasks by group/customer name
