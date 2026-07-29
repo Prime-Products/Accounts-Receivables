@@ -90,5 +90,6 @@ describe("SoftOne open invoice sync", () => {
     expect(softOneOpenInvoiceFinancialsQuery).not.toMatch(
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
     );
+    expect(softOneOpenInvoiceFinancialsQuery).not.toContain("HAVING");
   });
 });
