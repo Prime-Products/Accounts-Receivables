@@ -447,8 +447,13 @@ export const customersRouter = router({
       const open = custInvoices.filter(isOpenInvoice);
       const overdue = open.filter(i => now > i.dueDate);
       const overdueEom = open.filter(i => i.dueDate <= eom);
-      const openBalance = open.reduce((s, i) => s + outstanding(i), 0);
-      const overdueBalance = overdue.reduce((s, i) => s + outstanding(i), 0);
+      const hasInvoiceDetail = custInvoices.length > 0;
+      const openBalance = hasInvoiceDetail
+        ? open.reduce((s, i) => s + outstanding(i), 0)
+        : Number(c.balance ?? 0);
+      const overdueBalance = hasInvoiceDetail
+        ? overdue.reduce((s, i) => s + outstanding(i), 0)
+        : Number(c.overdue ?? 0);
       const overdue90Plus = overdue.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0);
       const beh = behaviorById.get(c.id);
       const prom = promisesById.get(c.id) ?? { kept: 0, broken: 0 };
@@ -468,7 +473,9 @@ export const customersRouter = router({
         ...c,
         openBalance,
         overdueBalance,
-        overdueEomBalance: overdueEom.reduce((s, i) => s + outstanding(i), 0),
+        overdueEomBalance: hasInvoiceDetail
+          ? overdueEom.reduce((s, i) => s + outstanding(i), 0)
+          : Number(c.overdueEndOfMonth ?? 0),
         overdueCount: overdue.length,
         rating: ratingResult.rating,
         ratingScore: ratingResult.score,
@@ -623,7 +630,8 @@ export const customersRouter = router({
         g.openPromiseDate = opd;
         g.openPromiseId = openPromiseIdByCustomer.get(c.id) ?? null;
       }
-      for (const inv of byCustomer.get(c.id) ?? []) {
+      const customerInvoices = byCustomer.get(c.id) ?? [];
+      for (const inv of customerInvoices) {
         if (!isOpenInvoice(inv)) continue;
         gInv.push(inv);
         g.openBalance += outstanding(inv);
@@ -636,6 +644,19 @@ export const customersRouter = router({
           if (now - inv.dueDate > day90) g.overdue90Plus += outstanding(inv);
         }
         if (inv.dueDate <= eom) g.overdueEomBalance += outstanding(inv);
+      }
+      // The approved SoftOne reporting view provides customer-level financial
+      // totals but no invoice rows. Use those totals only when invoice detail
+      // is absent, avoiding double counting once an invoice source is added.
+      if (customerInvoices.length === 0) {
+        const softOneBalance = Number(c.balance ?? 0);
+        const softOneOverdue = Number(c.overdue ?? 0);
+        g.openBalance += softOneBalance;
+        g.overdueBalance += softOneOverdue;
+        g.overdueEomBalance += Number(c.overdueEndOfMonth ?? 0);
+        if (softOneBalance !== 0) {
+          g.openByCurrency.EUR = (g.openByCurrency.EUR ?? 0) + softOneBalance;
+        }
       }
     }
     return Array.from(groups.values())
@@ -2614,7 +2635,8 @@ export const forecastRouter = router({
     const year = nowDate.getUTCFullYear();
     const month = nowDate.getUTCMonth() + 1;
     const { start, end } = monthRange(year, month);
-    const [invoices, installments, forecastTarget, receiptsCollected, tasksPending, dashMonthWires] = await Promise.all([
+    const [customers, invoices, installments, forecastTarget, receiptsCollected, tasksPending, dashMonthWires] = await Promise.all([
+      db.listCustomers(),
       db.listInvoices(),
       db.listInstallments(),
       db.sumForecastExpected(year, month),
@@ -2624,7 +2646,18 @@ export const forecastRouter = router({
     ]);
     const collectedThisMonth = receiptsCollected + dashMonthWires.reduce((s, w) => s + Number(w.amount), 0);
     const aging = computeAging(invoices, now);
-    const arBalance = aging.totalOverdue + aging.current;
+    const invoiceCustomerIds = new Set(invoices.map(invoice => invoice.customerId));
+    const customersWithoutInvoiceDetail = customers.filter(customer => !invoiceCustomerIds.has(customer.id));
+    const softOneArBalance = customersWithoutInvoiceDetail.reduce(
+      (sum, customer) => sum + Number(customer.balance ?? 0),
+      0,
+    );
+    const softOneOverdue = customersWithoutInvoiceDetail.reduce(
+      (sum, customer) => sum + Number(customer.overdue ?? 0),
+      0,
+    );
+    const totalOverdue = aging.totalOverdue + softOneOverdue;
+    const arBalance = aging.totalOverdue + aging.current + softOneArBalance;
     const last90Sales = await db.sumInvoicedInRange(now - 90 * 24 * 60 * 60 * 1000, now);
     const dso = computeDso(arBalance, last90Sales, 90);
     const forecast = buildForecast(invoices, installments, now, 6);
@@ -2642,7 +2675,7 @@ export const forecastRouter = router({
       month,
       target: forecastTarget,
       collected: collectedThisMonth,
-      totalOverdue: aging.totalOverdue,
+      totalOverdue,
       overdueCount: Object.values(aging.buckets).reduce((s, b) => s + b.count, 0),
       arBalance,
       dso,
