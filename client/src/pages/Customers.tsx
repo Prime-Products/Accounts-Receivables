@@ -10,15 +10,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtEur, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, HandCoins, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import LogCallDialog from "@/components/LogCallDialog";
-import NewTaskDialog from "@/components/NewTaskDialog";
-import GroupNotesDialog from "@/components/GroupNotesDialog";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
 
 type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "expected" | "collected" | "remaining" | "overdueCount";
@@ -80,80 +77,6 @@ const EditableForecastCell = memo(function EditableForecastCell({ group, value }
       {fmtEur(value)}
       <Pencil className="h-3 w-3 opacity-0 group-hover/fc:opacity-60 shrink-0" />
     </button>
-  );
-});
-
-/** Per-row quick actions dropdown for the Customers groups list. */
-const GroupRowActions = memo(function GroupRowActions({ group }: { group: string }) {
-  const [callOpen, setCallOpen] = useState(false);
-  const [taskOpen, setTaskOpen] = useState(false);
-  const [noteOpen, setNoteOpen] = useState(false);
-  const [loadMembers, setLoadMembers] = useState(false);
-  // Load member companies lazily (only when Log Call / New Task requested)
-  const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: loadMembers });
-  const members = useMemo(
-    () =>
-      (allCustomers ?? [])
-        .filter(c => ((c.customerGroup ?? "").trim() || c.name) === group)
-        .map(c => ({ id: c.id, name: c.name, openBalance: c.openBalance })),
-    [allCustomers, group]
-  );
-  const defaultCustomerId = useMemo(
-    () => (members.length > 0 ? [...members].sort((a, b) => b.openBalance - a.openBalance)[0].id : undefined),
-    [members]
-  );
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-7 w-7">
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            onClick={() => {
-              setLoadMembers(true);
-              setCallOpen(true);
-            }}
-          >
-            <Phone className="h-4 w-4 mr-2" /> Log Call
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              setLoadMembers(true);
-              setTaskOpen(true);
-            }}
-          >
-            <Plus className="h-4 w-4 mr-2" /> New Task
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setNoteOpen(true)}>
-            <StickyNote className="h-4 w-4 mr-2" /> Add Note
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {callOpen && (
-        <LogCallDialog
-          group={group}
-          companies={members}
-          defaultCustomerId={defaultCustomerId}
-          open={callOpen}
-          onOpenChange={setCallOpen}
-        />
-      )}
-      {taskOpen && (
-        <NewTaskDialog
-          customerIds={members.map(m => m.id)}
-          defaultCustomerId={defaultCustomerId}
-          trigger={<span className="hidden" />}
-          open={taskOpen}
-          onOpenChange={setTaskOpen}
-        />
-      )}
-      {noteOpen && <GroupNotesDialog group={group} open={noteOpen} onOpenChange={setNoteOpen} />}
-    </>
   );
 });
 
@@ -287,7 +210,6 @@ const GROUP_COL_DEFAULTS: Record<string, number> = {
   expected: 110,
   collected: 105,
   remaining: 105,
-  actions: 44,
 };
 
 const COMPANY_COL_DEFAULTS: Record<string, number> = {
@@ -810,7 +732,6 @@ export default function Customers() {
                     <SortableHead label="Expected" active={groupSort.key === "expected"} dir={groupSort.dir} onClick={() => toggleGroupSort("expected")} col="expected" cols={groupCols} />
                     <SortableHead label="Collected" active={groupSort.key === "collected"} dir={groupSort.dir} onClick={() => toggleGroupSort("collected")} col="collected" cols={groupCols} />
                     <SortableHead label="Remaining" active={groupSort.key === "remaining"} dir={groupSort.dir} onClick={() => toggleGroupSort("remaining")} col="remaining" cols={groupCols} />
-                    <TableHead style={groupCols.style("actions")}></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -837,7 +758,6 @@ export default function Customers() {
                     <TableCell className={`text-right font-mono ${groupTotals.remaining > 0 ? "text-amber-600" : ""}`}>
                       {fmtEur(groupTotals.remaining)}
                     </TableCell>
-                    <TableCell></TableCell>
                   </TableRow>
                   {(showAllGroups ? filteredGroups : filteredGroups.slice(0, 100)).map(g => (
                     <TableRow
@@ -939,14 +859,11 @@ export default function Customers() {
                       <TableCell className={`text-right font-mono ${g.remaining > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
                         {fmtEur(g.remaining)}
                       </TableCell>
-                      <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                        <GroupRowActions group={g.group} />
-                      </TableCell>
                     </TableRow>
                   ))}
                   {!showAllGroups && filteredGroups.length > 100 && (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={12} className="text-center py-4">
+                      <TableCell colSpan={10} className="text-center py-4">
                         <span className="text-sm text-muted-foreground mr-3">
                           Showing 100 of {filteredGroups.length.toLocaleString()} groups
                         </span>

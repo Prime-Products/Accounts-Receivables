@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import NewTaskDialog from "@/components/NewTaskDialog";
+import NextActionDialog from "@/components/NextActionDialog";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -38,6 +39,7 @@ export default function Tasks() {
   /** Inbox scope: all | mine (assigned to my linked team member) | created (created by me). */
   const [scopeFilter, setScopeFilter] = useState<string>("all");
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
+  const [nextActionGroup, setNextActionGroup] = useState<string | null>(null);
   const [editingDue, setEditingDue] = useState(false);
   const [newDue, setNewDue] = useState("");
   // Deep link: /tasks?task=<id> opens that task's detail dialog (used by the
@@ -65,6 +67,12 @@ export default function Tasks() {
     onSuccess: (_r, vars) => {
       toast.success(`Promise marked ${vars.status} — follow-up task completed`);
       utils.tasks.list.invalidate();
+      utils.customers.groups.invalidate();
+      utils.customers.groupDetail.invalidate();
+      if (vars.status === "Broken" && openTask) {
+        // The customer did not pay — ask the user what happens next.
+        setNextActionGroup(((openTask as any).groupName as string) ?? openTask.customerName ?? null);
+      }
     },
     onError: e => toast.error(e.message),
   });
@@ -536,6 +544,15 @@ export default function Tasks() {
           )}
         </DialogContent>
       </Dialog>
+      {nextActionGroup && (
+        <NextActionDialog
+          group={nextActionGroup}
+          open={nextActionGroup != null}
+          onOpenChange={v => {
+            if (!v) setNextActionGroup(null);
+          }}
+        />
+      )}
     </div>
   );
 }

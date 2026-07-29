@@ -453,7 +453,7 @@ export const paymentContacts = mysqlTable("payment_contacts", {
 export type PaymentContact = typeof paymentContacts.$inferSelect;
 export type InsertPaymentContact = typeof paymentContacts.$inferInsert;
 
-export const confirmationStatuses = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken"] as const;
+export const confirmationStatuses = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken", "Kept"] as const;
 export type ConfirmationStatus = (typeof confirmationStatuses)[number];
 
 /**

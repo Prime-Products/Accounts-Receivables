@@ -1,6 +1,6 @@
 /**
  * Marking a promise Kept or Broken from the task dialog must update the
- * group's confirmation badge (Promise to Pay → Not Contacted / Not Confirmed).
+ * group's confirmation badge (Promise to Pay → Kept / Not Confirmed).
  */
 import { afterAll, describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
@@ -58,12 +58,15 @@ async function setup(suffix: string) {
 }
 
 describe("promise resolution syncs the confirmation badge", () => {
-  it("Kept → badge returns to Not Contacted with amount 0", async () => {
+  it("Kept → badge becomes Kept, keeping the promise amount", async () => {
     const { caller, group, promiseId } = await setup("Kept");
     await caller.forecast.updatePromise({ id: promiseId, status: "Kept" });
     const conf = await db.getGroupConfirmationStatus(group);
-    expect(conf?.status).toBe("Not Contacted");
-    expect(Number(conf?.amount ?? 0)).toBe(0);
+    expect(conf?.status).toBe("Kept");
+    expect(Number(conf?.amount ?? 0)).toBe(500);
+    // Kept is still "active" this month → getConfirmationStatus returns it as-is.
+    const viaApi = await caller.calls.getConfirmationStatus({ group });
+    expect(viaApi?.status).toBe("Kept");
   });
 
   it("Broken → badge becomes Broken (Not Confirmed)", async () => {
@@ -71,5 +74,23 @@ describe("promise resolution syncs the confirmation badge", () => {
     await caller.forecast.updatePromise({ id: promiseId, status: "Broken" });
     const conf = await db.getGroupConfirmationStatus(group);
     expect(conf?.status).toBe("Broken");
+  });
+
+  it("Next action: new promise via updateConfirmationStatus creates an open promise", async () => {
+    const { caller, group, promiseId } = await setup("NextAction");
+    await caller.forecast.updatePromise({ id: promiseId, status: "Broken" });
+    // User picks "Record a new promise to pay" in the Next Action dialog.
+    await caller.calls.updateConfirmationStatus({
+      group,
+      status: "Confirmed",
+      amount: 750,
+      followUpDate: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    });
+    const conf = await db.getGroupConfirmationStatus(group);
+    expect(conf?.status).toBe("Confirmed");
+    expect(Number(conf?.amount ?? 0)).toBe(750);
+    const promises = await db.listPromises();
+    const open = promises.find(p => p.status === "Pending" && Number(p.amount) === 750);
+    expect(open).toBeDefined();
   });
 });

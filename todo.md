@@ -963,3 +963,14 @@
 - [x] Trace how confirmationStatus is computed in customers.groups and why marking the promise Kept / Not Confirmed leaves the badge as Promise to Pay
 - [x] Fix propagation: forecast.updatePromise now updates the group confirmation row (Kept → Not Contacted, Broken → Not Confirmed); frontend already invalidates customers.groups
 - [x] Tests + checkpoint + GitHub push
+
+## Promise resolution flow rework (user request 29/7)
+- [x] Kept: badge shows green "Kept" until end of month, auto-resets to Not Contacted next month (stale logic)
+- [x] Add "Kept" to confirmation statuses (schema enum + effectiveConfirmation stale rules)
+- [x] Not Confirmed: badge shows red "Not Confirmed" until user picks a next action
+- [x] Next Action dialog after pressing Not Confirmed: (1) Follow-up call w/ date → Pending Follow-up + task, (2) New promise w/ amount+date → Promise to Pay, (3) Escalate → change group status
+- [x] Badge click for Broken status also opens the Next Action dialog
+- [x] Tests + checkpoint + GitHub push
+
+## Remove 3-dot actions column from groups list (user request 29/7)
+- [x] Remove the 3-dot (⋯) actions menu column from the Customers groups table (GroupRowActions component deleted, header/total/row cells removed, imports cleaned)

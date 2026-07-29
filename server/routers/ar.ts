@@ -79,10 +79,13 @@ function endOfCurrentMonth(now = new Date()): number {
 function isConfirmationStale(
   status: string | null | undefined,
   _followUpDate?: number | null | undefined,
-  _now = new Date(),
+  now = new Date(),
+  updatedAt?: Date | number | null,
 ): boolean {
   // "Not Contacted" is always stale (no active follow-up).
   if (!status || status === "Not Contacted") return true;
+  // "Kept" celebrates a paid promise for the rest of the month, then resets.
+  if (status === "Kept") return isFromPreviousMonth(updatedAt ?? null, now);
   // All other statuses (Confirmed, Pending Follow-up, Broken) persist until
   // explicitly changed by a human — no date-based auto-reset.
   return false;
@@ -108,7 +111,7 @@ function effectiveConfirmation<T extends { status: string; amount: string | null
   row: T,
 ): { status: string; amount: number; stale: boolean; carriedOver: boolean } {
   if (!row) return { status: "Not Contacted", amount: 0, stale: false, carriedOver: false };
-  if (isConfirmationStale(row.status || null, row.followUpDate)) return { status: "Not Contacted", amount: 0, stale: true, carriedOver: false };
+  if (isConfirmationStale(row.status || null, row.followUpDate, new Date(), row.updatedAt ?? null)) return { status: "Not Contacted", amount: 0, stale: true, carriedOver: false };
   return {
     status: row.status,
     amount: row.amount ? Number(row.amount) : 0,
@@ -2774,8 +2777,8 @@ export const forecastRouter = router({
           const conf = await db.getGroupConfirmationStatus(groupKey);
           if (conf && conf.status === "Confirmed") {
             await db.upsertGroupConfirmationStatus(groupKey, {
-              status: input.status === "Broken" ? "Broken" : "Not Contacted",
-              amount: "0.00",
+              status: input.status === "Broken" ? "Broken" : "Kept",
+              amount: input.status === "Broken" ? "0.00" : String(promise.amount ?? 0),
               followUpDate: null,
               updatedBy: ctx.user.id,
             });
@@ -3529,7 +3532,7 @@ export const callsRouter = router({
       if (!row) return null;
       // Only "Not Contacted" (or missing status) is treated as no active status —
       // Promise/Pending/Broken persist until a human changes them.
-      if (isConfirmationStale(row.status, row.followUpDate)) {
+      if (isConfirmationStale(row.status, row.followUpDate, new Date(), (row as any).updatedAt ?? null)) {
         return { ...row, status: "Not Contacted" as typeof row.status, amount: "0.00", followUpDate: null, notes: null, carriedOver: false };
       }
       // Red-badge flag: linked auto-task still open and past due.
@@ -3616,6 +3619,30 @@ export const callsRouter = router({
           amount: input.amount,
           notes: input.notes,
         });
+      }
+      // "Confirmed" (Promise to Pay) with an amount: record a real promise so the
+      // check task + activity log are created (used by the Next Action dialog after
+      // a broken promise; Log Call has its own promise-creation path).
+      if (input.status === "Confirmed" && (input.amount ?? 0) > 0) {
+        const existing = await findOpenGroupPromise(input.group).catch(() => null);
+        if (!existing) {
+          await createGroupPromise(ctx, {
+            group: input.group,
+            amount: input.amount!,
+            promisedDate: input.followUpDate ?? endOfCurrentMonth(),
+            notes: input.notes,
+          });
+        } else if (input.followUpDate) {
+          // Re-saving Confirmed with a new date/amount: move the open promise (and
+          // its linked check task) instead of leaving them on the stale old date.
+          await rescheduleGroupPromise(ctx, {
+            group: input.group,
+            promiseId: existing.id,
+            amount: input.amount!,
+            promisedDate: input.followUpDate,
+            notes: input.notes,
+          });
+        }
       }
       await audit(ctx, "Update Confirmation Status", "confirmation", input.group, `Status: ${input.status}`);
       return { success: true };

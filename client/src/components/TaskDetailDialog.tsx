@@ -5,6 +5,7 @@ import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
+import NextActionDialog from "@/components/NextActionDialog";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { CalendarClock, CheckCircle2, FileText, HandCoins, ThumbsDown, ThumbsUp, User, XCircle } from "lucide-react";
@@ -33,6 +34,7 @@ export default function TaskDetailDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const utils = trpc.useUtils();
+  const [nextActionGroup, setNextActionGroup] = useState<string | null>(null);
   const { data: tasks, isLoading } = trpc.tasks.list.useQuery(undefined, { enabled: open && taskId != null });
   const task = useMemo(() => (tasks ?? []).find(t => t.id === taskId) ?? null, [tasks, taskId]);
 
@@ -50,6 +52,10 @@ export default function TaskDetailDialog({
       utils.tasks.list.invalidate();
       utils.customers.groups.invalidate();
       utils.customers.groupDetail.invalidate();
+      if (vars.status === "Broken" && task) {
+        // The customer did not pay — ask the user what happens next.
+        setNextActionGroup(((task as any).groupName as string) ?? task.customerName ?? null);
+      }
     },
     onError: e => toast.error(e.message),
   });
@@ -76,6 +82,7 @@ export default function TaskDetailDialog({
   });
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <ResizableDialogContent storageKey="task-detail" className="sm:max-w-none w-[32rem] max-w-[95vw] max-h-[90vh] overflow-y-auto">
         {isLoading ? (
@@ -305,5 +312,15 @@ export default function TaskDetailDialog({
         )}
       </ResizableDialogContent>
     </Dialog>
+      {nextActionGroup && (
+        <NextActionDialog
+          group={nextActionGroup}
+          open={nextActionGroup != null}
+          onOpenChange={v => {
+            if (!v) setNextActionGroup(null);
+          }}
+        />
+      )}
+    </>
   );
 }
