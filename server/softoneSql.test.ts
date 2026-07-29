@@ -68,10 +68,12 @@ describe("SoftOne read-only SQL sync", () => {
     expect(softOneCustomersQuery).not.toContain("[NAME]");
     expect(softOneCustomersQuery).not.toContain("[TRDGROUP]");
     expect(softOneCustomersQuery).toContain("CAST([LBAL] AS float)");
-    expect(softOneGroupNamesQuery.indexOf("CAST(master.[NAME]")).toBeGreaterThan(
-      softOneGroupNamesQuery.indexOf("master.[TRDR]"),
+    expect(softOneGroupNamesQuery).toContain(
+      "CAST(master.[NAME] AS nchar(128))",
     );
-    expect(softOneGroupNamesQuery).toContain("SELECT [TRDR] AS [REFERENCE]");
-    expect(softOneGroupNamesQuery).toContain("SELECT DISTINCT [MASTERTRDR]");
+    expect(softOneGroupNamesQuery).toContain(
+      "CAST(master.[TRDR] AS bigint)",
+    );
+    expect(softOneGroupNamesQuery).not.toContain("nvarchar");
   });
 });

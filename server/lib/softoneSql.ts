@@ -25,16 +25,16 @@ export const softOneCustomersQuery = `SELECT TOP (50000)
 FROM [dbo].[CustomerGroupFinData]`;
 
 export const softOneGroupNamesQuery = `SELECT
-  master.[TRDR],
-  CAST(master.[NAME] AS nvarchar(64)) AS [NAME]
+  CAST(master.[TRDR] AS bigint) AS [TRDR],
+  CAST(master.[NAME] AS nchar(128)) AS [NAME]
 FROM [dbo].[TRDR] AS master
 INNER JOIN (
-  SELECT [TRDR] AS [REFERENCE]
+  SELECT CAST([TRDR] AS bigint) AS [REFERENCE]
   FROM [dbo].[CustomerGroupFinData]
   UNION
-  SELECT DISTINCT [MASTERTRDR]
+  SELECT DISTINCT CAST([MASTERTRDR] AS bigint)
   FROM [dbo].[CustomerGroupFinData]
-) AS source ON source.[REFERENCE] = master.[TRDR]`;
+) AS source ON source.[REFERENCE] = CAST(master.[TRDR] AS bigint)`;
 
 type SourceRow = Record<string, unknown>;
 
