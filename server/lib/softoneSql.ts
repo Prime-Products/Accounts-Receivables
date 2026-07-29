@@ -7,25 +7,32 @@ const MAX_CUSTOMERS = 50_000;
 // Keep the variable-length NAME column last. unixODBC can return HY010 when
 // variable-length data is interleaved with fixed-width financial columns.
 export const softOneCustomersQuery = `SELECT TOP (50000)
-  source.[TRDR],
-  source.[MASTERTRDR],
-  source.[TRDGROUP],
-  source.[LBAL],
-  source.[LTURNOVR],
-  source.[LTURNOVRLY],
-  source.[LTURNOVRLYLY],
-  source.[Uncovered],
-  source.[Unpaid],
-  source.[Overdue],
-  source.[OVERDUEMONTHVAL],
-  source.[DAYSAVG],
-  source.[OpenOrders],
-  source.[OrdersAmount],
-  source.[Collections],
-  CAST(master.[NAME] AS nchar(64)) AS [GROUPNAME],
-  CAST(source.[NAME] AS nvarchar(64)) AS [NAME]
-FROM [dbo].[CustomerGroupFinData] AS source
-LEFT JOIN [dbo].[TRDR] AS master ON master.[TRDR] = source.[MASTERTRDR]`;
+  [TRDR],
+  [MASTERTRDR],
+  [TRDGROUP],
+  [LBAL],
+  [LTURNOVR],
+  [LTURNOVRLY],
+  [LTURNOVRLYLY],
+  [Uncovered],
+  [Unpaid],
+  [Overdue],
+  [OVERDUEMONTHVAL],
+  [DAYSAVG],
+  [OpenOrders],
+  [OrdersAmount],
+  [Collections],
+  CAST([NAME] AS nvarchar(64)) AS [NAME]
+FROM [dbo].[CustomerGroupFinData]`;
+
+export const softOneGroupNamesQuery = `SELECT
+  master.[TRDR],
+  CAST(master.[NAME] AS nvarchar(64)) AS [NAME]
+FROM [dbo].[TRDR] AS master
+INNER JOIN (
+  SELECT DISTINCT [MASTERTRDR]
+  FROM [dbo].[CustomerGroupFinData]
+) AS source ON source.[MASTERTRDR] = master.[TRDR]`;
 
 type SourceRow = Record<string, unknown>;
 
@@ -58,7 +65,11 @@ function readIdentity(row: SourceRow, field: string) {
   return value;
 }
 
-export function normalizeSoftOneCustomerRows(rows: SourceRow[], synchronizedAt = new Date()) {
+export function normalizeSoftOneCustomerRows(
+  rows: SourceRow[],
+  synchronizedAt = new Date(),
+  externalGroupNames = new Map<string, string>(),
+) {
   if (rows.length === 0) throw new Error("SoftOne returned no customer rows.");
   if (rows.length > MAX_CUSTOMERS) throw new Error("SoftOne customer row limit exceeded.");
 
@@ -79,7 +90,7 @@ export function normalizeSoftOneCustomerRows(rows: SourceRow[], synchronizedAt =
     const groupCode =
       row.TRDGROUP == null ? null : String(row.TRDGROUP).trim() || null;
     const customerGroup =
-      (row.GROUPNAME == null ? null : String(row.GROUPNAME).trim() || null) ??
+      (masterSoftoneId ? externalGroupNames.get(masterSoftoneId) : undefined) ??
       (masterSoftoneId ? nameBySoftOneId.get(masterSoftoneId) : undefined) ??
       (groupCode ? nameBySoftOneId.get(groupCode) : undefined) ??
       groupCode ??
@@ -187,8 +198,20 @@ export async function syncSoftOneCustomers() {
     pool = await connectSoftOneSqlPool();
     stage = "query CustomerGroupFinData";
     const result = await pool.request().query<SourceRow>(softOneCustomersQuery);
+    stage = "query master group names";
+    const groupResult = await pool.request().query<SourceRow>(softOneGroupNamesQuery);
+    const externalGroupNames = new Map(
+      groupResult.recordset.map(row => [
+        readIdentity(row, "TRDR"),
+        readIdentity(row, "NAME"),
+      ]),
+    );
     stage = "normalize customer groups";
-    const records = normalizeSoftOneCustomerRows(result.recordset);
+    const records = normalizeSoftOneCustomerRows(
+      result.recordset,
+      new Date(),
+      externalGroupNames,
+    );
     stage = "validate existing customers";
     const existingSoftOneCount = (await db.listCustomers()).filter(customer => customer.softoneId).length;
     if (existingSoftOneCount > 0 && records.length < existingSoftOneCount / 2) {
