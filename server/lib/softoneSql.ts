@@ -4,8 +4,9 @@ import * as db from "../db";
 
 const MAX_CUSTOMERS = 50_000;
 
-// Keep the variable-length NAME column last. unixODBC can return HY010 when
-// variable-length data is interleaved with fixed-width financial columns.
+// Keep financial values and text names in separate result sets. The production
+// unixODBC driver can return HY010 when variable-length text is fetched
+// alongside the fixed-width financial columns.
 export const softOneCustomersQuery = `SELECT TOP (50000)
   [TRDR],
   [MASTERTRDR],
@@ -21,8 +22,7 @@ export const softOneCustomersQuery = `SELECT TOP (50000)
   [DAYSAVG],
   [OpenOrders],
   [OrdersAmount],
-  [Collections],
-  CAST([NAME] AS nvarchar(64)) AS [NAME]
+  [Collections]
 FROM [dbo].[CustomerGroupFinData]`;
 
 export const softOneGroupNamesQuery = `SELECT
@@ -30,9 +30,12 @@ export const softOneGroupNamesQuery = `SELECT
   CAST(master.[NAME] AS nvarchar(64)) AS [NAME]
 FROM [dbo].[TRDR] AS master
 INNER JOIN (
+  SELECT [TRDR] AS [REFERENCE]
+  FROM [dbo].[CustomerGroupFinData]
+  UNION
   SELECT DISTINCT [MASTERTRDR]
   FROM [dbo].[CustomerGroupFinData]
-) AS source ON source.[MASTERTRDR] = master.[TRDR]`;
+) AS source ON source.[REFERENCE] = master.[TRDR]`;
 
 type SourceRow = Record<string, unknown>;
 
@@ -196,21 +199,25 @@ export async function syncSoftOneCustomers() {
   let stage = "connect";
   try {
     pool = await connectSoftOneSqlPool();
-    stage = "query CustomerGroupFinData";
+    stage = "query CustomerGroupFinData financials";
     const result = await pool.request().query<SourceRow>(softOneCustomersQuery);
-    stage = "query master group names";
+    stage = "query customer and master names";
     const groupResult = await pool.request().query<SourceRow>(softOneGroupNamesQuery);
-    const externalGroupNames = new Map(
+    const allNames = new Map(
       groupResult.recordset.map(row => [
         readIdentity(row, "TRDR"),
         readIdentity(row, "NAME"),
       ]),
     );
+    const rowsWithNames = result.recordset.map(row => ({
+      ...row,
+      NAME: allNames.get(readIdentity(row, "TRDR")),
+    }));
     stage = "normalize customer groups";
     const records = normalizeSoftOneCustomerRows(
-      result.recordset,
+      rowsWithNames,
       new Date(),
-      externalGroupNames,
+      allNames,
     );
     stage = "validate existing customers";
     const existingSoftOneCount = (await db.listCustomers()).filter(customer => customer.softoneId).length;
