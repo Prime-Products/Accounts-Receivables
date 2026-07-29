@@ -54,9 +54,17 @@ describe("SoftOne read-only SQL sync", () => {
     expect(records[0].customerGroup).toBe("Group Alpha");
   });
 
+  it("uses the group name returned by the read-only dbo.TRDR join", () => {
+    const [record] = normalizeSoftOneCustomerRows([
+      { ...sourceRow, GROUPNAME: "External Master Group" },
+    ]);
+    expect(record.customerGroup).toBe("External Master Group");
+  });
+
   it("keeps NAME last for the production unixODBC driver", () => {
-    expect(softOneCustomersQuery.indexOf("CAST([NAME]")).toBeGreaterThan(
-      softOneCustomersQuery.indexOf("[Collections]"),
+    expect(softOneCustomersQuery.indexOf("CAST(source.[NAME]")).toBeGreaterThan(
+      softOneCustomersQuery.indexOf("source.[Collections]"),
     );
+    expect(softOneCustomersQuery).toContain("LEFT JOIN [dbo].[TRDR]");
   });
 });
