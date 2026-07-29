@@ -998,3 +998,7 @@
 - [x] Enrich inputs: month stats (forecast vs collected, promises kept/broken), recent calls/notes, payment-behavior metrics (avg days late, payment pattern, trend)
 - [x] Rewrite prompt for a structured, concise output: Month summary + Payment behavior + Suggested actions
 - [x] Verify output quality on real groups (spot-tested with MSC group, iterated prompt 3x)
+
+## AI Summary — Greek shorter format (user request 30/7)
+- [x] Rewrite prompt: output in Greek, ~100 words max, header line with Open Balance + Overdue + invoice count, short paragraph (month status, payment behavior, key invoices), one "Προτεινόμενη ενέργεια" sentence
+- [x] Test with real group data and verify format matches user example (MSC: 68 words, exact format)
