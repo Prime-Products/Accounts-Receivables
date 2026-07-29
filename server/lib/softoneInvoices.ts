@@ -164,11 +164,9 @@ export function buildSoftOneInvoiceCustomerLookupQuery(softoneIds: string[]) {
   return `SELECT
   CAST(customer.[TRDR] AS bigint) AS [TRDR],
   CAST(customer.[NAME] AS nchar(255)) AS [NAME],
-  CAST(COALESCE(master.[TRDR], customer_group.[TRDR]) AS bigint) AS [MASTERTRDR],
-  CAST(COALESCE(master.[NAME], customer_group.[NAME], customer.[NAME]) AS nchar(255)) AS [GROUP_NAME]
+  CAST(customer_group.[TRDR] AS bigint) AS [MASTERTRDR],
+  CAST(COALESCE(customer_group.[NAME], customer.[NAME]) AS nchar(255)) AS [GROUP_NAME]
 FROM [dbo].[TRDR] AS customer
-LEFT JOIN [dbo].[TRDR] AS master
-  ON master.[TRDR] = customer.[MASTERTRDR]
 LEFT JOIN [dbo].[TRDR] AS customer_group
   ON customer_group.[TRDR] = customer.[TRDGROUP]
 WHERE customer.[TRDR] IN (${softoneIds.join(", ")})`;

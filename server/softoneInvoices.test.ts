@@ -179,8 +179,8 @@ describe("SoftOne open invoice sync", () => {
   it("builds bounded numeric customer lookup queries", () => {
     const query = buildSoftOneInvoiceCustomerLookupQuery(["10036", "140"]);
     expect(query).toContain("customer.[TRDR] IN (10036, 140)");
-    expect(query).toContain("customer.[MASTERTRDR]");
     expect(query).toContain("customer.[TRDGROUP]");
+    expect(query).not.toContain("customer.[MASTERTRDR]");
     expect(query).not.toMatch(/\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i);
     expect(() =>
       buildSoftOneInvoiceCustomerLookupQuery(["10036); DROP TABLE TRDR"]),
