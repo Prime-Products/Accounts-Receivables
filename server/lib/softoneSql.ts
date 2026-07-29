@@ -139,6 +139,39 @@ export async function testSoftOneSqlConnection() {
   return { connected: true as const };
 }
 
+export async function inspectSoftOneGroupResolution() {
+  if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
+  const pool = await connectSoftOneSqlPool();
+  try {
+    const result = await pool.request().query<{
+      totalRows: number;
+      masterMatches: number;
+      groupMatches: number;
+      unresolvedRows: number;
+    }>(`SELECT
+  COUNT(*) AS [totalRows],
+  SUM(CASE WHEN master.[TRDR] IS NOT NULL THEN 1 ELSE 0 END) AS [masterMatches],
+  SUM(CASE WHEN customerGroup.[TRDR] IS NOT NULL THEN 1 ELSE 0 END) AS [groupMatches],
+  SUM(CASE
+    WHEN master.[TRDR] IS NULL AND customerGroup.[TRDR] IS NULL THEN 1
+    ELSE 0
+  END) AS [unresolvedRows]
+FROM [dbo].[CustomerGroupFinData] AS source
+LEFT JOIN [dbo].[TRDR] AS master ON master.[TRDR] = source.[MASTERTRDR]
+LEFT JOIN [dbo].[TRDR] AS customerGroup ON customerGroup.[TRDR] = source.[TRDGROUP]`);
+    const row = result.recordset[0];
+    if (!row) throw new Error("SoftOne group diagnostic returned no result.");
+    return {
+      totalRows: Number(row.totalRows),
+      masterMatches: Number(row.masterMatches),
+      groupMatches: Number(row.groupMatches),
+      unresolvedRows: Number(row.unresolvedRows),
+    };
+  } finally {
+    await pool.close().catch(() => undefined);
+  }
+}
+
 export async function syncSoftOneCustomers() {
   if (process.env.SOFTONE_SQL_SYNC_ENABLED !== "true") {
     throw new Error("SoftOne SQL customer synchronization is disabled.");
