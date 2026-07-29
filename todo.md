@@ -955,3 +955,6 @@
 - [x] Groups list default order = overdue balance desc (backend customers.groups)
 - [x] Companies list default order unchanged (user asked only for groups; column sorting still available)
 - [x] Tests + checkpoint + GitHub push
+
+## Remove "Pay by" line under Promise to Pay badge (user request 29/7)
+- [x] Removed the "Pay by: <date>" line in the Confirmation column of the groups list; only "Follow-up" remains
