@@ -42,6 +42,18 @@ describe("SoftOne read-only SQL sync", () => {
     expect(() => normalizeSoftOneCustomerRows([{ ...sourceRow, LBAL: "bad" }])).toThrow(/LBAL/);
   });
 
+  it("resolves a numeric group reference to the master customer name", () => {
+    const masterRow = {
+      ...sourceRow,
+      TRDR: 100,
+      MASTERTRDR: 100,
+      TRDGROUP: 10,
+      NAME: "Group Alpha",
+    };
+    const records = normalizeSoftOneCustomerRows([sourceRow, masterRow]);
+    expect(records[0].customerGroup).toBe("Group Alpha");
+  });
+
   it("keeps NAME last for the production unixODBC driver", () => {
     expect(softOneCustomersQuery.indexOf("CAST([NAME]")).toBeGreaterThan(
       softOneCustomersQuery.indexOf("[Collections]"),
