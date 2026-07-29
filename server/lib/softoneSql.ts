@@ -8,22 +8,28 @@ const MAX_CUSTOMERS = 50_000;
 // unixODBC driver can return HY010 when variable-length text is fetched
 // alongside the fixed-width financial columns.
 export const softOneCustomersQuery = `SELECT TOP (50000)
-  CAST([TRDR] AS bigint) AS [TRDR],
-  CAST([MASTERTRDR] AS bigint) AS [MASTERTRDR],
-  CAST([TRDGROUP] AS bigint) AS [TRDGROUP],
-  CAST([LBAL] AS float) AS [LBAL],
-  CAST([LTURNOVR] AS float) AS [LTURNOVR],
-  CAST([LTURNOVRLY] AS float) AS [LTURNOVRLY],
-  CAST([LTURNOVRLYLY] AS float) AS [LTURNOVRLYLY],
-  CAST([Uncovered] AS float) AS [Uncovered],
-  CAST([Unpaid] AS float) AS [Unpaid],
-  CAST([Overdue] AS float) AS [Overdue],
-  CAST([OVERDUEMONTHVAL] AS float) AS [OVERDUEMONTHVAL],
-  CAST([DAYSAVG] AS float) AS [DAYSAVG],
-  CAST([OpenOrders] AS float) AS [OpenOrders],
-  CAST([OrdersAmount] AS float) AS [OrdersAmount],
-  CAST([Collections] AS float) AS [Collections]
-FROM [dbo].[CustomerGroupFinData]`;
+  CAST(source.[TRDR] AS bigint) AS [TRDR],
+  CAST(source.[MASTERTRDR] AS bigint) AS [MASTERTRDR],
+  CAST(customer.[TRDGROUP] AS bigint) AS [TRDGROUP],
+  CAST(source.[LBAL] AS float) AS [LBAL],
+  CAST(source.[LTURNOVR] AS float) AS [LTURNOVR],
+  CAST(source.[LTURNOVRLY] AS float) AS [LTURNOVRLY],
+  CAST(source.[LTURNOVRLYLY] AS float) AS [LTURNOVRLYLY],
+  CAST(source.[Uncovered] AS float) AS [Uncovered],
+  CAST(source.[Unpaid] AS float) AS [Unpaid],
+  CAST(source.[Overdue] AS float) AS [Overdue],
+  CAST(source.[OVERDUEMONTHVAL] AS float) AS [OVERDUEMONTHVAL],
+  CAST(source.[DAYSAVG] AS float) AS [DAYSAVG],
+  CAST(source.[OpenOrders] AS float) AS [OpenOrders],
+  CAST(source.[OrdersAmount] AS float) AS [OrdersAmount],
+  CAST(source.[Collections] AS float) AS [Collections]
+FROM [dbo].[CustomerGroupFinData] AS source
+INNER JOIN [dbo].[TRDR] AS customer
+  ON customer.[TRDR] = source.[TRDR]
+WHERE customer.[COMPANY] = 1
+  AND customer.[SODTYPE] = 13
+  AND customer.[ISACTIVE] = 1
+  AND customer.[TRDGROUP] IS NOT NULL`;
 
 export const softOneGroupNamesQuery = `SELECT
   CAST(master.[TRDR] AS bigint) AS [TRDR],
@@ -35,10 +41,22 @@ INNER JOIN (
   UNION
   SELECT DISTINCT CAST([MASTERTRDR] AS bigint)
   FROM [dbo].[CustomerGroupFinData]
-  UNION
-  SELECT DISTINCT CAST([TRDGROUP] AS bigint)
-  FROM [dbo].[CustomerGroupFinData]
 ) AS source ON source.[REFERENCE] = CAST(master.[TRDR] AS bigint)`;
+
+export const softOneCustomerGroupNamesQuery = `SELECT
+  CAST(customer_group.[TRDGROUP] AS bigint) AS [TRDGROUP],
+  CAST(customer_group.[CODE] AS nchar(64)) AS [CODE],
+  CAST(customer_group.[NAME] AS nchar(255)) AS [NAME]
+FROM [dbo].[TRDGROUP] AS customer_group
+INNER JOIN (
+  SELECT DISTINCT customer.[TRDGROUP]
+  FROM [dbo].[TRDR] AS customer
+  WHERE customer.[COMPANY] = 1
+    AND customer.[SODTYPE] = 13
+    AND customer.[ISACTIVE] = 1
+    AND customer.[TRDGROUP] IS NOT NULL
+) AS active_groups
+  ON active_groups.[TRDGROUP] = customer_group.[TRDGROUP]`;
 
 type SourceRow = Record<string, unknown>;
 
@@ -75,6 +93,7 @@ export function normalizeSoftOneCustomerRows(
   rows: SourceRow[],
   synchronizedAt = new Date(),
   externalGroupNames = new Map<string, string>(),
+  customerGroupNames = new Map<string, string>(),
 ) {
   if (rows.length === 0) throw new Error("SoftOne returned no customer rows.");
   if (rows.length > MAX_CUSTOMERS) throw new Error("SoftOne customer row limit exceeded.");
@@ -96,7 +115,7 @@ export function normalizeSoftOneCustomerRows(
     const groupSoftoneId =
       row.TRDGROUP == null ? null : String(row.TRDGROUP).trim() || null;
     const customerGroup =
-      (groupSoftoneId ? externalGroupNames.get(groupSoftoneId) : undefined) ??
+      (groupSoftoneId ? customerGroupNames.get(groupSoftoneId) : undefined) ??
       (groupSoftoneId ? nameBySoftOneId.get(groupSoftoneId) : undefined) ??
       (masterSoftoneId ? externalGroupNames.get(masterSoftoneId) : undefined) ??
       (masterSoftoneId ? nameBySoftOneId.get(masterSoftoneId) : undefined) ??
@@ -206,6 +225,10 @@ export async function syncSoftOneCustomers() {
     const result = await pool.request().query<SourceRow>(softOneCustomersQuery);
     stage = "query customer and master names";
     const groupResult = await pool.request().query<SourceRow>(softOneGroupNamesQuery);
+    stage = "query active customer group names";
+    const customerGroupResult = await pool
+      .request()
+      .query<SourceRow>(softOneCustomerGroupNamesQuery);
     const allNames = new Map(
       groupResult.recordset.map(row => [
         readIdentity(row, "TRDR"),
@@ -216,18 +239,19 @@ export async function syncSoftOneCustomers() {
       ...row,
       NAME: allNames.get(readIdentity(row, "TRDR")),
     }));
+    const customerGroupNames = new Map(
+      customerGroupResult.recordset.map(row => [
+        readIdentity(row, "TRDGROUP"),
+        readIdentity(row, "NAME"),
+      ]),
+    );
     stage = "normalize customer groups";
     const records = normalizeSoftOneCustomerRows(
       rowsWithNames,
       new Date(),
       allNames,
+      customerGroupNames,
     );
-    stage = "validate existing customers";
-    const existingSoftOneCount = (await db.listCustomers()).filter(customer => customer.softoneId).length;
-    if (existingSoftOneCount > 0 && records.length < existingSoftOneCount / 2) {
-      throw new Error("SoftOne customer dataset is unexpectedly incomplete.");
-    }
-
     stage = "upsert MariaDB customers";
     await db.upsertSoftOneCustomers(records);
     stage = "write MariaDB sync log";

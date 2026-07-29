@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeSoftOneCustomerRows,
+  softOneCustomerGroupNamesQuery,
   softOneGroupNamesQuery,
   softOneCustomersQuery,
 } from "./lib/softoneSql";
@@ -63,16 +64,23 @@ describe("SoftOne read-only SQL sync", () => {
         ["10", "External Customer Group"],
         ["100", "External Master Group"],
       ]),
+      new Map([["10", "SoftOne TRDGROUP Name"]]),
     );
-    expect(record.customerGroup).toBe("External Customer Group");
+    expect(record.customerGroup).toBe("SoftOne TRDGROUP Name");
   });
 
   it("keeps names separate from financials for the production unixODBC driver", () => {
     expect(softOneCustomersQuery).not.toContain("[NAME]");
     expect(softOneCustomersQuery).toContain(
-      "CAST([TRDGROUP] AS bigint) AS [TRDGROUP]",
+      "CAST(customer.[TRDGROUP] AS bigint) AS [TRDGROUP]",
     );
-    expect(softOneCustomersQuery).toContain("CAST([LBAL] AS float)");
+    expect(softOneCustomersQuery).toContain("customer.[ISACTIVE] = 1");
+    expect(softOneCustomersQuery).toContain(
+      "customer.[TRDGROUP] IS NOT NULL",
+    );
+    expect(softOneCustomersQuery).toContain(
+      "CAST(source.[LBAL] AS float)",
+    );
     expect(softOneGroupNamesQuery).toContain(
       "CAST(master.[NAME] AS nchar(128))",
     );
@@ -80,8 +88,11 @@ describe("SoftOne read-only SQL sync", () => {
       "CAST(master.[TRDR] AS bigint)",
     );
     expect(softOneGroupNamesQuery).not.toContain("nvarchar");
-    expect(softOneGroupNamesQuery).toContain(
-      "SELECT DISTINCT CAST([TRDGROUP] AS bigint)",
+    expect(softOneCustomerGroupNamesQuery).toContain(
+      "FROM [dbo].[TRDGROUP] AS customer_group",
+    );
+    expect(softOneCustomerGroupNamesQuery).toContain(
+      "CAST(customer_group.[CODE] AS nchar(64))",
     );
   });
 });
