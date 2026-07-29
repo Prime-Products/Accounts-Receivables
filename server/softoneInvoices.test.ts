@@ -88,7 +88,9 @@ describe("SoftOne open invoice sync", () => {
 
   it("keeps the financial result set fixed-width and read-only", () => {
     expect(softOneOpenInvoiceFinancialsQuery).toContain("CAST(FP.[FINDOC] AS bigint)");
-    expect(softOneOpenInvoiceFinancialsQuery).toContain("CAST(SUM(");
+    expect(softOneOpenInvoiceFinancialsQuery).toContain(
+      "SUM(CAST(FP.[TAMNT] AS float)",
+    );
     expect(softOneOpenInvoiceFinancialsQuery).not.toMatch(
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
     );
@@ -98,7 +100,7 @@ describe("SoftOne open invoice sync", () => {
     );
     expect(softOneOpenInvoiceFinancialsQuery).toContain("FIN.[SOREDIR] = 0");
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
-      "SUM(FP.[OPNTAMNT] * FP.[PAYDEMANDMD])",
+      "SUM(CAST(FP.[OPNTAMNT] AS float) * CAST(FP.[PAYDEMANDMD] AS float))",
     );
     expect(softOneOpenInvoiceAmountSummaryQuery).toContain(
       "CAST(COUNT(*) AS bigint)",
