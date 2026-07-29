@@ -13,7 +13,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { CalendarClock, CheckCircle2, FileText, HandCoins, ListChecks, Search, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
+import { CalendarClock, CheckCircle2, FileText, HandCoins, ListChecks, Search, ThumbsDown, ThumbsUp, User as UserIcon, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link, useSearch } from "wouter";
@@ -407,6 +407,15 @@ export default function Tasks() {
                       <div className="font-mono">{openTask.invoiceNumber}</div>
                     </div>
                   )}
+                  {(() => {
+                    const m = openTask.description?.match(/Contact: ([^.·]+)[.·]/);
+                    return m ? (
+                      <div>
+                        <div className="text-xs text-muted-foreground">Contact</div>
+                        <div className="flex items-center gap-1"><UserIcon className="h-3.5 w-3.5 text-muted-foreground" />{m[1].trim()}</div>
+                      </div>
+                    ) : null;
+                  })()}
                   {openTask.completedAt && (
                     <div>
                       <div className="text-xs text-muted-foreground">Completed</div>

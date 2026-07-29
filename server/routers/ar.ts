@@ -124,7 +124,7 @@ function effectiveConfirmation<T extends { status: string; amount: string | null
  */
 async function createGroupPromise(
   ctx: { user: { id: number; name: string | null } },
-  input: { group: string; customerId?: number; amount: number; promisedDate: number; notes?: string }
+  input: { group: string; customerId?: number; amount: number; promisedDate: number; notes?: string; contactName?: string }
 ) {
   let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
   if (!cust) {
@@ -156,7 +156,7 @@ async function createGroupPromise(
     customerId: cust.id,
     type: "Manual",
     title: `Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
-    description: `Verify that ${cust.name} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${dateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
+    description: `Verify that ${cust.name} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${dateStr}.${input.contactName ? ` Contact: ${input.contactName}.` : ""}${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
     dueDate: input.promisedDate,
     status: "Pending",
     assignedTo: ctx.user.id,
@@ -234,7 +234,7 @@ async function rescheduleGroupPromise(
  */
 async function upsertFollowUpTask(
   ctx: { user: { id: number; name: string | null } },
-  input: { group: string; customerId?: number; followUpDate: number; amount?: number; notes?: string }
+  input: { group: string; customerId?: number; followUpDate: number; amount?: number; notes?: string; contactName?: string }
 ) {
   let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
   if (!cust) {
@@ -247,7 +247,8 @@ async function upsertFollowUpTask(
   const dateStr = new Date(input.followUpDate).toLocaleDateString("en-GB");
   const amountStr = input.amount && input.amount > 0 ? ` — expected €${Number(eur(input.amount)).toLocaleString()}` : "";
   const title = `Follow-up call — ${input.group}${amountStr}`;
-  const description = `Call ${input.group} on ${dateStr} to confirm the expected payment${amountStr}.${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`;
+  const contactStr = input.contactName ? ` Contact: ${input.contactName}.` : "";
+  const description = `Call ${input.group} on ${dateStr} to confirm the expected payment${amountStr}.${contactStr}${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`;
 
   // Reuse an existing open follow-up task for this group (avoid duplicates)
   const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
@@ -742,7 +743,8 @@ export const customersRouter = router({
           confirmationPromiseDate: confStatus === "Confirmed" ? openPromiseDate : null,
         };
       })
-      .sort((a, b) => b.openBalance - a.openBalance);
+      // Default order: highest overdue first (user request 29/7); ties → open balance.
+      .sort((a, b) => (b.overdueBalance - a.overdueBalance) || (b.openBalance - a.openBalance));
   }),
   /**
    * Prioritized collection call list: which groups to phone first.
@@ -3485,6 +3487,7 @@ export const callsRouter = router({
               amount: input.confirmationAmount,
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
+              contactName: input.contactName,
             });
           }
         }
@@ -3497,6 +3500,7 @@ export const callsRouter = router({
             followUpDate: input.followUpDate,
             amount: input.confirmationAmount,
             notes: input.notes,
+            contactName: input.contactName,
           });
         }
       }

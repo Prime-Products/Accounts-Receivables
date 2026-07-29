@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtEur, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, RotateCcw, Search, Sparkles, StickyNote, Users } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
@@ -320,12 +320,7 @@ export default function Customers() {
   const [managerFilter, setManagerFilter] = useState<string>("all");
   const [collectorFilter, setCollectorFilter] = useState<string>("all");
   const { data: teamMembers } = trpc.team.list.useQuery();
-  const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>(() => {
-    // Allow presetting the sort via URL (?sort=overdue) — also handy for testing.
-    const p = new URLSearchParams(window.location.search).get("sort");
-    const valid: GroupSortKey[] = ["companies", "open", "overdue", "overdueEom", "forecast", "expected", "collected", "remaining", "overdueCount"];
-    return p && valid.includes(p as GroupSortKey) ? { key: p as GroupSortKey, dir: "desc" } : { key: null, dir: "desc" };
-  });
+  const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
   const [companySort, setCompanySort] = useState<{ key: CompanySortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
   // Performance: render only the first 100 rows initially; "Show all" reveals the rest.
   const [showAllGroups, setShowAllGroups] = useState(false);
@@ -704,26 +699,6 @@ export default function Customers() {
             ))}
           </SelectContent>
         </Select>
-        {view === "groups" && groupSort.key !== null && (
-          <Button
-            variant="outline"
-            className="gap-1.5 text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 hover:text-amber-800"
-            onClick={() => setGroupSort({ key: null, dir: "desc" })}
-            title="Return to the default order (highest open balance first)"
-          >
-            <RotateCcw className="h-4 w-4" /> Reset sort
-          </Button>
-        )}
-        {view === "companies" && companySort.key !== null && (
-          <Button
-            variant="outline"
-            className="gap-1.5 text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 hover:text-amber-800"
-            onClick={() => setCompanySort({ key: null, dir: "desc" })}
-            title="Return to the default order"
-          >
-            <RotateCcw className="h-4 w-4" /> Reset sort
-          </Button>
-        )}
       </div>
 
       {view === "groups" && !groupsLoading && (

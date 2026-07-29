@@ -7,7 +7,7 @@ import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { CalendarClock, CheckCircle2, FileText, HandCoins, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
+import { CalendarClock, CheckCircle2, FileText, HandCoins, ThumbsDown, ThumbsUp, User, XCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -178,6 +178,15 @@ export default function TaskDetailDialog({
                     <div className="font-mono">{task.invoiceNumber}</div>
                   </div>
                 )}
+                {(() => {
+                  const m = task.description?.match(/Contact: ([^.·]+)[.·]/);
+                  return m ? (
+                    <div>
+                      <div className="text-xs text-muted-foreground">Contact</div>
+                      <div className="flex items-center gap-1"><User className="h-3.5 w-3.5 text-muted-foreground" />{m[1].trim()}</div>
+                    </div>
+                  ) : null;
+                })()}
                 {task.completedAt && (
                   <div>
                     <div className="text-xs text-muted-foreground">Completed</div>

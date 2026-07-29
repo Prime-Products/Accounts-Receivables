@@ -938,3 +938,20 @@
 - [x] Customers page (Groups view): "Reset sort" button appears when user changes column sorting; click returns to the default order (open balance desc)
 - [x] Companies view: same "Reset sort" control when a manual column sort is active
 - [x] Optional ?sort= URL param presets group sorting (used for verification)
+
+## Follow-up task should show the call contact (user report 29/7)
+- [x] Backend: store the selected contact on the follow-up task created/rescheduled by Log Call (Pending Follow-up / Promise to Pay)
+- [x] Task detail dialog: show the contact of the linked call (Contact row in both task detail dialogs)
+- [x] Tests + checkpoint + GitHub push
+
+## Visible Risk Score column on groups list (user request 29/7)
+- [x] CANCELLED by user 29/7 — no risk score anywhere
+
+## Risk score ranking investigation: Starbulk vs Minerva (user question 29/7)
+- [x] CANCELLED by user 29/7 — risk score removed entirely instead
+
+## Remove risk score + Reset sort; default sort by overdue (user request 29/7)
+- [x] Remove the "Reset sort" button and ?sort= URL preset from Customers page
+- [x] Groups list default order = overdue balance desc (backend customers.groups)
+- [x] Companies list default order unchanged (user asked only for groups; column sorting still available)
+- [x] Tests + checkpoint + GitHub push
