@@ -22,7 +22,7 @@ export const softOneCustomersQuery = `SELECT TOP (50000)
   source.[OpenOrders],
   source.[OrdersAmount],
   source.[Collections],
-  CAST(master.[NAME] AS nvarchar(64)) AS [GROUPNAME],
+  CAST(master.[NAME] AS nchar(64)) AS [GROUPNAME],
   CAST(source.[NAME] AS nvarchar(64)) AS [NAME]
 FROM [dbo].[CustomerGroupFinData] AS source
 LEFT JOIN [dbo].[TRDR] AS master ON master.[TRDR] = source.[MASTERTRDR]`;

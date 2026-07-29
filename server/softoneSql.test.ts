@@ -65,6 +65,7 @@ describe("SoftOne read-only SQL sync", () => {
     expect(softOneCustomersQuery.indexOf("CAST(source.[NAME]")).toBeGreaterThan(
       softOneCustomersQuery.indexOf("source.[Collections]"),
     );
+    expect(softOneCustomersQuery).toContain("CAST(master.[NAME] AS nchar(64))");
     expect(softOneCustomersQuery).toContain("LEFT JOIN [dbo].[TRDR]");
   });
 });
