@@ -93,7 +93,7 @@ export default function TaskDetailDialog({
   const [editingDue, setEditingDue] = useState(false);
   const [newDue, setNewDue] = useState("");
   // Follow-up task action panel: reschedule / convert to promise / escalate
-  const [fuMode, setFuMode] = useState<"none" | "reschedule" | "promise" | "escalate">("none");
+  const [fuMode, setFuMode] = useState<"none" | "reschedule" | "promise" | "escalate" | "reschedule-promise">("none");
   const [fuDate, setFuDate] = useState("");
   const [fuAmount, setFuAmount] = useState("");
   const [fuNotes, setFuNotes] = useState("");
@@ -128,6 +128,14 @@ export default function TaskDetailDialog({
       invalidateAll();
       utils.team.workload.invalidate();
       onOpenChange(false);
+    },
+    onError: e => toast.error(e.message),
+  });
+  const reschedulePromise = trpc.tasks.reschedulePromise.useMutation({
+    onSuccess: () => {
+      toast.success("Promise rescheduled — task moved to the new date");
+      invalidateAll();
+      setFuMode("none");
     },
     onError: e => toast.error(e.message),
   });
@@ -333,6 +341,105 @@ export default function TaskDetailDialog({
                       >
                         <ThumbsDown className="h-4 w-4" /> Not Confirmed
                       </Button>
+                    </div>
+                  )}
+                  {task.promise.status === "Pending" && (task.status === "Pending" || task.status === "In Progress") && (
+                    <div className="border-t pt-2 mt-1 space-y-2">
+                      {fuMode === "none" && (
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1 text-blue-700 h-7 px-2 text-xs"
+                            onClick={() => {
+                              setFuAmount(String(task.promise!.amount ?? ""));
+                              setFuDate(new Date(task.promise!.promisedDate).toISOString().slice(0, 10));
+                              setFuMode("reschedule-promise" as any);
+                            }}
+                          >
+                            <CalendarClock className="h-3.5 w-3.5" /> Reschedule promise
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1 text-red-700 h-7 px-2 text-xs"
+                            onClick={() => setFuMode("escalate")}
+                          >
+                            <ArrowUpCircle className="h-3.5 w-3.5" /> Escalate
+                          </Button>
+                        </div>
+                      )}
+                      {(fuMode as string) === "reschedule-promise" && (
+                        <div className="grid gap-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="grid gap-1">
+                              <Label htmlFor="pr-re-amount" className="text-xs">New amount (EUR)</Label>
+                              <Input id="pr-re-amount" type="number" min="0" step="0.01" className="h-8" value={fuAmount} onChange={e => setFuAmount(e.target.value)} />
+                            </div>
+                            <div className="grid gap-1">
+                              <Label htmlFor="pr-re-date" className="text-xs">New promised date</Label>
+                              <Input id="pr-re-date" type="date" className="h-8" value={fuDate} onChange={e => setFuDate(e.target.value)} />
+                            </div>
+                          </div>
+                          <div className="grid gap-1">
+                            <Label htmlFor="pr-re-notes" className="text-xs">Notes (optional)</Label>
+                            <Textarea id="pr-re-notes" rows={2} className="text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} placeholder="e.g. customer asked to move the payment" />
+                          </div>
+                          <div className="flex justify-between">
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("none")}>
+                              <ArrowLeft className="h-3.5 w-3.5" /> Back
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="h-7 px-3 text-xs"
+                              disabled={!fuDate || !fuAmount || Number(fuAmount) <= 0 || reschedulePromise.isPending}
+                              onClick={() =>
+                                reschedulePromise.mutate({
+                                  taskId: task.id,
+                                  promiseId: task.promise!.id,
+                                  amount: Number(fuAmount),
+                                  promisedDate: new Date(`${fuDate}T12:00:00`).getTime(),
+                                  notes: fuNotes || undefined,
+                                })
+                              }
+                            >
+                              Reschedule
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {fuMode === "escalate" && !task.description?.includes("(Follow-up: ") && (
+                        <div className="grid gap-2">
+                          <div className="grid gap-1">
+                            <Label className="text-xs">Escalate to (defaults to the group's Account Manager)</Label>
+                            <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
+                          </div>
+                          <div className="grid gap-1">
+                            <Label htmlFor="pr-es-note" className="text-xs">Note (optional)</Label>
+                            <Textarea id="pr-es-note" rows={2} className="text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} placeholder="e.g. promise broken twice — needs manager attention" />
+                          </div>
+                          <div className="flex justify-between">
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("none")}>
+                              <ArrowLeft className="h-3.5 w-3.5" /> Back
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="h-7 px-3 text-xs"
+                              disabled={escalateTask.isPending}
+                              onClick={() =>
+                                escalateTask.mutate({
+                                  taskId: task.id,
+                                  assigneeId: fuAssignee ?? undefined,
+                                  note: fuNotes || undefined,
+                                })
+                              }
+                            >
+                              <ArrowUpCircle className="h-3.5 w-3.5" /> Escalate
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

@@ -2696,6 +2696,50 @@ export const tasksRouter = router({
       return { success: true, promiseId };
     }),
   /**
+   * Reschedule an open promise from its check task: moves the promise date/amount
+   * (customer moved the payment), updates the linked task, keeps the confirmation
+   * badge (Confirmed) date in sync.
+   */
+  reschedulePromise: protectedProcedure
+    .input(
+      z.object({
+        taskId: z.number(),
+        promiseId: z.number(),
+        amount: z.number().positive(),
+        promisedDate: z.number(),
+        notes: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const task = await db.getTask(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      const promise = await db.getPromise(input.promiseId);
+      if (!promise || promise.status !== "Pending") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only open promises can be rescheduled" });
+      }
+      const cust = await db.getCustomer(promise.customerId);
+      const group = cust ? ((cust.customerGroup ?? "").trim() || cust.name) : null;
+      if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+      const res = await rescheduleGroupPromise(ctx, {
+        group,
+        promiseId: input.promiseId,
+        amount: input.amount,
+        promisedDate: input.promisedDate,
+        notes: input.notes,
+      });
+      if (!res) throw new TRPCError({ code: "BAD_REQUEST", message: "Promise could not be rescheduled" });
+      // Keep the group's Confirmed badge date/amount in sync
+      const conf = await db.getGroupConfirmationStatus(group);
+      if (conf && conf.status === "Confirmed") {
+        await db.upsertGroupConfirmationStatus(group, {
+          amount: eur(input.amount),
+          followUpDate: input.promisedDate,
+          updatedBy: ctx.user.id,
+        });
+      }
+      return { success: true };
+    }),
+  /**
    * Escalate a follow-up task: reassign it to the group's Account Manager
    * (or a chosen team member) and log the escalation.
    */

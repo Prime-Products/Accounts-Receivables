@@ -1033,3 +1033,8 @@
 - [x] Backend: procedure for convert to Promise to Pay (create promise record, create PTP check task, update confirmation status to Confirmed, cancel old follow-up task)
 - [x] Backend: procedure for escalate (reassign task to account manager, add activity log)
 - [x] Frontend: action buttons/dialog when viewing a Pending Follow-up task
+
+## Promise to Pay Task Actions
+- [x] When opening a Promise to Pay task (promise not kept), show actions: Reschedule promise (new date/amount) and Escalate (to Account Manager)
+- [x] Backend: reuse/extend promise reschedule to work from the task dialog
+- [x] Frontend: action panel in TaskDetailDialog for promise tasks

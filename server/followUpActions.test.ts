@@ -117,4 +117,57 @@ describe("follow-up task actions", () => {
     expect(after?.assigneeId).toBe(target.id);
     expect(after?.description).toContain("Escalated to");
   });
+
+  it("reschedules an open promise from its check task (new date/amount, badge in sync)", async () => {
+    const caller = makeCaller();
+    const customers = await db.listCustomers();
+    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const group = (cust!.customerGroup ?? "").trim() || cust!.name;
+
+    // Create a promise via a confirmed call
+    const firstDate = Date.now() + 3 * 24 * 3600 * 1000;
+    await caller.calls.updateConfirmationStatus({
+      group,
+      status: "Confirmed",
+      amount: 500,
+      followUpDate: firstDate,
+    });
+    const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+    const promises = await db.listPromises({ status: "Pending" });
+    const promise = promises
+      .filter(p => {
+        const c = customers.find(cc => cc.id === p.customerId);
+        return c && (((c.customerGroup ?? "").trim() || c.name) === group);
+      })
+      .sort((a, b) => b.id - a.id)[0];
+    expect(promise).toBeTruthy();
+    const ptpTask = openTasks.find(t => t.description?.includes(`(Promise #${promise.id})`));
+    expect(ptpTask).toBeTruthy();
+
+    // Reschedule from the task
+    const newDate = Date.now() + 10 * 24 * 3600 * 1000;
+    const res = await caller.tasks.reschedulePromise({
+      taskId: ptpTask!.id,
+      promiseId: promise.id,
+      amount: 750,
+      promisedDate: newDate,
+      notes: "customer moved the payment (test)",
+    });
+    expect(res.success).toBe(true);
+
+    // Promise updated
+    const updated = await db.getPromise(promise.id);
+    expect(Number(updated?.amount)).toBe(750);
+    expect(Math.abs(Number(updated?.promisedDate) - newDate)).toBeLessThan(1000);
+
+    // Linked task moved
+    const movedTask = await db.getTask(ptpTask!.id);
+    expect(Math.abs(Number(movedTask?.dueDate) - newDate)).toBeLessThan(1000);
+    expect(movedTask?.title).toContain("750");
+
+    // Confirmed badge stays with updated amount
+    const conf = await db.getGroupConfirmationStatus(group);
+    expect(conf?.status).toBe("Confirmed");
+    expect(Number(conf?.amount)).toBe(750);
+  });
 });
