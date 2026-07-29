@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
+import { purgeTestCustomers } from "./testCleanup";
 
 describe("Wire Transfers", () => {
   let caller: ReturnType<typeof appRouter.createCaller>;
@@ -45,6 +46,7 @@ describe("Wire Transfers", () => {
         await db.deleteWireTransfer(t.id);
       }
     }
+    await purgeTestCustomers(["Wire Transfer Test Customer%"]);
   });
 
   it("should create a wire transfer", async () => {
@@ -297,6 +299,14 @@ describe("Wire Transfer Allocation (Συμψηφισμός, group-level)", () =>
     for (const invId of createdInvoices) {
       await db.updateInvoice(invId, { status: "Paid" as any });
     }
+    // Purge fixture customers whose invoices were only test fixtures: delete the
+    // fixture invoices first so the safety check in purgeTestCustomers passes.
+    const dbi = await db.getDb();
+    if (dbi) {
+      const { sql } = await import("drizzle-orm");
+      await dbi.execute(sql`DELETE FROM invoices WHERE invoiceNumber LIKE 'WTA-INV-%'`);
+    }
+    await purgeTestCustomers(["Alloc Sender Test%", "Alloc Sister Test%", "Alloc Stranger Test%"]);
   });
 
   it("lists open invoices of the whole group (sister company included)", async () => {
