@@ -83,8 +83,7 @@ WHERE customer.[TRDR] IN (${numericIdentifiers(softoneIds)})`;
 export function buildSoftOneCustomerGroupNamesQuery(groupIds: string[]) {
   return `SELECT
   CAST(customer_group.[TRDGROUP] AS bigint) AS [TRDGROUP],
-  CAST(customer_group.[CODE] AS nchar(64)) AS [CODE],
-  CAST(customer_group.[NAME] AS nchar(255)) AS [NAME]
+  CAST(customer_group.[NAME] AS nchar(128)) AS [NAME]
 FROM [dbo].[TRDGROUP] AS customer_group
 WHERE customer_group.[TRDGROUP] IN (${numericIdentifiers(groupIds)})`;
 }
