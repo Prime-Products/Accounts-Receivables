@@ -28,8 +28,7 @@ WHERE FP.[ISCLOSE] = 0
   AND FP.[APPRV] = 1
   AND FP.[PAYDEMANDMD] IN (-1, 1)
 GROUP BY
-  FP.[FINDOC], FP.[TRDR], FIN.[COMPANY], FP.[SOCURRENCY], FP.[TRNDATE]
-HAVING SUM((FP.[TAMNT] - FP.[OPNTAMNT]) * FP.[PAYDEMANDMD]) > 0.005`;
+  FP.[FINDOC], FP.[TRDR], FIN.[COMPANY], FP.[SOCURRENCY], FP.[TRNDATE]`;
 
 export const softOneOpenInvoiceDocumentsQuery = `SELECT
   CAST(FIN.[FINDOC] AS bigint) AS [FINDOC],
@@ -186,13 +185,22 @@ async function queryMaps(pool: ConnectionPool) {
   };
 }
 
-async function loadSoftOneOpenInvoices(pool: ConnectionPool) {
+function hasPositiveOpenAmount(row: SourceRow) {
+  return numberValue(row, "OPEN_AMOUNT") > 0.005;
+}
+
+async function querySoftOneOpenInvoiceSource(pool: ConnectionPool) {
   const result = await pool
     .request()
     .query<SourceRow>(softOneOpenInvoiceFinancialsQuery);
+  return result.recordset;
+}
+
+async function loadSoftOneOpenInvoices(pool: ConnectionPool) {
+  const rows = await querySoftOneOpenInvoiceSource(pool);
   const maps = await queryMaps(pool);
   return normalizeSoftOneOpenInvoiceRows(
-    result.recordset,
+    rows.filter(hasPositiveOpenAmount),
     maps.documents,
     maps.companies,
     maps.currencies,
@@ -205,8 +213,27 @@ export async function inspectSoftOneOpenInvoices() {
   let stage = "connect";
   try {
     pool = await openSoftOneSqlPool();
-    stage = "query and normalize open invoices";
-    const records = await loadSoftOneOpenInvoices(pool);
+    stage = "query open invoice source";
+    const sourceRows = await querySoftOneOpenInvoiceSource(pool);
+    const positiveOpenRows = sourceRows.filter(hasPositiveOpenAmount);
+    const zeroOpenRows = sourceRows.filter(
+      row => Math.abs(numberValue(row, "OPEN_AMOUNT")) <= 0.005,
+    );
+    const negativeOpenRows = sourceRows.filter(
+      row => numberValue(row, "OPEN_AMOUNT") < -0.005,
+    );
+    const positiveOriginalRows = sourceRows.filter(
+      row => numberValue(row, "ORIGINAL_AMOUNT") > 0.005,
+    );
+    stage = "query open invoice lookups";
+    const maps = await queryMaps(pool);
+    stage = "normalize positive open invoice preview";
+    const records = normalizeSoftOneOpenInvoiceRows(
+      positiveOpenRows,
+      maps.documents,
+      maps.companies,
+      maps.currencies,
+    );
     const counts = new Map<string, number>();
     for (const record of records) {
       const key = `${record.company} | ${record.currency}`;
@@ -214,6 +241,18 @@ export async function inspectSoftOneOpenInvoices() {
     }
     return {
       total: records.length,
+      sourceSummary: {
+        groupedRows: sourceRows.length,
+        positiveOpen: positiveOpenRows.length,
+        zeroOpen: zeroOpenRows.length,
+        negativeOpen: negativeOpenRows.length,
+        positiveOriginal: positiveOriginalRows.length,
+        positiveOriginalWithoutPositiveOpen: sourceRows.filter(
+          row =>
+            numberValue(row, "ORIGINAL_AMOUNT") > 0.005 &&
+            numberValue(row, "OPEN_AMOUNT") <= 0.005,
+        ).length,
+      },
       breakdown: Array.from(counts.entries())
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, count]) => ({ key, count })),
