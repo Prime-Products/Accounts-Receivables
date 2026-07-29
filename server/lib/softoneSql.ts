@@ -7,23 +7,25 @@ const MAX_CUSTOMERS = 50_000;
 // Keep the variable-length NAME column last. unixODBC can return HY010 when
 // variable-length data is interleaved with fixed-width financial columns.
 export const softOneCustomersQuery = `SELECT TOP (50000)
-  [TRDR],
-  [MASTERTRDR],
-  [TRDGROUP],
-  [LBAL],
-  [LTURNOVR],
-  [LTURNOVRLY],
-  [LTURNOVRLYLY],
-  [Uncovered],
-  [Unpaid],
-  [Overdue],
-  [OVERDUEMONTHVAL],
-  [DAYSAVG],
-  [OpenOrders],
-  [OrdersAmount],
-  [Collections],
-  CAST([NAME] AS nvarchar(64)) AS [NAME]
-FROM [dbo].[CustomerGroupFinData]`;
+  source.[TRDR],
+  source.[MASTERTRDR],
+  source.[TRDGROUP],
+  source.[LBAL],
+  source.[LTURNOVR],
+  source.[LTURNOVRLY],
+  source.[LTURNOVRLYLY],
+  source.[Uncovered],
+  source.[Unpaid],
+  source.[Overdue],
+  source.[OVERDUEMONTHVAL],
+  source.[DAYSAVG],
+  source.[OpenOrders],
+  source.[OrdersAmount],
+  source.[Collections],
+  CAST(master.[NAME] AS nvarchar(64)) AS [GROUPNAME],
+  CAST(source.[NAME] AS nvarchar(64)) AS [NAME]
+FROM [dbo].[CustomerGroupFinData] AS source
+LEFT JOIN [dbo].[TRDR] AS master ON master.[TRDR] = source.[MASTERTRDR]`;
 
 type SourceRow = Record<string, unknown>;
 
@@ -77,6 +79,7 @@ export function normalizeSoftOneCustomerRows(rows: SourceRow[], synchronizedAt =
     const groupCode =
       row.TRDGROUP == null ? null : String(row.TRDGROUP).trim() || null;
     const customerGroup =
+      (row.GROUPNAME == null ? null : String(row.GROUPNAME).trim() || null) ??
       (masterSoftoneId ? nameBySoftOneId.get(masterSoftoneId) : undefined) ??
       (groupCode ? nameBySoftOneId.get(groupCode) : undefined) ??
       groupCode ??
