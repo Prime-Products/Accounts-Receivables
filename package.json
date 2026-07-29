@@ -13,7 +13,9 @@
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "test:softone-sql": "tsx scripts/test-softone-sql.ts",
     "inspect:softone-groups": "tsx scripts/inspect-softone-groups.ts",
-    "sync:softone-customers": "tsx scripts/sync-softone-customers.ts"
+    "sync:softone-customers": "tsx scripts/sync-softone-customers.ts",
+    "inspect:softone-invoices": "tsx scripts/inspect-softone-invoices.ts",
+    "sync:softone-invoices": "tsx scripts/sync-softone-invoices.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
