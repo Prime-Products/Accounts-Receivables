@@ -10,6 +10,7 @@ const MAX_CUSTOMERS = 50_000;
 export const softOneCustomersQuery = `SELECT TOP (50000)
   CAST([TRDR] AS bigint) AS [TRDR],
   CAST([MASTERTRDR] AS bigint) AS [MASTERTRDR],
+  CAST([TRDGROUP] AS bigint) AS [TRDGROUP],
   CAST([LBAL] AS float) AS [LBAL],
   CAST([LTURNOVR] AS float) AS [LTURNOVR],
   CAST([LTURNOVRLY] AS float) AS [LTURNOVRLY],
@@ -33,6 +34,9 @@ INNER JOIN (
   FROM [dbo].[CustomerGroupFinData]
   UNION
   SELECT DISTINCT CAST([MASTERTRDR] AS bigint)
+  FROM [dbo].[CustomerGroupFinData]
+  UNION
+  SELECT DISTINCT CAST([TRDGROUP] AS bigint)
   FROM [dbo].[CustomerGroupFinData]
 ) AS source ON source.[REFERENCE] = CAST(master.[TRDR] AS bigint)`;
 
@@ -89,7 +93,11 @@ export function normalizeSoftOneCustomerRows(
     const name = nameBySoftOneId.get(softoneId)!;
     const masterSoftoneId =
       row.MASTERTRDR == null ? null : String(row.MASTERTRDR).trim() || null;
+    const groupSoftoneId =
+      row.TRDGROUP == null ? null : String(row.TRDGROUP).trim() || null;
     const customerGroup =
+      (groupSoftoneId ? externalGroupNames.get(groupSoftoneId) : undefined) ??
+      (groupSoftoneId ? nameBySoftOneId.get(groupSoftoneId) : undefined) ??
       (masterSoftoneId ? externalGroupNames.get(masterSoftoneId) : undefined) ??
       (masterSoftoneId ? nameBySoftOneId.get(masterSoftoneId) : undefined) ??
       name;

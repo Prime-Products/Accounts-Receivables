@@ -59,14 +59,19 @@ describe("SoftOne read-only SQL sync", () => {
     const [record] = normalizeSoftOneCustomerRows(
       [sourceRow],
       new Date(),
-      new Map([["100", "External Master Group"]]),
+      new Map([
+        ["10", "External Customer Group"],
+        ["100", "External Master Group"],
+      ]),
     );
-    expect(record.customerGroup).toBe("External Master Group");
+    expect(record.customerGroup).toBe("External Customer Group");
   });
 
   it("keeps names separate from financials for the production unixODBC driver", () => {
     expect(softOneCustomersQuery).not.toContain("[NAME]");
-    expect(softOneCustomersQuery).not.toContain("[TRDGROUP]");
+    expect(softOneCustomersQuery).toContain(
+      "CAST([TRDGROUP] AS bigint) AS [TRDGROUP]",
+    );
     expect(softOneCustomersQuery).toContain("CAST([LBAL] AS float)");
     expect(softOneGroupNamesQuery).toContain(
       "CAST(master.[NAME] AS nchar(128))",
@@ -75,5 +80,8 @@ describe("SoftOne read-only SQL sync", () => {
       "CAST(master.[TRDR] AS bigint)",
     );
     expect(softOneGroupNamesQuery).not.toContain("nvarchar");
+    expect(softOneGroupNamesQuery).toContain(
+      "SELECT DISTINCT CAST([TRDGROUP] AS bigint)",
+    );
   });
 });
