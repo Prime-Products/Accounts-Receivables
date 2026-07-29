@@ -64,12 +64,12 @@ describe("SoftOne read-only SQL sync", () => {
     expect(record.customerGroup).toBe("External Master Group");
   });
 
-  it("keeps NAME last for the production unixODBC driver", () => {
-    expect(softOneCustomersQuery.indexOf("CAST([NAME]")).toBeGreaterThan(
-      softOneCustomersQuery.indexOf("[Collections]"),
-    );
+  it("keeps names separate from financials for the production unixODBC driver", () => {
+    expect(softOneCustomersQuery).not.toContain("[NAME]");
     expect(softOneGroupNamesQuery.indexOf("CAST(master.[NAME]")).toBeGreaterThan(
       softOneGroupNamesQuery.indexOf("master.[TRDR]"),
     );
+    expect(softOneGroupNamesQuery).toContain("SELECT [TRDR] AS [REFERENCE]");
+    expect(softOneGroupNamesQuery).toContain("SELECT DISTINCT [MASTERTRDR]");
   });
 });
