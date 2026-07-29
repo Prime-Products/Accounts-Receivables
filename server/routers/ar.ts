@@ -905,7 +905,7 @@ export const customersRouter = router({
           followUpDate: g.followUpTs,
         };
       })
-      // Status-first: Critical/Legal, then Problematic, then Normal; score orders within each tier.
+      // Critical/Legal first; everyone else (incl. Problematic) ordered purely by risk score.
       .sort((a, b) => (b.tier - a.tier) || (b.score - a.score));
     return rows;
   }),
