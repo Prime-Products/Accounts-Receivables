@@ -78,6 +78,12 @@ describe("SoftOne read-only SQL sync", () => {
     );
     expect(softOneCustomersQuery).toContain("customer.[ISACTIVE] = 1");
     expect(softOneCustomersQuery).toContain(
+      "FROM [dbo].[TRDR] AS customer",
+    );
+    expect(softOneCustomersQuery).toContain(
+      "LEFT JOIN [dbo].[CustomerGroupFinData] AS source",
+    );
+    expect(softOneCustomersQuery).toContain(
       "customer.[TRDGROUP] IS NOT NULL",
     );
     expect(softOneCustomersQuery).toContain(

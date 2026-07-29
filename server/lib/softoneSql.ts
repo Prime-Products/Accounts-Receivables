@@ -9,7 +9,7 @@ const SOFTONE_NAME_BATCH_SIZE = 250;
 // unixODBC driver can return HY010 when variable-length text is fetched
 // alongside the fixed-width financial columns.
 export const softOneCustomersQuery = `SELECT TOP (50000)
-  CAST(source.[TRDR] AS bigint) AS [TRDR],
+  CAST(customer.[TRDR] AS bigint) AS [TRDR],
   CAST(source.[MASTERTRDR] AS bigint) AS [MASTERTRDR],
   CAST(customer.[TRDGROUP] AS bigint) AS [TRDGROUP],
   CAST(source.[LBAL] AS float) AS [LBAL],
@@ -24,9 +24,9 @@ export const softOneCustomersQuery = `SELECT TOP (50000)
   CAST(source.[OpenOrders] AS float) AS [OpenOrders],
   CAST(source.[OrdersAmount] AS float) AS [OrdersAmount],
   CAST(source.[Collections] AS float) AS [Collections]
-FROM [dbo].[CustomerGroupFinData] AS source
-INNER JOIN [dbo].[TRDR] AS customer
-  ON customer.[TRDR] = source.[TRDR]
+FROM [dbo].[TRDR] AS customer
+LEFT JOIN [dbo].[CustomerGroupFinData] AS source
+  ON source.[TRDR] = customer.[TRDR]
 WHERE customer.[COMPANY] = 1
   AND customer.[SODTYPE] = 13
   AND customer.[ISACTIVE] = 1
