@@ -17,9 +17,9 @@ export const softOneOpenInvoiceFinancialsQuery = `SELECT TOP (50000)
   CAST(FIN.[COMPANY] AS int) AS [COMPANY],
   CAST(FP.[SOCURRENCY] AS int) AS [SOCURRENCY],
   CAST(CONVERT(char(8), FP.[TRNDATE], 112) AS int) AS [ISSUE_DATE],
-  CAST(CONVERT(char(8), MAX(FP.[FINALDATE]), 112) AS int) AS [DUE_DATE],
-  SUM(CAST(FP.[TAMNT] AS float) * CAST(FP.[PAYDEMANDMD] AS float)) AS [ORIGINAL_AMOUNT],
-  SUM(CAST(FP.[OPNTAMNT] AS float) * CAST(FP.[PAYDEMANDMD] AS float)) AS [OPEN_AMOUNT]
+  CAST(CONVERT(char(8), FP.[FINALDATE], 112) AS int) AS [DUE_DATE],
+  CAST(FP.[TAMNT] AS float) * CAST(FP.[PAYDEMANDMD] AS float) AS [ORIGINAL_AMOUNT_PART],
+  CAST(FP.[OPNTAMNT] AS float) * CAST(FP.[PAYDEMANDMD] AS float) AS [OPEN_AMOUNT_PART]
 FROM [dbo].[FINPAYTERMS] AS FP
 INNER JOIN [dbo].[FINDOC] AS FIN
   ON FIN.[COMPANY] = FP.[COMPANY] AND FIN.[FINDOC] = FP.[FINDOC]
@@ -29,9 +29,7 @@ WHERE FP.[ISCLOSE] = 0
   AND FP.[PAYDEMANDMD] IN (-1, 1)
   AND FIN.[SOSOURCE] = 1351
   AND FIN.[SOREDIR] = 0
-GROUP BY
-  FP.[FINDOC], FP.[TRDR], FIN.[COMPANY], FP.[SOCURRENCY], FP.[TRNDATE]
-HAVING SUM(CAST(FP.[OPNTAMNT] AS float) * CAST(FP.[PAYDEMANDMD] AS float)) > 0.005`;
+ORDER BY FP.[FINDOC]`;
 
 export const softOneOpenInvoiceAmountSummaryQuery = `WITH source AS (
   SELECT
@@ -127,6 +125,42 @@ function numberValue(row: SourceRow, field: string) {
     throw new Error(`SoftOne invoice row has invalid ${field}.`);
   }
   return value;
+}
+
+export function aggregateSoftOneOpenInvoiceParts(rows: SourceRow[]) {
+  const grouped = new Map<string, SourceRow>();
+  for (const row of rows) {
+    const findoc = identity(row, "FINDOC");
+    const existing = grouped.get(findoc);
+    const originalPart = numberValue(row, "ORIGINAL_AMOUNT_PART");
+    const openPart = numberValue(row, "OPEN_AMOUNT_PART");
+    const dueDate = numberValue(row, "DUE_DATE");
+    if (!existing) {
+      grouped.set(findoc, {
+        FINDOC: row.FINDOC,
+        TRDR: row.TRDR,
+        COMPANY: row.COMPANY,
+        SOCURRENCY: row.SOCURRENCY,
+        ISSUE_DATE: row.ISSUE_DATE,
+        DUE_DATE: dueDate,
+        ORIGINAL_AMOUNT: originalPart,
+        OPEN_AMOUNT: openPart,
+      });
+      continue;
+    }
+    for (const field of ["TRDR", "COMPANY", "SOCURRENCY", "ISSUE_DATE"]) {
+      if (identity(existing, field) !== identity(row, field)) {
+        throw new Error(`SoftOne FINDOC ${findoc} has inconsistent ${field}.`);
+      }
+    }
+    existing.DUE_DATE = Math.max(numberValue(existing, "DUE_DATE"), dueDate);
+    existing.ORIGINAL_AMOUNT =
+      numberValue(existing, "ORIGINAL_AMOUNT") + originalPart;
+    existing.OPEN_AMOUNT = numberValue(existing, "OPEN_AMOUNT") + openPart;
+  }
+  return Array.from(grouped.values()).filter(
+    row => numberValue(row, "OPEN_AMOUNT") > 0.005,
+  );
 }
 
 function dateKeyToUtc(value: unknown, field: string) {
@@ -249,7 +283,10 @@ async function querySoftOneOpenInvoiceSource(pool: ConnectionPool) {
   const result = await pool
     .request()
     .query<SourceRow>(softOneOpenInvoiceFinancialsQuery);
-  return result.recordset;
+  if (result.recordset.length >= MAX_OPEN_INVOICES) {
+    throw new Error("SoftOne open invoice source row limit reached.");
+  }
+  return aggregateSoftOneOpenInvoiceParts(result.recordset);
 }
 
 async function loadSoftOneOpenInvoices(pool: ConnectionPool) {
