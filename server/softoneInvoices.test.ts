@@ -49,7 +49,7 @@ describe("SoftOne open invoice sync", () => {
     expect(invoice.status).toBe("Overdue");
   });
 
-  it("rejects incomplete lookups, duplicates, and inconsistent amounts", () => {
+  it("rejects incomplete lookups, duplicates, and non-positive open amounts", () => {
     const maps = [
       new Map([["1403582", "INV-1"]]),
       new Map([["1", "Prime Products LTD"]]),
@@ -60,10 +60,21 @@ describe("SoftOne open invoice sync", () => {
     ).toThrow(/duplicate FINDOC/);
     expect(() =>
       normalizeSoftOneOpenInvoiceRows(
-        [{ ...row, OPEN_AMOUNT: 101 }],
+        [{ ...row, OPEN_AMOUNT: 0 }],
         ...maps,
       ),
-    ).toThrow(/inconsistent amounts/);
+    ).toThrow(/invalid open amount/);
+  });
+
+  it("uses the authoritative open amount when it exceeds aggregated TAMNT", () => {
+    const [invoice] = normalizeSoftOneOpenInvoiceRows(
+      [{ ...row, ORIGINAL_AMOUNT: 80, OPEN_AMOUNT: 100 }],
+      new Map([["1403582", "INV-1"]]),
+      new Map([["1", "Prime Products LTD"]]),
+      new Map([["999", "EURO"]]),
+    );
+    expect(invoice.amount).toBe("100.00");
+    expect(invoice.paidAmount).toBe("0.00");
   });
 
   it("normalizes the currency names used in the supplied export", () => {
