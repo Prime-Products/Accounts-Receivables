@@ -73,6 +73,8 @@ export default function Tasks() {
         // The customer did not pay — ask the user what happens next.
         setNextActionGroup(((openTask as any).groupName as string) ?? openTask.customerName ?? null);
       }
+      // Close the detail dialog — the linked task has just been auto-completed.
+      setOpenTaskId(null);
     },
     onError: e => toast.error(e.message),
   });

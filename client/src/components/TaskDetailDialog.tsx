@@ -10,7 +10,7 @@ import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/for
 import { trpc } from "@/lib/trpc";
 import { CalendarClock, CheckCircle2, FileText, HandCoins, ThumbsDown, ThumbsUp, User, XCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
@@ -35,8 +35,26 @@ export default function TaskDetailDialog({
 }) {
   const utils = trpc.useUtils();
   const [nextActionGroup, setNextActionGroup] = useState<string | null>(null);
-  const { data: tasks, isLoading } = trpc.tasks.list.useQuery(undefined, { enabled: open && taskId != null });
-  const task = useMemo(() => (tasks ?? []).find(t => t.id === taskId) ?? null, [tasks, taskId]);
+  // Latch the last non-null taskId: after mutations (e.g. promise Kept), parent
+  // lists refetch and pass taskId=null while the dialog is still open — without
+  // this latch the dialog would flash "Task not found".
+  const latchedIdRef = useRef<number | null>(null);
+  if (taskId != null) latchedIdRef.current = taskId;
+  useEffect(() => {
+    if (!open) latchedIdRef.current = null;
+  }, [open]);
+  const effectiveTaskId = taskId ?? latchedIdRef.current;
+  const { data: tasks, isLoading } = trpc.tasks.list.useQuery(undefined, { enabled: open && effectiveTaskId != null });
+  const task = useMemo(() => (tasks ?? []).find(t => t.id === effectiveTaskId) ?? null, [tasks, effectiveTaskId]);
+  // If the task genuinely doesn't exist anymore (deleted), close gracefully
+  // instead of showing a "Task not found" panel.
+  useEffect(() => {
+    if (open && !isLoading && tasks && effectiveTaskId != null && !task) {
+      toast.info("This task has been completed or removed.");
+      onOpenChange(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isLoading, tasks, effectiveTaskId, task]);
 
   const setStatus = trpc.tasks.updateStatus.useMutation({
     onSuccess: () => {
@@ -56,6 +74,9 @@ export default function TaskDetailDialog({
         // The customer did not pay — ask the user what happens next.
         setNextActionGroup(((task as any).groupName as string) ?? task.customerName ?? null);
       }
+      // Close the task dialog: the linked task has just been auto-completed and
+      // the badge will refresh — keeping it open would show stale data.
+      onOpenChange(false);
     },
     onError: e => toast.error(e.message),
   });
@@ -92,14 +113,10 @@ export default function TaskDetailDialog({
             <Skeleton className="h-24" />
           </div>
         ) : !task ? (
-          <>
-            <DialogHeader>
-              <DialogTitle>Task not found</DialogTitle>
-            </DialogHeader>
-            <p className="text-sm text-muted-foreground">
-              The linked task could not be found — it may have been completed or cancelled.
-            </p>
-          </>
+          <div className="space-y-3 py-4">
+            <Skeleton className="h-6 w-2/3" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
         ) : (
           <>
             <DialogHeader>

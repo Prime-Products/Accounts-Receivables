@@ -984,3 +984,7 @@
 ## Remove names under group name in groups list (user request 29/7)
 - [x] Remove account manager / collector names shown under the group name in the groups list
 - [x] Column drag-and-drop reordering — requested then CANCELLED by user (not implemented)
+
+## Bug: "Task not found" dialog after promise Kept (user report 29/7)
+- [x] Clicking the confirmation badge after a promise is marked Kept (or its task completed/cancelled) opens "Task not found" — stale confirmationTaskId
+- [x] Fix: clear/refresh the stale task link so completed tasks don't open the error dialog (latched taskId, dialog auto-closes after Kept/Not Confirmed, graceful close+toast if task truly gone)
