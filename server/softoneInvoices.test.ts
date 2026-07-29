@@ -93,6 +93,13 @@ describe("SoftOne open invoice sync", () => {
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
     );
     expect(softOneOpenInvoiceFinancialsQuery).toContain("HAVING");
+    expect(softOneOpenInvoiceFinancialsQuery).toContain(
+      "FIN.[SOSOURCE] = 1351",
+    );
+    expect(softOneOpenInvoiceFinancialsQuery).toContain("FIN.[SOREDIR] = 0");
+    expect(softOneOpenInvoiceFinancialsQuery).toContain(
+      "SUM(FP.[OPNTAMNT] * FP.[PAYDEMANDMD])",
+    );
     expect(softOneOpenInvoiceAmountSummaryQuery).toContain(
       "CAST(COUNT(*) AS bigint)",
     );
