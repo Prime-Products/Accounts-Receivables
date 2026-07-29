@@ -933,3 +933,8 @@
 - [x] Reschedule counter: each date change increments rescheduleCount; shown as "×N" on the task and on the group's communication badge
 - [x] Fix test-data leak: confirmationTaskLink.test.ts now purges its "TaskLink" customers/tasks/promises/statuses after each run (was recreating junk on every test run)
 - [x] Cleanup: delete junk "TaskLink Pending" tasks and their placeholder customers (after verifying no invoices attached)
+
+## Reset default sort on groups list (user request 29/7)
+- [x] Customers page (Groups view): "Reset sort" button appears when user changes column sorting; click returns to the default order (open balance desc)
+- [x] Companies view: same "Reset sort" control when a manual column sort is active
+- [x] Optional ?sort= URL param presets group sorting (used for verification)
