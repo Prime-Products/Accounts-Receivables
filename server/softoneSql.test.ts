@@ -93,8 +93,8 @@ describe("SoftOne read-only SQL sync", () => {
     expect(softOneCustomerGroupNamesQuery).toContain(
       "FROM [dbo].[TRDGROUP] AS customer_group",
     );
-    expect(softOneCustomerGroupNamesQuery).toContain(
-      "CAST(customer_group.[CODE] AS nchar(64))",
+    expect(buildSoftOneCustomerGroupNamesQuery(["10"])).not.toContain(
+      "customer_group.[CODE]",
     );
   });
 
