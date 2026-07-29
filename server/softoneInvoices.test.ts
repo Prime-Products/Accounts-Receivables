@@ -7,6 +7,7 @@ import {
   softOneOpenInvoiceAmountSummaryQuery,
   softOneOpenInvoiceFinancialsQuery,
   softOneOpenInvoiceTypeBreakdownQuery,
+  softOneInvoiceAmountSamplesQuery,
 } from "./lib/softoneInvoices";
 
 const row = {
@@ -155,6 +156,12 @@ describe("SoftOne open invoice sync", () => {
       "GROUP BY [SOSOURCE], [SOREDIR]",
     );
     expect(softOneOpenInvoiceTypeBreakdownQuery).not.toMatch(
+      /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
+    );
+    expect(softOneInvoiceAmountSamplesQuery).toContain(
+      "(FP.[TAMNT] - FP.[OPNTAMNT]) * FP.[PAYDEMANDMD]",
+    );
+    expect(softOneInvoiceAmountSamplesQuery).not.toMatch(
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
     );
   });

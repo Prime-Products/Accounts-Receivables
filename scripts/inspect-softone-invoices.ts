@@ -22,6 +22,14 @@ ${result.typeBreakdown
   )
   .join("\n")}
 
+Known report invoice amount samples:
+${result.amountSamples
+  .map(
+    row =>
+      `  ${row.findoc} | direction ${row.direction} | TAMNT ${row.total} | OPNTAMNT ${row.opntamnt} | report unpaid ${row.reportUnpaid}`,
+  )
+  .join("\n")}
+
   Current open candidates: ${result.total}
 ${result.breakdown.map(row => `  ${row.key}: ${row.count}`).join("\n")}
 
