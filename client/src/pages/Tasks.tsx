@@ -183,7 +183,7 @@ export default function Tasks() {
                   {(
                     [
                       ["type", "Type"],
-                      ["customer", "Customer"],
+                      ["customer", "Group"],
                       ["task", "Task"],
                       ["invoice", "Invoice"],
                       ["assignee", "Assignee"],
@@ -222,7 +222,9 @@ export default function Tasks() {
                       )}
                     </TableCell>
                     <TableCell className="font-medium overflow-hidden">
-                      <span className="block truncate" title={t.customerName ?? undefined}>{t.customerName ?? "—"}</span>
+                      <span className="block truncate" title={(t as any).groupName ?? t.customerName ?? undefined}>
+                        {(t as any).groupName ?? t.customerName ?? "—"}
+                      </span>
                     </TableCell>
                     <TableCell className="text-sm overflow-hidden">
                       <span className="block truncate" title={t.title}>
@@ -313,13 +315,13 @@ export default function Tasks() {
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <div className="text-xs text-muted-foreground">Customer</div>
+                    <div className="text-xs text-muted-foreground">Group</div>
                     <Link
-                      href={`/customers/${openTask.customerId}`}
+                      href={`/groups/${encodeURIComponent((openTask as any).groupName ?? openTask.customerName ?? "")}`}
                       className="font-medium text-primary hover:underline"
                       onClick={() => setOpenTaskId(null)}
                     >
-                      {openTask.customerName}
+                      {(openTask as any).groupName ?? openTask.customerName}
                     </Link>
                   </div>
                   <div>

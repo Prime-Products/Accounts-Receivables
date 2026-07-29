@@ -922,3 +922,8 @@
 - [x] Task detail: attached invoices should be clickable links that open the invoice (filtered Invoices view)
 - [x] Tasks page: hide Cancelled tasks by default; show only when explicitly selected in status filter
 - [x] Tasks page: add search box to filter tasks by group/customer name
+- [x] Tasks are group-scoped: NewTaskDialog selects a group (not an individual customer; group's primary member used as anchor)
+- [x] Tasks list shows Group column instead of Customer; task detail links to group card
+- [x] Backend: tasks.list exposes groupName; invoice-based creation (send invoices to colleague) still works
+- [x] Cleanup: also deleted remaining "TaskLink Promise" junk customers/tasks/promises (48 customers, 24 tasks, 24 promises)
+- [x] Cleanup: delete junk "TaskLink Pending" tasks and their placeholder customers (after verifying no invoices attached)

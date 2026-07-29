@@ -16,10 +16,12 @@ import { toast } from "sonner";
 export const TASK_TYPES = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual"] as const;
 
 /**
- * Reusable customer-level task creation dialog.
- * - `defaultCustomerId`: preselect a customer (e.g. from Customer 360).
- * - `customerIds`: restrict the pickable customers (e.g. member companies of a group).
- * - `hideCustomerPicker`: hide the customer selector entirely (e.g. group card — task is recorded against the group's primary member).
+ * Reusable group-level task creation dialog. Tasks are always attached to a
+ * GROUP (or to invoices) — never to an individual customer directly. The
+ * selected group's primary member company is used as the storage anchor.
+ * - `defaultCustomerId`: preselect via a customer id (its group is used).
+ * - `customerIds`: restrict to specific customers (their groups are used).
+ * - `hideCustomerPicker`: hide the group selector entirely (e.g. group card — the group is already known).
  * - `trigger`: custom trigger element; defaults to a "New Task" button.
  * - `attachInvoices`: invoices pre-attached to the task (send-invoices-to-colleague flow).
  */
@@ -64,7 +66,21 @@ export default function NewTaskDialog({
 
   const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: open });
   const customers = customerIds ? (allCustomers ?? []).filter(c => customerIds.includes(c.id)) : (allCustomers ?? []);
-  const selected = customers.find(c => c.id === customerId) ?? (allCustomers ?? []).find(c => c.id === customerId);
+  const groupKeyOf = (c: { customerGroup?: string | null; name: string }) =>
+    (c.customerGroup ?? "").trim() || c.name;
+  /** One entry per group: group name → representative (primary) customer id. */
+  const groups = (() => {
+    const map = new Map<string, number>();
+    for (const c of customers) {
+      const key = groupKeyOf(c);
+      if (!map.has(key)) map.set(key, c.id);
+    }
+    return Array.from(map.entries())
+      .map(([name, primaryCustomerId]) => ({ name, primaryCustomerId }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  })();
+  const selectedCustomer = (allCustomers ?? []).find(c => c.id === customerId);
+  const selectedGroupName = selectedCustomer ? groupKeyOf(selectedCustomer) : null;
 
   const create = trpc.tasks.create.useMutation({
     onSuccess: () => {
@@ -83,7 +99,7 @@ export default function NewTaskDialog({
   });
 
   const submit = () => {
-    if (!customerId) return toast.error("Select a customer");
+    if (!customerId) return toast.error("Select a group");
     if (!title.trim()) return toast.error("Enter a task title");
     if (!dueDate) return toast.error("Select a due date");
     create.mutate({
@@ -120,30 +136,30 @@ export default function NewTaskDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className={hideCustomerPicker ? "hidden" : "space-y-1.5"}>
-            <Label>Customer</Label>
+            <Label>Group</Label>
             <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
               <PopoverTrigger asChild>
                 <Button variant="outline" role="combobox" className="w-full justify-between font-normal">
-                  <span className="truncate">{selected ? selected.name : "Select customer…"}</span>
+                  <span className="truncate">{selectedGroupName ?? "Select group…"}</span>
                   <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                 <Command>
-                  <CommandInput placeholder="Search customer…" />
+                  <CommandInput placeholder="Search group…" />
                   <CommandList>
-                    <CommandEmpty>No customer found.</CommandEmpty>
+                    <CommandEmpty>No group found.</CommandEmpty>
                     <CommandGroup>
-                      {customers.map(c => (
+                      {groups.map(g => (
                         <CommandItem
-                          key={c.id}
-                          value={c.name}
+                          key={g.name}
+                          value={g.name}
                           onSelect={() => {
-                            setCustomerId(c.id);
+                            setCustomerId(g.primaryCustomerId);
                             setCustomerOpen(false);
                           }}
                         >
-                          {c.name}
+                          {g.name}
                         </CommandItem>
                       ))}
                     </CommandGroup>

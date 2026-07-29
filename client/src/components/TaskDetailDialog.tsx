@@ -96,13 +96,13 @@ export default function TaskDetailDialog({
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <div className="text-xs text-muted-foreground">Customer</div>
+                  <div className="text-xs text-muted-foreground">Group</div>
                   <Link
-                    href={`/customers/${task.customerId}`}
+                    href={`/groups/${encodeURIComponent((task as any).groupName ?? task.customerName ?? "")}`}
                     className="font-medium text-primary hover:underline"
                     onClick={() => onOpenChange(false)}
                   >
-                    {task.customerName}
+                    {(task as any).groupName ?? task.customerName}
                   </Link>
                 </div>
                 <div>

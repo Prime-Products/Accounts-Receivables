@@ -2468,7 +2468,7 @@ export const tasksRouter = router({
         return {
           ...t,
           customerName: byId.get(t.customerId)?.name ?? "—",
-          groupName: byId.get(t.customerId)?.customerGroup ?? null,
+          groupName: (byId.get(t.customerId)?.customerGroup ?? "").trim() || (byId.get(t.customerId)?.name ?? null),
           invoiceNumber: t.invoiceId ? invById.get(t.invoiceId)?.invoiceNumber : undefined,
           assigneeName: t.assigneeId ? (memberById.get(t.assigneeId)?.name ?? null) : null,
           creatorName: t.assignedTo ? ((userById.get(t.assignedTo) as any)?.name ?? null) : null,

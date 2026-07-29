@@ -128,6 +128,7 @@ export default function CustomerDetail() {
         <div className="flex gap-2 flex-wrap">
           <NewTaskDialog
             defaultCustomerId={id}
+            hideCustomerPicker
             trigger={
               <Button size="sm" className="gap-1.5">
                 <Plus className="h-4 w-4" /> New Task
