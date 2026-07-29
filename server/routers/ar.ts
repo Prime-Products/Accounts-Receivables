@@ -2731,29 +2731,69 @@ export const forecastRouter = router({
     const dso = computeDso(arBalance, last90Sales, 90);
     const forecast = buildForecast(invoices, installments, now, 6);
     const escalations = tasksPending.filter(t => t.type === "Escalation +30").length;
-    const watchRowsDash = await db.listGroupWatchStatuses().catch(() => []);
-    const criticalGroups = watchRowsDash.filter(w => w.status === "Critical").length;
-    const onHoldGroups = watchRowsDash.filter(w => w.status === "On Hold" || w.status === "Legal").length;
-    const problematicGroups = watchRowsDash.filter(w => w.status === "Problematic").length;
     // Contract installments are "must pay on time" invoices — even 1 day overdue is a red flag.
     const overdueContractInvoices = invoices.filter(i => i.isContractInstallment && isOpenInvoice(i) && daysOverdue(i.dueDate, now) > 0);
     const overdueContractCount = overdueContractInvoices.length;
     const overdueContractAmount = overdueContractInvoices.reduce((s, i) => s + outstanding(i), 0);
     // Groups with a positive forecast this month whose effective confirmation status
     // is still "Not Contacted" (no row, or stale row) → the collector must call them.
-    const [monthForecastEntries, confirmationRows] = await Promise.all([
+    const [monthForecastEntries, confirmationRows, watchRowsDash, dashCustomers] = await Promise.all([
       db.listForecastEntries(year, month).catch(() => []),
       db.listGroupConfirmationStatuses().catch(() => []),
+      db.listGroupWatchStatuses().catch(() => []),
+      db.listCustomers().catch(() => []),
     ]);
     const confirmationByGroup = new Map(confirmationRows.map(r => [r.groupName, r]));
     const forecastGroups = new Set<string>();
+    const forecastAmountByGroup = new Map<string, number>();
     for (const fe of monthForecastEntries) {
-      if (fe.customerGroup && Number(fe.expectedAmount) > 0) forecastGroups.add(fe.customerGroup);
+      if (!fe.customerGroup) continue;
+      const amt = Number(fe.expectedAmount);
+      forecastAmountByGroup.set(fe.customerGroup, (forecastAmountByGroup.get(fe.customerGroup) ?? 0) + amt);
+      if (amt > 0) forecastGroups.add(fe.customerGroup);
     }
     let pendingContactGroups = 0;
     for (const g of Array.from(forecastGroups)) {
       const eff = effectiveConfirmation(confirmationByGroup.get(g));
       if (eff.status === "Not Contacted") pendingContactGroups++;
+    }
+    // Status counts must match the Customers groups list, which resolves the
+    // effective status per group (manual override OR the auto-problematic rule:
+    // forecast covers < 80% of what will be overdue by end of month).
+    const watchByGroupDash = new Map<string, { status: string; problematicSince: number | null }>();
+    for (const w of watchRowsDash) {
+      watchByGroupDash.set(w.groupName, { status: w.status, problematicSince: w.problematicSince ?? null });
+    }
+    const eomTs = endOfCurrentMonth(nowDate);
+    const groupKeyOfDash = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
+    const groupOfCustomerId = new Map<number, string>();
+    const allGroupNames = new Set<string>();
+    for (const c of dashCustomers) {
+      const key = groupKeyOfDash(c);
+      groupOfCustomerId.set(c.id, key);
+      allGroupNames.add(key);
+    }
+    const overdueEomByGroup = new Map<string, number>();
+    for (const inv of invoices) {
+      if (!isOpenInvoice(inv)) continue;
+      const gKey = groupOfCustomerId.get(inv.customerId);
+      if (!gKey) continue;
+      if (inv.dueDate <= eomTs) {
+        overdueEomByGroup.set(gKey, (overdueEomByGroup.get(gKey) ?? 0) + outstanding(inv));
+      }
+    }
+    let problematicGroups = 0;
+    let criticalGroups = 0;
+    let onHoldGroups = 0;
+    for (const gName of Array.from(allGroupNames)) {
+      const overdueEom = overdueEomByGroup.get(gName) ?? 0;
+      const hasFc = forecastAmountByGroup.has(gName);
+      const fcForRule = hasFc ? (forecastAmountByGroup.get(gName) ?? 0) : 0;
+      const autoProblematic = overdueEom > 0 && fcForRule < 0.8 * overdueEom;
+      const resolved = resolveGroupStatus(watchByGroupDash.get(gName) ?? null, autoProblematic, now);
+      if (resolved.status === "Problematic") problematicGroups++;
+      else if (resolved.status === "Critical") criticalGroups++;
+      else if (resolved.status === "On Hold" || resolved.status === "Legal") onHoldGroups++;
     }
     return {
       year,

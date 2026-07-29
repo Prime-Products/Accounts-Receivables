@@ -1009,3 +1009,9 @@
 
 ## Groups list: remove Expected column (user request 30/7)
 - [x] Remove the "Expected" column from the groups list (forecast IS the conservative expected amount)
+
+## Dashboard: Problematic groups card not clickable (user bug 30/7)
+- [x] Clicking "Problematic groups" card should navigate to /customers filtered by Problematic status
+- [x] Verify other dashboard status cards (On Hold / Legal) also navigate with the right filter
+- [x] Fix: dashboard count used raw DB rows, not resolved status (auto-problematic rule). Now uses same resolveGroupStatus logic as the groups list.
+- [x] Fix: Customers page URL-param filter (useState initializer) didn't re-run on navigation from Dashboard. Added useEffect syncing from useSearch().

@@ -11,10 +11,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtEur, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import LogCallDialog from "@/components/LogCallDialog";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
 
@@ -231,6 +231,7 @@ export default function Customers() {
   });
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
+  const searchStr = useSearch();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(() => {
     const p = new URLSearchParams(window.location.search).get("status");
@@ -241,6 +242,19 @@ export default function Customers() {
     const p = new URLSearchParams(window.location.search).get("conf");
     return p && ["not-contacted", "confirmed", "pending", "broken"].includes(p) ? p : "all";
   });
+  // Keep filters in sync with the URL — dashboard cards navigate here with ?status= / ?conf=
+  // and the lazy useState initializers above only run on first mount.
+  useEffect(() => {
+    const params = new URLSearchParams(searchStr);
+    const s = params.get("status");
+    if (s && ["problematic", "critical", "on-hold", "legal", "normal"].includes(s)) {
+      setStatusFilter(s);
+    }
+    const c = params.get("conf");
+    if (c && ["not-contacted", "confirmed", "pending", "broken"].includes(c)) {
+      setConfirmationFilter(c);
+    }
+  }, [searchStr]);
   const [managerFilter, setManagerFilter] = useState<string>("all");
   const [collectorFilter, setCollectorFilter] = useState<string>("all");
   const { data: teamMembers } = trpc.team.list.useQuery();
