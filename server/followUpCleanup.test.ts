@@ -53,7 +53,7 @@ describe("follow-up task cleanup across status sequences", () => {
     await caller.calls.logCall({
       group,
       customerId: cust.id,
-      outcome: "Promised Payment",
+      outcome: "Reached",
       confirmationStatus: "Confirmed",
       confirmationAmount: 2000,
       promisedDate: Date.now() + 6 * 24 * 60 * 60 * 1000,

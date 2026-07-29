@@ -485,7 +485,7 @@ describe("Confirmation Status Tracking", () => {
       const promisedDate = Date.now() + 5 * 24 * 60 * 60 * 1000;
       await caller.calls.logCall({
         group: groupName,
-        outcome: "Promised Payment",
+        outcome: "Reached",
         confirmationStatus: "Confirmed",
         confirmationAmount: 15000,
         promisedDate,
@@ -513,7 +513,7 @@ describe("Confirmation Status Tracking", () => {
       await caller.calls.logCall({
         group: groupName,
         customerId: cust.id,
-        outcome: "Promised Payment",
+        outcome: "Reached",
         confirmationStatus: "Confirmed",
         confirmationAmount: amount,
         promisedDate,
@@ -739,7 +739,7 @@ describe("Confirmation Status Tracking", () => {
       await caller.calls.logCall({
         group: groupName,
         customerId: cust.id,
-        outcome: "Promised Payment",
+        outcome: "Reached",
         confirmationStatus: "Confirmed",
         confirmationAmount: 7777,
         promisedDate: Date.now() + 9 * 24 * 60 * 60 * 1000,
@@ -809,7 +809,7 @@ describe("Confirmation Status Tracking", () => {
       await caller.calls.logCall({
         group: groupName,
         customerId: cust.id,
-        outcome: "Promised Payment",
+        outcome: "Reached",
         confirmationStatus: "Confirmed",
         confirmationAmount: 12345,
         promisedDate: Date.now() + 5 * 24 * 60 * 60 * 1000,

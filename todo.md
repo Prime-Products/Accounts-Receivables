@@ -910,10 +910,11 @@
 - [x] tsc clean + screenshots (Invoices, group card, customer card) + checkpoint & deliver
 
 ## Bug: checkboxes not visible on invoices (user report 29/7)
-- [ ] Investigate why selection checkboxes don't show on invoice tables for the user (production vs preview, InvoicesTable enableSelection)
-- [ ] Fix + verify on all invoice lists (Invoices page, group card, customer card)
+- [x] Investigate why selection checkboxes don't show on invoice tables for the user — verified they render in preview (Invoices page, group card, customer card); user was likely on the pre-deploy production build; deploy has since updated. Awaiting user confirmation after hard refresh.
+- [x] Fix + verify on all invoice lists (Invoices page, group card, customer card) — verified via screenshots
 
 ## UI polish (user request 29/7)
 - [x] Remove the "Overdue task" text label next to red confirmation badges — the red color alone signals overdue
 - [x] Remove the "All types" task-type filter dropdown from the Tasks page
 - [x] Tasks page: highlight overdue open tasks in red (due date passed, status not Completed)
+- [x] Log Call: keep only "Reached" and "No Answer" in the Outcome options (remove the rest)

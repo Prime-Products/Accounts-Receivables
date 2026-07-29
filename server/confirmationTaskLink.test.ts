@@ -72,7 +72,7 @@ describe("Confirmation badge → linked task (customers.groups.confirmationTaskI
     await caller.calls.logCall({
       group,
       customerId,
-      outcome: "Promised Payment",
+      outcome: "Reached",
       confirmationStatus: "Confirmed",
       confirmationAmount: 25000,
       promisedDate,

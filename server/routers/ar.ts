@@ -3349,7 +3349,7 @@ export const callsRouter = router({
         group: z.string().min(1).max(255),
         customerId: z.number().optional(),
         contactName: z.string().max(255).optional(),
-        outcome: z.enum(["Reached", "No Answer", "Voicemail", "Promised Payment", "Dispute", "Other"]),
+        outcome: z.enum(["Reached", "No Answer"]),
         notes: z.string().max(2000).optional(),
         confirmationStatus: z.enum(confirmationStatuses).optional(),
         confirmationAmount: z.number().optional(),

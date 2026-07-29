@@ -11,7 +11,7 @@ import { Mail, Phone, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-const OUTCOMES = ["Reached", "No Answer", "Voicemail", "Promised Payment", "Dispute", "Other"] as const;
+const OUTCOMES = ["Reached", "No Answer"] as const;
 const CONFIRMATION_STATUSES = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken"] as const;
 const STATUS_LABELS: Record<string, string> = {
   "Not Contacted": "Not Contacted",
