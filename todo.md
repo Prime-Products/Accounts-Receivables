@@ -988,3 +988,7 @@
 ## Bug: "Task not found" dialog after promise Kept (user report 29/7)
 - [x] Clicking the confirmation badge after a promise is marked Kept (or its task completed/cancelled) opens "Task not found" — stale confirmationTaskId
 - [x] Fix: clear/refresh the stale task link so completed tasks don't open the error dialog (latched taskId, dialog auto-closes after Kept/Not Confirmed, graceful close+toast if task truly gone)
+
+## Editable forecast on group card (user request 29/7)
+- [x] Backend: mutation to set/override the current-month forecast amount for a group (reused existing forecast.setGroupForecast with audit)
+- [x] UI: inline edit (pencil → input → save) of the forecast amount on the group detail card; also works when no forecast exists yet ("click to set one")

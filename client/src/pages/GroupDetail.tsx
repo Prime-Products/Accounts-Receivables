@@ -32,6 +32,67 @@ import { useLocation, useRoute } from "wouter";
 const AGING_BUCKETS = ["all", "0-30", "31-60", "61-90", "91-120", "120+"] as const;
 type AgingBucket = (typeof AGING_BUCKETS)[number];
 
+/** Click-to-edit forecast amount on the group card. Saving corrects the month's forecast (expected + initial baseline). */
+function EditableGroupForecast({ group, value, reasoning }: { group: string; value: number; reasoning?: string | null }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const utils = trpc.useUtils();
+  const setForecast = trpc.forecast.setGroupForecast.useMutation({
+    onSuccess: () => {
+      toast.success("Forecast updated");
+      utils.customers.groupForecast.invalidate();
+      utils.customers.groupDetail.invalidate();
+      utils.customers.groups.invalidate();
+      utils.forecast.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const save = () => {
+    const amount = Number(draft.replace(",", "."));
+    if (isNaN(amount) || amount < 0) {
+      toast.error("Enter a valid non-negative amount");
+      return;
+    }
+    setEditing(false);
+    if (amount !== value) setForecast.mutate({ group, amount });
+  };
+
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        type="text"
+        inputMode="decimal"
+        className="h-8 w-32 font-mono text-lg px-2"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={e => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") setEditing(false);
+        }}
+      />
+    );
+  }
+
+  return (
+    <button
+      className={`group/gfc inline-flex items-center gap-1.5 text-xl font-bold font-mono text-emerald-700 hover:underline decoration-dotted underline-offset-4 ${
+        setForecast.isPending ? "opacity-50" : ""
+      }`}
+      title={reasoning ? `${reasoning}\n\nClick to correct this month's forecast` : "Click to correct this month's forecast"}
+      onClick={() => {
+        setDraft(value ? String(value) : "");
+        setEditing(true);
+      }}
+    >
+      {fmtEur(value)}
+      <Pencil className="h-3.5 w-3.5 opacity-30 group-hover/gfc:opacity-70 shrink-0" />
+    </button>
+  );
+}
+
 /** Actions dropdown menu for group-level interactions */
 function ActionsMenu({
   companies,
@@ -566,9 +627,7 @@ export default function GroupDetail() {
                 <div className="text-xs text-muted-foreground">Forecast (this month)</div>
                 {groupForecast && (groupForecast as any).hasForecast !== false ? (
                   <>
-                    <div className="text-xl font-bold font-mono text-emerald-700" title={groupForecast.aiReasoning ?? undefined}>
-                      {fmtEur(groupForecast.expectedAmount)}
-                    </div>
+                    <EditableGroupForecast group={group} value={groupForecast.expectedAmount} reasoning={groupForecast.aiReasoning} />
                     <div className="text-[11px] font-mono mt-0.5">
                       <span className="text-muted-foreground">Expected: </span>
                       <span className="font-semibold">
@@ -591,7 +650,10 @@ export default function GroupDetail() {
                     })()}
                   </>
                 ) : (
-                  <div className="text-sm text-muted-foreground mt-1">No forecast this month</div>
+                  <div className="mt-1">
+                    <EditableGroupForecast group={group} value={0} />
+                    <div className="text-[11px] text-muted-foreground mt-0.5">No forecast yet — click to set one</div>
+                  </div>
                 )}
               </CardContent>
             </Card>
