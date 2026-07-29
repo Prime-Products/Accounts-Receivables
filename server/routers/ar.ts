@@ -2631,6 +2631,128 @@ export const tasksRouter = router({
     await audit(ctx, "Run Task Engine", "system", undefined, `Generated ${res.created} task(s)`);
     return res;
   }),
+  /**
+   * Convert an open Follow-up task into a Promise to Pay:
+   * 1. Creates the promise record + auto "Promise to Pay" check task (createGroupPromise)
+   * 2. Updates the group's confirmation status to Confirmed (promise date + amount)
+   * 3. Cancels the old follow-up task
+   */
+  convertFollowUpToPromise: protectedProcedure
+    .input(
+      z.object({
+        taskId: z.number(),
+        amount: z.number().positive(),
+        promisedDate: z.number(),
+        notes: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const task = await db.getTask(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      if (task.status === "Completed" || task.status === "Cancelled") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can be converted" });
+      }
+      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
+      if (!followUpMatch) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This task is not a follow-up task" });
+      }
+      const group = followUpMatch[1];
+
+      // 1. Create the promise + its check task
+      const promiseId = await createGroupPromise(ctx, {
+        group,
+        customerId: task.customerId ?? undefined,
+        amount: input.amount,
+        promisedDate: input.promisedDate,
+        notes: input.notes,
+      });
+      if (!promiseId) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+
+      // 2. Update the group's confirmation status to Confirmed (Promise to Pay)
+      await db.upsertGroupConfirmationStatus(group, {
+        status: "Confirmed",
+        amount: eur(input.amount),
+        followUpDate: input.promisedDate,
+        notes: input.notes,
+        updatedBy: ctx.user.id,
+      });
+
+      // 3. Cancel the old follow-up task
+      await db.updateTask(input.taskId, {
+        status: "Cancelled",
+        completionNotes: `Converted to Promise to Pay #${promiseId} (€${Number(eur(input.amount)).toLocaleString()} by ${new Date(input.promisedDate).toLocaleDateString("en-GB")})`,
+      });
+
+      await db.addActivityLog({
+        groupName: group,
+        customerId: task.customerId ?? undefined,
+        activityType: "status_change",
+        title: `Follow-up converted to Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
+        description: `Follow-up task #${input.taskId} cancelled; promise #${promiseId} due ${new Date(input.promisedDate).toLocaleDateString("en-GB")}.`,
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      }).catch(() => {});
+      await audit(ctx, "Convert Follow-up to Promise", "task", input.taskId, `Promise #${promiseId} created for ${group}`);
+      return { success: true, promiseId };
+    }),
+  /**
+   * Escalate a follow-up task: reassign it to the group's Account Manager
+   * (or a chosen team member) and log the escalation.
+   */
+  escalate: protectedProcedure
+    .input(
+      z.object({
+        taskId: z.number(),
+        assigneeId: z.number().optional(),
+        note: z.string().max(1000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const task = await db.getTask(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      if (task.status === "Completed" || task.status === "Cancelled") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can be escalated" });
+      }
+      // Resolve the group from the follow-up marker or the customer
+      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
+      let group = followUpMatch?.[1] ?? null;
+      let cust = task.customerId ? await db.getCustomer(task.customerId) : null;
+      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
+
+      // Pick the target: explicit assignee or the group's account manager
+      let targetId = input.assigneeId ?? null;
+      if (!targetId && group) {
+        const customers = await db.listCustomers();
+        const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === group);
+        const withManager = members.find(m => (m as any).accountManagerId);
+        targetId = withManager ? ((withManager as any).accountManagerId as number) : null;
+      }
+      if (!targetId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No account manager found for this group — pick a team member to escalate to." });
+      }
+      const member = await db.getTeamMemberById(targetId);
+      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+
+      const escalationNote = `⬆ Escalated to ${member.name} by ${ctx.user.name ?? "user"} on ${new Date().toLocaleDateString("en-GB")}${input.note ? ` — ${input.note}` : ""}`;
+      await db.updateTask(input.taskId, {
+        assigneeId: targetId,
+        description: `${task.description ?? ""}\n${escalationNote}`.trim(),
+      } as any);
+
+      if (group) {
+        await db.addActivityLog({
+          groupName: group,
+          customerId: task.customerId ?? undefined,
+          activityType: "status_change",
+          title: `Task escalated to ${member.name}`,
+          description: `"${task.title}"${input.note ? ` — ${input.note}` : ""}`,
+          createdBy: ctx.user.id,
+          createdAt: new Date(),
+        }).catch(() => {});
+      }
+      await audit(ctx, "Escalate Task", "task", input.taskId, `Escalated to ${member.name}`);
+      return { success: true, assigneeName: member.name };
+    }),
 });
 
 /**

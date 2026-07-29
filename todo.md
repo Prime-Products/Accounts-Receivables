@@ -1026,3 +1026,10 @@
 - [x] Backend: calls.suggestNextAction — rule engine using group data (overdue, aging, broken promises, call history, status) returning a suggested action (Friendly reminder / Escalate to Account Manager / Send SOA / Request payment plan / Legal review)
 - [x] Frontend: show Suggested Next Action panel in the Log Call dialog after saving
 - [x] Vitest coverage for the suggestion rules
+
+## Pending Follow-up Task Actions
+- [x] When opening a Pending Follow-up task, show 3 action options: Reschedule (change date), Convert to Promise to Pay (new PTP task + status change + cancel old task), Escalate (to Account Manager)
+- [x] Backend: procedure for reschedule (update task due date) — existing tasks.reschedule reused
+- [x] Backend: procedure for convert to Promise to Pay (create promise record, create PTP check task, update confirmation status to Confirmed, cancel old follow-up task)
+- [x] Backend: procedure for escalate (reassign task to account manager, add activity log)
+- [x] Frontend: action buttons/dialog when viewing a Pending Follow-up task
