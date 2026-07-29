@@ -912,3 +912,8 @@
 ## Bug: checkboxes not visible on invoices (user report 29/7)
 - [ ] Investigate why selection checkboxes don't show on invoice tables for the user (production vs preview, InvoicesTable enableSelection)
 - [ ] Fix + verify on all invoice lists (Invoices page, group card, customer card)
+
+## UI polish (user request 29/7)
+- [x] Remove the "Overdue task" text label next to red confirmation badges — the red color alone signals overdue
+- [x] Remove the "All types" task-type filter dropdown from the Tasks page
+- [x] Tasks page: highlight overdue open tasks in red (due date passed, status not Completed)

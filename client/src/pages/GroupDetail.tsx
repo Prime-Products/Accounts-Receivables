@@ -438,14 +438,6 @@ export default function GroupDetail() {
                   taskOverdue={(data as any).confirmationTaskOverdue ?? false}
                 />
               )}
-              {data && (data as any).confirmationTaskOverdue && (
-                <span
-                  className="text-[11px] text-red-600 font-medium inline-flex items-center gap-1"
-                  title="The linked task is past its due date and still open"
-                >
-                  Overdue task
-                </span>
-              )}
               {data && (data as any).confirmationCarriedOver && (
                 <span
                   className="text-[11px] text-amber-600 font-normal inline-flex items-center gap-1"

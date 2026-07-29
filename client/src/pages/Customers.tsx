@@ -890,11 +890,6 @@ export default function Customers() {
                           taskId={(g as any).confirmationTaskId}
                           taskOverdue={(g as any).confirmationTaskOverdue}
                         />
-                        {(g as any).confirmationTaskOverdue && (
-                          <div className="text-[11px] text-red-600 mt-1 inline-flex items-center gap-1 font-medium" title="The linked task is past its due date and still open">
-                            <span>Overdue task</span>
-                          </div>
-                        )}
                         {(g as any).confirmationCarriedOver && (
                           <div className="text-[11px] text-amber-600 mt-1 inline-flex items-center gap-1" title="Recorded in a previous month — still active until its date">
                             <span>↻</span>

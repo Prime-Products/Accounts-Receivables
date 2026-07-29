@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import NewTaskDialog, { TASK_TYPES } from "@/components/NewTaskDialog";
+import NewTaskDialog from "@/components/NewTaskDialog";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -32,7 +32,6 @@ export default function Tasks() {
   const { data: teamMembers } = trpc.team.list.useQuery();
   const utils = trpc.useUtils();
   const [statusFilter, setStatusFilter] = useState<string>("Pending");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
   /** Inbox scope: all | mine (assigned to my linked team member) | created (created by me). */
   const [scopeFilter, setScopeFilter] = useState<string>("all");
@@ -79,14 +78,13 @@ export default function Tasks() {
     if (!tasks) return [];
     return tasks.filter(t => {
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
-      if (typeFilter !== "all" && t.type !== typeFilter) return false;
       if (assigneeFilter === "unassigned" && t.assigneeId != null) return false;
       if (assigneeFilter !== "all" && assigneeFilter !== "unassigned" && t.assigneeId !== Number(assigneeFilter)) return false;
       if (scopeFilter === "created" && !(t as any).createdByMe) return false;
       if (scopeFilter === "received" && ((t as any).createdByMe || t.assigneeId == null)) return false;
       return true;
     });
-  }, [tasks, statusFilter, typeFilter, assigneeFilter, scopeFilter]);
+  }, [tasks, statusFilter, assigneeFilter, scopeFilter]);
 
   const openTask = useMemo(() => (tasks ?? []).find(t => t.id === openTaskId) ?? null, [tasks, openTaskId]);
   const promiseStatusColors: Record<string, string> = {
@@ -129,19 +127,6 @@ export default function Tasks() {
             <SelectItem value="In Progress">In Progress</SelectItem>
             <SelectItem value="Completed">Completed</SelectItem>
             <SelectItem value="Cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="w-52">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
-            {TASK_TYPES.map(t => (
-              <SelectItem key={t} value={t}>
-                {t}
-              </SelectItem>
-            ))}
           </SelectContent>
         </Select>
         <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
@@ -196,8 +181,17 @@ export default function Tasks() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map(t => (
-                  <TableRow key={t.id} className="cursor-pointer" onClick={() => setOpenTaskId(t.id)}>
+                {filtered.map(t => {
+                  const isOverdue =
+                    (t.status === "Pending" || t.status === "In Progress") &&
+                    t.dueDate != null &&
+                    Number(t.dueDate) < Date.now();
+                  return (
+                  <TableRow
+                    key={t.id}
+                    className={`cursor-pointer ${isOverdue ? "bg-red-50/70 hover:bg-red-100/70 dark:bg-red-950/30 dark:hover:bg-red-900/30" : ""}`}
+                    onClick={() => setOpenTaskId(t.id)}
+                  >
                     <TableCell className="overflow-hidden">
                       <Badge variant="outline" className={taskTypeColors[t.type] ?? ""}>
                         {t.type}
@@ -273,7 +267,8 @@ export default function Tasks() {
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
