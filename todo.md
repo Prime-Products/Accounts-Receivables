@@ -1015,3 +1015,14 @@
 - [x] Verify other dashboard status cards (On Hold / Legal) also navigate with the right filter
 - [x] Fix: dashboard count used raw DB rows, not resolved status (auto-problematic rule). Now uses same resolveGroupStatus logic as the groups list.
 - [x] Fix: Customers page URL-param filter (useState initializer) didn't re-run on navigation from Dashboard. Added useEffect syncing from useSearch().
+
+## Test data pollution cleanup (user report 30/7)
+- [x] Delete all test-generated tasks/promises/activity/confirmations for ΥΠΟΥΡΓΕΙΟ ΚΛΙΜΑΤΙΚΗΣ (customerId 808)
+- [x] Delete test data for DYNACOM, MERCURIA, MSC, Test Email Customer groups
+- [x] Delete orphan activity_log and group_confirmation_status rows (groups not in customers)
+- [x] Make vitest tests clean up after themselves (track and delete created rows in afterAll)
+
+## Suggested Next Action (after Log Call)
+- [x] Backend: calls.suggestNextAction — rule engine using group data (overdue, aging, broken promises, call history, status) returning a suggested action (Friendly reminder / Escalate to Account Manager / Send SOA / Request payment plan / Legal review)
+- [x] Frontend: show Suggested Next Action panel in the Log Call dialog after saving
+- [x] Vitest coverage for the suggestion rules

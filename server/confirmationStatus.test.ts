@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
 import { appRouter } from "./routers";
@@ -31,6 +32,14 @@ function createAuthContext(): TrpcContext {
 }
 
 describe("Confirmation Status Tracking", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   describe("Database helpers", () => {
     it("should insert and retrieve a confirmation status", async () => {
       const groupName = `test-group-${Date.now()}`;

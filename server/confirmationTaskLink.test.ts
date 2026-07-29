@@ -1,4 +1,5 @@
-import { afterAll, describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
 import { appRouter } from "./routers";
@@ -27,6 +28,14 @@ function createAuthContext(): TrpcContext {
 }
 
 describe("Confirmation badge → linked task (customers.groups.confirmationTaskId)", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   afterAll(async () => {
     // Purge every artifact this file created so no junk leaks into the live DB.
     const dbi = await getDb();

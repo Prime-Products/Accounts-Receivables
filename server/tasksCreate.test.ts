@@ -1,7 +1,8 @@
 /**
  * Tests for manual task creation input validation and task type enum consistency.
  */
-import { describe, expect, it } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import { z } from "zod";
 import { taskTypes } from "../drizzle/schema";
 
@@ -16,6 +17,14 @@ const createInput = z.object({
 });
 
 describe("tasks.create input validation", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   it("accepts a valid manual task", () => {
     const r = createInput.safeParse({
       customerId: 1,

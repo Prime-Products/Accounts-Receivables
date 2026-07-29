@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
@@ -25,6 +26,14 @@ function createAuthContext(): TrpcContext {
 }
 
 describe("calls.logCall", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   it("records a call in the activity log with outcome and details", async () => {
     const customers = await db.listCustomers();
     const target = customers[0];

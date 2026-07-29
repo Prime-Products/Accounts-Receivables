@@ -2,7 +2,8 @@
  * The follow-up task created by Log Call (Pending Follow-up) must record the
  * contact selected during the call, so users can see who they spoke with.
  */
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
@@ -36,6 +37,14 @@ afterAll(async () => {
 });
 
 describe("follow-up task contact", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   it("includes the selected contact in the follow-up task created by Log Call", async () => {
     const customerId = await db.createCustomer({
       code: `FUC-${Date.now()}`,

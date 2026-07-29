@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import { appRouter } from "./routers";
 import * as db from "./db";
 import { getDb } from "./db";
@@ -14,6 +15,14 @@ function createCaller() {
 }
 
 describe("customers.groupForecast", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   it("returns a collected-only payload (hasForecast=false) for a group without a current-month forecast entry", async () => {
     const caller = createCaller();
     const res = await caller.customers.groupForecast({ group: "___NO_SUCH_GROUP___" });

@@ -35,6 +35,7 @@ import { generateMonthlyForecast } from "../lib/smartForecast";
 import { runTaskEngine } from "../lib/taskEngine";
 import * as softone from "../lib/softone";
 import { invokeLLM } from "../_core/llm";
+import { suggestNextAction, type NextActionInput } from "../lib/nextAction";
 
 async function audit(ctx: { user: { id: number; name: string | null } }, action: string, entityType: string, entityId?: string | number, details?: string) {
   try {
@@ -3440,6 +3441,97 @@ export const adminRouter = router({
 });
 
 export const callsRouter = router({
+  suggestNextAction: protectedProcedure
+    .input(
+      z.object({
+        group: z.string().min(1).max(255),
+        outcome: z.enum(["Reached", "No Answer"]),
+        confirmationStatus: z.enum([...confirmationStatuses, "none"]).optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+      if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+      const memberIds = new Set(members.map(m => m.id));
+
+      const [allInvoices, allPromises, watchRow, activityLogs, allBehavior] = await Promise.all([
+        db.listInvoices(),
+        db.listPromises(),
+        db.getGroupWatchStatus(input.group).catch(() => null),
+        db.listActivityLog(input.group, 200).catch(() => []),
+        db.listPaymentBehaviorWithGroup().catch(() => []),
+      ]);
+
+      const now = Date.now();
+      const groupInvoices = allInvoices.filter(i => memberIds.has(i.customerId));
+      const open = groupInvoices.filter(isOpenInvoice);
+      const overdue = open.filter(i => now > i.dueDate);
+      const day90 = 90 * 24 * 60 * 60 * 1000;
+      const overdue90Plus = overdue.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0);
+
+      const memberPromises = allPromises.filter(p => memberIds.has(p.customerId));
+      const promisesBroken = memberPromises.filter(p => p.status === "Broken").length;
+      const promisesKept = memberPromises.filter(p => p.status === "Kept").length;
+
+      // Consecutive No Answer: count recent call logs backwards until a "Reached" is found
+      const callLogs = activityLogs.filter(a => a.activityType === "call").sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return tb - ta;
+      });
+      let consecutiveNoAnswer = input.outcome === "No Answer" ? 1 : 0;
+      if (input.outcome === "No Answer") {
+        for (const log of callLogs) {
+          if (log.title?.includes("Reached")) break;
+          if (log.title?.includes("No Answer")) consecutiveNoAnswer++;
+        }
+      }
+
+      // Days since last SOA / statement email
+      const statementLogs = activityLogs.filter(a =>
+        a.activityType === "email" && (a.title?.includes("Statement") || a.title?.includes("SOA"))
+      );
+      const lastStatementTs = statementLogs.length > 0
+        ? Math.max(...statementLogs.map(a => a.createdAt ? new Date(a.createdAt).getTime() : 0))
+        : null;
+      const daysSinceLastStatement = lastStatementTs !== null ? Math.floor((now - lastStatementTs) / (24 * 60 * 60 * 1000)) : null;
+
+      // Avg days late
+      const memberBehavior = allBehavior.filter(b => memberIds.has(b.customerId));
+      const avgDaysLate = memberBehavior.length > 0
+        ? memberBehavior.reduce((s, b) => s + (b.avgDaysLate ?? 0), 0) / memberBehavior.length
+        : null;
+
+      // Resolved watch status
+      const todayD = new Date();
+      const forecastRows = await db.listForecastEntries(todayD.getUTCFullYear(), todayD.getUTCMonth() + 1);
+      const eomTs = endOfCurrentMonth();
+      const gOverdueEom = open.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
+      const groupForecast = forecastRows.filter(f => (f.customerGroup ?? "").trim() === input.group).reduce((s, f) => s + Number(f.expectedAmount), 0);
+      const hasForecast = forecastRows.some(f => (f.customerGroup ?? "").trim() === input.group);
+      const forecastForRule = hasForecast ? groupForecast : 0;
+      const problematic = gOverdueEom > 0 && forecastForRule < 0.8 * gOverdueEom;
+      const resolved = resolveGroupStatus(watchRow, problematic);
+      const watchStatus = resolved.status;
+
+      const actionInput: NextActionInput = {
+        watchStatus,
+        confirmationStatus: input.confirmationStatus === "none" ? null : (input.confirmationStatus ?? null),
+        outcome: input.outcome,
+        openBalance: open.reduce((s, i) => s + outstanding(i), 0),
+        overdueBalance: overdue.reduce((s, i) => s + outstanding(i), 0),
+        overdue90Plus,
+        promisesBroken,
+        promisesKept,
+        consecutiveNoAnswer,
+        daysSinceLastStatement,
+        avgDaysLate,
+      };
+
+      return suggestNextAction(actionInput);
+    }),
+
   sendGroupEmail: protectedProcedure
     .input(
       z.object({

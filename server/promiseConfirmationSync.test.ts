@@ -2,7 +2,8 @@
  * Marking a promise Kept or Broken from the task dialog must update the
  * group's confirmation badge (Promise to Pay → Kept / Not Confirmed).
  */
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
@@ -58,6 +59,14 @@ async function setup(suffix: string) {
 }
 
 describe("promise resolution syncs the confirmation badge", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   it("Kept → badge becomes Kept, keeping the promise amount", async () => {
     const { caller, group, promiseId } = await setup("Kept");
     await caller.forecast.updatePromise({ id: promiseId, status: "Kept" });

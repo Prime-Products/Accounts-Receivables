@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import { appRouter } from "./routers";
 import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
@@ -31,6 +32,14 @@ async function openFollowUpTasks(group: string) {
 }
 
 describe("follow-up task cleanup across status sequences", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   it("Pending Follow-up → Confirmed → Broken leaves no open follow-up task (regression: MSC case)", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const customers = await db.listCustomers();

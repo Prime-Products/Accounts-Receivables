@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import * as db from "./db";
 
 /**
@@ -6,6 +7,14 @@ import * as db from "./db";
  * time the due date is actually moved (mirrors tasks.reschedule / upsertFollowUpTask logic).
  */
 describe("task rescheduling", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   const day = 24 * 60 * 60 * 1000;
 
   it("increments rescheduleCount when the due date moves", async () => {

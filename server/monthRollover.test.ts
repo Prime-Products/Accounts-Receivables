@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import { appRouter } from "./routers";
 import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
@@ -29,6 +30,14 @@ async function backdateConfirmation(group: string) {
   const prevMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 12, 0, 0));
   await db.setGroupConfirmationUpdatedAt(group, prevMonth);
 }
+
+let __snap: IdSnapshot;
+beforeAll(async () => {
+  __snap = await snapshotIds();
+});
+afterAll(async () => {
+  await cleanupSince(__snap);
+});
 
 describe("promise carryover — statuses stay active until their target date", () => {
   it("a Promise to Pay recorded last month stays Confirmed; when its date passes it stays Confirmed but flags taskOverdue", async () => {
