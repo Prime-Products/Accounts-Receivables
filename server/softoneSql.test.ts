@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSoftOneCustomerFinancialsQuery,
   buildSoftOneCustomersQuery,
   buildSoftOneCustomerGroupNamesQuery,
   buildSoftOneCustomerNamesQuery,
@@ -81,16 +82,11 @@ describe("SoftOne read-only SQL sync", () => {
     expect(softOneCustomersQuery).toContain(
       "FROM [dbo].[TRDR] AS customer",
     );
-    expect(softOneCustomersQuery).toContain(
-      "LEFT JOIN [dbo].[CustomerGroupFinData] AS source",
-    );
+    expect(softOneCustomersQuery).not.toContain("CustomerGroupFinData");
     expect(softOneCustomersQuery).toContain("TOP (500)");
     expect(softOneCustomersQuery).toContain("customer.[TRDR] > 0");
     expect(softOneCustomersQuery).toContain(
       "customer.[TRDGROUP] IS NOT NULL",
-    );
-    expect(softOneCustomersQuery).toContain(
-      "CAST(source.[LBAL] AS float)",
     );
     expect(softOneGroupNamesQuery).toContain(
       "CAST(master.[NAME] AS nchar(128))",
@@ -113,6 +109,12 @@ describe("SoftOne read-only SQL sync", () => {
     );
     expect(buildSoftOneCustomerGroupNamesQuery(["10"])).toContain(
       "customer_group.[TRDGROUP] IN (10)",
+    );
+    expect(buildSoftOneCustomerFinancialsQuery(["101", "102"])).toContain(
+      "source.[TRDR] IN (101, 102)",
+    );
+    expect(buildSoftOneCustomerFinancialsQuery(["101", "102"])).toContain(
+      "CAST(source.[LBAL] AS float)",
     );
     expect(() =>
       buildSoftOneCustomerNamesQuery(["1); DROP TABLE TRDR"]),

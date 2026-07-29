@@ -27,25 +27,10 @@ export function buildSoftOneCustomersQuery(afterTrdr: number) {
 )
 SELECT
   CAST(customer.[TRDR] AS bigint) AS [TRDR],
-  CAST(source.[MASTERTRDR] AS bigint) AS [MASTERTRDR],
-  CAST(customer.[TRDGROUP] AS bigint) AS [TRDGROUP],
-  CAST(source.[LBAL] AS float) AS [LBAL],
-  CAST(source.[LTURNOVR] AS float) AS [LTURNOVR],
-  CAST(source.[LTURNOVRLY] AS float) AS [LTURNOVRLY],
-  CAST(source.[LTURNOVRLYLY] AS float) AS [LTURNOVRLYLY],
-  CAST(source.[Uncovered] AS float) AS [Uncovered],
-  CAST(source.[Unpaid] AS float) AS [Unpaid],
-  CAST(source.[Overdue] AS float) AS [Overdue],
-  CAST(source.[OVERDUEMONTHVAL] AS float) AS [OVERDUEMONTHVAL],
-  CAST(source.[DAYSAVG] AS float) AS [DAYSAVG],
-  CAST(source.[OpenOrders] AS float) AS [OpenOrders],
-  CAST(source.[OrdersAmount] AS float) AS [OrdersAmount],
-  CAST(source.[Collections] AS float) AS [Collections]
+  CAST(customer.[TRDGROUP] AS bigint) AS [TRDGROUP]
 FROM [dbo].[TRDR] AS customer
 INNER JOIN customer_page AS page
   ON page.[TRDR] = customer.[TRDR]
-LEFT JOIN [dbo].[CustomerGroupFinData] AS source
-  ON source.[TRDR] = customer.[TRDR]
 WHERE customer.[COMPANY] = 1
   AND customer.[SODTYPE] = 13
   AND customer.[ISACTIVE] = 1
@@ -109,6 +94,26 @@ export function buildSoftOneCustomerGroupNamesQuery(groupIds: string[]) {
   CAST(customer_group.[NAME] AS nchar(128)) AS [NAME]
 FROM [dbo].[TRDGROUP] AS customer_group
 WHERE customer_group.[TRDGROUP] IN (${numericIdentifiers(groupIds)})`;
+}
+
+export function buildSoftOneCustomerFinancialsQuery(softoneIds: string[]) {
+  return `SELECT
+  CAST(source.[TRDR] AS bigint) AS [TRDR],
+  CAST(source.[MASTERTRDR] AS bigint) AS [MASTERTRDR],
+  CAST(source.[LBAL] AS float) AS [LBAL],
+  CAST(source.[LTURNOVR] AS float) AS [LTURNOVR],
+  CAST(source.[LTURNOVRLY] AS float) AS [LTURNOVRLY],
+  CAST(source.[LTURNOVRLYLY] AS float) AS [LTURNOVRLYLY],
+  CAST(source.[Uncovered] AS float) AS [Uncovered],
+  CAST(source.[Unpaid] AS float) AS [Unpaid],
+  CAST(source.[Overdue] AS float) AS [Overdue],
+  CAST(source.[OVERDUEMONTHVAL] AS float) AS [OVERDUEMONTHVAL],
+  CAST(source.[DAYSAVG] AS float) AS [DAYSAVG],
+  CAST(source.[OpenOrders] AS float) AS [OpenOrders],
+  CAST(source.[OrdersAmount] AS float) AS [OrdersAmount],
+  CAST(source.[Collections] AS float) AS [Collections]
+FROM [dbo].[CustomerGroupFinData] AS source
+WHERE source.[TRDR] IN (${numericIdentifiers(softoneIds)})`;
 }
 
 async function queryNamesInBatches(
@@ -321,7 +326,21 @@ export async function syncSoftOneCustomers() {
   try {
     pool = await openSoftOneSqlPool();
     stage = "query CustomerGroupFinData financials";
-    const customerRows = await queryCustomersInPages(pool);
+    const membershipRows = await queryCustomersInPages(pool);
+    const membershipIds = membershipRows.map(row => readIdentity(row, "TRDR"));
+    stage = "query CustomerGroupFinData financial batches";
+    const financialRows = await queryNamesInBatches(
+      pool,
+      membershipIds,
+      buildSoftOneCustomerFinancialsQuery,
+    );
+    const financialsByCustomer = new Map(
+      financialRows.map(row => [readIdentity(row, "TRDR"), row]),
+    );
+    const customerRows = membershipRows.map(row => ({
+      ...financialsByCustomer.get(readIdentity(row, "TRDR")),
+      ...row,
+    }));
     const customerAndMasterIds = Array.from(
       new Set(
         customerRows.flatMap(row =>
