@@ -61,17 +61,31 @@ export function normalizeSoftOneCustomerRows(rows: SourceRow[], synchronizedAt =
   if (rows.length > MAX_CUSTOMERS) throw new Error("SoftOne customer row limit exceeded.");
 
   const identifiers = new Set<string>();
-  return rows.map(row => {
+  const nameBySoftOneId = new Map<string, string>();
+  for (const row of rows) {
     const softoneId = readIdentity(row, "TRDR");
     if (identifiers.has(softoneId)) throw new Error("SoftOne returned duplicate TRDR.");
     identifiers.add(softoneId);
+    nameBySoftOneId.set(softoneId, readIdentity(row, "NAME"));
+  }
 
-    const name = readIdentity(row, "NAME");
+  return rows.map(row => {
+    const softoneId = readIdentity(row, "TRDR");
+    const name = nameBySoftOneId.get(softoneId)!;
+    const masterSoftoneId =
+      row.MASTERTRDR == null ? null : String(row.MASTERTRDR).trim() || null;
+    const groupCode =
+      row.TRDGROUP == null ? null : String(row.TRDGROUP).trim() || null;
+    const customerGroup =
+      (masterSoftoneId ? nameBySoftOneId.get(masterSoftoneId) : undefined) ??
+      (groupCode ? nameBySoftOneId.get(groupCode) : undefined) ??
+      groupCode ??
+      name;
     return {
       code: softoneId,
       name,
-      customerGroup: row.TRDGROUP == null ? null : String(row.TRDGROUP).trim() || null,
-      masterSoftoneId: row.MASTERTRDR == null ? null : String(row.MASTERTRDR).trim() || null,
+      customerGroup,
+      masterSoftoneId,
       turnoverYtd: readNumber(row, "LTURNOVR").toFixed(2),
       turnoverLastYear: readNumber(row, "LTURNOVRLY").toFixed(2),
       turnoverTwoYearsAgo: readNumber(row, "LTURNOVRLYLY").toFixed(4),
