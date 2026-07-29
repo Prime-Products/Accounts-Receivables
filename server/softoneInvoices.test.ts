@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeSoftOneCurrencyName,
   normalizeSoftOneOpenInvoiceRows,
+  softOneOpenInvoiceAmountSummaryQuery,
   softOneOpenInvoiceFinancialsQuery,
 } from "./lib/softoneInvoices";
 
@@ -90,6 +91,12 @@ describe("SoftOne open invoice sync", () => {
     expect(softOneOpenInvoiceFinancialsQuery).not.toMatch(
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
     );
-    expect(softOneOpenInvoiceFinancialsQuery).not.toContain("HAVING");
+    expect(softOneOpenInvoiceFinancialsQuery).toContain("HAVING");
+    expect(softOneOpenInvoiceAmountSummaryQuery).toContain(
+      "CAST(COUNT(*) AS bigint)",
+    );
+    expect(softOneOpenInvoiceAmountSummaryQuery).not.toMatch(
+      /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
+    );
   });
 });

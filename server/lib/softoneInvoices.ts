@@ -28,7 +28,34 @@ WHERE FP.[ISCLOSE] = 0
   AND FP.[APPRV] = 1
   AND FP.[PAYDEMANDMD] IN (-1, 1)
 GROUP BY
-  FP.[FINDOC], FP.[TRDR], FIN.[COMPANY], FP.[SOCURRENCY], FP.[TRNDATE]`;
+  FP.[FINDOC], FP.[TRDR], FIN.[COMPANY], FP.[SOCURRENCY], FP.[TRNDATE]
+HAVING SUM((FP.[TAMNT] - FP.[OPNTAMNT]) * FP.[PAYDEMANDMD]) > 0.005`;
+
+export const softOneOpenInvoiceAmountSummaryQuery = `WITH source AS (
+  SELECT
+    CAST(SUM(FP.[TAMNT] * FP.[PAYDEMANDMD]) AS float) AS [ORIGINAL_AMOUNT],
+    CAST(SUM((FP.[TAMNT] - FP.[OPNTAMNT]) * FP.[PAYDEMANDMD]) AS float) AS [OPEN_AMOUNT]
+  FROM [dbo].[FINPAYTERMS] AS FP
+  INNER JOIN [dbo].[FINDOC] AS FIN
+    ON FIN.[COMPANY] = FP.[COMPANY] AND FIN.[FINDOC] = FP.[FINDOC]
+  WHERE FP.[ISCLOSE] = 0
+    AND FP.[ISCANCEL] = 0
+    AND FP.[APPRV] = 1
+    AND FP.[PAYDEMANDMD] IN (-1, 1)
+  GROUP BY
+    FP.[FINDOC], FP.[TRDR], FIN.[COMPANY], FP.[SOCURRENCY], FP.[TRNDATE]
+)
+SELECT
+  CAST(COUNT(*) AS bigint) AS [GROUPED_ROWS],
+  CAST(SUM(CASE WHEN [OPEN_AMOUNT] > 0.005 THEN 1 ELSE 0 END) AS bigint) AS [POSITIVE_OPEN],
+  CAST(SUM(CASE WHEN ABS([OPEN_AMOUNT]) <= 0.005 THEN 1 ELSE 0 END) AS bigint) AS [ZERO_OPEN],
+  CAST(SUM(CASE WHEN [OPEN_AMOUNT] < -0.005 THEN 1 ELSE 0 END) AS bigint) AS [NEGATIVE_OPEN],
+  CAST(SUM(CASE WHEN [ORIGINAL_AMOUNT] > 0.005 THEN 1 ELSE 0 END) AS bigint) AS [POSITIVE_ORIGINAL],
+  CAST(SUM(CASE
+    WHEN [ORIGINAL_AMOUNT] > 0.005 AND [OPEN_AMOUNT] <= 0.005 THEN 1
+    ELSE 0
+  END) AS bigint) AS [POSITIVE_ORIGINAL_WITHOUT_POSITIVE_OPEN]
+FROM source`;
 
 export const softOneOpenInvoiceDocumentsQuery = `SELECT
   CAST(FIN.[FINDOC] AS bigint) AS [FINDOC],
@@ -185,10 +212,6 @@ async function queryMaps(pool: ConnectionPool) {
   };
 }
 
-function hasPositiveOpenAmount(row: SourceRow) {
-  return numberValue(row, "OPEN_AMOUNT") > 0.005;
-}
-
 async function querySoftOneOpenInvoiceSource(pool: ConnectionPool) {
   const result = await pool
     .request()
@@ -200,7 +223,7 @@ async function loadSoftOneOpenInvoices(pool: ConnectionPool) {
   const rows = await querySoftOneOpenInvoiceSource(pool);
   const maps = await queryMaps(pool);
   return normalizeSoftOneOpenInvoiceRows(
-    rows.filter(hasPositiveOpenAmount),
+    rows,
     maps.documents,
     maps.companies,
     maps.currencies,
@@ -213,18 +236,14 @@ export async function inspectSoftOneOpenInvoices() {
   let stage = "connect";
   try {
     pool = await openSoftOneSqlPool();
-    stage = "query open invoice source";
-    const sourceRows = await querySoftOneOpenInvoiceSource(pool);
-    const positiveOpenRows = sourceRows.filter(hasPositiveOpenAmount);
-    const zeroOpenRows = sourceRows.filter(
-      row => Math.abs(numberValue(row, "OPEN_AMOUNT")) <= 0.005,
-    );
-    const negativeOpenRows = sourceRows.filter(
-      row => numberValue(row, "OPEN_AMOUNT") < -0.005,
-    );
-    const positiveOriginalRows = sourceRows.filter(
-      row => numberValue(row, "ORIGINAL_AMOUNT") > 0.005,
-    );
+    stage = "query server-side open invoice amount summary";
+    const summaryResult = await pool
+      .request()
+      .query<SourceRow>(softOneOpenInvoiceAmountSummaryQuery);
+    const summary = summaryResult.recordset[0];
+    if (!summary) throw new Error("SoftOne returned no open invoice amount summary.");
+    stage = "query positive open invoice candidates";
+    const positiveOpenRows = await querySoftOneOpenInvoiceSource(pool);
     stage = "query open invoice lookups";
     const maps = await queryMaps(pool);
     stage = "normalize positive open invoice preview";
@@ -242,16 +261,15 @@ export async function inspectSoftOneOpenInvoices() {
     return {
       total: records.length,
       sourceSummary: {
-        groupedRows: sourceRows.length,
-        positiveOpen: positiveOpenRows.length,
-        zeroOpen: zeroOpenRows.length,
-        negativeOpen: negativeOpenRows.length,
-        positiveOriginal: positiveOriginalRows.length,
-        positiveOriginalWithoutPositiveOpen: sourceRows.filter(
-          row =>
-            numberValue(row, "ORIGINAL_AMOUNT") > 0.005 &&
-            numberValue(row, "OPEN_AMOUNT") <= 0.005,
-        ).length,
+        groupedRows: numberValue(summary, "GROUPED_ROWS"),
+        positiveOpen: numberValue(summary, "POSITIVE_OPEN"),
+        zeroOpen: numberValue(summary, "ZERO_OPEN"),
+        negativeOpen: numberValue(summary, "NEGATIVE_OPEN"),
+        positiveOriginal: numberValue(summary, "POSITIVE_ORIGINAL"),
+        positiveOriginalWithoutPositiveOpen: numberValue(
+          summary,
+          "POSITIVE_ORIGINAL_WITHOUT_POSITIVE_OPEN",
+        ),
       },
       breakdown: Array.from(counts.entries())
         .sort(([left], [right]) => left.localeCompare(right))
