@@ -1,14 +1,3 @@
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, FileText, HandCoins, ListChecks, RefreshCw, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, HandCoins, ListChecks, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link, useSearch } from "wouter";
@@ -63,15 +52,6 @@ export default function Tasks() {
     }
     setConsumedParam(true);
   }, [tasks, searchString, consumedParam]);
-
-  const runEngine = trpc.tasks.runEngine.useMutation({
-    onSuccess: r => {
-      toast.success(`Task engine run complete — ${r.created} new task(s) generated`);
-      utils.tasks.invalidate();
-      utils.forecast.dashboard.invalidate();
-    },
-    onError: e => toast.error(e.message),
-  });
 
   const setStatus = trpc.tasks.updateStatus.useMutation({
     onSuccess: () => utils.tasks.list.invalidate(),
@@ -123,31 +103,11 @@ export default function Tasks() {
             <ListChecks className="h-6 w-6" /> Tasks
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            SOP follow-up engine: +2, +15, +20 (SOA), +30 days from invoice due date, plus contract expiry alerts
+            Manual tasks, promise follow-ups and internal assignments between colleagues
           </p>
         </div>
         <div className="flex items-center gap-2">
           <NewTaskDialog />
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="outline" className="gap-2" disabled={runEngine.isPending}>
-                <RefreshCw className={`h-4 w-4 ${runEngine.isPending ? "animate-spin" : ""}`} /> Run Task Engine Now
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Run the automatic task engine?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will scan all overdue invoices and can generate thousands of SOP follow-up tasks
-                  (+2, +15, +20 SOA, +30 days). This may take several minutes. Are you sure?
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => runEngine.mutate()}>Yes, generate tasks</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
         </div>
       </div>
 
@@ -210,7 +170,7 @@ export default function Tasks() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="p-10 text-center text-muted-foreground">
-              No tasks match the filters. Use "Run Task Engine Now" to generate SOP follow-ups from overdue invoices.
+              No tasks match the filters. Create one with "New Task" or send invoices to a colleague from the Invoices page.
             </div>
           ) : (
             <Table className="table-fixed" style={{ width: cols.totalWidth, minWidth: "100%" }}>

@@ -898,3 +898,6 @@
 - [x] Frontend: Tasks page — scope tabs All / Created by me / Assigned (from others) + creator under title + attachment count chip
 - [x] Frontend: Task detail dialog (Tasks page + standalone) — attached invoices box + comments thread with composer
 - [x] Tests (taskCollaboration.test.ts 2/2; suite 194/195, 1 known parallel flake passes isolated) + tsc clean + screenshots
+
+## Remove Run Task Engine button (user request 29/7)
+- [x] Remove "Run Task Engine Now" button + confirmation dialog from Tasks page (manual tasks only)
