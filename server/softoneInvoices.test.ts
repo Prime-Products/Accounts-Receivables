@@ -124,6 +124,9 @@ describe("SoftOne open invoice sync", () => {
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
       "CAST(FP.[TAMNT] AS float)",
     );
+    expect(softOneOpenInvoiceFinancialsQuery).toContain(
+      "CAST(FIN.[SOCURRENCY] AS int) AS [SOCURRENCY]",
+    );
     expect(softOneOpenInvoiceFinancialsQuery).not.toMatch(
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
     );
