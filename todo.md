@@ -992,3 +992,9 @@
 ## Editable forecast on group card (user request 29/7)
 - [x] Backend: mutation to set/override the current-month forecast amount for a group (reused existing forecast.setGroupForecast with audit)
 - [x] UI: inline edit (pencil → input → save) of the forecast amount on the group detail card; also works when no forecast exists yet ("click to set one")
+
+## Better group AI Summary (user request 29/7)
+- [x] Review current AI summary implementation, inputs and prompt
+- [x] Enrich inputs: month stats (forecast vs collected, promises kept/broken), recent calls/notes, payment-behavior metrics (avg days late, payment pattern, trend)
+- [x] Rewrite prompt for a structured, concise output: Month summary + Payment behavior + Suggested actions
+- [x] Verify output quality on real groups (spot-tested with MSC group, iterated prompt 3x)

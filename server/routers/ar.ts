@@ -1318,10 +1318,43 @@ export const customersRouter = router({
       .filter(r => memberIds.has(r.customerId))
       .reduce((s, r) => s + Number(r.amount), 0);
     const remainingToCollect = Math.max(0, forecastExpected - collectedThisMonth);
+    // --- Payment-behavior profile from full receipt history (pattern & trend) ---
+    const allReceipts = await db.listReceipts().catch(() => []);
+    const groupReceipts = allReceipts.filter(r => memberIds.has(r.customerId)).sort((a, b) => a.receiptDate - b.receiptDate);
+    const monthMs = 30 * 24 * 60 * 60 * 1000;
+    const last6mReceipts = groupReceipts.filter(r => r.receiptDate >= now - 6 * monthMs);
+    // Payments per month over the last 6 months (rhythm) and typical day-of-month of payments
+    const paymentsByMonth = new Map<string, { count: number; amount: number }>();
+    const dayOfMonthCounts = new Map<number, number>();
+    for (const r of last6mReceipts) {
+      const d = new Date(r.receiptDate);
+      const k = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+      const cur = paymentsByMonth.get(k) ?? { count: 0, amount: 0 };
+      cur.count += 1;
+      cur.amount += Number(r.amount);
+      paymentsByMonth.set(k, cur);
+      const dom = d.getUTCDate();
+      const bucket = dom <= 10 ? 5 : dom <= 20 ? 15 : 25;
+      dayOfMonthCounts.set(bucket, (dayOfMonthCounts.get(bucket) ?? 0) + 1);
+    }
+    const timingBucket = Array.from(dayOfMonthCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const paymentTiming = timingBucket === 5 ? "early in the month" : timingBucket === 15 ? "mid-month" : timingBucket === 25 ? "towards month end" : "no clear pattern";
+    // Promise reliability
+    const kept = promises.filter(p => p.status === "Kept").length;
+    const broken = promises.filter(p => p.status === "Broken").length;
+    // Delay trend: avg days late of recent receipts vs older ones (when invoice link data exists in behavior rows)
+    const weighted = (rows: typeof behavior) => {
+      const tot = rows.reduce((s, b) => s + (b.payments ?? 0), 0);
+      if (!tot) return null;
+      return Math.round(rows.reduce((s, b) => s + (b.avgDaysLate ?? 0) * (b.payments ?? 0), 0) / tot);
+    };
+    const avgDaysLateGroup = weighted(behavior);
+    // Recent communication from the group activity log (calls, notes, emails, promises)
+    const activity = await db.listActivityLog(input.group, 15).catch(() => []);
     // Invoices due within the current month (collection targets for the forecast)
     const dueThisMonth = open
       .filter(i => i.dueDate <= mEnd)
-      .sort((a, b) => b.dueDate - a.dueDate)
+      .sort((a, b) => outstanding(b) - outstanding(a))
       .slice(0, 40)
       .map(i => ({
         company: names.get(i.customerId),
@@ -1342,6 +1375,8 @@ export const customersRouter = router({
       monthlyForecastEur: eur(forecastExpected),
       collectedThisMonthEur: eur(collectedThisMonth),
       remainingToCollectEur: eur(remainingToCollect),
+      monthProgressPct: forecastExpected > 0 ? Math.round((collectedThisMonth / forecastExpected) * 100) : null,
+      dayOfMonth: todayD.getUTCDate(),
       invoicesDueOrOverdueThisMonth: dueThisMonth,
       topDebtors: [...members]
         .map(m => ({ name: m.name, overdueEur: invs.filter(i => i.customerId === m.id && isOpenInvoice(i) && now > i.dueDate).reduce((s, i) => s + outstanding(i), 0) }))
@@ -1349,9 +1384,17 @@ export const customersRouter = router({
         .slice(0, 5)
         .map(d => ({ name: d.name, overdueEur: eur(d.overdueEur) })),
       paymentBehavior: behavior.slice(0, 10).map(b => ({ company: names.get(b.customerId), avgDaysLate: b.avgDaysLate, medianDaysLate: b.medianDaysLate, payments: b.payments })),
+      paymentProfile: {
+        avgDaysLateGroup,
+        typicalPaymentTiming: paymentTiming,
+        paymentsLast6Months: Array.from(paymentsByMonth.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([month, v]) => ({ month, payments: v.count, amountEur: eur(v.amount) })),
+        promisesKept: kept,
+        promisesBroken: broken,
+      },
       promises: promises.slice(0, 20).map(p => ({ company: names.get(p.customerId), amountEur: Number(p.amount), promisedDate: new Date(p.promisedDate).toISOString().slice(0, 10), status: p.status, notes: p.notes })),
       pendingTasks: pendingTasks.slice(0, 20).map(t => ({ company: names.get(t.customerId), type: t.type, title: t.title, dueDate: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : null })),
       recentNotes: notes.slice(0, 10).map(n => ({ date: new Date(n.createdAt).toISOString().slice(0, 10), content: n.content })),
+      recentActivity: activity.map(a => ({ date: new Date(a.createdAt).toISOString().slice(0, 10), type: a.activityType, title: a.title, detail: (a.description ?? "").slice(0, 200) })),
     };
     const response = await invokeLLM({
       model: "gemini-2.5-flash",
@@ -1359,7 +1402,20 @@ export const customersRouter = router({
         {
           role: "system",
           content:
-            "You are a credit-control analyst helping an accounts-receivable user hit this month's collection forecast. Structure your answer in exactly two sections:\n\n**Profile** — 2-3 sentences maximum, STRICTLY about the financials and the debts this customer group owes to us: open balance, overdue amount and aging, payment behavior (average delay, promise reliability), and this month's forecast position. Do NOT describe the company itself (no industry, size, business background or other generic company info).\n\n**Actions this month** — the COMPLETE list of concrete collection items the user must handle THIS month to achieve the monthly forecast (remainingToCollectEur). List EVERY item, not just the top ones: every invoice or company amount that must be collected (use invoicesDueOrOverdueThisMonth and topDebtors), every promise to follow up, every pending task to close, and any escalation (on-hold, legal) if the data justifies it. Each item on its own bullet line, most valuable first, with amounts in EUR and company names. NEVER suggest calling or phoning the customer about invoices — phrase items as amounts to collect or follow up, e.g. 'Collect invoice Y from X (€Z, N days overdue)'. If the forecast is already covered (remainingToCollectEur = 0), say so and list only monitoring items. Respond in English.",
+            `You are a senior credit-control analyst. Write a crisp, skimmable briefing for an accounts-receivable user opening this customer group's card. Use EXACTLY these three sections with these headings:
+
+**This Month** — 2-4 short sentences on the current month's position: forecast vs collected so far (use monthProgressPct and dayOfMonth to judge pace — e.g. "collected 15% of forecast with 2 days left" is very different from "with 20 days left"), promises summarized as a TOTAL (e.g. "6 broken promises totalling €139,665") rather than listing each amount, and the most recent meaningful contact (from recentActivity: when, what was agreed — pick the ONE most relevant event). Be concrete with numbers and dates.
+
+**Payment Behavior** — 2-3 short sentences in PLAIN language describing HOW this group generally pays: typical delay in days (round it), when in the month they usually pay (typicalPaymentTiming, only if there is a pattern), payment rhythm over the last 6 months (regular / irregular / drying up — from paymentsLast6Months), and promise reliability in words (e.g. "kept only 2 of 8 promises"). NEVER quote raw statistics like medians, negative numbers or ratios ("2:6") — translate everything into plain statements. End with a one-line verdict such as "slow but reliable payer" or "increasingly late, promises often broken". Silently omit anything the data doesn't support. Do NOT describe the company's business, industry or size.
+
+**Actions** — a SHORT prioritized list (max 8 bullets) of what to handle THIS month to close the remaining gap (remainingToCollectEur), most valuable first:
+- Broken or open promises to follow up first, each with amount and date.
+- Then the largest individual invoices (from invoicesDueOrOverdueThisMonth) with invoice number, EUR amount and days overdue — only ones material to the gap.
+- Bundle the remaining small invoices into ONE line, e.g. "Collect 30 further small invoices totalling €X".
+- Pending tasks to close and escalation only if the data justifies it.
+Do not repeat the group name on every bullet when all items belong to the same company. Phrase items as amounts to collect or follow up — NEVER as "call/phone the customer". If the forecast is already covered, state that in one line and list only monitoring items.
+
+General style: total answer under ~250 words. Format all EUR amounts with thousand separators (€70,000 not €70000). Never write "data not available" or similar — just omit what you don't know. Respond in English.`,
         },
         { role: "user", content: JSON.stringify(facts) },
       ],
