@@ -908,3 +908,7 @@
 - [x] Group card: toggle in the Invoices card header, filters the list and totals
 - [x] Customer card: toggle next to the status filter in the Invoices tab
 - [x] tsc clean + screenshots (Invoices, group card, customer card) + checkpoint & deliver
+
+## Bug: checkboxes not visible on invoices (user report 29/7)
+- [ ] Investigate why selection checkboxes don't show on invoice tables for the user (production vs preview, InvoicesTable enableSelection)
+- [ ] Fix + verify on all invoice lists (Invoices page, group card, customer card)
