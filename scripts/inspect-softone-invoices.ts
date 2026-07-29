@@ -9,6 +9,9 @@ try {
   Zero calculated open: ${result.sourceSummary.zeroOpen}
   Negative calculated open: ${result.sourceSummary.negativeOpen}
   Positive TAMNT: ${result.sourceSummary.positiveOriginal}
+  Positive OPNTAMNT (remaining candidate): ${result.sourceSummary.positiveRemaining}
+  Zero OPNTAMNT: ${result.sourceSummary.zeroRemaining}
+  Negative OPNTAMNT: ${result.sourceSummary.negativeRemaining}
   Positive TAMNT without positive calculated open: ${result.sourceSummary.positiveOriginalWithoutPositiveOpen}
   Current open candidates: ${result.total}
 ${result.breakdown.map(row => `  ${row.key}: ${row.count}`).join("\n")}

@@ -95,6 +95,9 @@ describe("SoftOne open invoice sync", () => {
     expect(softOneOpenInvoiceAmountSummaryQuery).toContain(
       "CAST(COUNT(*) AS bigint)",
     );
+    expect(softOneOpenInvoiceAmountSummaryQuery).toContain(
+      "FP.[OPNTAMNT] * FP.[PAYDEMANDMD]",
+    );
     expect(softOneOpenInvoiceAmountSummaryQuery).not.toMatch(
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
     );
