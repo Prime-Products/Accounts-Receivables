@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { trpc } from "@/lib/trpc";
-import { Mail, Phone, User } from "lucide-react";
+import { Mail, Phone, Plus, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -36,6 +36,12 @@ export default function LogCallDialog({
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
   const [contactName, setContactName] = useState("");
   const [selectedContactId, setSelectedContactId] = useState<string>("");
+  // Inline "add new contact" form state
+  const [newContactName, setNewContactName] = useState("");
+  const [newContactEmail, setNewContactEmail] = useState("");
+  const [newContactPhone, setNewContactPhone] = useState("");
+  const [newContactTitle, setNewContactTitle] = useState("");
+  const [newContactCustomerId, setNewContactCustomerId] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<(typeof OUTCOMES)[number]>("Reached");
   const [notes, setNotes] = useState("");
   const [confirmationStatus, setConfirmationStatus] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">("");
@@ -50,7 +56,7 @@ export default function LogCallDialog({
   // Payment contacts across all companies of the group
   const { data: groupContacts } = trpc.paymentContacts.listByGroup.useQuery({ group }, { enabled: open });
   const selectedContact =
-    selectedContactId && selectedContactId !== "other"
+    selectedContactId && selectedContactId !== "other" && selectedContactId !== "add-new"
       ? groupContacts?.find(c => String(c.id) === selectedContactId)
       : undefined;
 
@@ -59,6 +65,11 @@ export default function LogCallDialog({
       setCustomerId(defaultCustomerId ?? null);
       setContactName("");
       setSelectedContactId("");
+      setNewContactName("");
+      setNewContactEmail("");
+      setNewContactPhone("");
+      setNewContactTitle("");
+      setNewContactCustomerId(null);
       setOutcome("Reached");
       setNotes("");
       setConfirmationStatus("");
@@ -79,6 +90,44 @@ export default function LogCallDialog({
     },
     onError: e => toast.error(e.message),
   });
+
+  const addContact = trpc.paymentContacts.add.useMutation({
+    onSuccess: created => {
+      toast.success("Contact added");
+      utils.paymentContacts.invalidate();
+      setSelectedContactId(String(created.id));
+      setContactName(created.name);
+      setNewContactName("");
+      setNewContactEmail("");
+      setNewContactPhone("");
+      setNewContactTitle("");
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const handleAddContact = () => {
+    if (!newContactName.trim()) {
+      toast.error("Please enter the contact's name");
+      return;
+    }
+    if (!newContactEmail.trim()) {
+      toast.error("Please enter the contact's email");
+      return;
+    }
+    const targetCustomerId =
+      newContactCustomerId ?? customerId ?? defaultCustomerId ?? (companies && companies.length === 1 ? companies[0].id : null);
+    if (!targetCustomerId) {
+      toast.error("Please select which company the contact belongs to");
+      return;
+    }
+    addContact.mutate({
+      customerId: targetCustomerId,
+      name: newContactName.trim(),
+      email: newContactEmail.trim(),
+      phone: newContactPhone.trim() || undefined,
+      title: newContactTitle.trim() || undefined,
+    });
+  };
 
   const handleSubmit = () => {
     if (!confirmationStatus) {
@@ -158,34 +207,36 @@ export default function LogCallDialog({
           )}
           <div className="space-y-1.5">
             <Label>Contact person (optional)</Label>
-            {groupContacts && groupContacts.length > 0 ? (
-              <>
-                <Select
-                  value={selectedContactId || undefined}
-                  onValueChange={v => {
-                    setSelectedContactId(v);
-                    if (v === "other") {
-                      setContactName("");
-                    } else {
-                      const c = groupContacts.find(gc => String(gc.id) === v);
-                      setContactName(c?.name ?? "");
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Who did you speak with?" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {groupContacts.map(c => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {c.name}
-                        {c.title ? ` — ${c.title}` : ""}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="other">Other (type a name)</SelectItem>
-                  </SelectContent>
-                </Select>
-                {selectedContact && (
+            <Select
+              value={selectedContactId || undefined}
+              onValueChange={v => {
+                setSelectedContactId(v);
+                if (v === "add-new") {
+                  setContactName("");
+                } else {
+                  const c = groupContacts?.find(gc => String(gc.id) === v);
+                  setContactName(c?.name ?? "");
+                }
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={groupContacts && groupContacts.length > 0 ? "Who did you speak with?" : "No contacts yet — add one"} />
+              </SelectTrigger>
+              <SelectContent>
+                {(groupContacts ?? []).map(c => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.name}
+                    {c.title ? ` — ${c.title}` : ""}
+                  </SelectItem>
+                ))}
+                <SelectItem value="add-new">
+                  <span className="flex items-center gap-1.5 text-primary">
+                    <Plus className="h-3.5 w-3.5" /> Add new contact…
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            {selectedContact && (
                   <div className="rounded border bg-muted/40 p-2 text-xs space-y-1 mt-1">
                     <div className="flex items-center gap-1.5 font-medium">
                       <User className="h-3 w-3" /> {selectedContact.name}
@@ -203,18 +254,41 @@ export default function LogCallDialog({
                     )}
                     <div className="text-muted-foreground">{selectedContact.companyName}</div>
                   </div>
+            )}
+            {selectedContactId === "add-new" && (
+              <div className="rounded border bg-muted/30 p-2 space-y-2 mt-1">
+                <p className="text-xs font-medium flex items-center gap-1.5">
+                  <Plus className="h-3.5 w-3.5" /> New contact for {group}
+                </p>
+                {companies && companies.length > 1 && (
+                  <Select
+                    value={newContactCustomerId ? String(newContactCustomerId) : customerId ? String(customerId) : undefined}
+                    onValueChange={v => setNewContactCustomerId(Number(v))}
+                  >
+                    <SelectTrigger className="w-full h-8 text-xs">
+                      <SelectValue placeholder="Company *" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {companies.map(c => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
-                {selectedContactId === "other" && (
-                  <Input
-                    className="mt-1"
-                    value={contactName}
-                    onChange={e => setContactName(e.target.value)}
-                    placeholder="Type the contact's name"
-                  />
-                )}
-              </>
-            ) : (
-              <Input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Who did you speak with?" />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input className="h-8 text-xs" value={newContactName} onChange={e => setNewContactName(e.target.value)} placeholder="Name *" />
+                  <Input className="h-8 text-xs" value={newContactTitle} onChange={e => setNewContactTitle(e.target.value)} placeholder="Title" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input className="h-8 text-xs" type="email" value={newContactEmail} onChange={e => setNewContactEmail(e.target.value)} placeholder="Email *" />
+                  <Input className="h-8 text-xs" value={newContactPhone} onChange={e => setNewContactPhone(e.target.value)} placeholder="Phone" />
+                </div>
+                <Button size="sm" className="h-7 text-xs w-full" onClick={handleAddContact} disabled={addContact.isPending}>
+                  {addContact.isPending ? "Saving…" : "Save contact"}
+                </Button>
+              </div>
             )}
           </div>
           <div className="space-y-1.5">

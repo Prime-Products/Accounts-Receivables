@@ -927,4 +927,5 @@
 - [x] Backend: tasks.list exposes groupName; invoice-based creation (send invoices to colleague) still works
 - [x] Cleanup: also deleted remaining "TaskLink Promise" junk customers/tasks/promises (48 customers, 24 tasks, 24 promises)
 - [x] Call list: Problematic status no longer affects score/tier — sorting is purely by risk score; status stays as an informational badge
+- [x] Log Call from a group: contact dropdown lists only that group's contacts, with an inline "Add new contact" option (name/title/email/phone + company when multi-company group; saved contact is auto-selected)
 - [x] Cleanup: delete junk "TaskLink Pending" tasks and their placeholder customers (after verifying no invoices attached)
