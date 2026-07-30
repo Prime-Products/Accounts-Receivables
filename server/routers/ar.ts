@@ -990,8 +990,12 @@ export const customersRouter = router({
       const day90 = 90 * 24 * 60 * 60 * 1000;
       const gOpen = groupInvoices.filter(isOpenInvoice);
       const gOverdue = gOpen.filter(i => now > i.dueDate);
-      const eomTs = endOfCurrentMonth();
+     const eomTs = endOfCurrentMonth();
       const gOverdueEom = gOpen.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
+      // Open amount falling due within the NEXT calendar month (for the Open Balance card subtitle)
+      const nmStart = Date.UTC(new Date(eomTs).getUTCFullYear(), new Date(eomTs).getUTCMonth() + 1, 1);
+      const nmEnd = Date.UTC(new Date(eomTs).getUTCFullYear(), new Date(eomTs).getUTCMonth() + 2, 0, 23, 59, 59, 999);
+      const gDueNextMonth = gOpen.filter(i => i.dueDate > eomTs && i.dueDate >= nmStart && i.dueDate <= nmEnd).reduce((s, i) => s + outstanding(i), 0);
       const memberPromises = (await db.listPromises()).filter(p => memberIds.has(p.customerId));
       const todayD = new Date();
       const forecastRows = await db.listForecastEntries(todayD.getUTCFullYear(), todayD.getUTCMonth() + 1);
@@ -1124,6 +1128,7 @@ export const customersRouter = router({
           overdueCount: overdue.length,
           openCount: open.length,
           openByCurrency,
+          dueNextMonth: gDueNextMonth,
           turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
           turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
         },

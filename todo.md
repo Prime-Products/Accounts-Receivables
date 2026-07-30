@@ -1045,3 +1045,7 @@
 - [x] Backend: expose the group's open invoices (with due dates) for the next-task picker
 - [x] Frontend: TaskDetailDialog "Create next task" panel — choose PTP or Follow-up, see open invoices with due dates, set date/amount; old task is cancelled automatically
 - [x] Update month-rollover tests to the new partial-reset behavior; add tests for createNextTask
+
+## Open Balance card: due next month (user request 30/7)
+- [x] Backend: groupDetail returns dueNextMonth (open invoices due within next calendar month, EUR)
+- [x] Group card: Open Balance KPI shows "Due next month: €X" subtitle

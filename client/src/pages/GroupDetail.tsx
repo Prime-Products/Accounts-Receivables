@@ -608,6 +608,12 @@ export default function GroupDetail() {
                 <div className="text-[11px] text-muted-foreground mt-0.5">
                   {fmtByCurrency(data.totals.openByCurrency, { skipEurOnly: true })}
                 </div>
+                <div
+                  className="text-[11px] font-mono mt-0.5 text-blue-600"
+                  title="Open invoices falling due within the next calendar month"
+                >
+                  Due next month: {fmtEur((data.totals as any).dueNextMonth ?? 0)}
+                </div>
               </CardContent>
             </Card>
             <Card>
