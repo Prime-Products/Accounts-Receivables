@@ -183,12 +183,15 @@ export default function LogCallDialog({
           {companies && companies.length > 1 && (
             <div className="space-y-1.5">
               <Label>Company (optional)</Label>
-              <Select value={customerId ? String(customerId) : ""} onValueChange={v => setCustomerId(v ? parseInt(v) : null)}>
+              <Select
+                value={customerId ? String(customerId) : "all"}
+                onValueChange={v => setCustomerId(v && v !== "all" ? parseInt(v) : null)}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="All companies" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All companies</SelectItem>
+                  <SelectItem value="all">All companies</SelectItem>
                   {companies.map(c => (
                     <SelectItem key={c.id} value={String(c.id)}>
                       {c.name}
@@ -302,8 +305,8 @@ export default function LogCallDialog({
                 <div className="rounded border border-amber-300 bg-amber-50 p-2 space-y-2">
                   <p className="text-xs font-medium text-amber-900">
                     Open promise exists: €{Number(openPromise.amount).toLocaleString()} due{" "}
-                    {new Date(openPromise.promisedDate).toLocaleDateString("en-GB")} ({openPromise.customerName})
-                    {openPromise.rescheduleCount > 0 && (
+                    {openPromise.promisedDate ? new Date(openPromise.promisedDate).toLocaleDateString("en-GB") : "—"} ({openPromise.customerName})
+                    {(openPromise.rescheduleCount ?? 0) > 0 && (
                       <span className="ml-1.5 inline-flex items-center rounded bg-red-200 px-1.5 py-0.5 font-semibold text-red-900">
                         rescheduled ×{openPromise.rescheduleCount}
                       </span>
@@ -353,8 +356,8 @@ export default function LogCallDialog({
               {openFollowUp && (
                 <div className="rounded border border-blue-300 bg-blue-100/60 p-2 text-xs text-blue-900 space-y-0.5">
                   <p className="font-medium">
-                    Open follow-up exists — currently due {new Date(openFollowUp.dueDate).toLocaleDateString("en-GB")}
-                    {openFollowUp.rescheduleCount > 0 && (
+                    Open follow-up exists — currently due {openFollowUp.dueDate ? new Date(openFollowUp.dueDate).toLocaleDateString("en-GB") : "—"}
+                    {(openFollowUp.rescheduleCount ?? 0) > 0 && (
                       <span className="ml-1.5 inline-flex items-center rounded bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-900">
                         rescheduled ×{openFollowUp.rescheduleCount}
                       </span>

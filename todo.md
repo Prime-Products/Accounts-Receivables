@@ -1152,3 +1152,17 @@
 - [x] On escalate: set group communication status to "Escalated", badge links to the new escalated task
 - [x] When a new Promise/Follow-up task is created from the escalated task: close it as Completed, keep only the new task, status switches to Promise to Pay / Pending Follow-up
 - [x] Vitest coverage for the escalated status lifecycle
+
+## Task watchers with avatar stack (user request 30/7)
+- [ ] Create visual mockup of avatar stack for user approval
+- [ ] Add taskWatchers table (taskId, memberId)
+- [ ] Escalate form: multi-select watchers
+- [ ] Avatar stack on task cards and task dialog (initials, colored circles, +N counter)
+- [ ] Manage watchers from task dialog (add/remove)
+- [ ] Vitest coverage for watchers
+
+## Log Call fixes & multi-call flow (user request 30/7)
+- [ ] Fix error when opening Log Call from the customer card
+- [ ] Clarify/propose flow for a second Log Call when an active communication task already exists
+- [ ] Decide behavior for third+ concurrent log calls
+- [ ] Document when a Log Call creates a task (group vs customer)
