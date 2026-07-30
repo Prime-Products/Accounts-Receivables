@@ -18,6 +18,45 @@ afterAll(async () => {
 });
 
 describe("follow-up task actions", () => {
+  it("logCall accepts Promise to Pay without an amount (date still mandatory)", async () => {
+    const caller = makeCaller();
+    const customers = await db.listCustomers();
+    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    expect(cust).toBeTruthy();
+    const group = (cust!.customerGroup ?? "").trim() || cust!.name;
+
+    // Missing date must still be rejected
+    await expect(
+      caller.calls.logCall({ group, outcome: "Reached", confirmationStatus: "Confirmed" }),
+    ).rejects.toThrow(/promised payment date/i);
+
+    // No amount + a date → promise and check task are created
+    const promisedDate = Date.now() + 3 * 24 * 3600 * 1000;
+    const res = await caller.calls.logCall({
+      group,
+      outcome: "Reached",
+      confirmationStatus: "Confirmed",
+      promisedDate,
+      notes: "no-amount promise test",
+    });
+    expect(res.success).toBe(true);
+
+    const conf = await db.getGroupConfirmationStatus(group);
+    expect(conf?.status).toBe("Confirmed");
+    expect(Number(conf?.amount)).toBe(0);
+
+    // A promise record with amount 0 exists and a linked check task was created
+    const promises = await db.listPromises();
+    const open = promises
+      .filter(p => p.status === "Pending" && Number(p.amount) === 0)
+      .sort((a, b) => b.id - a.id);
+    expect(open.length).toBeGreaterThan(0);
+    const tasksAfter = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+    const ptpTask = tasksAfter.find(t => t.description?.includes(`(Promise #${open[0].id})`));
+    expect(ptpTask).toBeTruthy();
+    expect(ptpTask?.title).toContain("Promise to Pay");
+  });
+
   it("converts a follow-up task to a Promise to Pay (new task, status change, old task cancelled)", async () => {
     const caller = makeCaller();
     // Pick a real group with customers

@@ -163,10 +163,6 @@ export default function LogCallDialog({
       return;
     }
     if (confirmationStatus === "Confirmed") {
-      if (!confirmationAmount || Number(confirmationAmount) <= 0) {
-        toast.error("Please enter the confirmed amount");
-        return;
-      }
       if (!promisedDate) {
         toast.error("Please select the promised payment date");
         return;
@@ -407,7 +403,7 @@ export default function LogCallDialog({
                   </RadioGroup>
                 </div>
               )}
-              <Label>Promised amount (EUR)</Label>
+              <Label>Promised amount (EUR) — optional</Label>
               <Input
                 type="number"
                 value={confirmationAmount}

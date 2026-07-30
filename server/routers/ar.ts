@@ -134,7 +134,7 @@ function effectiveConfirmation<T extends { status: string; amount: string | null
  */
 async function createGroupPromise(
   ctx: { user: { id: number; name: string | null } },
-  input: { group: string; customerId?: number; amount: number; promisedDate: number; notes?: string; contactName?: string }
+  input: { group: string; customerId?: number; amount?: number; promisedDate: number; notes?: string; contactName?: string }
 ) {
   let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
   if (!cust) {
@@ -143,21 +143,23 @@ async function createGroupPromise(
     if (members.length === 0) return null;
     cust = members[0];
   }
+  const amt = input.amount && input.amount > 0 ? input.amount : 0;
+  const amtLabel = amt > 0 ? `€${Number(eur(amt)).toLocaleString()}` : "";
   const id = await db.createPromise({
     customerId: cust.id,
     promisedDate: input.promisedDate,
-    amount: eur(input.amount),
+    amount: eur(amt),
     notes: input.notes,
     createdBy: ctx.user.id,
   });
-  await audit(ctx, "Record Promise-to-Pay", "promiseToPay", id, `Customer #${cust.id} promised €${eur(input.amount)} by ${new Date(input.promisedDate).toISOString().slice(0, 10)} (from confirmed call)`);
+  await audit(ctx, "Record Promise-to-Pay", "promiseToPay", id, `Customer #${cust.id} promised ${amt > 0 ? `€${eur(amt)}` : "payment (no amount)"} by ${new Date(input.promisedDate).toISOString().slice(0, 10)} (from confirmed call)`);
   const groupKey = cust.customerGroup?.trim() ? cust.customerGroup.trim() : cust.name;
   const dateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
   await db.addActivityLog({
     groupName: groupKey,
     customerId: cust.id,
     activityType: "promise",
-    title: `Promise-to-Pay: €${Number(eur(input.amount)).toLocaleString()} by ${dateStr}`,
+    title: amt > 0 ? `Promise-to-Pay: ${amtLabel} by ${dateStr}` : `Promise-to-Pay by ${dateStr}`,
     description: `${cust.name} — confirmed by phone${input.notes ? ` — ${input.notes}` : ""}`,
     createdBy: ctx.user.id,
     createdAt: new Date(),
@@ -165,8 +167,8 @@ async function createGroupPromise(
   const taskId = await db.createTask({
     customerId: cust.id,
     type: "Manual",
-    title: `Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
-    description: `Verify that ${cust.name} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${dateStr}.${input.contactName ? ` Contact: ${input.contactName}.` : ""}${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
+    title: amt > 0 ? `Promise to Pay — ${amtLabel}` : `Promise to Pay — ${groupKey}`,
+    description: `Verify that ${cust.name} paid ${amt > 0 ? `the promised amount of ${amtLabel}` : "the promised payment"} due ${dateStr}.${input.contactName ? ` Contact: ${input.contactName}.` : ""}${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
     dueDate: input.promisedDate,
     status: "Pending",
     assignedTo: ctx.user.id,
@@ -205,19 +207,22 @@ async function rescheduleGroupPromise(
   const promise = await db.getPromise(input.promiseId);
   if (!promise || promise.status !== "Pending") return null;
   const cust = await db.getCustomer(promise.customerId);
+  // If no new amount is provided (0), keep the existing promise amount.
+  const effAmount = input.amount > 0 ? input.amount : Number(promise.amount ?? 0);
+  const rLabel = effAmount > 0 ? `€${Number(eur(effAmount)).toLocaleString()}` : "payment";
   const oldDateStr = new Date(promise.promisedDate).toLocaleDateString("en-GB");
   const newDateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
   await db.updatePromise(input.promiseId, {
     promisedDate: input.promisedDate,
-    amount: eur(input.amount),
+    amount: eur(effAmount),
     notes: input.notes ?? promise.notes,
   });
-  await audit(ctx, "Reschedule Promise-to-Pay", "promiseToPay", input.promiseId, `${input.group}: €${eur(input.amount)} moved ${oldDateStr} → ${newDateStr}`);
+  await audit(ctx, "Reschedule Promise-to-Pay", "promiseToPay", input.promiseId, `${input.group}: ${rLabel} moved ${oldDateStr} → ${newDateStr}`);
   await db.addActivityLog({
     groupName: input.group,
     customerId: promise.customerId,
     activityType: "promise",
-    title: `Payment rescheduled: €${Number(eur(input.amount)).toLocaleString()} — ${oldDateStr} → ${newDateStr}`,
+    title: `Payment rescheduled: ${rLabel} — ${oldDateStr} → ${newDateStr}`,
     description: `${cust?.name ?? "—"} moved the promised payment${input.notes ? ` — ${input.notes}` : ""}`,
     createdBy: ctx.user.id,
     createdAt: new Date(),
@@ -228,8 +233,8 @@ async function rescheduleGroupPromise(
   const linked = openTasks.find(t => t.description?.includes(marker));
   if (linked) {
     await db.updateTask(linked.id, {
-      title: `Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
-      description: `Verify that ${cust?.name ?? "the customer"} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${newDateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`,
+      title: effAmount > 0 ? `Promise to Pay — ${rLabel}` : `Promise to Pay — ${input.group}`,
+      description: `Verify that ${cust?.name ?? "the customer"} paid ${effAmount > 0 ? `the promised amount of ${rLabel}` : "the promised payment"} due ${newDateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`,
       dueDate: input.promisedDate,
     });
     await audit(ctx, "Update Task", "task", linked.id, `Follow-up moved to ${newDateStr} (promise #${input.promiseId} rescheduled)`);
@@ -3943,12 +3948,7 @@ export const callsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       // Promise to Pay must always carry a target date — it stays active until that date passes.
-      if (
-        input.confirmationStatus === "Confirmed" &&
-        input.confirmationAmount !== undefined &&
-        input.confirmationAmount > 0 &&
-        !input.promisedDate
-      ) {
+      if (input.confirmationStatus === "Confirmed" && !input.promisedDate) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A promised payment date is required for Promise to Pay." });
       }
       // Pending Follow-up must always carry a follow-up date.
@@ -3999,17 +3999,13 @@ export const callsRouter = router({
 
         // "Confirmed" is effectively a Promise-to-Pay: auto-create the promise record
         // (with follow-up task + activity log) via the shared helper.
-        if (
-          input.confirmationStatus === "Confirmed" &&
-          input.confirmationAmount !== undefined &&
-          input.confirmationAmount > 0
-        ) {
+        if (input.confirmationStatus === "Confirmed") {
           let rescheduled: number | null = null;
           if (input.reschedulePromiseId) {
             rescheduled = await rescheduleGroupPromise(ctx, {
               group: input.group,
               promiseId: input.reschedulePromiseId,
-              amount: input.confirmationAmount,
+              amount: input.confirmationAmount ?? 0,
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
             });

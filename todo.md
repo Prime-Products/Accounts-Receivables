@@ -1049,3 +1049,7 @@
 ## Open Balance card: due next month (user request 30/7)
 - [x] Backend: groupDetail returns dueNextMonth (open invoices due within next calendar month, EUR)
 - [x] Group card: Open Balance KPI shows "Due next month: €X" subtitle
+
+## Log Call: optional promise amount (user request 30/7)
+- [x] Backend: logCall accepts Promise to Pay without amount (date stays mandatory)
+- [x] Frontend: LogCallDialog no longer requires amount for Promise to Pay
