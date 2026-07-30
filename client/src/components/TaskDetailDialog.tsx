@@ -282,7 +282,7 @@ export default function TaskDetailDialog({
                   )}
                 </div>
                 <div className="col-span-2">
-                  <div className="text-xs text-muted-foreground mb-1">Assignee</div>
+                  <div className="text-xs text-muted-foreground mb-1">Assigned to</div>
                   <TeamMemberSelect
                     value={task.assigneeId ?? null}
                     onChange={id => assignTask.mutate({ id: task.id, assigneeId: id })}

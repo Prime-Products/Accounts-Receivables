@@ -171,7 +171,7 @@ export default function Tasks() {
                       ["customer", "Group"],
                       ["task", "Task"],
                       ["invoice", "Invoice"],
-                      ["assignee", "Assignee"],
+                      ["assignee", "Assigned to"],
                       ["watchers", "Watchers"],
                       ["due", "Due"],
                       ["status", "Status"],
