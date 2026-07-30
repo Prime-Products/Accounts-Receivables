@@ -34,6 +34,7 @@ import { buildExcel, buildPdf, TableSpec } from "../lib/exports";
 import { generateMonthlyForecast } from "../lib/smartForecast";
 import { runTaskEngine } from "../lib/taskEngine";
 import * as softoneSql from "../lib/softoneSql";
+import { hasReceivableActivity } from "../lib/receivableGroup";
 import { invokeLLM } from "../_core/llm";
 
 async function audit(ctx: { user: { id: number; name: string | null } }, action: string, entityType: string, entityId?: string | number, details?: string) {
@@ -660,6 +661,7 @@ export const customersRouter = router({
       }
     }
     return Array.from(groups.values())
+      .filter(hasReceivableActivity)
       .map(g => {
         const beh = groupBehavior.get(g.group);
         const forecastExpected = forecastByGroup.get(g.group) ?? 0;
