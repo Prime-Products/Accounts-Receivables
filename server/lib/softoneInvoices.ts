@@ -49,7 +49,10 @@ SELECT
   CAST(CONVERT(char(8), FP.[TRNDATE], 112) AS int) AS [ISSUE_DATE],
   CAST(CONVERT(char(8), FP.[FINALDATE], 112) AS int) AS [DUE_DATE],
   CAST(FP.[TAMNT] AS float) * CAST(FP.[PAYDEMANDMD] AS float) AS [ORIGINAL_AMOUNT_PART],
-  CAST(FP.[TAMNT] - FP.[OPNTAMNT] AS float)
+  -- The SoftOne report exposes TAMNT - OPNTAMNT as the allocated/settled
+  -- portion (OPNTVAL). The displayed Unpaid amount is the remaining
+  -- OPNTAMNT, signed by PAYDEMANDMD.
+  CAST(FP.[OPNTAMNT] AS float)
     * CAST(FP.[PAYDEMANDMD] AS float) AS [OPEN_AMOUNT_PART]
 FROM [dbo].[FINPAYTERMS] AS FP
 INNER JOIN [dbo].[FINDOC] AS FIN
