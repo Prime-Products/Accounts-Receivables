@@ -1118,3 +1118,9 @@
 - [x] Track reschedule attempts in activity log ("Promise rescheduled — 2nd attempt", "3rd attempt", etc.)
 - [x] Display reschedule attempt count in the action panel when Broken is selected
 - [x] Update tests for Broken status and reschedule counter
+
+## Remove Escalate and make Broken actions mandatory (user request 30/7)
+- [x] Remove Escalate button from Broken section
+- [x] Make the three action buttons mandatory (cannot log call without selecting one)
+- [x] Update UI to show clear selection requirement
+- [x] Test that Broken status requires action selection

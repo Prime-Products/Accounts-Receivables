@@ -399,15 +399,7 @@ export default function LogCallDialog({
                 >
                   <div className="font-medium text-red-700">→ Reschedule Promise</div>
                 </button>
-                <button
-                  type="button"
-                  className="flex items-center gap-2 rounded border border-red-200 bg-white p-2 text-left text-xs hover:bg-red-50 transition-colors"
-                  onClick={() => {
-                    toast.info("Escalate feature coming soon");
-                  }}
-                >
-                  <div className="font-medium text-red-700">→ Escalate</div>
-                </button>
+
               </div>
               <Label className="mt-2">Reason (optional)</Label>
               <Textarea
