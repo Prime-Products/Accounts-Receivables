@@ -1192,3 +1192,6 @@
 - [x] Email templates: SOA, Payment Reminder, Overdue Notice — body prefilled with group data
 - [x] SOA export file (open invoices of the group) auto-downloaded on Send
 - [x] Send opens Outlook (mailto) with recipient, subject and body prefilled
+## Bug: test team members leaked into production data (user report 31/7)
+- [x] Delete leftover TM Mgr/Task test team members from database
+- [x] Fix test cleanup so test team members never persist
