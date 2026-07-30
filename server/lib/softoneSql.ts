@@ -141,7 +141,7 @@ async function queryNamesInBatches(
   return rows;
 }
 
-async function queryCustomersInPages(pool: ConnectionPool) {
+export async function queryCustomersInPages(pool: ConnectionPool) {
   const rows: SourceRow[] = [];
   let afterTrdr = 0;
   for (let page = 0; page < MAX_SOFTONE_CUSTOMER_PAGES; page += 1) {
