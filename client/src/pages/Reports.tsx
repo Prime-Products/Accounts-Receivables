@@ -31,7 +31,7 @@ export default function Reports() {
     {
       icon: BarChart3,
       title: "Aging Report",
-      desc: "Open balances segmented into 0-30, 31-60, 61-90, 91-120 and 120+ day buckets, per customer.",
+      desc: "Open balances segmented into 0-30, 31-60, 61-90, 91-119 and 120+ day buckets, per customer.",
       actions: [
         { label: "Excel", fn: () => exportReport.mutate({ report: "aging", format: "xlsx" }) },
         { label: "PDF", fn: () => exportReport.mutate({ report: "aging", format: "pdf" }) },

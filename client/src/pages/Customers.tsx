@@ -444,9 +444,9 @@ export default function Customers() {
         "0-30": { amount: 0, count: 0 },
         "31-60": { amount: 0, count: 0 },
         "61-90": { amount: 0, count: 0 },
-        "91-120": { amount: 0, count: 0 },
+        "91-119": { amount: 0, count: 0 },
         "120+": { amount: 0, count: 0 },
-      } as Record<"0-30" | "31-60" | "61-90" | "91-120" | "120+", { amount: number; count: number }>,
+      } as Record<"0-30" | "31-60" | "61-90" | "91-119" | "120+", { amount: number; count: number }>,
     };
     for (const g of filteredGroups) {
       s.open += g.openBalance;
@@ -463,7 +463,7 @@ export default function Customers() {
       if (aging) {
         s.agingCurrent += aging.current ?? 0;
         s.agingCurrentCount += aging.currentCount ?? 0;
-        for (const b of ["0-30", "31-60", "61-90", "91-120", "120+"] as const) {
+        for (const b of ["0-30", "31-60", "61-90", "91-119", "120+"] as const) {
           s.buckets[b].amount += aging.buckets?.[b]?.amount ?? 0;
           s.buckets[b].count += aging.buckets?.[b]?.count ?? 0;
         }
@@ -692,7 +692,7 @@ export default function Customers() {
                   <div className="text-lg font-bold font-mono">{fmtEur(summary.agingCurrent)}</div>
                   <div className="text-xs text-muted-foreground">{summary.agingCurrentCount} invoice(s)</div>
                 </div>
-                {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
+                {(["0-30", "31-60", "61-90", "91-119", "120+"] as const).map(b => (
                   <div key={b} className="rounded-lg border bg-card p-3">
                     <div className="text-xs text-muted-foreground">{b} days overdue</div>
                     <div className="text-lg font-bold font-mono">{fmtEur(summary.buckets[b].amount)}</div>

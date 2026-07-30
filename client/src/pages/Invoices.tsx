@@ -18,7 +18,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 const STATUSES = ["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const;
-const BUCKETS = ["all", "0-30", "31-60", "61-90", "91-120", "120+"] as const;
+const BUCKETS = ["all", "0-30", "31-60", "61-90", "91-119", "120+"] as const;
 const METHODS = ["Cash", "Bank Transfer", "Cheque", "Card"] as const;
 
 export default function Invoices() {
@@ -118,7 +118,7 @@ export default function Invoices() {
       if (bucketFilter !== "all") {
         if (i.daysOverdue <= 0) return false;
         const b =
-          i.daysOverdue <= 30 ? "0-30" : i.daysOverdue <= 60 ? "31-60" : i.daysOverdue <= 90 ? "61-90" : i.daysOverdue <= 120 ? "91-120" : "120+";
+          i.daysOverdue <= 30 ? "0-30" : i.daysOverdue <= 60 ? "31-60" : i.daysOverdue <= 90 ? "61-90" : i.daysOverdue < 120 ? "91-119" : "120+";
         if (b !== bucketFilter) return false;
       }
       if (search) {
@@ -305,7 +305,7 @@ export default function Invoices() {
       {/* Aging summary strip */}
       {aging && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
+          {(["0-30", "31-60", "61-90", "91-119", "120+"] as const).map(b => (
             <button
               key={b}
               onClick={() => setBucketFilter(bucketFilter === b ? "all" : b)}

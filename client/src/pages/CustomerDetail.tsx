@@ -295,7 +295,7 @@ export default function CustomerDetail() {
               <div className="text-[11px] text-muted-foreground">Current (not due)</div>
               <div className="text-sm font-bold font-mono">{fmtEur(aging.current)}</div>
             </div>
-            {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
+            {(["0-30", "31-60", "61-90", "91-119", "120+"] as const).map(b => (
               <div key={b} className="rounded-md border bg-muted/40 px-3 py-2">
                 <div className="text-[11px] text-muted-foreground">{b} days overdue</div>
                 <div className="text-sm font-bold font-mono">{fmtEur(aging.buckets[b].amount)}</div>

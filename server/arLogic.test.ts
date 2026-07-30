@@ -14,15 +14,16 @@ import {
 const NOW = Date.UTC(2026, 6, 23); // 2026-07-23
 
 describe("aging buckets", () => {
-  it("classifies 0-30, 31-60, 61-90, 91-120, 120+ exactly", () => {
+  it("classifies 0-30, 31-60, 61-90, 91-119, 120+ exactly", () => {
     expect(agingBucket(NOW - 10 * DAY_MS, NOW)).toBe("0-30");
     expect(agingBucket(NOW - 30 * DAY_MS, NOW)).toBe("0-30");
     expect(agingBucket(NOW - 31 * DAY_MS, NOW)).toBe("31-60");
     expect(agingBucket(NOW - 60 * DAY_MS, NOW)).toBe("31-60");
     expect(agingBucket(NOW - 61 * DAY_MS, NOW)).toBe("61-90");
     expect(agingBucket(NOW - 90 * DAY_MS, NOW)).toBe("61-90");
-    expect(agingBucket(NOW - 91 * DAY_MS, NOW)).toBe("91-120");
-    expect(agingBucket(NOW - 120 * DAY_MS, NOW)).toBe("91-120");
+    expect(agingBucket(NOW - 91 * DAY_MS, NOW)).toBe("91-119");
+    expect(agingBucket(NOW - 119 * DAY_MS, NOW)).toBe("91-119");
+    expect(agingBucket(NOW - 120 * DAY_MS, NOW)).toBe("120+");
     expect(agingBucket(NOW - 121 * DAY_MS, NOW)).toBe("120+");
     expect(agingBucket(NOW - 400 * DAY_MS, NOW)).toBe("120+");
   });
@@ -37,7 +38,7 @@ describe("aging buckets", () => {
     const r = computeAging(invoices, NOW);
     expect(r.buckets["0-30"].amount).toBe(1000);
     expect(r.buckets["31-60"].amount).toBe(300);
-    expect(r.buckets["91-120"].amount).toBe(0);
+    expect(r.buckets["91-119"].amount).toBe(0);
     expect(r.buckets["120+"].amount).toBe(0);
     expect(r.current).toBe(700);
     expect(r.totalOverdue).toBe(1300);

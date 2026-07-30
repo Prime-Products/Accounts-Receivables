@@ -16,7 +16,7 @@ export const SOP_OFFSETS = [
 /** Contract expiry notification lead time: 2 months before end date. */
 export const CONTRACT_EXPIRY_LEAD_MS = 60 * DAY_MS;
 
-export type AgingBucket = "0-30" | "31-60" | "61-90" | "91-120" | "120+";
+export type AgingBucket = "0-30" | "31-60" | "61-90" | "91-119" | "120+";
 
 /** Days overdue (0 if not yet due). */
 export function daysOverdue(dueDate: number, now: number): number {
@@ -30,7 +30,7 @@ export function agingBucket(dueDate: number, now: number): AgingBucket {
   if (d <= 30) return "0-30";
   if (d <= 60) return "31-60";
   if (d <= 90) return "61-90";
-  if (d <= 120) return "91-120";
+  if (d < 120) return "91-119";
   return "120+";
 }
 
@@ -111,7 +111,7 @@ export function computeAging(invoices: InvoiceLike[], now: number) {
     "0-30": { amount: 0, count: 0 },
     "31-60": { amount: 0, count: 0 },
     "61-90": { amount: 0, count: 0 },
-    "91-120": { amount: 0, count: 0 },
+    "91-119": { amount: 0, count: 0 },
     "120+": { amount: 0, count: 0 },
   };
   const emptyByCur = (): Record<string, number> => ({});
@@ -119,7 +119,7 @@ export function computeAging(invoices: InvoiceLike[], now: number) {
     "0-30": emptyByCur(),
     "31-60": emptyByCur(),
     "61-90": emptyByCur(),
-    "91-120": emptyByCur(),
+    "91-119": emptyByCur(),
     "120+": emptyByCur(),
   };
   const totalByCurrency: Record<string, number> = {};
