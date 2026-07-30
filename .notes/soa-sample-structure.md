@@ -72,3 +72,62 @@ BUGS FOUND:
 - Zebra rows, red overdue, TOTAL rows, bank details all good
 - Layout matches sample. Remaining: vitest coverage + checkpoint.
 - Fonts bundled at server/assets/NotoSans-{Regular,Bold}.ttf (~500KB each, inside project — OK since not client-side media; server assets deploy with build)
+
+## Bug report 31/7: blank pages in SOA-MINERVA_MARTINOS (14 pages)
+Observed: pages 1-7 contain the actual statements (2 companies), pages 8-14 are BLANK except the footer
+"MINERVA GAS INC — Page 1 of 1", "MINERVA MARINE INC — Page 1..6 of 6" top-right.
+Diagnosis: the footer pass writes per-company page numbers. The page-range bookkeeping
+(company -> page indices) is wrong: after rendering all companies we switch pages via
+doc.switchToPage in the footer loop, but ranges recorded include pages that were never
+created for content OR the footer loop calls doc.addPage/creates new pages when writing
+text near the top-right (text() with an explicit y beyond content can trigger new page?).
+Actually: pages 8-14 contain ONLY footers => the footer pass added NEW pages. Most likely
+cause: in footer pass we call doc.text(...) WITHOUT lineBreak:false, and text at y=20 with
+default flow can advance doc.y; OR page ranges wrong because doc.addPage() inside content
+render increments count but footer loop uses switchToPage(i) with buffered range offset
+mismatch (bufferedPageRange().start not 0-based accounted).
+FIX plan: record start/end page indices per company during render via doc.bufferedPageRange();
+in footer pass use switchToPage over the ACTUAL buffered range, and write footer with
+{ lineBreak: false } to avoid page creation. Also flushPages at end.
+
+## Round 2 diagnosis (fix 1 insufficient)
+Regenerated after lineBreak:false + flushPages — STILL 14 pages, 7 content + 7 footer-only.
+So the footer pass didn't create the extra pages; they exist BEFORE the footer pass.
+=> renderCompany created 7 extra blank pages during content render.
+Companies: MINERVA GAS INC (1 content page) + MINERVA MARINE INC (6 content pages) = 7 content pages.
+Extra pages = exactly 7 = same count → looks like EVERY content page gets a shadow blank page.
+Hypothesis: doc.text() calls with explicit x,y near/below the bottom auto-page-break because
+pdfkit's internal flow: when text with explicit y > page height - bottom margin, it adds a page.
+Our row loop breaks at ay>780, but hline at ay after last row (row bottoms near 780+rowH?) …
+Actually more likely: doc.text(...) without lineBreak:false at fixed y where the TEXT WRAPS
+(e.g. comments col) and continues past maxY → pdfkit adds page automatically mid-render, which
+our pageIndex counter DOESN'T see (doc.addPage internal), so pageRanges end indexes point
+beyond/shifted and switchToPage hits auto-added pages... but those auto pages would contain
+overflow text, not be blank.
+Better: count doc.bufferedPageRange().count vs our pageIndex to find where extras appear.
+
+## ROOT CAUSE FOUND (debug-pages.mjs)
+14 addPage calls: 7 legit content pages (newPage/ensureSpace), then 7 from pdfkit
+line_wrapper.wrap → continueOnNewPage — i.e. the FOOTER doc.text() at y=812 triggers
+auto page-break because 812 + lineHeight > page height - bottom margin (842-40=802).
+lineBreak:false doesn't help: pdfkit still checks the START y against maxY and 812>802,
+so it wraps to a new page BEFORE writing. Fix: write footer at y=808 within the
+printable area AND set doc.page.margins.bottom=0 during footer pass (standard pdfkit
+footer recipe), or just use y <= 802 - lineHeight ≈ 790. Choose: temporarily zero
+bottom margin + restore, keep y=812 to match sample position.
+
+## Round 3 verification (after margin fix)
+- 7 pages total, footers now ON content pages bottom-right. Blank pages GONE. ✔
+- ANALYSIS header height 26 fixed: two-line col headers no longer touch rule. ✔
+- Branch displayName no longer collides with table top line (dnH clearance). ✔
+Remaining minor overlaps seen:
+1. Header row: "30 days Credit / Πίστωση 30 ημερών" wraps to 2nd line and touches the
+   bottom rule (hline at y0+36) — need dynamic header height or narrower text/1 line.
+2. TOTAL AMOUNTS: "PRIME PRODUCTS DISTRIBUTION(S) PTE LTD" wraps to 2 lines and 2nd line
+   overlaps the following row's rule/text (rowH fixed 18) — need dynamic row height.
+
+## Round 4 FINAL verification — ALL PASS
+- 7 pages, no blank pages, footer bottom-right on every content page.
+- Header: "30 days Credit / Πίστωση 30 ημερών" wraps but rule line moves below it — no overlap.
+- TOTAL AMOUNTS: "PRIME PRODUCTS DISTRIBUTION(S) PTE LTD" 2-line row gets taller row height — no overlap.
+- ANALYSIS headers (Doc. Amount / Open Doc. Amount 2-line) have clearance; branch name wraps cleanly above table.

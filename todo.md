@@ -1203,3 +1203,6 @@
 - [x] Vitest coverage for statement builder
 - [x] TOTAL AMOUNTS: hide branch rows with all-zero balances
 - [x] ANALYSIS totals row, zebra striping, red overdue, per-company page numbers
+## Bug: SOA PDF blank pages (user report 31/7)
+- [x] Fix pagination in statement PDF — remove blank pages and bad table breaks
+- [x] Fix text overlapping table lines: branch display name wrapping onto header line, two-line column headers touching rule line

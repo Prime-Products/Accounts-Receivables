@@ -72,10 +72,20 @@ export function buildStatementPdf(stmt: GroupStatement): Promise<Buffer> {
       const count = range.end - range.start + 1;
       for (let p = range.start; p <= range.end; p++) {
         doc.switchToPage(p);
+        // pdfkit auto-adds a page when text starts below (pageHeight - bottom margin);
+        // zero the bottom margin while writing the footer to prevent phantom blank pages.
+        const prevBottom = doc.page.margins.bottom;
+        doc.page.margins.bottom = 0;
         doc.font(FONT).fontSize(8).fillColor(GRAY);
-        doc.text(`${range.name} — Page ${p - range.start + 1} of ${count}`, M, 812, { width: CW, align: "right" });
+        doc.text(`${range.name} — Page ${p - range.start + 1} of ${count}`, M, 812, {
+          width: CW,
+          align: "right",
+          lineBreak: false,
+        });
+        doc.page.margins.bottom = prevBottom;
       }
     }
+    doc.flushPages();
     doc.end();
   });
 }
@@ -93,7 +103,8 @@ function renderCompany(doc: PDFKit.PDFDocument, company: CompanyStatement, date:
   y = drawTableHeader(doc, y, cols, headers);
   for (const t of company.totals) {
     doc.font(FONT_BOLD).fontSize(7.5).fillColor(BLACK);
-    const rowH = 18;
+    const nameH = doc.heightOfString(t.branch.key.toUpperCase(), { width: cols[0] - 4 });
+    const rowH = Math.max(18, nameH + 10);
     let x = M;
     doc.text(t.branch.key.toUpperCase(), x, y + 5, { width: cols[0] - 4 });
     x += cols[0];
@@ -115,9 +126,11 @@ function renderCompany(doc: PDFKit.PDFDocument, company: CompanyStatement, date:
     // branch heading
     const hy = doc.y + 6;
     doc.font(FONT_BOLD).fontSize(11).fillColor(BLACK).text(a.branch.city, M, hy);
-    doc.font(FONT_BOLD).fontSize(7.5).text(a.branch.displayName, M + 95, hy + 3, { width: 330 });
+    doc.font(FONT_BOLD).fontSize(7.5);
+    const dnH = doc.heightOfString(a.branch.displayName, { width: 320 });
+    doc.text(a.branch.displayName, M + 95, hy + 3, { width: 320 });
     doc.font(FONT).fontSize(8).fillColor(BLACK).text(`currency: ${a.branch.currencySymbol}`, M, hy + 3, { width: CW, align: "right" });
-    doc.y = hy + 18;
+    doc.y = hy + Math.max(18, dnH + 8);
 
     const acols = [60, 90, 60, 65, 50, 90, 100];
     const aheaders = ["Doc. Date", "Documents", "Doc.\nAmount", "Open Doc.\nAmount", "Overdue", "Vessel", "Comments"];
@@ -192,11 +205,15 @@ function renderHeader(doc: PDFKit.PDFDocument, company: CompanyStatement, date: 
   doc.text("PAYMENT TERMS", M + 380, y0 + 4);
   hline(doc, y0 + 16, LINE, 0.5);
   doc.font(FONT_BOLD).fontSize(8.5);
+  const nameH2 = doc.heightOfString(company.companyName.toUpperCase(), { width: 270 });
   doc.text(company.companyName.toUpperCase(), M, y0 + 20, { width: 270 });
   doc.font(FONT).text(fmtDate(date), M + 280, y0 + 20);
-  doc.text(`${company.paymentTermsDays} days Credit / Πίστωση ${company.paymentTermsDays} ημερών`, M + 380, y0 + 20, { width: 140 });
-  hline(doc, y0 + 36, LINE, 1);
-  doc.y = y0 + 40;
+  const terms = `${company.paymentTermsDays} days Credit / Πίστωση ${company.paymentTermsDays} ημερών`;
+  const termsH = doc.heightOfString(terms, { width: 140 });
+  doc.text(terms, M + 380, y0 + 20, { width: 140 });
+  const rowBottom = y0 + 20 + Math.max(16, nameH2 + 4, termsH + 4);
+  hline(doc, rowBottom, LINE, 1);
+  doc.y = rowBottom + 4;
 }
 
 function sectionTitle(doc: PDFKit.PDFDocument, title: string) {
@@ -207,7 +224,7 @@ function sectionTitle(doc: PDFKit.PDFDocument, title: string) {
 function drawTableHeader(doc: PDFKit.PDFDocument, y: number, cols: number[], headers: string[]): number {
   doc.font(FONT_BOLD).fontSize(7.5).fillColor(BLACK);
   let x = M;
-  const h = 22;
+  const h = 26;
   headers.forEach((hd, i) => {
     doc.text(hd, x + 2, y + 3, { width: cols[i] - 4, align: i === 0 ? "left" : "center" });
     x += cols[i];
