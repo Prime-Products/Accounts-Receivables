@@ -5,6 +5,9 @@ import { excludeInternalCustomerGroup } from "./softoneExclusions";
 
 const MAX_CUSTOMERS = 50_000;
 const SOFTONE_NAME_BATCH_SIZE = 250;
+// CustomerGroupFinData returns many numeric columns and intermittently triggers
+// HY010/Function sequence errors through unixODBC with the larger name batch.
+const SOFTONE_FINANCIAL_BATCH_SIZE = 50;
 const SOFTONE_CUSTOMER_PAGE_SIZE = 500;
 const MAX_SOFTONE_CUSTOMER_PAGES = 200;
 
@@ -124,18 +127,13 @@ async function queryNamesInBatches(
   pool: ConnectionPool,
   identifiers: string[],
   buildQuery: (batch: string[]) => string,
+  batchSize = SOFTONE_NAME_BATCH_SIZE,
 ) {
   const rows: SourceRow[] = [];
-  for (
-    let index = 0;
-    index < identifiers.length;
-    index += SOFTONE_NAME_BATCH_SIZE
-  ) {
+  for (let index = 0; index < identifiers.length; index += batchSize) {
     const result = await pool
       .request()
-      .query<SourceRow>(
-        buildQuery(identifiers.slice(index, index + SOFTONE_NAME_BATCH_SIZE)),
-      );
+      .query<SourceRow>(buildQuery(identifiers.slice(index, index + batchSize)));
     rows.push(...result.recordset);
   }
   return rows;
@@ -337,6 +335,7 @@ export async function syncSoftOneCustomers() {
       pool,
       membershipIds,
       buildSoftOneCustomerFinancialsQuery,
+      SOFTONE_FINANCIAL_BATCH_SIZE,
     );
     const financialsByCustomer = new Map(
       financialRows.map(row => [readIdentity(row, "TRDR"), row]),
