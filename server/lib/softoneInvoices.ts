@@ -71,7 +71,7 @@ WHERE FP.[ISCLOSE] = 0
       AND INTERNAL_CUSTOMER.[SODTYPE] = 13
       AND INTERNAL_CUSTOMER.[TRDGROUP] = 473
   )
-ORDER BY FP.[FINDOC]`;
+ORDER BY FP.[FINDOC], FP.[TRDR]`;
 }
 
 export const softOneOpenInvoiceFinancialsQuery =
@@ -225,12 +225,14 @@ export function aggregateSoftOneOpenInvoiceParts(rows: SourceRow[]) {
   const grouped = new Map<string, SourceRow>();
   for (const row of rows) {
     const findoc = identity(row, "FINDOC");
-    const existing = grouped.get(findoc);
+    const trdr = identity(row, "TRDR");
+    const sourceKey = `${findoc}:${trdr}`;
+    const existing = grouped.get(sourceKey);
     const originalPart = numberValue(row, "ORIGINAL_AMOUNT_PART");
     const openPart = numberValue(row, "OPEN_AMOUNT_PART");
     const dueDate = numberValue(row, "DUE_DATE");
     if (!existing) {
-      grouped.set(findoc, {
+      grouped.set(sourceKey, {
         FINDOC: row.FINDOC,
         TRDR: row.TRDR,
         COMPANY: row.COMPANY,
@@ -242,7 +244,7 @@ export function aggregateSoftOneOpenInvoiceParts(rows: SourceRow[]) {
       });
       continue;
     }
-    for (const field of ["TRDR", "COMPANY", "SOCURRENCY", "ISSUE_DATE"]) {
+    for (const field of ["COMPANY", "SOCURRENCY", "ISSUE_DATE"]) {
       if (identity(existing, field) !== identity(row, field)) {
         throw new Error(`SoftOne FINDOC ${findoc} has inconsistent ${field}.`);
       }
@@ -252,9 +254,26 @@ export function aggregateSoftOneOpenInvoiceParts(rows: SourceRow[]) {
       numberValue(existing, "ORIGINAL_AMOUNT") + originalPart;
     existing.OPEN_AMOUNT = numberValue(existing, "OPEN_AMOUNT") + openPart;
   }
-  return Array.from(grouped.values()).filter(
+  const positiveRows = Array.from(grouped.values()).filter(
     row => numberValue(row, "OPEN_AMOUNT") > 0.005,
   );
+  const rowsPerDocument = new Map<string, number>();
+  for (const row of positiveRows) {
+    const findoc = identity(row, "FINDOC");
+    rowsPerDocument.set(findoc, (rowsPerDocument.get(findoc) ?? 0) + 1);
+  }
+  const firstCustomerPerDocument = new Set<string>();
+  return positiveRows.map(row => {
+    const findoc = identity(row, "FINDOC");
+    const trdr = identity(row, "TRDR");
+    const hasMultipleCustomers = (rowsPerDocument.get(findoc) ?? 0) > 1;
+    const retainLegacyId = !hasMultipleCustomers || !firstCustomerPerDocument.has(findoc);
+    firstCustomerPerDocument.add(findoc);
+    return {
+      ...row,
+      SOFTONE_ID: retainLegacyId ? findoc : `${findoc}:${trdr}`,
+    };
+  });
 }
 
 function dateKeyToUtc(value: unknown, field: string) {
@@ -303,25 +322,26 @@ export function normalizeSoftOneOpenInvoiceRows(
   }
   const identifiers = new Set<string>();
   return rows.map(row => {
-    const softoneId = identity(row, "FINDOC");
+    const findoc = identity(row, "FINDOC");
+    const softoneId = identity(row, "SOFTONE_ID");
     if (identifiers.has(softoneId)) {
       throw new Error("SoftOne returned duplicate FINDOC.");
     }
     identifiers.add(softoneId);
     const customerSoftoneId = identity(row, "TRDR");
-    const invoiceNumber = documents.get(softoneId);
+    const invoiceNumber = documents.get(findoc);
     const company = companies.get(identity(row, "COMPANY"));
     const currencyName = currencies.get(identity(row, "SOCURRENCY"));
-    if (!invoiceNumber) throw new Error(`SoftOne FINDOC ${softoneId} has no document number.`);
-    if (!company) throw new Error(`SoftOne FINDOC ${softoneId} has no company mapping.`);
-    if (!currencyName) throw new Error(`SoftOne FINDOC ${softoneId} has no currency mapping.`);
+    if (!invoiceNumber) throw new Error(`SoftOne FINDOC ${findoc} has no document number.`);
+    if (!company) throw new Error(`SoftOne FINDOC ${findoc} has no company mapping.`);
+    if (!currencyName) throw new Error(`SoftOne FINDOC ${findoc} has no currency mapping.`);
 
     const issueDate = dateKeyToUtc(row.ISSUE_DATE, "ISSUE_DATE");
     const dueDate = dateKeyToUtc(row.DUE_DATE, "DUE_DATE");
     const originalAmount = Math.round(numberValue(row, "ORIGINAL_AMOUNT") * 100) / 100;
     const openAmount = Math.round(numberValue(row, "OPEN_AMOUNT") * 100) / 100;
     if (openAmount <= 0) {
-      throw new Error(`SoftOne FINDOC ${softoneId} has invalid open amount.`);
+      throw new Error(`SoftOne FINDOC ${findoc} has invalid open amount.`);
     }
     // FINPAYTERMS can expose an open balance greater than its aggregated TAMNT
     // after adjustments or currency/accounting movements. The open balance is
