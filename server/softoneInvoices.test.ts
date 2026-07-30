@@ -137,15 +137,18 @@ describe("SoftOne open invoice sync", () => {
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
       "FP_PAGE.[FINDOC] > 0",
     );
-    expect(softOneOpenInvoiceFinancialsQuery).toContain(
+    expect(softOneOpenInvoiceFinancialsQuery).not.toContain(
       "FIN.[SOSOURCE] = 1351",
     );
-    expect(softOneOpenInvoiceFinancialsQuery).toContain("FIN.[SOREDIR] = 0");
+    expect(softOneOpenInvoiceFinancialsQuery).not.toContain("FIN.[SOREDIR] = 0");
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
       "INTERNAL_CUSTOMER.[TRDGROUP] = 473",
     );
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
-      "CAST(FP.[OPNTAMNT] AS float) * CAST(FP.[PAYDEMANDMD] AS float)",
+      "CAST(FP.[TAMNT] - FP.[OPNTAMNT] AS float)",
+    );
+    expect(softOneOpenInvoiceFinancialsQuery).toContain(
+      "* CAST(FP.[PAYDEMANDMD] AS float) AS [OPEN_AMOUNT_PART]",
     );
     expect(softOneOpenInvoiceAmountSummaryQuery).toContain(
       "CAST(COUNT(*) AS bigint)",
