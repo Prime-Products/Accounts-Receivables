@@ -88,6 +88,7 @@ describe("SoftOne read-only SQL sync", () => {
     expect(softOneCustomersQuery).toContain(
       "customer.[TRDGROUP] IS NOT NULL",
     );
+    expect(softOneCustomersQuery).toContain("customer.[TRDGROUP] <> 473");
     expect(softOneGroupNamesQuery).toContain(
       "CAST(master.[NAME] AS nchar(128))",
     );

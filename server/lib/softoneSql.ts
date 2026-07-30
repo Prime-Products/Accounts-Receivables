@@ -1,6 +1,7 @@
 import type { config as SqlConfig, ConnectionPool } from "mssql";
 import type { InsertCustomer } from "../../drizzle/schema";
 import * as db from "../db";
+import { excludeInternalCustomerGroup } from "./softoneExclusions";
 
 const MAX_CUSTOMERS = 50_000;
 const SOFTONE_NAME_BATCH_SIZE = 250;
@@ -22,6 +23,7 @@ export function buildSoftOneCustomersQuery(afterTrdr: number) {
     AND customer.[SODTYPE] = 13
     AND customer.[ISACTIVE] = 1
     AND customer.[TRDGROUP] IS NOT NULL
+    AND ${excludeInternalCustomerGroup("customer")}
     AND customer.[TRDR] > ${afterTrdr}
   ORDER BY customer.[TRDR]
 )
@@ -35,6 +37,7 @@ WHERE customer.[COMPANY] = 1
   AND customer.[SODTYPE] = 13
   AND customer.[ISACTIVE] = 1
   AND customer.[TRDGROUP] IS NOT NULL
+  AND ${excludeInternalCustomerGroup("customer")}
 ORDER BY customer.[TRDR]`;
 }
 
@@ -64,6 +67,7 @@ INNER JOIN (
     AND customer.[SODTYPE] = 13
     AND customer.[ISACTIVE] = 1
     AND customer.[TRDGROUP] IS NOT NULL
+    AND ${excludeInternalCustomerGroup("customer")}
 ) AS active_groups
   ON active_groups.[TRDGROUP] = customer_group.[TRDGROUP]`;
 

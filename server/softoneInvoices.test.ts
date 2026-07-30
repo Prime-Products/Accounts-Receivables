@@ -142,6 +142,9 @@ describe("SoftOne open invoice sync", () => {
     );
     expect(softOneOpenInvoiceFinancialsQuery).toContain("FIN.[SOREDIR] = 0");
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
+      "INTERNAL_CUSTOMER.[TRDGROUP] = 473",
+    );
+    expect(softOneOpenInvoiceFinancialsQuery).toContain(
       "CAST(FP.[OPNTAMNT] AS float) * CAST(FP.[PAYDEMANDMD] AS float)",
     );
     expect(softOneOpenInvoiceAmountSummaryQuery).toContain(
