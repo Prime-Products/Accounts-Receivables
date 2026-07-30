@@ -145,7 +145,7 @@ describe("SoftOne open invoice sync", () => {
       "INTERNAL_CUSTOMER.[TRDGROUP] = 473",
     );
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
-      "CAST(FP.[TAMNT] - FP.[OPNTAMNT] AS float)",
+      "CAST(FP.[OPNTAMNT] AS float)",
     );
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
       "* CAST(FP.[PAYDEMANDMD] AS float) AS [OPEN_AMOUNT_PART]",
