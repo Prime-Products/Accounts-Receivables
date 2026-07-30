@@ -3011,8 +3011,8 @@ export const tasksRouter = router({
       return { success: true };
     }),
   /**
-   * Escalate a follow-up task: reassign it to the group's Account Manager
-   * (or a chosen team member) and log the escalation.
+   * Escalate a task: close the original task as Completed and create a new task for the assignee.
+   * The new task has a title prefixed with "Escalated: " and includes the original task details.
    */
   escalate: protectedProcedure
     .input(
@@ -3049,9 +3049,24 @@ export const tasksRouter = router({
       if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
 
       const escalationNote = `⬆ Escalated to ${member.name} by ${ctx.user.name ?? "user"} on ${new Date().toLocaleDateString("en-GB")}${input.note ? ` — ${input.note}` : ""}`;
+      
+      // Close the original task as Completed
       await db.updateTask(input.taskId, {
-        assigneeId: targetId,
+        status: "Completed",
         description: `${task.description ?? ""}\n${escalationNote}`.trim(),
+      } as any);
+
+      // Create a new task for the assignee
+      const newTaskTitle = `Escalated: ${task.title}`;
+      const newTaskDescription = `Original task: ${task.title}\n\n${task.description ?? ""}\n\n${escalationNote}`;
+      const newTaskId = await db.createTask({
+        customerId: task.customerId,
+        title: newTaskTitle,
+        description: newTaskDescription,
+        dueDate: task.dueDate,
+        status: "Pending",
+        type: task.type,
+        assigneeId: targetId,
       } as any);
 
       if (group) {
@@ -3065,8 +3080,8 @@ export const tasksRouter = router({
           createdAt: new Date(),
         }).catch(() => {});
       }
-      await audit(ctx, "Escalate Task", "task", input.taskId, `Escalated to ${member.name}`);
-      return { success: true, assigneeName: member.name };
+      await audit(ctx, "Escalate Task", "task", input.taskId, `Escalated to ${member.name} (new task: ${newTaskId})`);
+      return { success: true, assigneeName: member.name, newTaskId };
     }),
 });
 

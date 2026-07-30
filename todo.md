@@ -1095,3 +1095,11 @@
 - [x] Customer card: Open Balance KPI shows net balance with the same breakdown
 - [x] Vitest coverage for the net balance computation (isolated fixtures) — 235 tests green
 - [x] Cleanup: removed 41 orphaned test wire transfers; testFixtures cleanup now also deletes fixture transfers/allocations/invoices
+
+## Escalate task creates new task for assignee (user request 30/7)
+- [ ] Fix escalate procedure: create new task for assignee instead of reassigning original
+- [ ] Original task marked Completed with escalation note in description
+- [ ] New task has title "Escalated: {original title}", description includes original task + escalation note
+- [ ] Vitest coverage for escalate flow (creates new task, closes original)
+
+- [x] Fix escalate task: creates new task for assignee, closes original (238 tests pass)

@@ -158,11 +158,16 @@ describe("follow-up task actions", () => {
       note: "test escalation",
     });
     expect(res.success).toBe(true);
-    expect(res.assigneeName).toBe(target.name);
+    expect(res.newTaskId).toBeDefined();
 
-    const after = await db.getTask(fuTask!.id);
-    expect(after?.assigneeId).toBe(target.id);
-    expect(after?.description).toContain("Escalated to");
+    // Original task should be Completed
+    const originalAfter = await db.getTask(fuTask!.id);
+    expect(originalAfter?.status).toBe("Completed");
+
+    // New task should be created with the target assignee
+    const newTask = await db.getTask(res.newTaskId);
+    expect(newTask?.assigneeId).toBe(target.id);
+    expect(newTask?.description).toContain("Escalated");
   });
 
   it("reschedules an open promise from its check task (new date/amount, badge in sync)", async () => {
