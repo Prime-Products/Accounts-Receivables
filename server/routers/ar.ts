@@ -34,6 +34,8 @@ import { buildExcel, buildPdf, TableSpec } from "../lib/exports";
 import { generateMonthlyForecast } from "../lib/smartForecast";
 import { runTaskEngine } from "../lib/taskEngine";
 import * as softoneSql from "../lib/softoneSql";
+import * as softoneInvoices from "../lib/softoneInvoices";
+import { isSoftOneSyncRunning, withSoftOneSyncLock } from "../lib/softoneSyncLock";
 import { hasReceivableActivity } from "../lib/receivableGroup";
 import { invokeLLM } from "../_core/llm";
 import { suggestNextAction, type NextActionInput } from "../lib/nextAction";
@@ -3571,9 +3573,19 @@ export const adminRouter = router({
   }),
   syncStatus: protectedProcedure.query(async () => {
     const configured = softoneSql.isSoftOneSqlConfigured();
-    const enabled = process.env.SOFTONE_SQL_SYNC_ENABLED === "true";
+    const customersEnabled = process.env.SOFTONE_SQL_SYNC_ENABLED === "true";
+    const invoicesEnabled = process.env.SOFTONE_SQL_INVOICE_SYNC_ENABLED === "true";
     const logs = await db.listSyncLogs(30);
-    return { configured, enabled, mode: "read-only-sql" as const, logs };
+    const running = await isSoftOneSyncRunning().catch(() => false);
+    return {
+      configured,
+      enabled: customersEnabled && invoicesEnabled,
+      customersEnabled,
+      invoicesEnabled,
+      running,
+      mode: "read-only-sql" as const,
+      logs,
+    };
   }),
   /** Active FX rates to EUR (defaults + persisted overrides). */
   fxRates: protectedProcedure.query(async () => {
@@ -3606,21 +3618,87 @@ export const adminRouter = router({
     const role = await getAppRole(ctx.user.id);
     requireRole(role, ["Administrator", "Accounting"]);
     try {
-      const res = await softoneSql.syncSoftOneCustomers();
+      const execution = await withSoftOneSyncLock(() => softoneSql.syncSoftOneCustomers());
+      if (!execution.acquired) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "A SoftOne synchronization is already running. Please wait for it to finish.",
+        });
+      }
+      const res = execution.result;
       await audit(ctx, "SoftOne SQL Pull Customers", "sync", undefined, `${res.synced} records`);
       return res;
     } catch (e: any) {
+      if (e instanceof TRPCError) throw e;
       await db.addSyncLog({ direction: "Pull", entityType: "customers", recordCount: 0, status: "Failed", message: e.message });
       throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+    }
+  }),
+  syncPullAll: protectedProcedure.mutation(async ({ ctx }) => {
+    const role = await getAppRole(ctx.user.id);
+    requireRole(role, ["Administrator", "Accounting"]);
+
+    try {
+      const execution = await withSoftOneSyncLock(async () => {
+        const customers = await softoneSql.syncSoftOneCustomers();
+        const invoices = await softoneInvoices.syncSoftOneOpenInvoices();
+        return { customers: customers.synced, invoices: invoices.synced };
+      });
+
+      if (!execution.acquired) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "A SoftOne synchronization is already running. Please wait for it to finish.",
+        });
+      }
+
+      await audit(
+        ctx,
+        "SoftOne SQL Manual Sync",
+        "sync",
+        undefined,
+        `${execution.result.customers} customers, ${execution.result.invoices} invoices`,
+      );
+      return execution.result;
+    } catch (error) {
+      if (error instanceof TRPCError) throw error;
+      const message = error instanceof Error ? error.message : "SoftOne synchronization failed.";
+      await db.addSyncLog({
+        direction: "Pull",
+        entityType: "customers+invoices",
+        recordCount: 0,
+        status: "Failed",
+        message,
+      });
+      throw new TRPCError({ code: "BAD_REQUEST", message });
     }
   }),
   syncPullInvoices: protectedProcedure.mutation(async ({ ctx }) => {
     const role = await getAppRole(ctx.user.id);
     requireRole(role, ["Administrator", "Accounting"]);
-    throw new TRPCError({
-      code: "PRECONDITION_FAILED",
-      message: "A read-only approved invoice source has not been configured.",
-    });
+    try {
+      const execution = await withSoftOneSyncLock(() => softoneInvoices.syncSoftOneOpenInvoices());
+      if (!execution.acquired) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "A SoftOne synchronization is already running. Please wait for it to finish.",
+        });
+      }
+      const result = execution.result;
+      await audit(ctx, "SoftOne SQL Pull Invoices", "sync", undefined, `${result.synced} records`);
+      return result;
+    } catch (error) {
+      if (error instanceof TRPCError) throw error;
+      const message = error instanceof Error ? error.message : "SoftOne invoice synchronization failed.";
+      await db.addSyncLog({
+        direction: "Pull",
+        entityType: "invoices",
+        recordCount: 0,
+        status: "Failed",
+        message,
+      });
+      throw new TRPCError({ code: "BAD_REQUEST", message });
+    }
   }),
 });
 
