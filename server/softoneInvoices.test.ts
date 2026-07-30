@@ -13,6 +13,7 @@ import {
 
 const row = {
   FINDOC: 1403582,
+  SOFTONE_ID: "1403582",
   TRDR: 10036,
   COMPANY: 1,
   SOCURRENCY: 999,
@@ -118,6 +119,17 @@ describe("SoftOne open invoice sync", () => {
         ORIGINAL_AMOUNT: 100,
         OPEN_AMOUNT: 85.6,
       }),
+    ]);
+  });
+
+  it("keeps separate customer balances for a shared FINDOC", () => {
+    const result = aggregateSoftOneOpenInvoiceParts([
+      { ...row, TRDR: 10036, ORIGINAL_AMOUNT_PART: 100, OPEN_AMOUNT_PART: 80 },
+      { ...row, TRDR: 10037, ORIGINAL_AMOUNT_PART: 50, OPEN_AMOUNT_PART: 40 },
+    ]);
+    expect(result).toEqual([
+      expect.objectContaining({ TRDR: 10036, SOFTONE_ID: "1403582", OPEN_AMOUNT: 80 }),
+      expect.objectContaining({ TRDR: 10037, SOFTONE_ID: "1403582:10037", OPEN_AMOUNT: 40 }),
     ]);
   });
 
