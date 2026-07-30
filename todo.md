@@ -1053,3 +1053,11 @@
 ## Log Call: optional promise amount (user request 30/7)
 - [x] Backend: logCall accepts Promise to Pay without amount (date stays mandatory)
 - [x] Frontend: LogCallDialog no longer requires amount for Promise to Pay
+
+## Collection Notes per group (user request 30/7)
+- [x] Backend: collectionNotes field per group (schema + get/set procedures)
+- [x] Group card: always-visible editable Collection Notes box (call preferences, particularities)
+- [x] Log Call dialog: show the group's collection notes as a reminder
+- [x] AI Summary: include collection notes as context
+- [x] Vitest coverage for collection profile set/get roundtrip (with cleanup)
+- [x] Fixed remaining test-data pollution: cleanup hooks added to groupAiSummary + addPromise side-effects tests; purged leftover vitest rows from activity log

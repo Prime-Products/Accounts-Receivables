@@ -97,6 +97,14 @@ describe("customers.groupActivity", () => {
 });
 
 describe("forecast.addPromise side effects", () => {
+  let __snap2: IdSnapshot;
+  beforeAll(async () => {
+    __snap2 = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap2);
+  });
+
   it("creates the promise, an activity-log entry, and a follow-up task due on the promised date", async () => {
     const caller = callerAs(1);
     const customers = await db.listCustomers();

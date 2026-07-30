@@ -1197,6 +1197,28 @@ export const customersRouter = router({
     const names = new Map(users.map(u => [u.id, u.name ?? "—"]));
     return notes.map(n => ({ ...n, authorName: names.get(n.createdBy) ?? "—" }));
   }),
+  /** Per-group collection profile: call preferences & particularities, always visible on the group card. */
+  getCollectionProfile: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
+    const row = await db.getGroupCollectionProfile(input.group);
+    if (!row) return null;
+    const users = await db.listUsersWithProfiles().catch(() => []);
+    const name = users.find(u => u.id === row.updatedBy)?.name ?? null;
+    return { notes: row.notes, updatedAt: row.updatedAt, updatedByName: name };
+  }),
+  setCollectionProfile: protectedProcedure
+    .input(z.object({ group: z.string().min(1), notes: z.string().max(2000) }))
+    .mutation(async ({ ctx, input }) => {
+      await db.upsertGroupCollectionProfile(input.group, input.notes.trim(), ctx.user.id);
+      await db.addActivityLog({
+        groupName: input.group,
+        activityType: "note",
+        title: "Collection notes updated",
+        description: input.notes.trim().slice(0, 300) || "(cleared)",
+        createdBy: ctx.user.id,
+      });
+      await audit(ctx, "Update Collection Notes", "group", input.group);
+      return { success: true };
+    }),
   /** Current-month Smart Forecast entry for a group, with live collected across member companies (EUR). */
   groupForecast: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
     const now = new Date();
@@ -1413,6 +1435,9 @@ export const customersRouter = router({
       recentNotes: notes.slice(0, 10).map(n => ({ date: new Date(n.createdAt).toISOString().slice(0, 10), content: n.content })),
       recentActivity: activity.map(a => ({ date: new Date(a.createdAt).toISOString().slice(0, 10), type: a.activityType, title: a.title, detail: (a.description ?? "").slice(0, 200) })),
     };
+    // Collector particularities (call preferences etc.) — used as context for the recommended action
+    const profile = await db.getGroupCollectionProfile(input.group).catch(() => null);
+    if (profile?.notes) (facts as any).collectionNotes = profile.notes.slice(0, 800);
     const response = await invokeLLM({
       model: "gemini-2.5-flash",
       messages: [
@@ -1427,7 +1452,7 @@ export const customersRouter = router({
 
 Τελευταία γραμμή: **Προτεινόμενη ενέργεια:** μία πρόταση με το πιο σημαντικό επόμενο βήμα (π.χ. follow-up σε αθετημένη/ανοιχτή υπόσχεση, στοχευμένη διεκδίκηση των μεγάλων τιμολογίων, ή παλιό υπόλοιπο 120+ ημερών).
 
-Κανόνες: Μην αναφέρεις ΠΟΤΕ ωμά στατιστικά (διάμεσοι, αρνητικοί αριθμοί, αναλογίες «2:6»). Παράλειψε σιωπηλά ό,τι δεν υποστηρίζεται από τα δεδομένα — μη γράφεις «δεν υπάρχουν στοιχεία». Μην περιγράφεις τη δραστηριότητα ή το μέγεθος της εταιρείας. Ποσά με διαχωριστικό χιλιάδων (€156,999). Μη γράφεις το όνομα του ομίλου μέσα στο κείμενο — φαίνεται ήδη στην καρτέλα.`,
+Κανόνες: Μην αναφέρεις ΠΟΤΕ ωμά στατιστικά (διάμεσοι, αρνητικοί αριθμοί, αναλογίες «2:6»). Παράλειψε σιωπηλά ό,τι δεν υποστηρίζεται από τα δεδομένα — μη γράφεις «δεν υπάρχουν στοιχεία». Μην περιγράφεις τη δραστηριότητα ή το μέγεθος της εταιρείας. Ποσά με διαχωριστικό χιλιάδων (€156,999). Μη γράφεις το όνομα του ομίλου μέσα στο κείμενο — φαίνεται ήδη στην καρτέλα. Αν υπάρχει πεδίο collectionNotes (ιδιαιτερότητες πελάτη, π.χ. πότε να τηλεφωνούμε), λάβε το υπόψη στην προτεινόμενη ενέργεια (π.χ. προτίμησε τη σωστή μέρα/ώρα) χωρίς να το επαναλαμβάνεις αυτούσιο.`,
         },
         { role: "user", content: JSON.stringify(facts) },
       ],

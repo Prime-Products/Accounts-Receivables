@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
+import CollectionNotesBox from "@/components/CollectionNotesBox";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
 import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
@@ -698,6 +699,9 @@ export default function GroupDetail() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Always-visible collection notes: call preferences & customer particularities */}
+          <CollectionNotesBox group={group} />
 
           {/* Aging for current scope */}
           <Card>
