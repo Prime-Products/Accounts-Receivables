@@ -216,8 +216,9 @@ function GroupConfirmationBadge({
 }) {
   const [taskOpen, setTaskOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
-  const hasLinkedTask = taskId !== null && (status === "Pending Follow-up" || status === "Confirmed");
-  const isOverdue = !!taskOverdue && (status === "Pending Follow-up" || status === "Confirmed");
+  const taskBacked = status === "Pending Follow-up" || status === "Confirmed" || status === "Escalated";
+  const hasLinkedTask = taskId !== null && taskBacked;
+  const isOverdue = !!taskOverdue && taskBacked;
   return (
     <>
       <button

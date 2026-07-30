@@ -4000,7 +4000,7 @@ export const callsRouter = router({
     .input(z.object({ group: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const conf = await db.getGroupConfirmationStatus(input.group);
-      if (!conf || (conf.status !== "Pending Follow-up" && conf.status !== "Confirmed")) {
+      if (!conf || (conf.status !== "Pending Follow-up" && conf.status !== "Confirmed" && conf.status !== "Escalated")) {
         return { reset: false };
       }
       const allTasks = await db.listTasks({});
@@ -4008,6 +4008,15 @@ export const callsRouter = router({
       let hasOpenLinked = false;
       if (conf.status === "Pending Follow-up") {
         hasOpenLinked = open.some(t => t.description?.includes(`(Follow-up: ${input.group})`));
+      } else if (conf.status === "Escalated") {
+        // Escalated → any open escalated task for one of the group's customers.
+        const customers = await db.listCustomers();
+        const memberIds = new Set(
+          customers.filter(c => (((c.customerGroup ?? "").trim() || c.name) === input.group)).map(c => c.id)
+        );
+        hasOpenLinked = open.some(
+          t => t.customerId != null && memberIds.has(t.customerId) && t.title.startsWith("Escalated:")
+        );
       } else {
         // Confirmed → any open promise-check task for one of the group's customers.
         const customers = await db.listCustomers();

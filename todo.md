@@ -1162,6 +1162,11 @@
 - [x] Vitest coverage for watchers
 - [x] Watchers carried over when escalated task rolls into a new task
 
+## Escalated badge opens task directly (user request 31/7)
+- [x] Clicking the Escalated badge in the Customers list opens the escalated task dialog directly (not the Log Call flow)
+- [x] Same fix applied to the group detail page badge
+- [x] Stale Escalated badge (no open escalated task) resets to Not Contacted on click
+
 ## Log Call fixes & multi-call flow (user request 30/7)
 - [x] Fix error when opening Log Call from the customer card (empty SelectItem value in company picker)
 - [x] Clarify/propose flow for a second Log Call when an active communication task already exists (proposal approved by user)

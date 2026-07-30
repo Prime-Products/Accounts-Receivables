@@ -112,12 +112,13 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
     () => (members.length > 0 ? [...members].sort((a, b) => b.openBalance - a.openBalance)[0].id : undefined),
     [members]
   );
-  const hasLinkedTask = taskId != null && (status === "Confirmed" || status === "Pending Follow-up");
-  const isOverdue = !!taskOverdue && (status === "Confirmed" || status === "Pending Follow-up");
+  const taskBackedStatuses = ["Confirmed", "Pending Follow-up", "Escalated"];
+  const hasLinkedTask = taskId != null && taskBackedStatuses.includes(status);
+  const isOverdue = !!taskOverdue && taskBackedStatuses.includes(status);
   // Task-backed statuses must always open the task; a missing open task means the
   // status is stale (e.g. the task was cancelled) → offer to reset it instead of
   // silently opening the Log Call dialog.
-  const isTaskBacked = status === "Confirmed" || status === "Pending Follow-up";
+  const isTaskBacked = taskBackedStatuses.includes(status);
   const utils = trpc.useUtils();
   const resetStale = trpc.calls.resetStaleConfirmation.useMutation({
     onSuccess: r => {
