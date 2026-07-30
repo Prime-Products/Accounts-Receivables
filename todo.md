@@ -910,5 +910,131 @@
 - [x] tsc clean + screenshots (Invoices, group card, customer card) + checkpoint & deliver
 
 ## Bug: checkboxes not visible on invoices (user report 29/7)
-- [ ] Investigate why selection checkboxes don't show on invoice tables for the user (production vs preview, InvoicesTable enableSelection)
-- [ ] Fix + verify on all invoice lists (Invoices page, group card, customer card)
+- [x] Investigate why selection checkboxes don't show on invoice tables for the user — verified they render in preview (Invoices page, group card, customer card); user was likely on the pre-deploy production build; deploy has since updated. Awaiting user confirmation after hard refresh.
+- [x] Fix + verify on all invoice lists (Invoices page, group card, customer card) — verified via screenshots
+
+## UI polish (user request 29/7)
+- [x] Remove the "Overdue task" text label next to red confirmation badges — the red color alone signals overdue
+- [x] Remove the "All types" task-type filter dropdown from the Tasks page
+- [x] Tasks page: highlight overdue open tasks in red (due date passed, status not Completed)
+- [x] Log Call: keep only "Reached" and "No Answer" in the Outcome options (remove the rest)
+- [x] Invoices page: remove the "Contract Installments" and "New Invoice" header buttons
+- [x] Task detail: attached invoices should be clickable links that open the invoice (filtered Invoices view)
+- [x] Tasks page: hide Cancelled tasks by default; show only when explicitly selected in status filter
+- [x] Tasks page: add search box to filter tasks by group/customer name
+- [x] Tasks are group-scoped: NewTaskDialog selects a group (not an individual customer; group's primary member used as anchor)
+- [x] Tasks list shows Group column instead of Customer; task detail links to group card
+- [x] Backend: tasks.list exposes groupName; invoice-based creation (send invoices to colleague) still works
+- [x] Cleanup: also deleted remaining "TaskLink Promise" junk customers/tasks/promises (48 customers, 24 tasks, 24 promises)
+- [x] Call list: Problematic status no longer affects score/tier — sorting is purely by risk score; status stays as an informational badge
+- [x] Log Call from a group: contact dropdown lists only that group's contacts, with an inline "Add new contact" option (name/title/email/phone + company when multi-company group; saved contact is auto-selected)
+- [x] Pending Follow-up reschedule: Log Call with existing open follow-up task moves it to the new date instead of creating a duplicate
+- [x] Task detail: editable due date for open tasks (reschedule)
+- [x] Reschedule counter: each date change increments rescheduleCount; shown as "×N" on the task and on the group's communication badge
+- [x] Fix test-data leak: confirmationTaskLink.test.ts now purges its "TaskLink" customers/tasks/promises/statuses after each run (was recreating junk on every test run)
+- [x] Cleanup: delete junk "TaskLink Pending" tasks and their placeholder customers (after verifying no invoices attached)
+
+## Reset default sort on groups list (user request 29/7)
+- [x] Customers page (Groups view): "Reset sort" button appears when user changes column sorting; click returns to the default order (open balance desc)
+- [x] Companies view: same "Reset sort" control when a manual column sort is active
+- [x] Optional ?sort= URL param presets group sorting (used for verification)
+
+## Follow-up task should show the call contact (user report 29/7)
+- [x] Backend: store the selected contact on the follow-up task created/rescheduled by Log Call (Pending Follow-up / Promise to Pay)
+- [x] Task detail dialog: show the contact of the linked call (Contact row in both task detail dialogs)
+- [x] Tests + checkpoint + GitHub push
+
+## Visible Risk Score column on groups list (user request 29/7)
+- [x] CANCELLED by user 29/7 — no risk score anywhere
+
+## Risk score ranking investigation: Starbulk vs Minerva (user question 29/7)
+- [x] CANCELLED by user 29/7 — risk score removed entirely instead
+
+## Remove risk score + Reset sort; default sort by overdue (user request 29/7)
+- [x] Remove the "Reset sort" button and ?sort= URL preset from Customers page
+- [x] Groups list default order = overdue balance desc (backend customers.groups)
+- [x] Companies list default order unchanged (user asked only for groups; column sorting still available)
+- [x] Tests + checkpoint + GitHub push
+
+## Remove "Pay by" line under Promise to Pay badge (user request 29/7)
+- [x] Removed the "Pay by: <date>" line in the Confirmation column of the groups list; only "Follow-up" remains
+
+## Promise to Pay badge not updating after Kept/Not Confirmed (user bug 29/7)
+- [x] Trace how confirmationStatus is computed in customers.groups and why marking the promise Kept / Not Confirmed leaves the badge as Promise to Pay
+- [x] Fix propagation: forecast.updatePromise now updates the group confirmation row (Kept → Not Contacted, Broken → Not Confirmed); frontend already invalidates customers.groups
+- [x] Tests + checkpoint + GitHub push
+
+## Promise resolution flow rework (user request 29/7)
+- [x] Kept: badge shows green "Kept" until end of month, auto-resets to Not Contacted next month (stale logic)
+- [x] Add "Kept" to confirmation statuses (schema enum + effectiveConfirmation stale rules)
+- [x] Not Confirmed: badge shows red "Not Confirmed" until user picks a next action
+- [x] Next Action dialog after pressing Not Confirmed: (1) Follow-up call w/ date → Pending Follow-up + task, (2) New promise w/ amount+date → Promise to Pay, (3) Escalate → change group status
+- [x] Badge click for Broken status also opens the Next Action dialog
+- [x] Tests + checkpoint + GitHub push
+
+## Remove 3-dot actions column from groups list (user request 29/7)
+- [x] Remove the 3-dot (⋯) actions menu column from the Customers groups table (GroupRowActions component deleted, header/total/row cells removed, imports cleaned)
+
+## Replace Under Review with Critical (user request 29/7)
+- [x] Backend: rename "Under Review" watch status to "Critical" (workflow Normal → Problematic → Critical → On Hold → Legal; legacy "Under Review" rows map to Critical)
+- [x] Database: migrate existing "Under Review" rows to "Critical" (0 rows existed; enum already contains Critical)
+- [x] Frontend: status dropdowns, badges, filters, Next Action dialog show "Critical" (dark red styling)
+- [x] Tests + checkpoint + GitHub push (202 tests pass)
+
+## Remove names under group name in groups list (user request 29/7)
+- [x] Remove account manager / collector names shown under the group name in the groups list
+- [x] Column drag-and-drop reordering — requested then CANCELLED by user (not implemented)
+
+## Bug: "Task not found" dialog after promise Kept (user report 29/7)
+- [x] Clicking the confirmation badge after a promise is marked Kept (or its task completed/cancelled) opens "Task not found" — stale confirmationTaskId
+- [x] Fix: clear/refresh the stale task link so completed tasks don't open the error dialog (latched taskId, dialog auto-closes after Kept/Not Confirmed, graceful close+toast if task truly gone)
+
+## Editable forecast on group card (user request 29/7)
+- [x] Backend: mutation to set/override the current-month forecast amount for a group (reused existing forecast.setGroupForecast with audit)
+- [x] UI: inline edit (pencil → input → save) of the forecast amount on the group detail card; also works when no forecast exists yet ("click to set one")
+
+## Better group AI Summary (user request 29/7)
+- [x] Review current AI summary implementation, inputs and prompt
+- [x] Enrich inputs: month stats (forecast vs collected, promises kept/broken), recent calls/notes, payment-behavior metrics (avg days late, payment pattern, trend)
+- [x] Rewrite prompt for a structured, concise output: Month summary + Payment behavior + Suggested actions
+- [x] Verify output quality on real groups (spot-tested with MSC group, iterated prompt 3x)
+
+## AI Summary — Greek shorter format (user request 30/7)
+- [x] Rewrite prompt: output in Greek, ~100 words max, header line with Open Balance + Overdue + invoice count, short paragraph (month status, payment behavior, key invoices), one "Προτεινόμενη ενέργεια" sentence
+- [x] Test with real group data and verify format matches user example (MSC: 68 words, exact format)
+
+## Dashboard: pending contact card (user request 30/7)
+- [x] Backend: count groups with forecast > 0 and confirmationStatus = Not Contacted this month
+- [x] Frontend: render a card on Dashboard showing "Εκκρεμεί επικοινωνία: X groups"
+
+## Groups list: remove Expected column (user request 30/7)
+- [x] Remove the "Expected" column from the groups list (forecast IS the conservative expected amount)
+
+## Dashboard: Problematic groups card not clickable (user bug 30/7)
+- [x] Clicking "Problematic groups" card should navigate to /customers filtered by Problematic status
+- [x] Verify other dashboard status cards (On Hold / Legal) also navigate with the right filter
+- [x] Fix: dashboard count used raw DB rows, not resolved status (auto-problematic rule). Now uses same resolveGroupStatus logic as the groups list.
+- [x] Fix: Customers page URL-param filter (useState initializer) didn't re-run on navigation from Dashboard. Added useEffect syncing from useSearch().
+
+## Test data pollution cleanup (user report 30/7)
+- [x] Delete all test-generated tasks/promises/activity/confirmations for ΥΠΟΥΡΓΕΙΟ ΚΛΙΜΑΤΙΚΗΣ (customerId 808)
+- [x] Delete test data for DYNACOM, MERCURIA, MSC, Test Email Customer groups
+- [x] Delete orphan activity_log and group_confirmation_status rows (groups not in customers)
+- [x] Make vitest tests clean up after themselves (track and delete created rows in afterAll)
+
+## Suggested Next Action (after Log Call)
+- [x] Backend: calls.suggestNextAction — rule engine using group data (overdue, aging, broken promises, call history, status) returning a suggested action (Friendly reminder / Escalate to Account Manager / Send SOA / Request payment plan / Legal review)
+- [x] Frontend: show Suggested Next Action panel in the Log Call dialog after saving
+- [x] Vitest coverage for the suggestion rules
+
+## Pending Follow-up Task Actions
+- [x] When opening a Pending Follow-up task, show 3 action options: Reschedule (change date), Convert to Promise to Pay (new PTP task + status change + cancel old task), Escalate (to Account Manager)
+- [x] Backend: procedure for reschedule (update task due date) — existing tasks.reschedule reused
+- [x] Backend: procedure for convert to Promise to Pay (create promise record, create PTP check task, update confirmation status to Confirmed, cancel old follow-up task)
+- [x] Backend: procedure for escalate (reassign task to account manager, add activity log)
+- [x] Frontend: action buttons/dialog when viewing a Pending Follow-up task
+
+## Promise to Pay Task Actions
+- [x] When opening a Promise to Pay task (promise not kept), show actions: Reschedule promise (new date/amount) and Escalate (to Account Manager)
+- [x] Backend: reuse/extend promise reschedule to work from the task dialog
+- [x] Frontend: action panel in TaskDetailDialog for promise tasks

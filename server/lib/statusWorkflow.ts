@@ -1,18 +1,19 @@
 /**
  * Unified group Account Status workflow:
- *   Normal → Problematic → Under Review → On Hold → Legal
+ *   Normal → Problematic → Critical → On Hold → Legal
  *
  * - "Problematic" is flagged automatically by the forecast rule (Expected < 80%
  *   of Overdue EOM) or set manually. A manual status always overrides the rule;
  *   picking "Normal" clears the flag, "Auto" means "follow the rule".
- * - "Under Review", "On Hold" and "Legal" are manual decisions (Under Review is
+ * - "Critical", "On Hold" and "Legal" are manual decisions (Critical is
  *   the step before deciding to put a group On Hold).
  * - There is no automatic escalation between statuses.
  *
- * Legacy values stored in older rows are mapped: "On Watch" and "Critical" →
- * Problematic, "Resolved" → Normal (flag cleared), "Eligible for On Hold" → On Hold.
+ * Legacy values stored in older rows are mapped: "On Watch" → Problematic,
+ * "Under Review" → Critical, "Resolved" → Normal (flag cleared),
+ * "Eligible for On Hold" → On Hold.
  */
-export const GROUP_STATUSES = ["Normal", "Problematic", "Under Review", "On Hold", "Legal"] as const;
+export const GROUP_STATUSES = ["Normal", "Problematic", "Critical", "On Hold", "Legal"] as const;
 export type GroupStatus = (typeof GROUP_STATUSES)[number];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -24,7 +25,8 @@ export interface StatusRowLike {
 
 /** Map legacy stored values onto the unified 5-status set (or "Auto"/"Normal"). */
 export function normalizeStoredStatus(raw: string): string {
-  if (raw === "On Watch" || raw === "Critical") return "Problematic";
+  if (raw === "On Watch") return "Problematic";
+  if (raw === "Under Review") return "Critical";
   if (raw === "Resolved") return "Normal";
   if (raw === "Eligible for On Hold") return "On Hold";
   return raw;
@@ -47,7 +49,7 @@ export function resolveGroupStatus(
   const manual = normalizeStoredStatus(row?.status ?? "Auto");
   const since = row?.problematicSince ?? null;
   // Hard manual states win outright
-  if (manual === "Under Review" || manual === "On Hold" || manual === "Legal") {
+  if (manual === "Critical" || manual === "On Hold" || manual === "Legal") {
     return { status: manual as GroupStatus, problematicSince: since, escalated: false };
   }
   if (manual === "Normal") return { status: null, problematicSince: null, escalated: false };

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { appRouter } from "./routers";
 import * as db from "./db";
+import { purgeTestCustomers } from "./testCleanup";
 import type { TrpcContext } from "./_core/context";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
@@ -52,6 +53,7 @@ describe("Bank Details", () => {
     } catch (e) {
       // Ignore if doesn't exist
     }
+    await purgeTestCustomers(["Test Bank Customer%", "Empty Bank Customer%"]);
   });
 
   it("should create bank details for a customer", async () => {

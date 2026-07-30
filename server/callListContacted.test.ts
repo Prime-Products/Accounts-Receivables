@@ -1,4 +1,5 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import { eq } from "drizzle-orm";
 import { appRouter } from "./routers";
 import * as db from "./db";
@@ -21,6 +22,14 @@ afterAll(async () => {
 });
 
 describe("callList contacted flag", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   it("marks a group contacted when it has an open task, and clears when completed", async () => {
     const caller = makeCaller();
     const before = await caller.customers.callList();

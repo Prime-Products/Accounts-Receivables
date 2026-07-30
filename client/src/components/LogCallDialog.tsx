@@ -7,17 +7,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { trpc } from "@/lib/trpc";
-import { Mail, Phone, User } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, FileText, Gavel, HandCoins, Lightbulb, Mail, Phone, Plus, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-const OUTCOMES = ["Reached", "No Answer", "Voicemail", "Promised Payment", "Dispute", "Other"] as const;
+const OUTCOMES = ["Reached", "No Answer"] as const;
 const CONFIRMATION_STATUSES = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken"] as const;
 const STATUS_LABELS: Record<string, string> = {
   "Not Contacted": "Not Contacted",
   Confirmed: "Promise to Pay",
   "Pending Follow-up": "Pending Follow-up",
   Broken: "Not Confirmed Payment",
+};
+
+const ACTION_ICONS: Record<string, typeof Lightbulb> = {
+  legal_review: Gavel,
+  escalate_account_manager: ArrowUpRight,
+  request_payment_plan: HandCoins,
+  send_soa: FileText,
+  friendly_reminder: Mail,
+  schedule_follow_up: CalendarClock,
+  monitor: CheckCircle2,
 };
 
 export default function LogCallDialog({
@@ -36,6 +46,12 @@ export default function LogCallDialog({
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
   const [contactName, setContactName] = useState("");
   const [selectedContactId, setSelectedContactId] = useState<string>("");
+  // Inline "add new contact" form state
+  const [newContactName, setNewContactName] = useState("");
+  const [newContactEmail, setNewContactEmail] = useState("");
+  const [newContactPhone, setNewContactPhone] = useState("");
+  const [newContactTitle, setNewContactTitle] = useState("");
+  const [newContactCustomerId, setNewContactCustomerId] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<(typeof OUTCOMES)[number]>("Reached");
   const [notes, setNotes] = useState("");
   const [confirmationStatus, setConfirmationStatus] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">("");
@@ -43,22 +59,40 @@ export default function LogCallDialog({
   const [followUpDate, setFollowUpDate] = useState("");
   const [promisedDate, setPromisedDate] = useState("");
   const [promiseMode, setPromiseMode] = useState<"reschedule" | "new">("reschedule");
+  // After a successful save we show the Suggested Next Action instead of closing.
+  const [savedCall, setSavedCall] = useState<{ outcome: (typeof OUTCOMES)[number]; confirmationStatus: string } | null>(null);
   const utils = trpc.useUtils();
 
   // Existing open promise for this group (offered for rescheduling on Confirmed)
   const { data: openPromise } = trpc.calls.getOpenPromise.useQuery({ group }, { enabled: open });
+  // Existing open follow-up task for this group (shown when rescheduling a Pending Follow-up)
+  const { data: openFollowUp } = trpc.calls.getOpenFollowUpTask.useQuery({ group }, { enabled: open });
   // Payment contacts across all companies of the group
   const { data: groupContacts } = trpc.paymentContacts.listByGroup.useQuery({ group }, { enabled: open });
   const selectedContact =
-    selectedContactId && selectedContactId !== "other"
+    selectedContactId && selectedContactId !== "other" && selectedContactId !== "add-new"
       ? groupContacts?.find(c => String(c.id) === selectedContactId)
       : undefined;
+
+  const { data: suggestion, isLoading: suggestionLoading } = trpc.calls.suggestNextAction.useQuery(
+    {
+      group,
+      outcome: savedCall?.outcome ?? "Reached",
+      confirmationStatus: (savedCall?.confirmationStatus as any) || "none",
+    },
+    { enabled: open && savedCall !== null },
+  );
 
   useEffect(() => {
     if (open) {
       setCustomerId(defaultCustomerId ?? null);
       setContactName("");
       setSelectedContactId("");
+      setNewContactName("");
+      setNewContactEmail("");
+      setNewContactPhone("");
+      setNewContactTitle("");
+      setNewContactCustomerId(null);
       setOutcome("Reached");
       setNotes("");
       setConfirmationStatus("");
@@ -66,19 +100,62 @@ export default function LogCallDialog({
       setFollowUpDate("");
       setPromisedDate("");
       setPromiseMode("reschedule");
+      setSavedCall(null);
     }
   }, [open, defaultCustomerId]);
 
     const logCall = trpc.calls.logCall.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success("Call logged");
       utils.customers.invalidate();
       utils.calls.invalidate();
       utils.tasks.invalidate();
-      onOpenChange(false);
+      // Show the Suggested Next Action panel instead of closing.
+      setSavedCall({
+        outcome: variables.outcome,
+        confirmationStatus: (variables.confirmationStatus as string) ?? "",
+      });
     },
     onError: e => toast.error(e.message),
   });
+
+  const addContact = trpc.paymentContacts.add.useMutation({
+    onSuccess: created => {
+      toast.success("Contact added");
+      utils.paymentContacts.invalidate();
+      setSelectedContactId(String(created.id));
+      setContactName(created.name);
+      setNewContactName("");
+      setNewContactEmail("");
+      setNewContactPhone("");
+      setNewContactTitle("");
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const handleAddContact = () => {
+    if (!newContactName.trim()) {
+      toast.error("Please enter the contact's name");
+      return;
+    }
+    if (!newContactEmail.trim()) {
+      toast.error("Please enter the contact's email");
+      return;
+    }
+    const targetCustomerId =
+      newContactCustomerId ?? customerId ?? defaultCustomerId ?? (companies && companies.length === 1 ? companies[0].id : null);
+    if (!targetCustomerId) {
+      toast.error("Please select which company the contact belongs to");
+      return;
+    }
+    addContact.mutate({
+      customerId: targetCustomerId,
+      name: newContactName.trim(),
+      email: newContactEmail.trim(),
+      phone: newContactPhone.trim() || undefined,
+      title: newContactTitle.trim() || undefined,
+    });
+  };
 
   const handleSubmit = () => {
     if (!confirmationStatus) {
@@ -135,6 +212,36 @@ export default function LogCallDialog({
             <Phone className="h-4 w-4" /> Log Call — {group}
           </DialogTitle>
         </DialogHeader>
+        {savedCall ? (
+          <div className="space-y-4 py-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-green-700">
+              <CheckCircle2 className="h-4 w-4" /> Call logged successfully
+            </div>
+            <div className="border rounded-lg p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Lightbulb className="h-4 w-4 text-amber-500" /> Suggested Next Action
+              </div>
+              {suggestionLoading ? (
+                <div className="text-sm text-muted-foreground animate-pulse">Analyzing group data…</div>
+              ) : suggestion ? (
+                <div className="space-y-2">
+                  <div className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
+                    suggestion.severity === "critical" ? "bg-red-50 text-red-800 border border-red-200" :
+                    suggestion.severity === "warning" ? "bg-amber-50 text-amber-800 border border-amber-200" :
+                    "bg-blue-50 text-blue-800 border border-blue-200"
+                  }`}>
+                    {(() => {
+                      const Icon = ACTION_ICONS[suggestion.action] ?? Lightbulb;
+                      return <Icon className="h-4 w-4 shrink-0" />;
+                    })()}
+                    {suggestion.label}
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{suggestion.reason}</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : (
         <div className="space-y-3">
           {companies && companies.length > 1 && (
             <div className="space-y-1.5">
@@ -158,34 +265,36 @@ export default function LogCallDialog({
           )}
           <div className="space-y-1.5">
             <Label>Contact person (optional)</Label>
-            {groupContacts && groupContacts.length > 0 ? (
-              <>
-                <Select
-                  value={selectedContactId || undefined}
-                  onValueChange={v => {
-                    setSelectedContactId(v);
-                    if (v === "other") {
-                      setContactName("");
-                    } else {
-                      const c = groupContacts.find(gc => String(gc.id) === v);
-                      setContactName(c?.name ?? "");
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Who did you speak with?" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {groupContacts.map(c => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {c.name}
-                        {c.title ? ` — ${c.title}` : ""}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="other">Other (type a name)</SelectItem>
-                  </SelectContent>
-                </Select>
-                {selectedContact && (
+            <Select
+              value={selectedContactId || undefined}
+              onValueChange={v => {
+                setSelectedContactId(v);
+                if (v === "add-new") {
+                  setContactName("");
+                } else {
+                  const c = groupContacts?.find(gc => String(gc.id) === v);
+                  setContactName(c?.name ?? "");
+                }
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={groupContacts && groupContacts.length > 0 ? "Who did you speak with?" : "No contacts yet — add one"} />
+              </SelectTrigger>
+              <SelectContent>
+                {(groupContacts ?? []).map(c => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.name}
+                    {c.title ? ` — ${c.title}` : ""}
+                  </SelectItem>
+                ))}
+                <SelectItem value="add-new">
+                  <span className="flex items-center gap-1.5 text-primary">
+                    <Plus className="h-3.5 w-3.5" /> Add new contact…
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            {selectedContact && (
                   <div className="rounded border bg-muted/40 p-2 text-xs space-y-1 mt-1">
                     <div className="flex items-center gap-1.5 font-medium">
                       <User className="h-3 w-3" /> {selectedContact.name}
@@ -203,18 +312,41 @@ export default function LogCallDialog({
                     )}
                     <div className="text-muted-foreground">{selectedContact.companyName}</div>
                   </div>
+            )}
+            {selectedContactId === "add-new" && (
+              <div className="rounded border bg-muted/30 p-2 space-y-2 mt-1">
+                <p className="text-xs font-medium flex items-center gap-1.5">
+                  <Plus className="h-3.5 w-3.5" /> New contact for {group}
+                </p>
+                {companies && companies.length > 1 && (
+                  <Select
+                    value={newContactCustomerId ? String(newContactCustomerId) : customerId ? String(customerId) : undefined}
+                    onValueChange={v => setNewContactCustomerId(Number(v))}
+                  >
+                    <SelectTrigger className="w-full h-8 text-xs">
+                      <SelectValue placeholder="Company *" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {companies.map(c => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
-                {selectedContactId === "other" && (
-                  <Input
-                    className="mt-1"
-                    value={contactName}
-                    onChange={e => setContactName(e.target.value)}
-                    placeholder="Type the contact's name"
-                  />
-                )}
-              </>
-            ) : (
-              <Input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Who did you speak with?" />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input className="h-8 text-xs" value={newContactName} onChange={e => setNewContactName(e.target.value)} placeholder="Name *" />
+                  <Input className="h-8 text-xs" value={newContactTitle} onChange={e => setNewContactTitle(e.target.value)} placeholder="Title" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input className="h-8 text-xs" type="email" value={newContactEmail} onChange={e => setNewContactEmail(e.target.value)} placeholder="Email *" />
+                  <Input className="h-8 text-xs" value={newContactPhone} onChange={e => setNewContactPhone(e.target.value)} placeholder="Phone" />
+                </div>
+                <Button size="sm" className="h-7 text-xs w-full" onClick={handleAddContact} disabled={addContact.isPending}>
+                  {addContact.isPending ? "Saving…" : "Save contact"}
+                </Button>
+              </div>
             )}
           </div>
           <div className="space-y-1.5">
@@ -300,6 +432,19 @@ export default function LogCallDialog({
           {/* Pending Follow-up - show follow-up date and amount */}
           {confirmationStatus === "Pending Follow-up" && (
             <div className="space-y-1.5 bg-blue-50 p-2 rounded">
+              {openFollowUp && (
+                <div className="rounded border border-blue-300 bg-blue-100/60 p-2 text-xs text-blue-900 space-y-0.5">
+                  <p className="font-medium">
+                    Open follow-up exists — currently due {new Date(openFollowUp.dueDate).toLocaleDateString("en-GB")}
+                    {openFollowUp.rescheduleCount > 0 && (
+                      <span className="ml-1.5 inline-flex items-center rounded bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-900">
+                        rescheduled ×{openFollowUp.rescheduleCount}
+                      </span>
+                    )}
+                  </p>
+                  <p>Saving with a new date will move this follow-up (no duplicate is created) and count it as a reschedule.</p>
+                </div>
+              )}
               <Label>Expected amount (EUR)</Label>
               <Input
                 type="number"
@@ -332,19 +477,26 @@ export default function LogCallDialog({
 
           <div className="space-y-1.5">
             <Label>Additional notes (optional)</Label>
-            <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What was discussed…" rows={3} />
+          <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What was discussed…" rows={3} />
           </div>
         </div>
+        )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={logCall.isPending || !confirmationStatus}
-          >
-            {logCall.isPending ? "Saving…" : "Log Call"}
-          </Button>
+          {savedCall ? (
+            <Button onClick={() => onOpenChange(false)}>Close</Button>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={logCall.isPending || !confirmationStatus}
+              >
+                {logCall.isPending ? "Saving…" : "Log Call"}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </ResizableDialogContent>
     </Dialog>

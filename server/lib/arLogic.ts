@@ -350,7 +350,7 @@ export interface RatingInput {
   promisesKept: number;
   /** Broken promises count. */
   promisesBroken: number;
-  /** Unified account status of the group (Normal / Problematic / Under Review / On Hold / Legal). */
+  /** Unified account status of the group (Normal / Problematic / Critical / On Hold / Legal). */
   onHoldStatus: string | null;
   /** Turnover EUR year-to-date (sum for groups). Null/undefined when unknown. */
   turnoverYtd?: number | null;
@@ -418,12 +418,12 @@ export function computeCreditRating(input: RatingInput): RatingResult {
     detail: totalPromises > 0 ? `${input.promisesKept} kept / ${input.promisesBroken} broken` : "No promises recorded — neutral",
   });
 
-  // 5. Account status (5 pts): Normal → full; Problematic/Under Review → 3; On Hold → 1; Legal → 0.
+  // 5. Account status (5 pts): Normal → full; Problematic/Critical → 3; On Hold → 1; Legal → 0.
   const st = input.onHoldStatus ?? "Normal";
   const holdPts =
     st === "Normal" || st === "Active" || st === "Resolved"
       ? 5
-      : st === "Problematic" || st === "Under Review" || st === "Eligible for On Hold"
+      : st === "Problematic" || st === "Critical" || st === "Under Review" || st === "Eligible for On Hold"
         ? 3
         : st === "On Hold"
           ? 1
@@ -506,15 +506,18 @@ export interface CallPriorityResult {
   score: number;
   /** Human-readable reasons driving the priority. */
   reasons: string[];
-  /** Status tier: 2 = Critical/Legal, 1 = Problematic, 0 = Normal/Resolved. Call order sorts by tier first, then score. */
+  /** Status tier: 2 = Critical/Legal, 0 = everything else (incl. Problematic). Call order sorts by tier first, then score. */
   tier: number;
 }
 
-/** Status tier: flagged groups jump the queue regardless of amount. */
+/**
+ * Status tier: only hard states (Critical/Legal) jump the queue.
+ * Problematic is informational only — it does NOT affect the call order,
+ * which is driven purely by the risk score.
+ */
 export function statusTier(groupStatus?: string | null): number {
   if (groupStatus === "Critical" || groupStatus === "Legal") return 2;
-  if (groupStatus === "Problematic") return 1;
-  return 0; // Normal / Resolved / unknown
+  return 0; // Normal / Problematic / Resolved / unknown
 }
 
 /**
@@ -524,9 +527,9 @@ export function statusTier(groupStatus?: string | null): number {
  *   +boosts for broken promises and low forecast coverage
  * 120+ amounts count at reduced weight (separate legal/on-hold flow handles them).
  *
- * Status-first ordering: the returned `tier` (Critical/Legal=2, Problematic=1,
- * Normal=0) is the PRIMARY sort key of the Call List — flagged groups always
- * appear above unflagged ones; the score orders groups WITHIN a tier.
+ * Ordering: the returned `tier` (Critical/Legal=2, everything else=0) is the
+ * PRIMARY sort key of the Call List; the risk score orders groups WITHIN a
+ * tier. Problematic status is shown as a badge but does not change the order.
  */
 export function computeCallPriority(input: CallPriorityInput): CallPriorityResult {
   const reasons: string[] = [];
@@ -560,7 +563,7 @@ export function computeCallPriority(input: CallPriorityInput): CallPriorityResul
 
   const tier = statusTier(input.groupStatus);
   if (tier === 2) reasons.unshift(input.groupStatus === "Legal" ? "Legal" : "Critical");
-  else if (tier === 1) reasons.unshift("Problematic");
+  else if (input.groupStatus === "Problematic") reasons.unshift("Problematic");
 
   return { score: Math.round(score), reasons, tier };
 }

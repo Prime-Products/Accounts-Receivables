@@ -10,18 +10,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtEur, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, HandCoins, Layers, MoreHorizontal, Pencil, Phone, Plus, Search, Sparkles, StickyNote, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
-import { useLocation } from "wouter";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useLocation, useSearch } from "wouter";
 import LogCallDialog from "@/components/LogCallDialog";
-import NewTaskDialog from "@/components/NewTaskDialog";
-import GroupNotesDialog from "@/components/GroupNotesDialog";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
 
-type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "expected" | "collected" | "remaining" | "overdueCount";
+type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "collected" | "remaining" | "overdueCount";
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
 
 /** Click-to-edit forecast cell. Saving corrects the month's forecast (expected + initial baseline). */
@@ -80,80 +77,6 @@ const EditableForecastCell = memo(function EditableForecastCell({ group, value }
       {fmtEur(value)}
       <Pencil className="h-3 w-3 opacity-0 group-hover/fc:opacity-60 shrink-0" />
     </button>
-  );
-});
-
-/** Per-row quick actions dropdown for the Customers groups list. */
-const GroupRowActions = memo(function GroupRowActions({ group }: { group: string }) {
-  const [callOpen, setCallOpen] = useState(false);
-  const [taskOpen, setTaskOpen] = useState(false);
-  const [noteOpen, setNoteOpen] = useState(false);
-  const [loadMembers, setLoadMembers] = useState(false);
-  // Load member companies lazily (only when Log Call / New Task requested)
-  const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: loadMembers });
-  const members = useMemo(
-    () =>
-      (allCustomers ?? [])
-        .filter(c => ((c.customerGroup ?? "").trim() || c.name) === group)
-        .map(c => ({ id: c.id, name: c.name, openBalance: c.openBalance })),
-    [allCustomers, group]
-  );
-  const defaultCustomerId = useMemo(
-    () => (members.length > 0 ? [...members].sort((a, b) => b.openBalance - a.openBalance)[0].id : undefined),
-    [members]
-  );
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-7 w-7">
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            onClick={() => {
-              setLoadMembers(true);
-              setCallOpen(true);
-            }}
-          >
-            <Phone className="h-4 w-4 mr-2" /> Log Call
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => {
-              setLoadMembers(true);
-              setTaskOpen(true);
-            }}
-          >
-            <Plus className="h-4 w-4 mr-2" /> New Task
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setNoteOpen(true)}>
-            <StickyNote className="h-4 w-4 mr-2" /> Add Note
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {callOpen && (
-        <LogCallDialog
-          group={group}
-          companies={members}
-          defaultCustomerId={defaultCustomerId}
-          open={callOpen}
-          onOpenChange={setCallOpen}
-        />
-      )}
-      {taskOpen && (
-        <NewTaskDialog
-          customerIds={members.map(m => m.id)}
-          defaultCustomerId={defaultCustomerId}
-          trigger={<span className="hidden" />}
-          open={taskOpen}
-          onOpenChange={setTaskOpen}
-        />
-      )}
-      {noteOpen && <GroupNotesDialog group={group} open={noteOpen} onOpenChange={setNoteOpen} />}
-    </>
   );
 });
 
@@ -284,10 +207,8 @@ const GROUP_COL_DEFAULTS: Record<string, number> = {
   overdue: 120,
   overdueEom: 120,
   forecast: 110,
-  expected: 110,
   collected: 105,
   remaining: 105,
-  actions: 44,
 };
 
 const COMPANY_COL_DEFAULTS: Record<string, number> = {
@@ -310,13 +231,30 @@ export default function Customers() {
   });
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
+  const searchStr = useSearch();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(() => {
     const p = new URLSearchParams(window.location.search).get("status");
-    return p && ["problematic", "under-review", "on-hold", "legal", "normal"].includes(p) ? p : "all";
+    return p && ["problematic", "critical", "on-hold", "legal", "normal"].includes(p) ? p : "all";
   });
   const [ratingFilter, setRatingFilter] = useState<string>("all");
-  const [confirmationFilter, setConfirmationFilter] = useState<string>("all");
+  const [confirmationFilter, setConfirmationFilter] = useState<string>(() => {
+    const p = new URLSearchParams(window.location.search).get("conf");
+    return p && ["not-contacted", "confirmed", "pending", "broken"].includes(p) ? p : "all";
+  });
+  // Keep filters in sync with the URL — dashboard cards navigate here with ?status= / ?conf=
+  // and the lazy useState initializers above only run on first mount.
+  useEffect(() => {
+    const params = new URLSearchParams(searchStr);
+    const s = params.get("status");
+    if (s && ["problematic", "critical", "on-hold", "legal", "normal"].includes(s)) {
+      setStatusFilter(s);
+    }
+    const c = params.get("conf");
+    if (c && ["not-contacted", "confirmed", "pending", "broken"].includes(c)) {
+      setConfirmationFilter(c);
+    }
+  }, [searchStr]);
   const [managerFilter, setManagerFilter] = useState<string>("all");
   const [collectorFilter, setCollectorFilter] = useState<string>("all");
   const { data: teamMembers } = trpc.team.list.useQuery();
@@ -403,7 +341,7 @@ export default function Customers() {
       const matchesStatus =
         statusFilter === "all" ||
         (statusFilter === "problematic" && g.watchStatus === "Problematic") ||
-        (statusFilter === "under-review" && g.watchStatus === "Under Review") ||
+        (statusFilter === "critical" && g.watchStatus === "Critical") ||
         (statusFilter === "on-hold" && g.watchStatus === "On Hold") ||
         (statusFilter === "legal" && g.watchStatus === "Legal") ||
         (statusFilter === "normal" && !g.watchStatus);
@@ -439,8 +377,6 @@ export default function Customers() {
             return g.overdueEomBalance;
           case "forecast":
             return g.forecastExpected;
-          case "expected":
-            return (g as any).expectedToCollect ?? g.forecastExpected;
           case "collected":
             return g.collected;
           case "remaining":
@@ -462,18 +398,17 @@ export default function Customers() {
   const groupTotals = useMemo(
     () =>
       filteredGroups.reduce(
-        (t: { companies: number; open: number; overdue: number; overdueEom: number; forecast: number; expected: number; collected: number; remaining: number; overdueCount: number }, g) => ({
+        (t: { companies: number; open: number; overdue: number; overdueEom: number; forecast: number; collected: number; remaining: number; overdueCount: number }, g) => ({
           companies: t.companies + g.companyCount,
           open: t.open + g.openBalance,
           overdue: t.overdue + g.overdueBalance,
           overdueEom: t.overdueEom + g.overdueEomBalance,
           forecast: t.forecast + g.forecastExpected,
-          expected: t.expected + ((g as any).expectedToCollect ?? g.forecastExpected),
           collected: t.collected + g.collected,
           remaining: t.remaining + g.remaining,
           overdueCount: t.overdueCount + g.overdueCount,
         }),
-        { companies: 0, open: 0, overdue: 0, overdueEom: 0, forecast: 0, expected: 0, collected: 0, remaining: 0, overdueCount: 0 }
+        { companies: 0, open: 0, overdue: 0, overdueEom: 0, forecast: 0, collected: 0, remaining: 0, overdueCount: 0 }
       ),
     [filteredGroups]
   );
@@ -501,7 +436,6 @@ export default function Customers() {
       overdueCount: 0,
       overdueEom: 0,
       forecastCurrent: 0,
-      expected: 0,
       collected: 0,
       remaining: 0,
       agingCurrent: 0,
@@ -523,7 +457,6 @@ export default function Customers() {
       s.overdueCount += g.overdueCount;
       s.overdueEom += g.overdueEomBalance;
       s.forecastCurrent += g.forecastExpected;
-      s.expected += (g as any).expectedToCollect ?? g.forecastExpected;
       s.collected += g.collected;
       s.remaining += g.remaining;
       const aging = (g as any).aging;
@@ -638,7 +571,7 @@ export default function Customers() {
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
                 <SelectItem value="problematic">Problematic</SelectItem>
-                <SelectItem value="under-review">Under Review</SelectItem>
+                <SelectItem value="critical">Critical</SelectItem>
                 <SelectItem value="on-hold">On Hold</SelectItem>
                 <SelectItem value="legal">Legal</SelectItem>
                 <SelectItem value="normal">Normal</SelectItem>
@@ -728,20 +661,7 @@ export default function Customers() {
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Forecast (this month)</div>
                 <div className="text-xl font-bold font-mono text-emerald-700">{fmtEur(summary.forecastCurrent)}</div>
-                <div className="text-[11px] font-mono mt-0.5">
-                  <span className="text-muted-foreground">Expected: </span>
-                  <span className="font-semibold">{fmtEur(summary.expected)}</span>
-                </div>
-                <div
-                  className={`text-[11px] font-mono mt-0.5 ${summary.expected - summary.forecastCurrent >= 0 ? "text-emerald-600" : "text-red-600"}`}
-                  title="Expected to Collect vs Forecast"
-                >
-                  {summary.expected - summary.forecastCurrent >= 0 ? "+" : ""}
-                  {fmtEur(summary.expected - summary.forecastCurrent)}
-                  {summary.forecastCurrent > 0
-                    ? ` (${(((summary.expected - summary.forecastCurrent) / summary.forecastCurrent) * 100).toFixed(1)}%)`
-                    : ""}
-                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">expected to collect this month</div>
               </CardContent>
             </Card>
             <Card>
@@ -807,10 +727,8 @@ export default function Customers() {
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} col="overdue" cols={groupCols} />
                     <SortableHead label="Overdue EOM" active={groupSort.key === "overdueEom"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdueEom")} col="overdueEom" cols={groupCols} />
                     <SortableHead label="Forecast" active={groupSort.key === "forecast"} dir={groupSort.dir} onClick={() => toggleGroupSort("forecast")} col="forecast" cols={groupCols} />
-                    <SortableHead label="Expected" active={groupSort.key === "expected"} dir={groupSort.dir} onClick={() => toggleGroupSort("expected")} col="expected" cols={groupCols} />
                     <SortableHead label="Collected" active={groupSort.key === "collected"} dir={groupSort.dir} onClick={() => toggleGroupSort("collected")} col="collected" cols={groupCols} />
                     <SortableHead label="Remaining" active={groupSort.key === "remaining"} dir={groupSort.dir} onClick={() => toggleGroupSort("remaining")} col="remaining" cols={groupCols} />
-                    <TableHead style={groupCols.style("actions")}></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -828,16 +746,12 @@ export default function Customers() {
                     <TableCell className={`text-right font-mono ${groupTotals.forecast > 0 ? "text-emerald-700" : ""}`}>
                       {fmtEur(groupTotals.forecast)}
                     </TableCell>
-                    <TableCell className={`text-right font-mono ${groupTotals.expected - groupTotals.forecast >= 0 ? "text-emerald-700" : "text-red-600"}`}>
-                      {fmtEur(groupTotals.expected)}
-                    </TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.collected > 0 ? "text-emerald-700" : ""}`}>
                       {fmtEur(groupTotals.collected)}
                     </TableCell>
                     <TableCell className={`text-right font-mono ${groupTotals.remaining > 0 ? "text-amber-600" : ""}`}>
                       {fmtEur(groupTotals.remaining)}
                     </TableCell>
-                    <TableCell></TableCell>
                   </TableRow>
                   {(showAllGroups ? filteredGroups : filteredGroups.slice(0, 100)).map(g => (
                     <TableRow
@@ -853,8 +767,8 @@ export default function Customers() {
                               className={`inline-flex items-center justify-center h-4 w-4 rounded-full text-[10px] font-bold shrink-0 ${
                                 g.watchStatus === "On Hold"
                                   ? "bg-orange-500 text-white"
-                                  : g.watchStatus === "Under Review"
-                                    ? "bg-amber-100 text-amber-800"
+                                  : g.watchStatus === "Critical"
+                                    ? "bg-red-600 text-white"
                                     : g.watchStatus === "Legal"
                                       ? "bg-purple-100 text-purple-700"
                                       : "bg-red-100 text-red-700"
@@ -871,17 +785,6 @@ export default function Customers() {
                             </span>
                           )}
                         </div>
-                        {(g as any).accountManager && (
-                          <div className="text-[11px] text-sky-700 mt-0.5 truncate">
-                            {(g as any).accountManager.name}
-                          </div>
-                        )}
-                        {(g as any).collector && (
-                          <div className="text-[11px] text-emerald-700 mt-0.5 truncate inline-flex items-center gap-1 max-w-full">
-                            <HandCoins className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{(g as any).collector.name}</span>
-                          </div>
-                        )}
                       </TableCell>
                       <TableCell onClick={e => e.stopPropagation()}>
                         <ConfirmationBadgeButton
@@ -890,11 +793,6 @@ export default function Customers() {
                           taskId={(g as any).confirmationTaskId}
                           taskOverdue={(g as any).confirmationTaskOverdue}
                         />
-                        {(g as any).confirmationTaskOverdue && (
-                          <div className="text-[11px] text-red-600 mt-1 inline-flex items-center gap-1 font-medium" title="The linked task is past its due date and still open">
-                            <span>Overdue task</span>
-                          </div>
-                        )}
                         {(g as any).confirmationCarriedOver && (
                           <div className="text-[11px] text-amber-600 mt-1 inline-flex items-center gap-1" title="Recorded in a previous month — still active until its date">
                             <span>↻</span>
@@ -904,11 +802,6 @@ export default function Customers() {
                         {g.confirmationFollowUpDate && (
                           <div className="text-xs text-muted-foreground mt-1">
                             Follow-up: {fmtDate(g.confirmationFollowUpDate)}
-                          </div>
-                        )}
-                        {g.confirmationStatus === "Confirmed" && g.confirmationPromiseDate && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            Pay by: {fmtDate(g.confirmationPromiseDate)}
                           </div>
                         )}
                       </TableCell>
@@ -925,38 +818,19 @@ export default function Customers() {
                         {fmtEur(g.overdueEomBalance)}
                       </TableCell>
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                        <EditableForecastCell group={g.group} value={g.forecastExpected} />
-                      </TableCell>
-                      <TableCell
-                        className={`text-right font-mono ${
-                          ((g as any).expectedToCollect ?? g.forecastExpected) - g.forecastExpected < 0
-                            ? "text-red-600"
-                            : ((g as any).expectedToCollect ?? g.forecastExpected) - g.forecastExpected > 0
-                              ? "text-emerald-700"
-                              : "text-muted-foreground"
-                        }`}
-                        title={
-                          g.confirmationStatus === "Not Contacted"
-                            ? "Not contacted yet — expected equals forecast"
-                            : `Based on last call (${confirmationStatusLabels[g.confirmationStatus] ?? g.confirmationStatus})`
-                        }
-                      >
-                        {fmtEur((g as any).expectedToCollect ?? g.forecastExpected)}
-                      </TableCell>
-                      <TableCell className={`text-right font-mono ${g.collected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
+                      <EditableForecastCell group={g.group} value={g.forecastExpected} />
+                    </TableCell>
+                     <TableCell className={`text-right font-mono ${g.collected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                         {fmtEur(g.collected)}
                       </TableCell>
                       <TableCell className={`text-right font-mono ${g.remaining > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
                         {fmtEur(g.remaining)}
                       </TableCell>
-                      <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                        <GroupRowActions group={g.group} />
-                      </TableCell>
                     </TableRow>
                   ))}
                   {!showAllGroups && filteredGroups.length > 100 && (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={12} className="text-center py-4">
+                      <TableCell colSpan={9} className="text-center py-4">
                         <span className="text-sm text-muted-foreground mr-3">
                           Showing 100 of {filteredGroups.length.toLocaleString()} groups
                         </span>
