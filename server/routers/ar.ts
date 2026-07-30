@@ -4213,6 +4213,45 @@ export const callsRouter = router({
       return findOpenGroupPromise(input.group);
     }),
 
+  /**
+   * Active communication ("case") for a group — the single open promise-check,
+   * follow-up-call or escalated task. Used by the Log Call button to first ask
+   * whether to open the existing task or just log another call.
+   */
+  getActiveCommunication: protectedProcedure
+    .input(z.object({ group: z.string().min(1).max(255) }))
+    .query(async ({ input }) => {
+      const row = await db.getGroupConfirmationStatus(input.group);
+      const status = row?.status ?? null;
+      if (!row || !status) return null;
+      if (isConfirmationStale(status, row.followUpDate, new Date(), (row as any).updatedAt ?? null)) return null;
+      if (status !== "Pending Follow-up" && status !== "Confirmed" && status !== "Escalated") return null;
+      const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => []);
+      if (status === "Pending Follow-up") {
+        const t = openTasks.find(t => t.description?.includes(`(Follow-up: ${input.group})`));
+        if (!t) return null;
+        return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: row.amount ?? null };
+      }
+      if (status === "Confirmed") {
+        const openPromise = await findOpenGroupPromise(input.group).catch(() => null);
+        if (!openPromise) return null;
+        const t = openTasks.find(t => t.description?.includes(`(Promise #${openPromise.id})`));
+        if (!t) return null;
+        return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: String(openPromise.amount ?? row.amount ?? "") };
+      }
+      // Escalated: find the open "Escalated: ..." task by group marker or customer group.
+      const customers = await db.listCustomers().catch(() => []);
+      const t = openTasks.find(t => {
+        if (!t.title.startsWith("Escalated:")) return false;
+        const fm = t.description?.match(/\(Follow-up: (.+?)\)/);
+        if (fm?.[1] === input.group) return true;
+        const c = customers.find(c => c.id === t.customerId);
+        return !!c && (((c.customerGroup ?? "").trim()) || c.name) === input.group;
+      });
+      if (!t) return null;
+      return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: row.amount ?? null };
+    }),
+
   /** Open follow-up-call task for a group — used by Log Call to show the current
    * follow-up date and how many times it has already been rescheduled. */
   getOpenFollowUpTask: protectedProcedure

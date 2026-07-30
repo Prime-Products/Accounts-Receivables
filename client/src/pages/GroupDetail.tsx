@@ -4,6 +4,7 @@ import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import CollectionNotesBox from "@/components/CollectionNotesBox";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
 import LogCallDialog from "@/components/LogCallDialog";
+import LogCallLauncher from "@/components/LogCallLauncher";
 import SendEmailDialog from "@/components/SendEmailDialog";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
 import { ActivityLog } from "@/components/ActivityLog";
@@ -153,13 +154,15 @@ function ActionsMenu({
 
       <GroupNotesDialog group={group} open={noteOpen} onOpenChange={setNoteOpen} />
 
-      <LogCallDialog
-        group={group}
-        companies={companies}
-        defaultCustomerId={defaultCustomerId}
-        open={callOpen}
-        onOpenChange={setCallOpen}
-      />
+      {callOpen && (
+        <LogCallLauncher
+          group={group}
+          companies={companies}
+          defaultCustomerId={defaultCustomerId}
+          open={callOpen}
+          onOpenChange={setCallOpen}
+        />
+      )}
     </>
   );
 }

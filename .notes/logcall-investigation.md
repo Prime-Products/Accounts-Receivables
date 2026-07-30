@@ -30,6 +30,10 @@
 - Also suspect: line 305 `new Date(openPromise.promisedDate)` and `Number(openPromise.amount)` — if promisedDate null → Invalid Date (no crash). `openPromise.customerName` might be undefined — no crash.
 - openFollowUp render section not yet reviewed (lines ~330-400) — check for `.toLocaleDateString` on null followUpDate.
 - FIX plan: replace empty-string SelectItem with value="all" sentinel; guard null dates; review openFollowUp block.
+
+## FIXED (round 5)
+- Fixed empty-string SelectItem → value="all" sentinel; guarded null dates in promise/follow-up banners.
+- Checkpoint 45b1956e delivered; awaiting user confirmation.
 - server logCall procedure (ar.ts:4065): throws BAD_REQUEST if Confirmed without promisedDate, or Pending Follow-up without followUpDate. LogCallDialog sends promisedDate only `promisedDate ? ... : undefined` — if the user picks Confirmed but leaves the date empty → server error toast. Same for follow-up. LIKELY the visible "error".
 - ConfirmationBadgeButton (Customers.tsx:89): loads members via customers.list on click; defaultCustomerId = biggest openBalance member. Renders fine.
 - Cannot reproduce via browser: app requires Manus OAuth login of the user (sandbox browser lands on login wall). Must rely on code analysis + vitest.

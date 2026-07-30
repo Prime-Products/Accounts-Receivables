@@ -1154,7 +1154,7 @@
 - [x] Vitest coverage for the escalated status lifecycle
 
 ## Task watchers with avatar stack (user request 30/7)
-- [ ] Create visual mockup of avatar stack for user approval
+- [x] Create visual mockup of avatar stack for user approval
 - [ ] Add taskWatchers table (taskId, memberId)
 - [ ] Escalate form: multi-select watchers
 - [ ] Avatar stack on task cards and task dialog (initials, colored circles, +N counter)
@@ -1162,7 +1162,15 @@
 - [ ] Vitest coverage for watchers
 
 ## Log Call fixes & multi-call flow (user request 30/7)
-- [ ] Fix error when opening Log Call from the customer card
-- [ ] Clarify/propose flow for a second Log Call when an active communication task already exists
-- [ ] Decide behavior for third+ concurrent log calls
-- [ ] Document when a Log Call creates a task (group vs customer)
+- [x] Fix error when opening Log Call from the customer card (empty SelectItem value in company picker)
+- [x] Clarify/propose flow for a second Log Call when an active communication task already exists (proposal approved by user)
+- [x] Decide behavior for third+ concurrent log calls (same choice step every time; one active case per group)
+- [x] Document when a Log Call creates a task (group vs customer)
+
+## Active-communication choice step before Log Call (user request 30/7)
+- [x] When Log Call is clicked and an open promise/follow-up/escalated task exists, show a choice dialog first
+- [x] Choice dialog shows active communication summary (type, amount, due date)
+- [x] Option "Open the task" opens TaskDetailDialog for the active task
+- [x] Option "New log call" proceeds to the normal LogCallDialog
+- [x] If no active communication exists, Log Call opens directly (no extra step)
+- [x] Vitest coverage for the active-communication lookup endpoint
