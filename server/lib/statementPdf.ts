@@ -7,7 +7,7 @@
 import PDFDocument from "pdfkit";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { GroupStatement, CompanyStatement, fmtAmount, fmtDate } from "./statement";
+import { GroupStatement, CompanyStatement, buildGroupSummary, fmtAmount, fmtDate } from "./statement";
 
 const RED = "#C62828";
 const BLACK = "#111111";
@@ -60,6 +60,13 @@ export function buildStatementPdf(stmt: GroupStatement): Promise<Buffer> {
       doc.addPage();
       pageIndex++;
     };
+
+    // ---- consolidated group summary cover page (only for multi-company groups) ----
+    if (stmt.companies.length > 1) {
+      const start = pageIndex + 1;
+      renderCoverPage(doc, stmt, newPage);
+      pageRanges.push({ name: `${stmt.groupName} — Summary`, start, end: pageIndex });
+    }
 
     for (const company of stmt.companies) {
       const start = pageIndex + 1;
@@ -236,6 +243,102 @@ function drawTableHeader(doc: PDFKit.PDFDocument, y: number, cols: number[], hea
 
 function hline(doc: PDFKit.PDFDocument, y: number, color: string, w: number) {
   doc.moveTo(M, y).lineTo(PW - M, y).strokeColor(color).lineWidth(w).stroke();
+}
+
+// Currency box palette: [bg, accent] — EUR blue, AED amber, USD/SGD green, fallback gray
+const CUR_COLORS: Record<string, [string, string]> = {
+  EUR: ["#EBF2FA", "#1A56A0"],
+  AED: ["#FDF6E3", "#8B6914"],
+  SGD: ["#EAF6EE", "#1E7A3C"],
+  USD: ["#EAF6EE", "#1E7A3C"],
+};
+
+function renderCoverPage(doc: PDFKit.PDFDocument, stmt: GroupStatement, newPage: () => void) {
+  const summary = buildGroupSummary(stmt);
+  newPage();
+
+  // header: left = red kicker + group name; right = brand block
+  doc.font(FONT_BOLD).fontSize(13).fillColor(GRAY).text("STATEMENT OF ACCOUNT", PW - M - 220, M, { width: 220, align: "right" });
+  doc.font(FONT_BOLD).fontSize(11).fillColor("#1A56A0").text("PRIME PRODUCTS LTD", PW - M - 220, M + 16, { width: 220, align: "right" });
+  doc.font(FONT).fontSize(7.5).fillColor(GRAY).text("Industrial Safety Products Representation & Distribution", PW - M - 220, M + 30, { width: 220, align: "right" });
+
+  doc.font(FONT_BOLD).fontSize(12).fillColor(RED).text("GROUP CONSOLIDATED SUMMARY", M, M);
+  doc.font(FONT_BOLD).fontSize(19).fillColor(BLACK);
+  const nameH = doc.heightOfString(stmt.groupName.toUpperCase(), { width: CW - 240 });
+  doc.text(stmt.groupName.toUpperCase(), M, M + 16, { width: CW - 240 });
+  let y = M + 16 + nameH + 4;
+  doc.font(FONT_BOLD).fontSize(9).fillColor(BLACK).text("Date: ", M, y, { continued: true });
+  doc.font(FONT).text(fmtDate(stmt.date), { continued: true });
+  doc.font(FONT_BOLD).text("   |   Total Companies: ", { continued: true });
+  doc.font(FONT).text(String(stmt.companies.length));
+  y += 16;
+  hline(doc, y, LINE, 1.2);
+  y += 16;
+
+  // ---- currency total boxes ----
+  doc.font(FONT_BOLD).fontSize(11).fillColor(GRAY).text("CONSOLIDATED GROUP EXPOSURE", M, y);
+  y += 18;
+  const boxes = summary.currencies;
+  const gap = 10;
+  const boxW = Math.min(170, (CW - gap * Math.max(boxes.length - 1, 0)) / Math.max(boxes.length, 1));
+  const boxH = 58;
+  let bx = M;
+  for (const c of boxes) {
+    const [bg, accent] = CUR_COLORS[c.currency] ?? ["#F2F2F2", "#555555"];
+    doc.roundedRect(bx, y, boxW, boxH, 4).fill(bg);
+    doc.font(FONT).fontSize(7.5).fillColor(GRAY).text(`TOTAL BALANCE (${c.currency})`, bx, y + 8, { width: boxW, align: "center" });
+    doc.font(FONT_BOLD).fontSize(13).fillColor(accent).text(`${c.symbol} ${fmtAmount(c.balance)}`, bx, y + 20, { width: boxW, align: "center" });
+    doc.font(FONT).fontSize(7.5).fillColor(GRAY).text(`Overdue: ${fmtAmount(c.overdue)}`, bx, y + 40, { width: boxW, align: "center" });
+    bx += boxW + gap;
+  }
+  y += boxH + 20;
+
+  // ---- company index table ----
+  doc.font(FONT_BOLD).fontSize(11).fillColor(GRAY).text("COMPANY BREAKDOWN INDEX", M, y);
+  y += 16;
+  const curs = summary.currencies.map(c => c.currency);
+  const nameW = Math.max(150, CW - curs.length * 80 - 80);
+  const colW = (CW - nameW - 80) / Math.max(curs.length, 1);
+  const headers = ["Company", ...curs.map(c => `${c} Balance`), "Overdue"];
+  const widths = [nameW, ...curs.map(() => colW), 80];
+  doc.font(FONT_BOLD).fontSize(8).fillColor(BLACK);
+  hline(doc, y, LINE, 1);
+  let hx = M;
+  headers.forEach((h, i) => {
+    doc.text(h, hx + 2, y + 4, { width: widths[i] - 4, align: i === 0 ? "left" : "right" });
+    hx += widths[i];
+  });
+  y += 17;
+  hline(doc, y, LINE, 0.8);
+  let zebra = false;
+  for (const row of summary.companies) {
+    doc.font(FONT_BOLD).fontSize(7.5);
+    const rowNameH = doc.heightOfString(row.companyName.toUpperCase(), { width: nameW - 4 });
+    const rowH = Math.max(16, rowNameH + 8);
+    if (y + rowH > 780) {
+      newPage();
+      y = M + 10;
+      zebra = false;
+    }
+    if (zebra) doc.rect(M, y, CW, rowH).fill(ZEBRA);
+    zebra = !zebra;
+    doc.font(FONT_BOLD).fontSize(7.5).fillColor(BLACK);
+    doc.text(row.companyName.toUpperCase(), M + 2, y + 4, { width: nameW - 4 });
+    let cx = M + nameW;
+    doc.font(FONT).fontSize(8);
+    for (const cur of curs) {
+      const v = row.balances.get(cur) ?? 0;
+      doc.text(v === 0 ? "—" : fmtAmount(v), cx, y + 4, { width: colW - 6, align: "right" });
+      cx += colW;
+    }
+    // overdue column: amounts differ per currency — list non-zero ones
+    const odParts = curs.filter(c => (row.overdue.get(c) ?? 0) !== 0).map(c => fmtAmount(row.overdue.get(c)!));
+    doc.fillColor(odParts.length ? RED : GRAY).font(odParts.length ? FONT_BOLD : FONT).fontSize(7.5);
+    doc.text(odParts.length ? odParts.join(" / ") : "—", cx, y + 4, { width: 80 - 6, align: "right" });
+    doc.fillColor(BLACK);
+    y += rowH;
+    hline(doc, y, "#DDDDDD", 0.4);
+  }
 }
 
 function ensureSpace(doc: PDFKit.PDFDocument, needed: number, newPage: () => void) {

@@ -131,3 +131,13 @@ Remaining minor overlaps seen:
 - Header: "30 days Credit / Πίστωση 30 ημερών" wraps but rule line moves below it — no overlap.
 - TOTAL AMOUNTS: "PRIME PRODUCTS DISTRIBUTION(S) PTE LTD" 2-line row gets taller row height — no overlap.
 - ANALYSIS headers (Doc. Amount / Open Doc. Amount 2-line) have clearance; branch name wraps cleanly above table.
+
+## Cover page verification (DYNACOM, 37 companies, 40 pages)
+- Page 1: GROUP CONSOLIDATED SUMMARY red kicker + DYNACOM big title; right brand block
+  (STATEMENT OF ACCOUNT gray / PRIME PRODUCTS LTD blue / tagline). Date + Total Companies: 37.
+- 3 currency boxes: EUR blue (€281.145,68 / Overdue 179.691,00), AED amber, SGD green. ✔
+- COMPANY BREAKDOWN INDEX: zebra rows, dashes for zeros, red bold Overdue col (multi-currency
+  values joined with " / ", e.g. HALKI "9.505,27 / 1.111,10"). Continues to page 2 cleanly. ✔
+- Footer "DYNACOM — Summary — Page 1 of 2" on cover pages; company statements start page 3,
+  each on fresh page with own footer numbering. ✔
+- MINERVA small group: 8 pages (1 cover + 7). Single-company statements skip cover (len>1 check).

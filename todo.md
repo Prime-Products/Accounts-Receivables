@@ -1206,3 +1206,8 @@
 ## Bug: SOA PDF blank pages (user report 31/7)
 - [x] Fix pagination in statement PDF — remove blank pages and bad table breaks
 - [x] Fix text overlapping table lines: branch display name wrapping onto header line, two-line column headers touching rule line
+
+## SOA cover page (user request 31/7)
+- [x] Consolidated group summary cover page: currency total boxes (balance + overdue per currency)
+- [x] Master company index on cover: company rows with per-currency balances, overdue column, dash for zeros
+- [x] Each company statement starts on a new page after the cover

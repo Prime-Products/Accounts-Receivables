@@ -146,6 +146,52 @@ export interface GroupStatement {
   companies: CompanyStatement[];
 }
 
+export interface CurrencyTotal {
+  currency: string; // "EUR"
+  symbol: string; // "€"
+  balance: number;
+  overdue: number;
+}
+
+export interface CompanyIndexRow {
+  companyName: string;
+  /** currency → open balance */
+  balances: Map<string, number>;
+  /** currency → overdue amount */
+  overdue: Map<string, number>;
+}
+
+export interface GroupSummary {
+  /** ordered list of currencies present in the group */
+  currencies: CurrencyTotal[];
+  companies: CompanyIndexRow[];
+}
+
+/** Derive the consolidated cover-page summary from a built statement. */
+export function buildGroupSummary(stmt: GroupStatement): GroupSummary {
+  const currencyOrder: string[] = [];
+  const totals = new Map<string, CurrencyTotal>();
+  const companies: CompanyIndexRow[] = [];
+  for (const c of stmt.companies) {
+    const balances = new Map<string, number>();
+    const overdue = new Map<string, number>();
+    for (const t of c.totals) {
+      const cur = t.branch.currency;
+      if (!totals.has(cur)) {
+        totals.set(cur, { currency: cur, symbol: t.branch.currencySymbol, balance: 0, overdue: 0 });
+        currencyOrder.push(cur);
+      }
+      const agg = totals.get(cur)!;
+      agg.balance += t.balance;
+      agg.overdue += t.overdue;
+      balances.set(cur, (balances.get(cur) ?? 0) + t.balance);
+      if (t.overdue !== 0) overdue.set(cur, (overdue.get(cur) ?? 0) + t.overdue);
+    }
+    companies.push({ companyName: c.companyName, balances, overdue });
+  }
+  return { currencies: currencyOrder.map(c => totals.get(c)!), companies };
+}
+
 /** dd/mm/yyyy */
 export function fmtDate(ts: number): string {
   const d = new Date(ts);
