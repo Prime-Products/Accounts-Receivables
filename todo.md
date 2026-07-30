@@ -1155,11 +1155,12 @@
 
 ## Task watchers with avatar stack (user request 30/7)
 - [x] Create visual mockup of avatar stack for user approval
-- [ ] Add taskWatchers table (taskId, memberId)
-- [ ] Escalate form: multi-select watchers
-- [ ] Avatar stack on task cards and task dialog (initials, colored circles, +N counter)
-- [ ] Manage watchers from task dialog (add/remove)
-- [ ] Vitest coverage for watchers
+- [x] Add taskWatchers table (taskId, memberId)
+- [x] Escalate form: multi-select watchers
+- [x] Avatar stack on task cards and task dialog (initials, colored circles, +N counter)
+- [x] Manage watchers from task dialog (add/remove)
+- [x] Vitest coverage for watchers
+- [x] Watchers carried over when escalated task rolls into a new task
 
 ## Log Call fixes & multi-call flow (user request 30/7)
 - [x] Fix error when opening Log Call from the customer card (empty SelectItem value in company picker)

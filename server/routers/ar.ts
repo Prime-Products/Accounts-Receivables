@@ -2627,6 +2627,13 @@ export const tasksRouter = router({
         db.listAllTaskInvoices(),
         db.listUsers().catch(() => [] as any[]),
       ]);
+      const allWatchers = await db.listWatchersForTasks(rows.map(t => t.id));
+      const watchersByTask = new Map<number, { memberId: number; name: string; title: string | null }[]>();
+      for (const w of allWatchers) {
+        const arr = watchersByTask.get(w.taskId) ?? [];
+        arr.push({ memberId: w.memberId, name: w.name, title: w.title });
+        watchersByTask.set(w.taskId, arr);
+      }
       const byId = new Map(customers.map(c => [c.id, c]));
       const invById = new Map(invoices.map(i => [i.id, i]));
       const promById = new Map(allPromises.map(p => [p.id, p]));
@@ -2664,6 +2671,7 @@ export const tasksRouter = router({
           creatorName: t.assignedTo ? ((userById.get(t.assignedTo) as any)?.name ?? null) : null,
           createdByMe: t.assignedTo === ctx.user.id,
           attachedInvoices,
+          watchers: watchersByTask.get(t.id) ?? [],
           promiseId: promise?.id,
           promise: promise
             ? { id: promise.id, promisedDate: promise.promisedDate, amount: promise.amount, status: promise.status, notes: promise.notes }
@@ -2675,6 +2683,28 @@ export const tasksRouter = router({
   comments: protectedProcedure
     .input(z.object({ taskId: z.number() }))
     .query(async ({ input }) => db.listTaskComments(input.taskId)),
+  /** Watchers — team members following a task's progress (avatar stack). */
+  watchers: protectedProcedure
+    .input(z.object({ taskId: z.number() }))
+    .query(async ({ input }) => db.listTaskWatchers(input.taskId)),
+  addWatcher: protectedProcedure
+    .input(z.object({ taskId: z.number(), memberId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const task = await db.getTask(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      const member = await db.getTeamMemberById(input.memberId);
+      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+      const id = await db.addTaskWatcher(input.taskId, input.memberId);
+      await audit(ctx, "Add Watcher", "task", input.taskId, `${member.name} now watches "${task.title}"`);
+      return { id };
+    }),
+  removeWatcher: protectedProcedure
+    .input(z.object({ taskId: z.number(), memberId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await db.removeTaskWatcher(input.taskId, input.memberId);
+      await audit(ctx, "Remove Watcher", "task", input.taskId, `Watcher #${input.memberId} removed`);
+      return { ok: true };
+    }),
   addComment: protectedProcedure
     .input(z.object({ taskId: z.number(), body: z.string().min(1).max(4000) }))
     .mutation(async ({ ctx, input }) => {
@@ -2970,6 +3000,13 @@ export const tasksRouter = router({
         createdBy: ctx.user.id,
         createdAt: new Date(),
       }).catch(() => {});
+      // Carry the old task's watchers over to the new follow-up task (if one was created).
+      if (newTaskId) {
+        const oldWatchers = await db.listTaskWatchers(input.taskId).catch(() => []);
+        for (const w of oldWatchers) {
+          await db.addTaskWatcher(newTaskId, w.memberId).catch(() => {});
+        }
+      }
       await audit(ctx, "Create Next Task", "task", input.taskId, `${group}: next ${input.nextType} on ${new Date(input.date).toLocaleDateString("en-GB")}`);
       return { success: true, newPromiseId, newTaskId, group };
     }),
@@ -3055,6 +3092,8 @@ export const tasksRouter = router({
         taskId: z.number(),
         assigneeId: z.number().optional(),
         note: z.string().max(1000).optional(),
+        /** Team members who will watch the escalated task's progress (avatar stack). */
+        watcherIds: z.array(z.number()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -3103,6 +3142,17 @@ export const tasksRouter = router({
        type: task.type,
        assigneeId: targetId,
      } as any);
+
+      // Watchers: carry over the original task's watchers plus any newly picked ones.
+      const existingWatchers = await db.listTaskWatchers(input.taskId).catch(() => []);
+      const watcherIds = new Set<number>([
+        ...existingWatchers.map(w => w.memberId),
+        ...(input.watcherIds ?? []),
+      ]);
+      watcherIds.delete(targetId); // The assignee doesn't need to watch their own task
+      for (const memberId of Array.from(watcherIds)) {
+        await db.addTaskWatcher(newTaskId, memberId).catch(() => {});
+      }
 
      if (group) {
         // The group's communication status becomes "Escalated" — the badge now

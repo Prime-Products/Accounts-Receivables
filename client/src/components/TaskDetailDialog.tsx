@@ -6,9 +6,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
 import NextActionDialog from "@/components/NextActionDialog";
+import { WatcherStack, watcherColor, watcherInitials } from "@/components/WatcherStack";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, ArrowUpCircle, CalendarClock, CheckCircle2, FileText, HandCoins, ThumbsDown, ThumbsUp, User, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowUpCircle, CalendarClock, CheckCircle2, Eye, FileText, HandCoins, Plus, ThumbsDown, ThumbsUp, User, X, XCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -110,6 +112,8 @@ export default function TaskDetailDialog({
       setFuAssignee(null);
       setNextType("promise");
       setResolveAs(null);
+      setEscWatcherIds([]);
+      setWatcherPickerOpen(false);
     }
   }, [open]);
   const invalidateAll = () => {
@@ -144,6 +148,22 @@ export default function TaskDetailDialog({
     },
     onError: e => toast.error(e.message),
   });
+  // Watchers — team members following this task's progress
+  const [watcherPickerOpen, setWatcherPickerOpen] = useState(false);
+  const { data: teamMembers } = trpc.team.list.useQuery(undefined, { enabled: open });
+  const addWatcher = trpc.tasks.addWatcher.useMutation({
+    onSuccess: () => {
+      utils.tasks.list.invalidate();
+      setWatcherPickerOpen(false);
+    },
+    onError: e => toast.error(e.message),
+  });
+  const removeWatcher = trpc.tasks.removeWatcher.useMutation({
+    onSuccess: () => utils.tasks.list.invalidate(),
+    onError: e => toast.error(e.message),
+  });
+  // Watchers picked in the escalate form (applied to the NEW escalated task)
+  const [escWatcherIds, setEscWatcherIds] = useState<number[]>([]);
   const reschedule = trpc.tasks.reschedule.useMutation({
     onSuccess: r => {
       toast.success(`Due date updated${r.rescheduleCount > 0 ? ` — rescheduled ×${r.rescheduleCount}` : ""}`);
@@ -267,6 +287,72 @@ export default function TaskDetailDialog({
                     value={task.assigneeId ?? null}
                     onChange={id => assignTask.mutate({ id: task.id, assigneeId: id })}
                   />
+                </div>
+                <div className="col-span-2">
+                  <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                    <Eye className="h-3 w-3" /> Watchers
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <WatcherStack watchers={((task as any).watchers ?? []) as any} max={5} size="md" />
+                    <Popover open={watcherPickerOpen} onOpenChange={setWatcherPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-8 w-8 p-0 rounded-full" title="Add watcher">
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-64 p-2" align="start">
+                        <div className="text-xs font-medium mb-1.5">Add a watcher</div>
+                        <div className="max-h-48 overflow-y-auto space-y-0.5">
+                          {(teamMembers ?? [])
+                            .filter(m => !((task as any).watchers ?? []).some((w: any) => w.memberId === m.id))
+                            .map(m => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted text-left"
+                                onClick={() => addWatcher.mutate({ taskId: task.id, memberId: m.id })}
+                              >
+                                <span
+                                  className="h-6 w-6 inline-flex items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                                  style={{ backgroundColor: watcherColor(m.name) }}
+                                >
+                                  {watcherInitials(m.name)}
+                                </span>
+                                <span className="truncate">{m.name}</span>
+                                {m.title && <span className="text-xs text-muted-foreground truncate ml-auto">{m.title}</span>}
+                              </button>
+                            ))}
+                          {(teamMembers ?? []).filter(m => !((task as any).watchers ?? []).some((w: any) => w.memberId === m.id)).length === 0 && (
+                            <div className="text-xs text-muted-foreground px-2 py-1.5">Everyone is already watching.</div>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  {((task as any).watchers ?? []).length > 0 && (
+                    <div className="mt-1.5 space-y-0.5">
+                      {((task as any).watchers ?? []).map((w: any) => (
+                        <div key={w.memberId} className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span
+                            className="h-4 w-4 inline-flex items-center justify-center rounded-full text-[8px] font-semibold text-white shrink-0"
+                            style={{ backgroundColor: watcherColor(w.name) }}
+                          >
+                            {watcherInitials(w.name)}
+                          </span>
+                          <span className="truncate">{w.name}</span>
+                          {w.title && <span className="truncate">— {w.title}</span>}
+                          <button
+                            type="button"
+                            className="ml-auto hover:text-destructive"
+                            title="Remove watcher"
+                            onClick={() => removeWatcher.mutate({ taskId: task.id, memberId: w.memberId })}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {task.invoiceNumber && (
                   <div>
@@ -515,6 +601,30 @@ export default function TaskDetailDialog({
                            <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
                          </div>
                          <div className="grid gap-1">
+                           <Label className="text-xs">Watchers (optional — they follow the escalated task)</Label>
+                           <div className="flex flex-wrap gap-1">
+                             {(teamMembers ?? []).map(m => {
+                               const selected = escWatcherIds.includes(m.id);
+                               return (
+                                 <button
+                                   key={m.id}
+                                   type="button"
+                                   className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${selected ? "border-transparent text-white" : "bg-white hover:bg-muted"}`}
+                                   style={selected ? { backgroundColor: watcherColor(m.name) } : undefined}
+                                   onClick={() =>
+                                     setEscWatcherIds(prev =>
+                                       prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id]
+                                     )
+                                   }
+                                 >
+                                   {selected && <CheckCircle2 className="h-3 w-3" />}
+                                   {m.name}
+                                 </button>
+                               );
+                             })}
+                           </div>
+                         </div>
+                         <div className="grid gap-1">
                            <Label htmlFor="pr-es-note" className="text-xs">Note (optional)</Label>
                            <Textarea id="pr-es-note" rows={2} className="bg-white text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} placeholder="e.g. promise broken twice — needs manager attention" />
                          </div>
@@ -532,6 +642,7 @@ export default function TaskDetailDialog({
                                  taskId: task.id,
                                  assigneeId: fuAssignee ?? undefined,
                                  note: fuNotes || undefined,
+                                 watcherIds: escWatcherIds.length > 0 ? escWatcherIds : undefined,
                                })
                              }
                            >
@@ -747,6 +858,30 @@ export default function TaskDetailDialog({
                           <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
                         </div>
                         <div className="grid gap-1">
+                          <Label className="text-xs">Watchers (optional — they follow the escalated task)</Label>
+                          <div className="flex flex-wrap gap-1">
+                            {(teamMembers ?? []).map(m => {
+                              const selected = escWatcherIds.includes(m.id);
+                              return (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${selected ? "border-transparent text-white" : "bg-white hover:bg-muted"}`}
+                                  style={selected ? { backgroundColor: watcherColor(m.name) } : undefined}
+                                  onClick={() =>
+                                    setEscWatcherIds(prev =>
+                                      prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id]
+                                    )
+                                  }
+                                >
+                                  {selected && <CheckCircle2 className="h-3 w-3" />}
+                                  {m.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="grid gap-1">
                           <Label htmlFor="fu-es-note" className="text-xs">Note (optional)</Label>
                           <Textarea id="fu-es-note" rows={2} className="bg-white text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} placeholder="e.g. customer unresponsive after 3 calls" />
                         </div>
@@ -764,6 +899,7 @@ export default function TaskDetailDialog({
                                 taskId: task.id,
                                 assigneeId: fuAssignee ?? undefined,
                                 note: fuNotes || undefined,
+                                watcherIds: escWatcherIds.length > 0 ? escWatcherIds : undefined,
                               })
                             }
                           >

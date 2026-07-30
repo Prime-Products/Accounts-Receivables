@@ -235,6 +235,17 @@ export const taskInvoices = mysqlTable("task_invoices", {
 export type TaskInvoice = typeof taskInvoices.$inferSelect;
 export type InsertTaskInvoice = typeof taskInvoices.$inferInsert;
 
+/** Team members watching a task's progress — shown as an avatar stack on the task. */
+export const taskWatchers = mysqlTable("task_watchers", {
+  id: int("id").autoincrement().primaryKey(),
+  taskId: int("taskId").notNull(),
+  /** team_members.id of the watcher. */
+  memberId: int("memberId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [index("idx_task_watchers_taskId").on(t.taskId)]);
+export type TaskWatcher = typeof taskWatchers.$inferSelect;
+export type InsertTaskWatcher = typeof taskWatchers.$inferInsert;
+
 export const onHoldStatuses = ["Under Review", "Eligible for On Hold", "On Hold", "Legal", "Rejected", "Resolved"] as const;
 
 export const onHoldProposals = mysqlTable("on_hold_proposals", {

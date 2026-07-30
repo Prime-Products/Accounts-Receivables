@@ -35,6 +35,7 @@ import {
   tasks,
   taskComments,
   taskInvoices,
+  taskWatchers,
   userProfiles,
   users,
 } from "../drizzle/schema";
@@ -419,6 +420,59 @@ export async function addTaskComment(data: { taskId: number; authorId?: number |
 export async function deleteTaskComment(id: number) {
   const db = await requireDb();
   await db.delete(taskComments).where(eq(taskComments.id, id));
+}
+
+// ---------- Task watchers (avatar stack) ----------
+export async function listTaskWatchers(taskId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: taskWatchers.id,
+      taskId: taskWatchers.taskId,
+      memberId: taskWatchers.memberId,
+      name: teamMembers.name,
+      title: teamMembers.title,
+    })
+    .from(taskWatchers)
+    .innerJoin(teamMembers, eq(taskWatchers.memberId, teamMembers.id))
+    .where(eq(taskWatchers.taskId, taskId))
+    .orderBy(taskWatchers.createdAt);
+}
+
+export async function listWatchersForTasks(taskIds: number[]) {
+  if (taskIds.length === 0) return [];
+  const db = await requireDb();
+  return db
+    .select({
+      id: taskWatchers.id,
+      taskId: taskWatchers.taskId,
+      memberId: taskWatchers.memberId,
+      name: teamMembers.name,
+      title: teamMembers.title,
+    })
+    .from(taskWatchers)
+    .innerJoin(teamMembers, eq(taskWatchers.memberId, teamMembers.id))
+    .where(inArray(taskWatchers.taskId, taskIds))
+    .orderBy(taskWatchers.createdAt);
+}
+
+export async function addTaskWatcher(taskId: number, memberId: number) {
+  const db = await requireDb();
+  // Avoid duplicates
+  const existing = await db
+    .select({ id: taskWatchers.id })
+    .from(taskWatchers)
+    .where(and(eq(taskWatchers.taskId, taskId), eq(taskWatchers.memberId, memberId)));
+  if (existing.length > 0) return existing[0].id;
+  const res = await db.insert(taskWatchers).values({ taskId, memberId });
+  return Number((res as any)[0].insertId);
+}
+
+export async function removeTaskWatcher(taskId: number, memberId: number) {
+  const db = await requireDb();
+  await db
+    .delete(taskWatchers)
+    .where(and(eq(taskWatchers.taskId, taskId), eq(taskWatchers.memberId, memberId)));
 }
 
 // ---------- Task ↔ invoice attachments ----------
