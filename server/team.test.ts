@@ -3,6 +3,18 @@ import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import { appRouter } from "./routers";
 import * as db from "./db";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 function makeCtx() {
   return {
     user: { id: 1, openId: "test-open-id", name: "Test User", role: "admin" as const },
@@ -42,9 +54,7 @@ describe("team members", () => {
   it("assigns and re-assigns an account manager on a customer", async () => {
     const m1 = await caller.team.create({ name: `TM Mgr1 ${suffix}` });
     const m2 = await caller.team.create({ name: `TM Mgr2 ${suffix}` });
-    const customers = await db.listCustomers();
-    expect(customers.length).toBeGreaterThan(0);
-    const cust = customers[0];
+    const cust = await getFixtureCustomer();
 
     // assign
     const r1 = await caller.customers.setAccountManager({ customerId: cust.id, managerId: m1.id });
@@ -87,8 +97,7 @@ describe("team members", () => {
   it("creates a task with an assignee and re-assigns it", async () => {
     const m1 = await caller.team.create({ name: `TM Task1 ${suffix}` });
     const m2 = await caller.team.create({ name: `TM Task2 ${suffix}` });
-    const customers = await db.listCustomers();
-    const cust = customers[0];
+    const cust = await getFixtureCustomer();
 
     const task = await caller.tasks.create({
       customerId: cust.id,

@@ -3,6 +3,18 @@ import { appRouter } from "./routers";
 import * as db from "./db";
 import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 function makeCaller() {
   return appRouter.createCaller({
     user: { id: 1, openId: "test", name: "Test User", email: "t@t.t", role: "admin" as const },
@@ -20,8 +32,7 @@ afterAll(async () => {
 describe("follow-up task actions", () => {
   it("logCall accepts Promise to Pay without an amount (date still mandatory)", async () => {
     const caller = makeCaller();
-    const customers = await db.listCustomers();
-    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const cust = await getFixtureCustomer();
     expect(cust).toBeTruthy();
     const group = (cust!.customerGroup ?? "").trim() || cust!.name;
 
@@ -60,8 +71,7 @@ describe("follow-up task actions", () => {
   it("converts a follow-up task to a Promise to Pay (new task, status change, old task cancelled)", async () => {
     const caller = makeCaller();
     // Pick a real group with customers
-    const customers = await db.listCustomers();
-    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const cust = await getFixtureCustomer();
     expect(cust).toBeTruthy();
     const group = (cust!.customerGroup ?? "").trim() || cust!.name;
 
@@ -105,8 +115,7 @@ describe("follow-up task actions", () => {
 
   it("rejects converting a non-follow-up task", async () => {
     const caller = makeCaller();
-    const customers = await db.listCustomers();
-    const cust = customers[0];
+    const cust = await getFixtureCustomer();
     const taskId = await db.createTask({
       customerId: cust.id,
       type: "Manual",
@@ -127,8 +136,7 @@ describe("follow-up task actions", () => {
 
   it("escalates a follow-up task to a chosen team member", async () => {
     const caller = makeCaller();
-    const customers = await db.listCustomers();
-    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const cust = await getFixtureCustomer();
     const group = (cust!.customerGroup ?? "").trim() || cust!.name;
 
     await caller.calls.updateConfirmationStatus({
@@ -159,8 +167,7 @@ describe("follow-up task actions", () => {
 
   it("reschedules an open promise from its check task (new date/amount, badge in sync)", async () => {
     const caller = makeCaller();
-    const customers = await db.listCustomers();
-    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const cust = await getFixtureCustomer();
     const group = (cust!.customerGroup ?? "").trim() || cust!.name;
 
     // Create a promise via a confirmed call
@@ -174,10 +181,7 @@ describe("follow-up task actions", () => {
     const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
     const promises = await db.listPromises({ status: "Pending" });
     const promise = promises
-      .filter(p => {
-        const c = customers.find(cc => cc.id === p.customerId);
-        return c && (((c.customerGroup ?? "").trim() || c.name) === group);
-      })
+      .filter(p => p.customerId === cust.id)
       .sort((a, b) => b.id - a.id)[0];
     expect(promise).toBeTruthy();
     const ptpTask = openTasks.find(t => t.description?.includes(`(Promise #${promise.id})`));
@@ -212,8 +216,7 @@ describe("follow-up task actions", () => {
 
   it("rolls a promise task into the next follow-up (createNextTask): promise resolved, old task cancelled, new follow-up created", async () => {
     const caller = makeCaller();
-    const customers = await db.listCustomers();
-    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const cust = await getFixtureCustomer();
     const group = (cust!.customerGroup ?? "").trim() || cust!.name;
 
     // Create a promise via a confirmed call
@@ -226,10 +229,7 @@ describe("follow-up task actions", () => {
     const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
     const promises = await db.listPromises({ status: "Pending" });
     const promise = promises
-      .filter(p => {
-        const c = customers.find(cc => cc.id === p.customerId);
-        return c && (((c.customerGroup ?? "").trim() || c.name) === group);
-      })
+      .filter(p => p.customerId === cust.id)
       .sort((a, b) => b.id - a.id)[0];
     expect(promise).toBeTruthy();
     const ptpTask = openTasks.find(t => t.description?.includes(`(Promise #${promise.id})`));
@@ -263,8 +263,7 @@ describe("follow-up task actions", () => {
 
   it("rolls a follow-up task into the next promise (createNextTask): old task cancelled, new promise + check task created", async () => {
     const caller = makeCaller();
-    const customers = await db.listCustomers();
-    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const cust = await getFixtureCustomer();
     const group = (cust!.customerGroup ?? "").trim() || cust!.name;
 
     await caller.calls.updateConfirmationStatus({

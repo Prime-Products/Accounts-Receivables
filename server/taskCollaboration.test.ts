@@ -2,6 +2,18 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import * as db from "./db";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 /**
  * Internal collaboration via tasks:
  * - tasks can carry attached invoices (task_invoices)
@@ -43,8 +55,8 @@ describe("task collaboration", () => {
   });
 
   it("adds and lists comments on a task", async () => {
-    const customers = await db.listCustomers();
-    if (customers.length === 0) return;
+    const __fxc = await getFixtureCustomer();
+    const customers = [__fxc];
 
     const taskId = await db.createTask({
       customerId: customers[0].id,

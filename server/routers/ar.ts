@@ -2627,13 +2627,57 @@ export const tasksRouter = router({
       return { success: true };
     }),
   updateStatus: protectedProcedure
-    .input(z.object({ id: z.number(), status: z.enum(taskStatuses), completionNotes: z.string().optional() }))
-    .mutation(async ({ ctx, input }) => {
+   .input(z.object({ id: z.number(), status: z.enum(taskStatuses), completionNotes: z.string().optional() }))
+   .mutation(async ({ ctx, input }) => {
+      const existing = await db.getTask(input.id);
       await db.updateTask(input.id, {
         status: input.status,
         completionNotes: input.completionNotes,
         completedAt: input.status === "Completed" ? Date.now() : undefined,
       });
+      // Keep the group's confirmation badge in sync: cancelling/completing the linked
+      // auto-task must not leave a stale "Pending Follow-up" / "Promise to Pay" badge
+      // with no open task behind it (badge click would have nothing to open).
+      if ((input.status === "Cancelled" || input.status === "Completed") && existing?.description) {
+        const followUpMatch = existing.description.match(/\(Follow-up: (.+?)\)/);
+        const promiseMatch = existing.description.match(/\(Promise #(\d+)\)/);
+        let group: string | null = followUpMatch?.[1] ?? null;
+        if (!group && promiseMatch && existing.customerId) {
+          const cust = await db.getCustomer(existing.customerId);
+          if (cust) group = (cust.customerGroup ?? "").trim() || cust.name;
+        }
+        if (group) {
+          const conf = await db.getGroupConfirmationStatus(group);
+          const stale =
+            (followUpMatch && conf?.status === "Pending Follow-up") ||
+            (promiseMatch && conf?.status === "Confirmed");
+          if (stale) {
+            // Cancelling an open promise's check task also breaks the promise cycle.
+            if (promiseMatch && input.status === "Cancelled") {
+              const promise = await db.getPromise(Number(promiseMatch[1]));
+              if (promise && promise.status === "Pending") {
+                await db.updatePromise(promise.id, { status: "Broken" });
+                await audit(ctx, "Promise Broken", "promiseToPay", promise.id, "Linked check task cancelled");
+              }
+            }
+            await db.upsertGroupConfirmationStatus(group, {
+              status: input.status === "Completed" && promiseMatch ? "Kept" : "Not Contacted",
+              amount: "0.00",
+              followUpDate: null,
+              updatedBy: ctx.user.id,
+            });
+            await db.addActivityLog({
+              groupName: group,
+              customerId: existing.customerId ?? undefined,
+              activityType: "status_change",
+              title: `Status reset — linked task ${input.status.toLowerCase()}`,
+              description: `Task #${input.id} was ${input.status.toLowerCase()}; the group's confirmation status was updated so the badge stays consistent.`,
+              createdBy: ctx.user.id,
+              createdAt: new Date(),
+            }).catch(() => {});
+          }
+        }
+      }
       await audit(ctx, `Task ${input.status}`, "task", input.id, input.completionNotes);
       return { success: true };
     }),
@@ -3878,6 +3922,53 @@ export const callsRouter = router({
       };
 
       return suggestNextAction(actionInput);
+    }),
+
+  /**
+   * Fix a stale task-backed badge: if the group's status is "Pending Follow-up" or
+   * "Confirmed" (Promise to Pay) but no open linked task exists any more (it was
+   * cancelled/closed through another path), reset the status to Not Contacted so the
+   * badge stops pointing at nothing. No-op when an open linked task is found.
+   */
+  resetStaleConfirmation: protectedProcedure
+    .input(z.object({ group: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const conf = await db.getGroupConfirmationStatus(input.group);
+      if (!conf || (conf.status !== "Pending Follow-up" && conf.status !== "Confirmed")) {
+        return { reset: false };
+      }
+      const allTasks = await db.listTasks({});
+      const open = allTasks.filter(t => t.status === "Pending" || t.status === "In Progress");
+      let hasOpenLinked = false;
+      if (conf.status === "Pending Follow-up") {
+        hasOpenLinked = open.some(t => t.description?.includes(`(Follow-up: ${input.group})`));
+      } else {
+        // Confirmed → any open promise-check task for one of the group's customers.
+        const customers = await db.listCustomers();
+        const memberIds = new Set(
+          customers.filter(c => (((c.customerGroup ?? "").trim() || c.name) === input.group)).map(c => c.id)
+        );
+        hasOpenLinked = open.some(
+          t => t.customerId != null && memberIds.has(t.customerId) && /\(Promise #\d+\)/.test(t.description ?? "")
+        );
+      }
+      if (hasOpenLinked) return { reset: false };
+      await db.upsertGroupConfirmationStatus(input.group, {
+        status: "Not Contacted",
+        amount: "0.00",
+        followUpDate: null,
+        updatedBy: ctx.user.id,
+      });
+      await db.addActivityLog({
+        groupName: input.group,
+        activityType: "status_change",
+        title: "Stale status reset",
+        description: `"${conf.status}" had no open linked task — status reset to Not Contacted.`,
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      }).catch(() => {});
+      await audit(ctx, "Reset Stale Confirmation", "group", input.group, `${conf.status} → Not Contacted`);
+      return { reset: true };
     }),
 
   sendGroupEmail: protectedProcedure

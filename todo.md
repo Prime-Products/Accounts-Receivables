@@ -1067,3 +1067,16 @@
 - [x] Pending Follow-up tasks: keep the card-style panel (Reschedule, Convert to Promise to Pay, Escalate, Done — schedule next step)
 - [x] Consistent visual style: icon cards with title + description, matching the reference screenshot
 - [x] Tasks page now uses the shared TaskDetailDialog (removed the old inline dialog that had no action panels)
+
+## Badge click / status sync flow (user request 30/7)
+- [x] Groups list badge (Promise to Pay / Pending Follow-up) must ALWAYS open the linked task — never the Log Call dialog directly
+- [x] Handle stale statuses: if the linked task is cancelled/closed but the status still says Pending Follow-up (e.g. MINERVA), fix the linkage or reset the status so the badge behaves consistently (resetStaleConfirmation mutation + auto-reset when a linked task is cancelled)
+- [x] Log Call should only be triggered from resolving a task as Kept or Not paid (the "Done — schedule next step" flow), not from the badge
+- [x] When a task is resolved Kept → group confirmation status becomes Kept; Not paid → Broken (automatic sync via updatePromise)
+
+## Test-isolation incident & recovery (30/7)
+- [x] Data recovery: rebuilt tasks + promises_to_pay from the audit trail after a faulty test cleanup wiped them (open tasks, statuses, amounts restored; activity log history not recoverable)
+- [x] Root-cause fix 1: guarded snapshot cleanup (no deletes when snapshot is unset)
+- [x] Root-cause fix 2: server/testFixtures.ts — all DB-mutating tests now create their own isolated fixture customers instead of touching real customers/groups (10 test files migrated)
+- [x] Fixture visibility: invalidate the customers micro-cache when fixtures are created/removed
+- [x] Full suite green (232 tests) with real data verified unchanged after the run
