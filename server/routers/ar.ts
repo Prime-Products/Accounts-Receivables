@@ -3400,7 +3400,7 @@ export const reportsRouter = router({
               outOrig: outstandingOriginal(i).toFixed(2),
               out: outstanding(i).toFixed(2),
               days: d,
-              bucket: d <= 30 ? "0-30" : d <= 60 ? "31-60" : d <= 90 ? "61-90" : d <= 120 ? "91-120" : "120+",
+              bucket: d <= 30 ? "0-30" : d <= 60 ? "31-60" : d <= 90 ? "61-90" : d < 120 ? "91-119" : "120+",
             };
           }),
         };
