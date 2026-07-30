@@ -103,7 +103,7 @@ function isConfirmationStale(
   // Closed outcomes ("Kept" / "Broken") show for the rest of the month, then
   // reset to Not Contacted when a new month starts.
   if (status === "Kept" || status === "Broken") return isFromPreviousMonth(updatedAt ?? null, now);
-  // Active statuses (Confirmed, Pending Follow-up) persist until explicitly
+  // Active statuses (Confirmed, Pending Follow-up, Escalated) persist until explicitly
   // changed by a human — no date-based auto-reset, no monthly reset.
   return false;
 }
@@ -589,6 +589,21 @@ export const customersRouter = router({
       const pm = t.description?.match(/\(Promise #(\d+)\)/);
       if (pm && !promiseTaskByPromiseId.has(Number(pm[1]))) promiseTaskByPromiseId.set(Number(pm[1]), { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
     }
+    // Escalated badge → the open "Escalated: ..." task, mapped by the copied
+    // "(Follow-up: <group>)" marker or by the task's customer group.
+    const escalatedTaskByGroup = new Map<string, { id: number; status: string; dueDate: number | null }>();
+    {
+      const openEscalated = (await db.listTasks({ statuses: ["Pending", "In Progress"] })).filter(t => t.title.startsWith("Escalated:"));
+      for (const t of openEscalated) {
+        const fm = t.description?.match(/\(Follow-up: (.+?)\)/);
+        let g = fm?.[1] ?? null;
+        if (!g && t.customerId) {
+          const c = customers.find(c => c.id === t.customerId);
+          if (c) g = (c.customerGroup ?? "").trim() || c.name;
+        }
+        if (g && !escalatedTaskByGroup.has(g)) escalatedTaskByGroup.set(g, { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
+      }
+    }
     const eom = endOfCurrentMonth();
     const collectedByCustomer = new Map<number, number>();
     for (const r of receipts) {
@@ -768,12 +783,14 @@ export const customersRouter = router({
             ? (followUpTaskByGroup.get(g.group) ?? null)
             : confStatus === "Confirmed"
               ? (openPromiseId !== null ? (promiseTaskByPromiseId.get(openPromiseId) ?? null) : null)
-              : null;
+              : confStatus === "Escalated"
+                ? (escalatedTaskByGroup.get(g.group) ?? null)
+                : null;
         const confirmationTaskId = confirmationTask?.id ?? null;
         // Red badge: the linked task is still open and past its due date.
         // Fallback: no linked open task found but the status target date has passed.
         const confirmationTaskOverdue =
-          (confStatus === "Pending Follow-up" || confStatus === "Confirmed") &&
+          (confStatus === "Pending Follow-up" || confStatus === "Confirmed" || confStatus === "Escalated") &&
           (confirmationTask
             ? isTaskOverdue(confirmationTask, now)
             : ((confirmation?.followUpDate ?? null) !== null && (confirmation!.followUpDate as number) < now));
@@ -2894,12 +2911,15 @@ export const tasksRouter = router({
         }
       }
 
-      // 2. Cancel the old task BEFORE creating the new one, so upsertFollowUpTask
-      //    does not "reuse" the task we are replacing.
-      await db.updateTask(input.taskId, {
-        status: "Cancelled",
-        completionNotes: `Rolled into a new ${input.nextType === "promise" ? "Promise to Pay" : "Pending Follow-up"} for ${new Date(input.date).toLocaleDateString("en-GB")}`,
-      });
+     // 2. Cancel the old task BEFORE creating the new one, so upsertFollowUpTask
+     //    does not "reuse" the task we are replacing.
+      // Escalated tasks are closed as Completed (the escalation was handled);
+      // ordinary tasks are Cancelled (rolled into the next step).
+      const isEscalatedTask = task.title.startsWith("Escalated:");
+     await db.updateTask(input.taskId, {
+        status: isEscalatedTask ? "Completed" : "Cancelled",
+       completionNotes: `Rolled into a new ${input.nextType === "promise" ? "Promise to Pay" : "Pending Follow-up"} for ${new Date(input.date).toLocaleDateString("en-GB")}`,
+     });
 
       // 3. Create the next step + update the group's confirmation badge
       let newPromiseId: number | null = null;
@@ -3063,38 +3083,48 @@ export const tasksRouter = router({
       const member = await db.getTeamMemberById(targetId);
       if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
 
-      const escalationNote = `⬆ Escalated to ${member.name} by ${ctx.user.name ?? "user"} on ${new Date().toLocaleDateString("en-GB")}${input.note ? ` — ${input.note}` : ""}`;
-      
-      // Close the original task as Completed
-      await db.updateTask(input.taskId, {
-        status: "Completed",
-        description: `${task.description ?? ""}\n${escalationNote}`.trim(),
-      } as any);
+     const escalationNote = `⬆ Escalated to ${member.name} by ${ctx.user.name ?? "user"} on ${new Date().toLocaleDateString("en-GB")}${input.note ? ` — ${input.note}` : ""}`;
+     
+     // Close the original task as Completed
+     await db.updateTask(input.taskId, {
+       status: "Completed",
+       description: `${task.description ?? ""}\n${escalationNote}`.trim(),
+     } as any);
 
       // Create a new task for the assignee
       const newTaskTitle = `Escalated: ${task.title}`;
       const newTaskDescription = `Original task: ${task.title}\n\n${task.description ?? ""}\n\n${escalationNote}`;
-      const newTaskId = await db.createTask({
-        customerId: task.customerId,
-        title: newTaskTitle,
-        description: newTaskDescription,
-        dueDate: task.dueDate,
-        status: "Pending",
-        type: task.type,
-        assigneeId: targetId,
-      } as any);
+     const newTaskId = await db.createTask({
+       customerId: task.customerId,
+       title: newTaskTitle,
+       description: newTaskDescription,
+       dueDate: task.dueDate,
+       status: "Pending",
+       type: task.type,
+       assigneeId: targetId,
+     } as any);
 
-      if (group) {
-        await db.addActivityLog({
-          groupName: group,
-          customerId: task.customerId ?? undefined,
-          activityType: "status_change",
-          title: `Task escalated to ${member.name}`,
-          description: `"${task.title}"${input.note ? ` — ${input.note}` : ""}`,
-          createdBy: ctx.user.id,
-          createdAt: new Date(),
+     if (group) {
+        // The group's communication status becomes "Escalated" — the badge now
+        // points at the newly created escalated task.
+        const existingConf = await db.getGroupConfirmationStatus(group);
+        await db.upsertGroupConfirmationStatus(group, {
+          status: "Escalated",
+          amount: existingConf?.amount ?? "0.00",
+          followUpDate: task.dueDate ?? null,
+          notes: input.note ?? null,
+          updatedBy: ctx.user.id,
         }).catch(() => {});
-      }
+       await db.addActivityLog({
+         groupName: group,
+         customerId: task.customerId ?? undefined,
+         activityType: "status_change",
+         title: `Task escalated to ${member.name}`,
+         description: `"${task.title}"${input.note ? ` — ${input.note}` : ""}`,
+         createdBy: ctx.user.id,
+         createdAt: new Date(),
+       }).catch(() => {});
+     }
       await audit(ctx, "Escalate Task", "task", input.taskId, `Escalated to ${member.name} (new task: ${newTaskId})`);
       return { success: true, assigneeName: member.name, newTaskId };
     }),

@@ -112,11 +112,67 @@ describe("Escalate Task", () => {
     expect(result.success).toBe(true);
     expect(result.newTaskId).toBeDefined();
 
-    // Verify new task was created with the resolved account manager
-    const newTask = await db.getTask(result.newTaskId);
-    expect(newTask?.assigneeId).toBeDefined();
-    expect(newTask?.status).toBe("Pending");
+   // Verify new task was created with the resolved account manager
+   const newTask = await db.getTask(result.newTaskId);
+   expect(newTask?.assigneeId).toBeDefined();
+   expect(newTask?.status).toBe("Pending");
 
+   snap.taskId = Math.max(snap.taskId, result.newTaskId);
+ });
+
+  it("escalate sets the group's communication status to Escalated", async () => {
+    const taskId = await db.createTask({
+      customerId: fx.id,
+      title: "Chase overdue invoices",
+      description: `(Follow-up: ${fx.group})`,
+      dueDate: Date.now() + 3 * 24 * 60 * 60 * 1000,
+      status: "Pending",
+      type: "Follow-up +2",
+      assigneeId: 1,
+    } as any);
+    snap.taskId = Math.max(snap.taskId, taskId);
+
+    const result = await makeCaller().tasks.escalate({ taskId, assigneeId: 30001, note: "status test" });
+    expect(result.success).toBe(true);
     snap.taskId = Math.max(snap.taskId, result.newTaskId);
+
+    const conf = await db.getGroupConfirmationStatus(fx.group);
+    expect(conf?.status).toBe("Escalated");
+  });
+
+  it("new promise from the escalated task closes it as Completed and switches status", async () => {
+    // Create + escalate a task
+    const taskId = await db.createTask({
+      customerId: fx.id,
+      title: "Handle broken promise",
+      description: `(Follow-up: ${fx.group})`,
+      dueDate: Date.now() + 24 * 60 * 60 * 1000,
+      status: "Pending",
+      type: "Follow-up +2",
+      assigneeId: 1,
+    } as any);
+    snap.taskId = Math.max(snap.taskId, taskId);
+    const esc = await makeCaller().tasks.escalate({ taskId, assigneeId: 30001 });
+    snap.taskId = Math.max(snap.taskId, esc.newTaskId);
+
+    // From the escalated task, roll into a new Promise to Pay
+    const next = await makeCaller().tasks.createNextTask({
+      taskId: esc.newTaskId,
+      nextType: "promise",
+      amount: 500,
+      date: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      notes: "customer will pay",
+    });
+    expect(next.success).toBe(true);
+    if (next.newPromiseId) snap.promiseId = Math.max(snap.promiseId, next.newPromiseId);
+    if (next.newTaskId) snap.taskId = Math.max(snap.taskId, next.newTaskId);
+
+    // The escalated task is closed as Completed (not Cancelled)
+    const escTask = await db.getTask(esc.newTaskId);
+    expect(escTask?.status).toBe("Completed");
+
+    // Group status switched from Escalated to Confirmed (Promise to Pay)
+    const conf = await db.getGroupConfirmationStatus(fx.group);
+    expect(conf?.status).toBe("Confirmed");
   });
 });

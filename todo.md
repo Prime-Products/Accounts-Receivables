@@ -1146,3 +1146,9 @@
 - [x] Hide "Mark Done" button when the task has a linked promise (closure happens via Kept/Broken flow)
 - [x] Keep "Mark Done" for plain manual tasks
 - [x] Test and run vitest
+
+## Escalated communication status (user request 30/7)
+- [x] Add "Escalated" to confirmation status enum/labels/colors and filters
+- [x] On escalate: set group communication status to "Escalated", badge links to the new escalated task
+- [x] When a new Promise/Follow-up task is created from the escalated task: close it as Completed, keep only the new task, status switches to Promise to Pay / Pending Follow-up
+- [x] Vitest coverage for the escalated status lifecycle
