@@ -1188,3 +1188,7 @@
 - [x] Return to Collector: reassigns task back to the escalating collector with management instructions
 - [x] Auto-watcher: escalating collector automatically becomes watcher on the escalated task
 - [x] Auto-watcher: creator of a task assigned to someone else automatically becomes watcher
+## Email templates + Outlook flow (user request 31/7)
+- [x] Email templates: SOA, Payment Reminder, Overdue Notice — body prefilled with group data
+- [x] SOA export file (open invoices of the group) auto-downloaded on Send
+- [x] Send opens Outlook (mailto) with recipient, subject and body prefilled

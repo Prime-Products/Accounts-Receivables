@@ -407,7 +407,7 @@ export const syncLogs = mysqlTable("sync_logs", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-export const emailTemplateTypes = ["Friendly Reminder", "Final Notice", "Statement", "Custom"] as const;
+export const emailTemplateTypes = ["SOA", "Payment Reminder", "Overdue Notice", "Friendly Reminder", "Final Notice", "Statement", "Custom"] as const;
 
 export const activityTypes = ["note", "task", "promise", "email", "call", "status_change"] as const;
 

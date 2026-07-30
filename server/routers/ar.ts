@@ -4218,13 +4218,96 @@ export const callsRouter = router({
       return { reset: true };
     }),
 
+  /**
+   * Prefill data for the Send Email dialog: builds subject/body for a given
+   * template using the customer's live figures (open balance, overdue invoices).
+   * The SOA template is paired with an SOA file download on the client.
+   */
+  emailPrefill: protectedProcedure
+    .input(z.object({
+      customerId: z.number(),
+      template: z.enum(["SOA", "Payment Reminder", "Overdue Notice"]),
+    }))
+    .query(async ({ input }) => {
+      const customer = await db.getCustomer(input.customerId);
+      if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+      const invoices = await db.listInvoices({ customerId: input.customerId });
+      const now = Date.now();
+      const open = invoices.filter(isOpenInvoice);
+      const overdue = open.filter(i => i.dueDate < now);
+      const sum = (list: typeof open) => list.reduce((s, i) => s + toEur(outstanding(i), i.currency ?? "EUR"), 0);
+      const fmt = (n: number) => `€${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const openTotal = sum(open);
+      const overdueTotal = sum(overdue);
+      const oldestDays = overdue.reduce((m, i) => Math.max(m, Math.floor((now - i.dueDate) / 86400000)), 0);
+      const today = new Date().toLocaleDateString("en-GB");
+
+      // Short list of the most overdue invoices for the reminder templates.
+      const topOverdue = overdue
+        .sort((a, b) => a.dueDate - b.dueDate)
+        .slice(0, 8)
+        .map(i => `  - ${i.invoiceNumber} · due ${new Date(i.dueDate).toLocaleDateString("en-GB")} · ${(i.currency && i.currency !== "EUR") ? `${i.currency} ` : "€"}${outstanding(i).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
+        .join("\n");
+
+      let subject = "";
+      let body = "";
+      if (input.template === "SOA") {
+        subject = `Statement of Account — ${customer.name} — ${today}`;
+        body =
+`Dear ${customer.contactPerson || "Sir/Madam"},
+
+Please find attached your Statement of Account as of ${today}.
+
+Summary:
+  - Open invoices: ${open.length}
+  - Total outstanding: ${fmt(openTotal)}
+  - Of which overdue: ${fmt(overdueTotal)} (${overdue.length} invoice${overdue.length === 1 ? "" : "s"})
+
+Kindly review and confirm the balance, and let us know the expected payment date for the overdue items.
+
+Should you identify any discrepancy, please contact us so we can resolve it promptly.
+
+Best regards`;
+      } else if (input.template === "Payment Reminder") {
+        subject = `Payment Reminder — ${customer.name} — outstanding ${fmt(overdueTotal || openTotal)}`;
+        body =
+`Dear ${customer.contactPerson || "Sir/Madam"},
+
+This is a friendly reminder that the following invoices are currently outstanding:
+
+${topOverdue || "  (see attached statement)"}
+
+Total overdue: ${fmt(overdueTotal)}.
+
+Please arrange payment at your earliest convenience, or let us know the expected payment date. If payment has already been made, kindly disregard this message and share the remittance details.
+
+Best regards`;
+      } else {
+        subject = `Overdue Notice — ${customer.name} — ${fmt(overdueTotal)} overdue`;
+        body =
+`Dear ${customer.contactPerson || "Sir/Madam"},
+
+Despite our previous reminders, the following invoices remain unpaid${oldestDays > 0 ? ` (oldest ${oldestDays} days overdue)` : ""}:
+
+${topOverdue || "  (see attached statement)"}
+
+Total overdue: ${fmt(overdueTotal)}.
+
+We kindly ask you to settle the above amount immediately. If payment is not received, we may have to review the terms of our cooperation, including placing the account on hold.
+
+If there is any issue preventing payment, please contact us directly so we can find a solution together.
+
+Best regards`;
+      }
+      return { subject, body, openTotal, overdueTotal, openCount: open.length, overdueCount: overdue.length };
+    }),
   sendGroupEmail: protectedProcedure
     .input(
       z.object({
         customerId: z.number(),
         recipientEmail: z.string().email(),
         recipientName: z.string().optional(),
-        templateType: z.enum(["Friendly Reminder", "Final Notice", "Statement", "Custom"]),
+        templateType: z.enum(["SOA", "Payment Reminder", "Overdue Notice", "Friendly Reminder", "Final Notice", "Statement", "Custom"]),
         subject: z.string().min(1).max(255),
         body: z.string().min(1),
       })
