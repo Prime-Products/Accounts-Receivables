@@ -759,7 +759,7 @@ export async function getGroupWatchStatus(groupName: string) {
 }
 export async function setGroupWatchStatus(
   groupName: string,
-  status: "Auto" | "Problematic" | "Normal" | "Under Review" | "On Hold" | "Legal",
+  status: "Auto" | "Problematic" | "Normal" | "Critical" | "On Hold" | "Legal",
   updatedBy: number | null,
 ) {
   const db = await requireDb();

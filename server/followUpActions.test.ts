@@ -1,0 +1,173 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { appRouter } from "./routers";
+import * as db from "./db";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
+
+function makeCaller() {
+  return appRouter.createCaller({
+    user: { id: 1, openId: "test", name: "Test User", email: "t@t.t", role: "admin" as const },
+  } as any);
+}
+
+let snap: IdSnapshot;
+beforeAll(async () => {
+  snap = await snapshotIds();
+});
+afterAll(async () => {
+  await cleanupSince(snap);
+});
+
+describe("follow-up task actions", () => {
+  it("converts a follow-up task to a Promise to Pay (new task, status change, old task cancelled)", async () => {
+    const caller = makeCaller();
+    // Pick a real group with customers
+    const customers = await db.listCustomers();
+    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    expect(cust).toBeTruthy();
+    const group = (cust!.customerGroup ?? "").trim() || cust!.name;
+
+    // Create a follow-up via updateConfirmationStatus → Pending Follow-up
+    const followUpDate = Date.now() + 2 * 24 * 3600 * 1000;
+    await caller.calls.updateConfirmationStatus({
+      group,
+      status: "Pending Follow-up",
+      followUpDate,
+      notes: "test follow-up",
+    });
+    const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+    const fuTask = openTasks.find(t => t.description?.includes(`(Follow-up: ${group})`));
+    expect(fuTask).toBeTruthy();
+
+    // Convert it to a Promise to Pay
+    const promisedDate = Date.now() + 5 * 24 * 3600 * 1000;
+    const res = await caller.tasks.convertFollowUpToPromise({
+      taskId: fuTask!.id,
+      amount: 1234,
+      promisedDate,
+      notes: "converted in test",
+    });
+    expect(res.success).toBe(true);
+    expect(res.promiseId).toBeGreaterThan(0);
+
+    // Old task cancelled
+    const oldTask = await db.getTask(fuTask!.id);
+    expect(oldTask?.status).toBe("Cancelled");
+
+    // Confirmation status is now Confirmed
+    const conf = await db.getGroupConfirmationStatus(group);
+    expect(conf?.status).toBe("Confirmed");
+    expect(Number(conf?.amount)).toBe(1234);
+
+    // A new Promise check task exists
+    const tasksAfter = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+    const ptpTask = tasksAfter.find(t => t.description?.includes(`(Promise #${res.promiseId})`));
+    expect(ptpTask).toBeTruthy();
+  });
+
+  it("rejects converting a non-follow-up task", async () => {
+    const caller = makeCaller();
+    const customers = await db.listCustomers();
+    const cust = customers[0];
+    const taskId = await db.createTask({
+      customerId: cust.id,
+      type: "Manual",
+      title: "Regular task (test)",
+      description: "Just a regular task",
+      dueDate: Date.now() + 24 * 3600 * 1000,
+      status: "Pending",
+      assignedTo: 1,
+    });
+    await expect(
+      caller.tasks.convertFollowUpToPromise({
+        taskId: Number(taskId),
+        amount: 100,
+        promisedDate: Date.now() + 24 * 3600 * 1000,
+      })
+    ).rejects.toThrow(/not a follow-up task/i);
+  });
+
+  it("escalates a follow-up task to a chosen team member", async () => {
+    const caller = makeCaller();
+    const customers = await db.listCustomers();
+    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const group = (cust!.customerGroup ?? "").trim() || cust!.name;
+
+    await caller.calls.updateConfirmationStatus({
+      group,
+      status: "Pending Follow-up",
+      followUpDate: Date.now() + 3 * 24 * 3600 * 1000,
+    });
+    const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+    const fuTask = openTasks.find(t => t.description?.includes(`(Follow-up: ${group})`));
+    expect(fuTask).toBeTruthy();
+
+    const members = await db.listTeamMembers(false);
+    expect(members.length).toBeGreaterThan(0);
+    const target = members[0];
+
+    const res = await caller.tasks.escalate({
+      taskId: fuTask!.id,
+      assigneeId: target.id,
+      note: "test escalation",
+    });
+    expect(res.success).toBe(true);
+    expect(res.assigneeName).toBe(target.name);
+
+    const after = await db.getTask(fuTask!.id);
+    expect(after?.assigneeId).toBe(target.id);
+    expect(after?.description).toContain("Escalated to");
+  });
+
+  it("reschedules an open promise from its check task (new date/amount, badge in sync)", async () => {
+    const caller = makeCaller();
+    const customers = await db.listCustomers();
+    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const group = (cust!.customerGroup ?? "").trim() || cust!.name;
+
+    // Create a promise via a confirmed call
+    const firstDate = Date.now() + 3 * 24 * 3600 * 1000;
+    await caller.calls.updateConfirmationStatus({
+      group,
+      status: "Confirmed",
+      amount: 500,
+      followUpDate: firstDate,
+    });
+    const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+    const promises = await db.listPromises({ status: "Pending" });
+    const promise = promises
+      .filter(p => {
+        const c = customers.find(cc => cc.id === p.customerId);
+        return c && (((c.customerGroup ?? "").trim() || c.name) === group);
+      })
+      .sort((a, b) => b.id - a.id)[0];
+    expect(promise).toBeTruthy();
+    const ptpTask = openTasks.find(t => t.description?.includes(`(Promise #${promise.id})`));
+    expect(ptpTask).toBeTruthy();
+
+    // Reschedule from the task
+    const newDate = Date.now() + 10 * 24 * 3600 * 1000;
+    const res = await caller.tasks.reschedulePromise({
+      taskId: ptpTask!.id,
+      promiseId: promise.id,
+      amount: 750,
+      promisedDate: newDate,
+      notes: "customer moved the payment (test)",
+    });
+    expect(res.success).toBe(true);
+
+    // Promise updated
+    const updated = await db.getPromise(promise.id);
+    expect(Number(updated?.amount)).toBe(750);
+    expect(Math.abs(Number(updated?.promisedDate) - newDate)).toBeLessThan(1000);
+
+    // Linked task moved
+    const movedTask = await db.getTask(ptpTask!.id);
+    expect(Math.abs(Number(movedTask?.dueDate) - newDate)).toBeLessThan(1000);
+    expect(movedTask?.title).toContain("750");
+
+    // Confirmed badge stays with updated amount
+    const conf = await db.getGroupConfirmationStatus(group);
+    expect(conf?.status).toBe("Confirmed");
+    expect(Number(conf?.amount)).toBe(750);
+  });
+});

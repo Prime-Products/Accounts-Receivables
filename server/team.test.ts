@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import { appRouter } from "./routers";
 import * as db from "./db";
 
@@ -14,6 +15,14 @@ const caller = appRouter.createCaller(makeCtx() as any);
 const suffix = Date.now().toString(36);
 
 describe("team members", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   it("creates, lists, updates and deactivates a team member", async () => {
     const created = await caller.team.create({ name: `TM Alpha ${suffix}`, email: `alpha-${suffix}@test.gr` });
     expect(created.id).toBeGreaterThan(0);

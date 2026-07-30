@@ -213,6 +213,8 @@ export const tasks = mysqlTable("tasks", {
   assigneeId: int("assigneeId"),
   completedAt: bigint("completedAt", { mode: "number" }),
   completionNotes: text("completionNotes"),
+  /** How many times the task's due date has been pushed back (follow-up reschedules). */
+  rescheduleCount: int("rescheduleCount").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, t => [
@@ -337,7 +339,7 @@ export type GroupNote = typeof groupNotes.$inferSelect;
  * ("On Watch" is legacy and treated as "Problematic" in business logic.)
  */
 /**
- * Unified group Account Status workflow: Normal → Problematic → Under Review → On Hold → Legal.
+ * Unified group Account Status workflow: Normal → Problematic → Critical → On Hold → Legal.
  * "Auto" means "follow the forecast rule" (no manual override). Legacy values
  * ("On Watch", "Critical", "Resolved") remain in the DB enum for backward
  * compatibility and are normalized at read time (On Watch/Critical → Problematic,
@@ -463,7 +465,7 @@ export const paymentContacts = mysqlTable("payment_contacts", {
 export type PaymentContact = typeof paymentContacts.$inferSelect;
 export type InsertPaymentContact = typeof paymentContacts.$inferInsert;
 
-export const confirmationStatuses = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken"] as const;
+export const confirmationStatuses = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken", "Kept"] as const;
 export type ConfirmationStatus = (typeof confirmationStatuses)[number];
 
 /**

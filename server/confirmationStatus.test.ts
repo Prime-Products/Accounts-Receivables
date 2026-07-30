@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
 import { appRouter } from "./routers";
@@ -31,6 +32,14 @@ function createAuthContext(): TrpcContext {
 }
 
 describe("Confirmation Status Tracking", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   describe("Database helpers", () => {
     it("should insert and retrieve a confirmation status", async () => {
       const groupName = `test-group-${Date.now()}`;
@@ -485,7 +494,7 @@ describe("Confirmation Status Tracking", () => {
       const promisedDate = Date.now() + 5 * 24 * 60 * 60 * 1000;
       await caller.calls.logCall({
         group: groupName,
-        outcome: "Promised Payment",
+        outcome: "Reached",
         confirmationStatus: "Confirmed",
         confirmationAmount: 15000,
         promisedDate,
@@ -513,7 +522,7 @@ describe("Confirmation Status Tracking", () => {
       await caller.calls.logCall({
         group: groupName,
         customerId: cust.id,
-        outcome: "Promised Payment",
+        outcome: "Reached",
         confirmationStatus: "Confirmed",
         confirmationAmount: amount,
         promisedDate,
@@ -739,7 +748,7 @@ describe("Confirmation Status Tracking", () => {
       await caller.calls.logCall({
         group: groupName,
         customerId: cust.id,
-        outcome: "Promised Payment",
+        outcome: "Reached",
         confirmationStatus: "Confirmed",
         confirmationAmount: 7777,
         promisedDate: Date.now() + 9 * 24 * 60 * 60 * 1000,
@@ -809,7 +818,7 @@ describe("Confirmation Status Tracking", () => {
       await caller.calls.logCall({
         group: groupName,
         customerId: cust.id,
-        outcome: "Promised Payment",
+        outcome: "Reached",
         confirmationStatus: "Confirmed",
         confirmationAmount: 12345,
         promisedDate: Date.now() + 5 * 24 * 60 * 60 * 1000,

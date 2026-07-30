@@ -31,9 +31,11 @@ describe("resolveGroupStatus — unified account status workflow", () => {
     expect(r.escalated).toBe(false);
   });
 
-  it("Under Review override wins over the auto rule", () => {
-    const r = resolveGroupStatus({ status: "Under Review", problematicSince: null }, true, now);
-    expect(r.status).toBe("Under Review");
+  it("Critical override wins over the auto rule (legacy Under Review maps to Critical)", () => {
+    const r = resolveGroupStatus({ status: "Critical", problematicSince: null }, true, now);
+    expect(r.status).toBe("Critical");
+    const legacy = resolveGroupStatus({ status: "Under Review", problematicSince: null }, true, now);
+    expect(legacy.status).toBe("Critical");
   });
 
   it("On Hold override wins over the auto rule", () => {
@@ -46,9 +48,8 @@ describe("resolveGroupStatus — unified account status workflow", () => {
     expect(r.status).toBe("Legal");
   });
 
-  it("legacy 'On Watch' and 'Critical' rows are treated as Problematic", () => {
+  it("legacy 'On Watch' rows are treated as Problematic", () => {
     expect(resolveGroupStatus({ status: "On Watch", problematicSince: null }, false, now).status).toBe("Problematic");
-    expect(resolveGroupStatus({ status: "Critical", problematicSince: null }, false, now).status).toBe("Problematic");
   });
 
   it("legacy 'Resolved' rows are treated as Normal", () => {

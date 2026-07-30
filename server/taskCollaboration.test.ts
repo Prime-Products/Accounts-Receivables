@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import * as db from "./db";
 
 /**
@@ -7,6 +8,14 @@ import * as db from "./db";
  * - tasks have a comment thread (task_comments)
  */
 describe("task collaboration", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   it("attaches invoices to a task and lists them back", async () => {
     const customers = await db.listCustomers();
     const invoices = await db.listInvoices();

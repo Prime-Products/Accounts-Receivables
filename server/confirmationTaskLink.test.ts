@@ -1,7 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
 import { appRouter } from "./routers";
+import { getDb } from "./db";
+import { sql } from "drizzle-orm";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
@@ -25,6 +28,27 @@ function createAuthContext(): TrpcContext {
 }
 
 describe("Confirmation badge → linked task (customers.groups.confirmationTaskId)", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
+  afterAll(async () => {
+    // Purge every artifact this file created so no junk leaks into the live DB.
+    const dbi = await getDb();
+    if (!dbi) return;
+    await dbi.execute(sql`DELETE tc FROM task_comments tc JOIN tasks t ON t.id = tc.taskId JOIN customers c ON c.id = t.customerId WHERE c.name LIKE 'TaskLink %'`);
+    await dbi.execute(sql`DELETE ti FROM task_invoices ti JOIN tasks t ON t.id = ti.taskId JOIN customers c ON c.id = t.customerId WHERE c.name LIKE 'TaskLink %'`);
+    await dbi.execute(sql`DELETE t FROM tasks t JOIN customers c ON c.id = t.customerId WHERE c.name LIKE 'TaskLink %'`);
+    await dbi.execute(sql`DELETE p FROM promises_to_pay p JOIN customers c ON c.id = p.customerId WHERE c.name LIKE 'TaskLink %'`);
+    await dbi.execute(sql`DELETE FROM activity_log WHERE groupName LIKE 'TaskLink %'`);
+    await dbi.execute(sql`DELETE FROM group_confirmation_status WHERE groupName LIKE 'TaskLink %'`);
+    await dbi.execute(sql`DELETE FROM customers WHERE name LIKE 'TaskLink %' AND id NOT IN (SELECT DISTINCT customerId FROM invoices WHERE customerId IS NOT NULL)`);
+  });
+
   it("exposes the follow-up task id for a Pending Follow-up group", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const group = `TaskLink Pending ${Date.now()}`;
@@ -72,7 +96,7 @@ describe("Confirmation badge → linked task (customers.groups.confirmationTaskI
     await caller.calls.logCall({
       group,
       customerId,
-      outcome: "Promised Payment",
+      outcome: "Reached",
       confirmationStatus: "Confirmed",
       confirmationAmount: 25000,
       promisedDate,

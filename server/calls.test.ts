@@ -2,6 +2,7 @@ import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
+import { purgeTestCustomers } from "./testCleanup";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
@@ -50,7 +51,7 @@ describe("calls router", () => {
   });
 
   afterAll(async () => {
-    // Cleanup is handled by the database
+    await purgeTestCustomers(["Test Email Customer%"]);
   });
 
   it("sendGroupEmail should record email in history", async () => {

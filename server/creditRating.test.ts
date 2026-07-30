@@ -183,20 +183,20 @@ describe("status-first Call List ordering (tier)", () => {
   const byCallOrder = (a: { tier: number; score: number }, b: { tier: number; score: number }) =>
     b.tier - a.tier || b.score - a.score;
 
-  it("maps statuses to tiers: Critical/Legal=2, Problematic=1, Normal/Resolved=0", () => {
+  it("maps statuses to tiers: Critical/Legal=2, everything else (incl. Problematic)=0", () => {
     expect(statusTier("Critical")).toBe(2);
     expect(statusTier("Legal")).toBe(2);
-    expect(statusTier("Problematic")).toBe(1);
+    expect(statusTier("Problematic")).toBe(0);
     expect(statusTier("Resolved")).toBe(0);
     expect(statusTier(null)).toBe(0);
     expect(statusTier(undefined)).toBe(0);
   });
 
-  it("a small Problematic group outranks a huge Normal group", () => {
+  it("Problematic does not change the order — risk score decides; it is only flagged in reasons", () => {
     const problematicSmall = computeCallPriority({ ...base, overdueBalance: 5_000, groupStatus: "Problematic" });
     const normalHuge = computeCallPriority({ ...base, overdueBalance: 200_000, groupStatus: null });
     const ordered = [normalHuge, problematicSmall].sort(byCallOrder);
-    expect(ordered[0]).toBe(problematicSmall);
+    expect(ordered[0]).toBe(normalHuge);
     expect(problematicSmall.reasons).toContain("Problematic");
   });
 

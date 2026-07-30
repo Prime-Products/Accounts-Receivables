@@ -2,7 +2,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import NewTaskDialog, { TASK_TYPES } from "@/components/NewTaskDialog";
+import { Input } from "@/components/ui/input";
+import NewTaskDialog from "@/components/NewTaskDialog";
+import NextActionDialog from "@/components/NextActionDialog";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,7 +14,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, FileText, HandCoins, ListChecks, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
+import { CalendarClock, CheckCircle2, FileText, HandCoins, ListChecks, Search, ThumbsDown, ThumbsUp, User as UserIcon, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link, useSearch } from "wouter";
@@ -32,11 +34,14 @@ export default function Tasks() {
   const { data: teamMembers } = trpc.team.list.useQuery();
   const utils = trpc.useUtils();
   const [statusFilter, setStatusFilter] = useState<string>("Pending");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
   /** Inbox scope: all | mine (assigned to my linked team member) | created (created by me). */
   const [scopeFilter, setScopeFilter] = useState<string>("all");
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
+  const [nextActionGroup, setNextActionGroup] = useState<string | null>(null);
+  const [editingDue, setEditingDue] = useState(false);
+  const [newDue, setNewDue] = useState("");
   // Deep link: /tasks?task=<id> opens that task's detail dialog (used by the
   // confirmation badges in the groups list).
   const searchString = useSearch();
@@ -47,7 +52,7 @@ export default function Tasks() {
     if (id && tasks.some(t => t.id === id)) {
       const t = tasks.find(tk => tk.id === id)!;
       // Ensure the task is visible regardless of the current status filter.
-      setStatusFilter(t.status === "Pending" ? "Pending" : "all");
+      setStatusFilter(t.status === "Pending" ? "Pending" : t.status === "Cancelled" ? "Cancelled" : "all");
       setOpenTaskId(id);
     }
     setConsumedParam(true);
@@ -62,6 +67,14 @@ export default function Tasks() {
     onSuccess: (_r, vars) => {
       toast.success(`Promise marked ${vars.status} — follow-up task completed`);
       utils.tasks.list.invalidate();
+      utils.customers.groups.invalidate();
+      utils.customers.groupDetail.invalidate();
+      if (vars.status === "Broken" && openTask) {
+        // The customer did not pay — ask the user what happens next.
+        setNextActionGroup(((openTask as any).groupName as string) ?? openTask.customerName ?? null);
+      }
+      // Close the detail dialog — the linked task has just been auto-completed.
+      setOpenTaskId(null);
     },
     onError: e => toast.error(e.message),
   });
@@ -75,18 +88,37 @@ export default function Tasks() {
     onError: e => toast.error(e.message),
   });
 
+  const reschedule = trpc.tasks.reschedule.useMutation({
+    onSuccess: r => {
+      toast.success(`Due date updated${r.rescheduleCount > 0 ? ` — rescheduled ×${r.rescheduleCount}` : ""}`);
+      setEditingDue(false);
+      utils.tasks.list.invalidate();
+      utils.customers.groups.invalidate();
+      utils.customers.groupDetail.invalidate();
+      utils.calls.getOpenFollowUpTask.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+
   const filtered = useMemo(() => {
     if (!tasks) return [];
+    const q = search.trim().toLowerCase();
     return tasks.filter(t => {
-      if (statusFilter !== "all" && t.status !== statusFilter) return false;
-      if (typeFilter !== "all" && t.type !== typeFilter) return false;
+      if (statusFilter === "all") {
+        // "All statuses" intentionally hides Cancelled tasks — select "Cancelled" to see them.
+        if (t.status === "Cancelled") return false;
+      } else if (t.status !== statusFilter) return false;
       if (assigneeFilter === "unassigned" && t.assigneeId != null) return false;
       if (assigneeFilter !== "all" && assigneeFilter !== "unassigned" && t.assigneeId !== Number(assigneeFilter)) return false;
       if (scopeFilter === "created" && !(t as any).createdByMe) return false;
       if (scopeFilter === "received" && ((t as any).createdByMe || t.assigneeId == null)) return false;
+      if (q) {
+        const hay = `${(t as any).groupName ?? ""} ${t.customerName ?? ""} ${t.title ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       return true;
     });
-  }, [tasks, statusFilter, typeFilter, assigneeFilter, scopeFilter]);
+  }, [tasks, statusFilter, assigneeFilter, scopeFilter, search]);
 
   const openTask = useMemo(() => (tasks ?? []).find(t => t.id === openTaskId) ?? null, [tasks, openTaskId]);
   const promiseStatusColors: Record<string, string> = {
@@ -131,19 +163,15 @@ export default function Tasks() {
             <SelectItem value="Cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="w-52">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
-            {TASK_TYPES.map(t => (
-              <SelectItem key={t} value={t}>
-                {t}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search group or customer…"
+            className="pl-8 w-56"
+          />
+        </div>
         <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
           <SelectTrigger className="w-52">
             <SelectValue />
@@ -179,7 +207,7 @@ export default function Tasks() {
                   {(
                     [
                       ["type", "Type"],
-                      ["customer", "Customer"],
+                      ["customer", "Group"],
                       ["task", "Task"],
                       ["invoice", "Invoice"],
                       ["assignee", "Assignee"],
@@ -196,8 +224,17 @@ export default function Tasks() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map(t => (
-                  <TableRow key={t.id} className="cursor-pointer" onClick={() => setOpenTaskId(t.id)}>
+                {filtered.map(t => {
+                  const isOverdue =
+                    (t.status === "Pending" || t.status === "In Progress") &&
+                    t.dueDate != null &&
+                    Number(t.dueDate) < Date.now();
+                  return (
+                  <TableRow
+                    key={t.id}
+                    className={`cursor-pointer ${isOverdue ? "bg-red-50/70 hover:bg-red-100/70 dark:bg-red-950/30 dark:hover:bg-red-900/30" : ""}`}
+                    onClick={() => setOpenTaskId(t.id)}
+                  >
                     <TableCell className="overflow-hidden">
                       <Badge variant="outline" className={taskTypeColors[t.type] ?? ""}>
                         {t.type}
@@ -209,7 +246,9 @@ export default function Tasks() {
                       )}
                     </TableCell>
                     <TableCell className="font-medium overflow-hidden">
-                      <span className="block truncate" title={t.customerName ?? undefined}>{t.customerName ?? "—"}</span>
+                      <span className="block truncate" title={(t as any).groupName ?? t.customerName ?? undefined}>
+                        {(t as any).groupName ?? t.customerName ?? "—"}
+                      </span>
                     </TableCell>
                     <TableCell className="text-sm overflow-hidden">
                       <span className="block truncate" title={t.title}>
@@ -244,7 +283,17 @@ export default function Tasks() {
                         </SelectContent>
                       </Select>
                     </TableCell>
-                    <TableCell className="text-sm">{fmtDate(t.dueDate)}</TableCell>
+                    <TableCell className="text-sm">
+                      {fmtDate(t.dueDate)}
+                      {((t as any).rescheduleCount ?? 0) > 0 && (
+                        <span
+                          className="ml-1 inline-flex items-center rounded bg-amber-100 border border-amber-200 px-1 text-[10px] font-semibold text-amber-800"
+                          title={`Due date pushed back ${(t as any).rescheduleCount} time(s)`}
+                        >
+                          ×{(t as any).rescheduleCount}
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={taskStatusColors[t.status] ?? ""}>
                         {t.status}
@@ -273,14 +322,15 @@ export default function Tasks() {
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
         </CardContent>
       </Card>
 
-      <Dialog open={openTask !== null} onOpenChange={o => !o && setOpenTaskId(null)}>
+      <Dialog open={openTask !== null} onOpenChange={o => { if (!o) { setOpenTaskId(null); setEditingDue(false); } }}>
         <DialogContent className="sm:max-w-lg">
           {openTask && (
             <>
@@ -296,21 +346,63 @@ export default function Tasks() {
                       Promise {openTask.promise.status === "Broken" ? "Not Confirmed" : openTask.promise.status}
                     </Badge>
                   )}
+                  {((openTask as any).rescheduleCount ?? 0) > 0 && (
+                    <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
+                      Rescheduled ×{(openTask as any).rescheduleCount}
+                    </Badge>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <div className="text-xs text-muted-foreground">Customer</div>
+                    <div className="text-xs text-muted-foreground">Group</div>
                     <Link
-                      href={`/customers/${openTask.customerId}`}
+                      href={`/groups/${encodeURIComponent((openTask as any).groupName ?? openTask.customerName ?? "")}`}
                       className="font-medium text-primary hover:underline"
                       onClick={() => setOpenTaskId(null)}
                     >
-                      {openTask.customerName}
+                      {(openTask as any).groupName ?? openTask.customerName}
                     </Link>
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">Due date</div>
-                    <div className="font-medium">{fmtDate(openTask.dueDate)}</div>
+                    {editingDue && (openTask.status === "Pending" || openTask.status === "In Progress") ? (
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="date"
+                          className="h-7 w-36 text-xs"
+                          value={newDue}
+                          onChange={e => setNewDue(e.target.value)}
+                        />
+                        <Button
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          disabled={!newDue || reschedule.isPending}
+                          onClick={() => reschedule.mutate({ id: openTask.id, dueDate: new Date(`${newDue}T12:00:00`).getTime() })}
+                        >
+                          Save
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditingDue(false)}>
+                          ✕
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="font-medium flex items-center gap-1.5">
+                        {fmtDate(openTask.dueDate)}
+                        {(openTask.status === "Pending" || openTask.status === "In Progress") && (
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground"
+                            title="Change due date"
+                            onClick={() => {
+                              setNewDue(new Date(openTask.dueDate).toISOString().slice(0, 10));
+                              setEditingDue(true);
+                            }}
+                          >
+                            <CalendarClock className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="col-span-2">
                     <div className="text-xs text-muted-foreground mb-1">Assignee</div>
@@ -325,6 +417,15 @@ export default function Tasks() {
                       <div className="font-mono">{openTask.invoiceNumber}</div>
                     </div>
                   )}
+                  {(() => {
+                    const m = openTask.description?.match(/Contact: ([^.·]+)[.·]/);
+                    return m ? (
+                      <div>
+                        <div className="text-xs text-muted-foreground">Contact</div>
+                        <div className="flex items-center gap-1"><UserIcon className="h-3.5 w-3.5 text-muted-foreground" />{m[1].trim()}</div>
+                      </div>
+                    ) : null;
+                  })()}
                   {openTask.completedAt && (
                     <div>
                       <div className="text-xs text-muted-foreground">Completed</div>
@@ -351,15 +452,20 @@ export default function Tasks() {
                     </div>
                     <div className="max-h-40 overflow-y-auto space-y-1">
                       {(openTask as any).attachedInvoices.map((inv: any) => (
-                        <div key={inv.id} className="flex items-center justify-between text-xs border-b last:border-b-0 py-1">
-                          <span className="font-mono">{inv.invoiceNumber}</span>
+                        <a
+                          key={inv.id}
+                          href={`/invoices?q=${encodeURIComponent(inv.invoiceNumber)}`}
+                          className="flex items-center justify-between text-xs border-b last:border-b-0 py-1 hover:bg-muted/50 rounded px-1 -mx-1 cursor-pointer"
+                          title="Open this invoice in the Invoices page"
+                        >
+                          <span className="font-mono text-blue-700 hover:underline">{inv.invoiceNumber}</span>
                           <span className="text-muted-foreground truncate max-w-32" title={inv.customerName}>{inv.customerName}</span>
                           <span className="text-muted-foreground">{fmtDate(inv.dueDate)}</span>
                           <span className="font-mono font-medium">
                             {inv.currency && inv.currency !== "EUR" ? `${inv.currency} ` : "€"}
                             {Number(inv.amount).toLocaleString()}
                           </span>
-                        </div>
+                        </a>
                       ))}
                     </div>
                   </div>
@@ -440,6 +546,15 @@ export default function Tasks() {
           )}
         </DialogContent>
       </Dialog>
+      {nextActionGroup && (
+        <NextActionDialog
+          group={nextActionGroup}
+          open={nextActionGroup != null}
+          onOpenChange={v => {
+            if (!v) setNextActionGroup(null);
+          }}
+        />
+      )}
     </div>
   );
 }
