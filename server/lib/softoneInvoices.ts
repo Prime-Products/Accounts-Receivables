@@ -15,6 +15,19 @@ const SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE = 250;
 const SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE = 250;
 type SourceRow = Record<string, unknown>;
 
+function eligibleReceivablesCustomer(alias: string, trdrExpression: string) {
+  return `EXISTS (
+      SELECT 1
+      FROM [dbo].[TRDR] AS ${alias}
+      WHERE ${alias}.[TRDR] = ${trdrExpression}
+        AND ${alias}.[COMPANY] = 1
+        AND ${alias}.[SODTYPE] = 13
+        AND ${alias}.[ISACTIVE] = 1
+        AND ${alias}.[TRDGROUP] IS NOT NULL
+        AND ${alias}.[TRDGROUP] <> 473
+    )`;
+}
+
 export function buildSoftOneOpenInvoiceFinancialsQuery(afterFindoc: number) {
   if (!Number.isSafeInteger(afterFindoc) || afterFindoc < 0) {
     throw new Error("Invalid SoftOne invoice page cursor.");
@@ -30,14 +43,7 @@ export function buildSoftOneOpenInvoiceFinancialsQuery(afterFindoc: number) {
     AND FP_PAGE.[ISCANCEL] = 0
     AND FP_PAGE.[APPRV] = 1
     AND FP_PAGE.[PAYDEMANDMD] IN (-1, 1)
-    AND NOT EXISTS (
-      SELECT 1
-      FROM [dbo].[TRDR] AS INTERNAL_PAGE
-      WHERE INTERNAL_PAGE.[TRDR] = FP_PAGE.[TRDR]
-        AND INTERNAL_PAGE.[COMPANY] = 1
-        AND INTERNAL_PAGE.[SODTYPE] = 13
-        AND INTERNAL_PAGE.[TRDGROUP] = 473
-    )
+    AND ${eligibleReceivablesCustomer("AR_CUSTOMER_PAGE", "FP_PAGE.[TRDR]")}
     AND FP_PAGE.[FINDOC] > ${afterFindoc}
   GROUP BY FP_PAGE.[FINDOC]
   ORDER BY FP_PAGE.[FINDOC]
@@ -64,14 +70,7 @@ WHERE FP.[ISCLOSE] = 0
   AND FP.[ISCANCEL] = 0
   AND FP.[APPRV] = 1
   AND FP.[PAYDEMANDMD] IN (-1, 1)
-  AND NOT EXISTS (
-    SELECT 1
-    FROM [dbo].[TRDR] AS INTERNAL_CUSTOMER
-    WHERE INTERNAL_CUSTOMER.[TRDR] = FP.[TRDR]
-      AND INTERNAL_CUSTOMER.[COMPANY] = 1
-      AND INTERNAL_CUSTOMER.[SODTYPE] = 13
-      AND INTERNAL_CUSTOMER.[TRDGROUP] = 473
-  )
+  AND ${eligibleReceivablesCustomer("AR_CUSTOMER", "FP.[TRDR]")}
 ORDER BY FP.[FINDOC], FP.[TRDR]`;
 }
 
@@ -220,7 +219,12 @@ export function buildSoftOneInvoiceCustomerLookupQuery(softoneIds: string[]) {
 FROM [dbo].[TRDR] AS customer
 LEFT JOIN [dbo].[TRDR] AS customer_group
   ON customer_group.[TRDR] = customer.[TRDGROUP]
-WHERE customer.[TRDR] IN (${softoneIds.join(", ")})`;
+WHERE customer.[TRDR] IN (${softoneIds.join(", ")})
+  AND customer.[COMPANY] = 1
+  AND customer.[SODTYPE] = 13
+  AND customer.[ISACTIVE] = 1
+  AND customer.[TRDGROUP] IS NOT NULL
+  AND customer.[TRDGROUP] <> 473`;
 }
 
 function identity(row: SourceRow, field: string) {

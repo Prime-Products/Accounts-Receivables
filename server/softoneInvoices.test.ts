@@ -155,7 +155,16 @@ describe("SoftOne open invoice sync", () => {
     );
     expect(softOneOpenInvoiceFinancialsQuery).not.toContain("FIN.[SOREDIR] = 0");
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
-      "INTERNAL_CUSTOMER.[TRDGROUP] = 473",
+      "AR_CUSTOMER.[SODTYPE] = 13",
+    );
+    expect(softOneOpenInvoiceFinancialsQuery).toContain(
+      "AR_CUSTOMER.[ISACTIVE] = 1",
+    );
+    expect(softOneOpenInvoiceFinancialsQuery).toContain(
+      "AR_CUSTOMER.[TRDGROUP] IS NOT NULL",
+    );
+    expect(softOneOpenInvoiceFinancialsQuery).toContain(
+      "AR_CUSTOMER.[TRDGROUP] <> 473",
     );
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
       "CAST(FP.[OPNTAMNT] AS float)",
@@ -199,6 +208,11 @@ describe("SoftOne open invoice sync", () => {
     const query = buildSoftOneInvoiceCustomerLookupQuery(["10036", "140"]);
     expect(query).toContain("customer.[TRDR] IN (10036, 140)");
     expect(query).toContain("customer.[TRDGROUP]");
+    expect(query).toContain("customer.[COMPANY] = 1");
+    expect(query).toContain("customer.[SODTYPE] = 13");
+    expect(query).toContain("customer.[ISACTIVE] = 1");
+    expect(query).toContain("customer.[TRDGROUP] IS NOT NULL");
+    expect(query).toContain("customer.[TRDGROUP] <> 473");
     expect(query).not.toContain("customer.[MASTERTRDR]");
     expect(query).not.toMatch(/\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i);
     expect(() =>
