@@ -1136,3 +1136,8 @@
 - [x] Show only two buttons initially: Kept and Broken (rename Not Confirmed/Not paid to Broken)
 - [x] When Broken pressed, show three options: Reschedule, Promise to Pay, Pending Follow-up
 - [x] Test the new flow and run vitest
+
+## Broken options: Reschedule Promise / Pending Follow-up / Escalate (user request 30/7)
+- [x] Replace "Promise to Pay" option with "Escalate" in the Broken options panel
+- [x] Escalate opens the escalate form (assignee + note) and hands the task over
+- [x] Test the new flow and run vitest
