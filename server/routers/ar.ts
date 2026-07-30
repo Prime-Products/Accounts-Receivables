@@ -32,6 +32,8 @@ import {
   toEur,
 } from "../lib/arLogic";
 import { buildExcel, buildPdf, TableSpec } from "../lib/exports";
+import { buildGroupStatement } from "../lib/statement";
+import { buildStatementPdf } from "../lib/statementPdf";
 import { generateMonthlyForecast } from "../lib/smartForecast";
 import { runTaskEngine } from "../lib/taskEngine";
 import * as softone from "../lib/softone";
@@ -3886,6 +3888,45 @@ export const reportsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const now = Date.now();
+      // New sample-styled Statement of Account PDF (per-company statements,
+      // TOTAL AMOUNTS across branches + ANALYSIS per branch + bank details).
+      if ((input.report === "soa-group" || input.report === "soa") && input.format === "pdf") {
+        const [customersAll, allInvoices, vesselsAll] = await Promise.all([db.listCustomers(), db.listInvoices(), db.listVessels()]);
+        let members: typeof customersAll;
+        let scopeName: string;
+        if (input.report === "soa-group") {
+          if (!input.group) throw new TRPCError({ code: "BAD_REQUEST", message: "group is required for group SOA export" });
+          members = customersAll.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+          if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+          if (input.customerId !== undefined) members = members.filter(m => m.id === input.customerId);
+          scopeName = input.group;
+        } else {
+          if (!input.customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "customerId is required for SOA export" });
+          const customer = customersAll.find(c => c.id === input.customerId);
+          if (!customer) throw new TRPCError({ code: "NOT_FOUND" });
+          members = [customer];
+          scopeName = customer.name;
+        }
+        const memberIds = new Set(members.map(m => m.id));
+        const invs = allInvoices.filter(
+          i => memberIds.has(i.customerId) && (input.branch === undefined || i.company === input.branch),
+        );
+        const stmt = buildGroupStatement({
+          groupName: scopeName,
+          now,
+          customers: members.map(m => ({ id: m.id, name: m.name, paymentTermsDays: m.paymentTermsDays })),
+          invoices: invs,
+          vesselNames: new Map(vesselsAll.map(v => [v.id, v.name])),
+          minDaysOverdue: input.minDaysOverdue,
+        });
+        const buffer = await buildStatementPdf(stmt);
+        await audit(ctx, `Export ${input.report} (pdf statement)`, "report", input.report);
+        return {
+          filename: `SOA-${scopeName.replace(/[^A-Za-z0-9]+/g, "_")}-${new Date().toISOString().slice(0, 10)}.pdf`,
+          mimeType: "application/pdf",
+          base64: buffer.toString("base64"),
+        };
+      }
       let spec: TableSpec;
       if (input.report === "aging") {
         const invoices = await db.listInvoices();

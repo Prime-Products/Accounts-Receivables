@@ -148,6 +148,7 @@ function ActionsMenu({
       <SendEmailDialog
         companies={companies}
         defaultCustomerId={defaultCustomerId}
+        groupName={group}
         open={emailOpen}
         onOpenChange={setEmailOpen}
       />

@@ -1195,3 +1195,11 @@
 ## Bug: test team members leaked into production data (user report 31/7)
 - [x] Delete leftover TM Mgr/Task test team members from database
 - [x] Fix test cleanup so test team members never persist
+
+## SOA statement redesign to match Prime Products sample (31/7)
+- [x] Statement data builder: per group-company statements, TOTAL AMOUNTS across 6 branches, ANALYSIS per branch, upcoming buckets
+- [x] PDF generation matching sample layout (logo, red headings, EU number format, bank details per branch)
+- [x] Wire new SOA PDF into Send Email download and GroupDetail SOA buttons
+- [x] Vitest coverage for statement builder
+- [x] TOTAL AMOUNTS: hide branch rows with all-zero balances
+- [x] ANALYSIS totals row, zebra striping, red overdue, per-company page numbers

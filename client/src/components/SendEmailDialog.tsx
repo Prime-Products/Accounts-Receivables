@@ -14,6 +14,8 @@ import { toast } from "sonner";
 interface SendEmailDialogProps {
   companies: { id: number; name: string; email?: string | null; contactPerson?: string | null }[];
   defaultCustomerId?: number;
+  /** When set, the SOA attachment covers the whole group (per-company statements). */
+  groupName?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
@@ -37,7 +39,7 @@ const emailTemplates = {
 const smartTemplates = ["SOA", "Payment Reminder", "Overdue Notice"] as const;
 type SmartTemplate = (typeof smartTemplates)[number];
 
-export default function SendEmailDialog({ companies, defaultCustomerId, open: externalOpen, onOpenChange }: SendEmailDialogProps) {
+export default function SendEmailDialog({ companies, defaultCustomerId, groupName, open: externalOpen, onOpenChange }: SendEmailDialogProps) {
   const utils = trpc.useUtils();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = externalOpen !== undefined ? externalOpen : internalOpen;
@@ -182,7 +184,11 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
     if (!customerId || !recipientEmail || !subject || !body) return;
     if (templateType === "SOA") {
       try {
-        const r = await exportSoa.mutateAsync({ report: "soa", format: "pdf", customerId });
+        // Whole-group statement (per-company, sample layout) when a group is
+        // known; otherwise single-customer statement.
+        const r = groupName
+          ? await exportSoa.mutateAsync({ report: "soa-group", format: "pdf", group: groupName })
+          : await exportSoa.mutateAsync({ report: "soa", format: "pdf", customerId });
         downloadBase64(r.filename, r.mimeType, r.base64);
         toast.success("SOA downloaded — attach it in Outlook before sending");
       } catch {
