@@ -369,6 +369,7 @@ export const promisesToPay = mysqlTable("promises_to_pay", {
   amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
   status: mysqlEnum("status", promiseStatuses).default("Pending").notNull(),
   notes: text("notes"),
+  rescheduleCount: int("rescheduleCount").default(0).notNull(),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
