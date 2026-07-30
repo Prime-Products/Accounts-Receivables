@@ -66,6 +66,15 @@ function requireRole(role: string, allowed: string[]) {
 
 const eur = (n: number) => n.toFixed(2);
 
+function getOrdinalSuffix(num: number): string {
+  const j = num % 10;
+  const k = num % 100;
+  if (j === 1 && k !== 11) return num + "st";
+  if (j === 2 && k !== 12) return num + "nd";
+  if (j === 3 && k !== 13) return num + "rd";
+  return num + "th";
+}
+
 /** Timestamp of the last millisecond of the current month (UTC). Invoices due on or before this are "overdue by end of month". */
 function endOfCurrentMonth(now = new Date()): number {
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) - 1;
@@ -248,17 +257,23 @@ async function rescheduleGroupPromise(
   const rLabel = effAmount > 0 ? `€${Number(eur(effAmount)).toLocaleString()}` : "payment";
   const oldDateStr = new Date(promise.promisedDate).toLocaleDateString("en-GB");
   const newDateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
+  
+  // Increment rescheduleCount
+  const newRescheduleCount = (promise.rescheduleCount ?? 0) + 1;
+  const attemptOrdinal = getOrdinalSuffix(newRescheduleCount + 1); // +1 because count starts at 0
+  
   await db.updatePromise(input.promiseId, {
     promisedDate: input.promisedDate,
     amount: eur(effAmount),
     notes: input.notes ?? promise.notes,
+    rescheduleCount: newRescheduleCount,
   });
-  await audit(ctx, "Reschedule Promise-to-Pay", "promiseToPay", input.promiseId, `${input.group}: ${rLabel} moved ${oldDateStr} → ${newDateStr}`);
+  await audit(ctx, "Reschedule Promise-to-Pay", "promiseToPay", input.promiseId, `${input.group}: ${rLabel} moved ${oldDateStr} → ${newDateStr} (${attemptOrdinal} attempt)`);
   await db.addActivityLog({
     groupName: input.group,
     customerId: promise.customerId,
     activityType: "promise",
-    title: `Payment rescheduled: ${rLabel} — ${oldDateStr} → ${newDateStr}`,
+    title: `Payment rescheduled: ${rLabel} — ${oldDateStr} → ${newDateStr} (${attemptOrdinal} attempt)`,
     description: `${cust?.name ?? "—"} moved the promised payment${input.notes ? ` — ${input.notes}` : ""}`,
     createdBy: ctx.user.id,
     createdAt: new Date(),

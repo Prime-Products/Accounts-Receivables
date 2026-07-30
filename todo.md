@@ -1115,6 +1115,6 @@
 - [x] Rename "Not Confirmed Payment" to "Broken" in LogCallDialog and STATUS_LABELS
 - [x] When Broken status selected, show action options: Reschedule, Pending Follow-up, Escalate
 - [x] Add reschedule attempt counter to promises table (rescheduleCount field)
-- [ ] Track reschedule attempts in activity log ("Promise rescheduled — 2nd attempt", "3rd attempt", etc.)
+- [x] Track reschedule attempts in activity log ("Promise rescheduled — 2nd attempt", "3rd attempt", etc.)
 - [x] Display reschedule attempt count in the action panel when Broken is selected
 - [x] Update tests for Broken status and reschedule counter
