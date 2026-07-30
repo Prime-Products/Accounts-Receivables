@@ -1141,3 +1141,8 @@
 - [x] Replace "Promise to Pay" option with "Escalate" in the Broken options panel
 - [x] Escalate opens the escalate form (assignee + note) and hands the task over
 - [x] Test the new flow and run vitest
+
+## Hide Mark Done for Promise to Pay tasks (user request 30/7)
+- [x] Hide "Mark Done" button when the task has a linked promise (closure happens via Kept/Broken flow)
+- [x] Keep "Mark Done" for plain manual tasks
+- [x] Test and run vitest

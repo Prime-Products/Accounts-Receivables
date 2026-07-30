@@ -776,23 +776,25 @@ export default function TaskDetailDialog({
                 ) : null
               )}
 
-              {(task.status === "Pending" || task.status === "In Progress") && (
-                <div className="flex gap-2 justify-end pt-1">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1 text-emerald-700"
-                    onClick={() => {
-                      setStatus.mutate({ id: task.id, status: "Completed" });
-                      onOpenChange(false);
-                    }}
-                  >
-                    <CheckCircle2 className="h-4 w-4" /> Mark Done
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1 text-muted-foreground"
+             {(task.status === "Pending" || task.status === "In Progress") && (
+               <div className="flex gap-2 justify-end pt-1">
+                  {!(task.promise && task.promise.status === "Pending") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 text-emerald-700"
+                      onClick={() => {
+                        setStatus.mutate({ id: task.id, status: "Completed" });
+                        onOpenChange(false);
+                      }}
+                    >
+                      <CheckCircle2 className="h-4 w-4" /> Mark Done
+                    </Button>
+                  )}
+                 <Button
+                   size="sm"
+                   variant="outline"
+                   className="gap-1 text-muted-foreground"
                     onClick={() => {
                       setStatus.mutate({ id: task.id, status: "Cancelled" });
                       onOpenChange(false);
