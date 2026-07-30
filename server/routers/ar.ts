@@ -76,6 +76,11 @@ function endOfCurrentMonth(now = new Date()): number {
  * active until a human logs a new call / changes the status. When the followUpDate
  * passes and the linked auto-task is still open, the badge turns red (taskOverdue)
  * instead of resetting the status.
+ *
+ * Rolling flow (no full monthly reset): only CLOSED outcomes — "Kept" and
+ * "Broken" — reset back to "Not Contacted" at the start of a new month.
+ * Active statuses ("Confirmed" / "Pending Follow-up") carry over across months
+ * together with their open tasks, so the collector never restarts from zero.
  */
 function isConfirmationStale(
   status: string | null | undefined,
@@ -85,10 +90,11 @@ function isConfirmationStale(
 ): boolean {
   // "Not Contacted" is always stale (no active follow-up).
   if (!status || status === "Not Contacted") return true;
-  // "Kept" celebrates a paid promise for the rest of the month, then resets.
-  if (status === "Kept") return isFromPreviousMonth(updatedAt ?? null, now);
-  // All other statuses (Confirmed, Pending Follow-up, Broken) persist until
-  // explicitly changed by a human — no date-based auto-reset.
+  // Closed outcomes ("Kept" / "Broken") show for the rest of the month, then
+  // reset to Not Contacted when a new month starts.
+  if (status === "Kept" || status === "Broken") return isFromPreviousMonth(updatedAt ?? null, now);
+  // Active statuses (Confirmed, Pending Follow-up) persist until explicitly
+  // changed by a human — no date-based auto-reset, no monthly reset.
   return false;
 }
 
@@ -2694,6 +2700,147 @@ export const tasksRouter = router({
       }).catch(() => {});
       await audit(ctx, "Convert Follow-up to Promise", "task", input.taskId, `Promise #${promiseId} created for ${group}`);
       return { success: true, promiseId };
+    }),
+  /**
+   * Rolling flow: from any open PTP / Follow-up task, create the NEXT task
+   * (a new Promise to Pay or a new Pending Follow-up) for the same group and
+   * cancel the old task. Optionally resolves the current promise first
+   * (Kept / Broken) when closing a Promise-to-Pay task.
+   */
+  createNextTask: protectedProcedure
+    .input(
+      z.object({
+        taskId: z.number(),
+        // How to resolve the current promise before moving on (PTP tasks only)
+        resolvePromise: z.enum(["Kept", "Broken"]).optional(),
+        promiseId: z.number().optional(),
+        // The next step
+        nextType: z.enum(["promise", "follow-up"]),
+        amount: z.number().positive().optional(),
+        date: z.number(),
+        notes: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const task = await db.getTask(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      if (task.status === "Completed" || task.status === "Cancelled") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can roll to a next task" });
+      }
+      if (input.nextType === "promise" && (!input.amount || input.amount <= 0)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A Promise to Pay needs an amount" });
+      }
+      // Resolve the group: follow-up marker, or the task's customer
+      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
+      let group = followUpMatch?.[1] ?? null;
+      const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
+      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
+      if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Could not resolve the task's group" });
+
+      // 1. Resolve the current promise if requested (Kept / Broken)
+      if (input.resolvePromise && input.promiseId) {
+        const promise = await db.getPromise(input.promiseId);
+        if (promise && promise.status === "Pending") {
+          await db.updatePromise(input.promiseId, { status: input.resolvePromise });
+          await db.addActivityLog({
+            groupName: group,
+            customerId: promise.customerId,
+            activityType: "promise",
+            title: `Promise marked ${input.resolvePromise}`,
+            description: `€${Number(promise.amount).toLocaleString()} promised for ${new Date(promise.promisedDate).toLocaleDateString("en-GB")}`,
+            createdBy: ctx.user.id,
+            createdAt: new Date(),
+          }).catch(() => {});
+          await audit(ctx, `Promise ${input.resolvePromise}`, "promiseToPay", input.promiseId);
+        }
+      }
+
+      // 2. Cancel the old task BEFORE creating the new one, so upsertFollowUpTask
+      //    does not "reuse" the task we are replacing.
+      await db.updateTask(input.taskId, {
+        status: "Cancelled",
+        completionNotes: `Rolled into a new ${input.nextType === "promise" ? "Promise to Pay" : "Pending Follow-up"} for ${new Date(input.date).toLocaleDateString("en-GB")}`,
+      });
+
+      // 3. Create the next step + update the group's confirmation badge
+      let newPromiseId: number | null = null;
+      let newTaskId: number | null = null;
+      if (input.nextType === "promise") {
+        newPromiseId = await createGroupPromise(ctx, {
+          group,
+          customerId: task.customerId ?? undefined,
+          amount: input.amount!,
+          promisedDate: input.date,
+          notes: input.notes,
+        });
+        if (!newPromiseId) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+        await db.upsertGroupConfirmationStatus(group, {
+          status: "Confirmed",
+          amount: eur(input.amount!),
+          followUpDate: input.date,
+          notes: input.notes,
+          updatedBy: ctx.user.id,
+        });
+      } else {
+        newTaskId = await upsertFollowUpTask(ctx, {
+          group,
+          customerId: task.customerId ?? undefined,
+          followUpDate: input.date,
+          amount: input.amount,
+          notes: input.notes,
+        });
+        if (!newTaskId) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+        await db.upsertGroupConfirmationStatus(group, {
+          status: "Pending Follow-up",
+          amount: input.amount && input.amount > 0 ? eur(input.amount) : "0.00",
+          followUpDate: input.date,
+          notes: input.notes,
+          updatedBy: ctx.user.id,
+        });
+      }
+
+      await db.addActivityLog({
+        groupName: group,
+        customerId: task.customerId ?? undefined,
+        activityType: "status_change",
+        title:
+          input.nextType === "promise"
+            ? `Next step: Promise to Pay — €${Number(eur(input.amount!)).toLocaleString()} by ${new Date(input.date).toLocaleDateString("en-GB")}`
+            : `Next step: Follow-up call on ${new Date(input.date).toLocaleDateString("en-GB")}`,
+        description: `Task #${input.taskId} closed${input.resolvePromise ? ` (promise ${input.resolvePromise})` : ""} and rolled into the next step.`,
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      }).catch(() => {});
+      await audit(ctx, "Create Next Task", "task", input.taskId, `${group}: next ${input.nextType} on ${new Date(input.date).toLocaleDateString("en-GB")}`);
+      return { success: true, newPromiseId, newTaskId, group };
+    }),
+  /** Open invoices of the task's group (due-date ordered) — used by the next-task picker. */
+  groupOpenInvoices: protectedProcedure
+    .input(z.object({ taskId: z.number() }))
+    .query(async ({ input }) => {
+      const task = await db.getTask(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
+      let group = followUpMatch?.[1] ?? null;
+      const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
+      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
+      if (!group) return { group: null, invoices: [] };
+      const customers = await db.listCustomers();
+      const memberIds = new Set(customers.filter(c => (((c.customerGroup ?? "").trim() || c.name) === group)).map(c => c.id));
+      const invoices = (await db.listInvoices()).filter(i => memberIds.has(i.customerId) && isOpenInvoice(i));
+      const nameById = new Map(customers.map(c => [c.id, c.name]));
+      const rows = invoices
+        .map(i => ({
+          id: i.id,
+          invoiceNumber: i.invoiceNumber,
+          customerName: nameById.get(i.customerId) ?? "",
+          dueDate: i.dueDate,
+          amount: outstanding(i),
+          currency: i.currency ?? "EUR",
+          overdue: i.dueDate != null && i.dueDate < Date.now(),
+        }))
+        .sort((a, b) => (a.dueDate ?? 0) - (b.dueDate ?? 0));
+      return { group, invoices: rows };
     }),
   /**
    * Reschedule an open promise from its check task: moves the promise date/amount

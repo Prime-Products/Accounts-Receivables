@@ -1038,3 +1038,10 @@
 - [x] When opening a Promise to Pay task (promise not kept), show actions: Reschedule promise (new date/amount) and Escalate (to Account Manager)
 - [x] Backend: reuse/extend promise reschedule to work from the task dialog
 - [x] Frontend: action panel in TaskDetailDialog for promise tasks
+
+## Rolling Status Flow Redesign (no full monthly reset)
+- [x] Month rollover: only reset groups whose status is Kept or Broken back to Not Contacted; keep Promise to Pay / Pending Follow-up statuses and their open tasks across months
+- [x] Backend: createNextTask procedure — from an open PTP/Follow-up task, create a new Promise to Pay (promise record + check task) or Pending Follow-up (follow-up task), update the group's confirmation status, and cancel the old task
+- [x] Backend: expose the group's open invoices (with due dates) for the next-task picker
+- [x] Frontend: TaskDetailDialog "Create next task" panel — choose PTP or Follow-up, see open invoices with due dates, set date/amount; old task is cancelled automatically
+- [x] Update month-rollover tests to the new partial-reset behavior; add tests for createNextTask
