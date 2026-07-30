@@ -102,16 +102,21 @@ export default function Settings() {
   const isAdmin = myRole?.appRole === "Administrator";
   const canViewUsers = isAdmin || myRole?.appRole === "Management";
 
-  const { data: syncStatus } = trpc.admin.syncStatus.useQuery();
+  const { data: syncStatus } = trpc.admin.syncStatus.useQuery(undefined, {
+    refetchInterval: query => (query.state.data?.running ? 2_000 : 10_000),
+  });
   const { data: users, isLoading: usersLoading } = trpc.admin.users.useQuery(undefined, { enabled: canViewUsers });
   const { data: audit, isLoading: auditLoading } = trpc.reports.audit.useQuery(undefined, { enabled: canViewUsers });
 
-  const pullCustomers = trpc.admin.syncPullCustomers.useMutation({
+  const pullAll = trpc.admin.syncPullAll.useMutation({
     onSuccess: r => {
-      toast.success(`Customers synced: ${r.synced}`);
+      toast.success(`SoftOne sync completed: ${r.customers} customers, ${r.invoices} invoices`);
       utils.invalidate();
     },
-    onError: e => toast.error(e.message),
+    onError: e => {
+      toast.error(e.message);
+      utils.admin.syncStatus.invalidate();
+    },
   });
   const setRole = trpc.admin.setRole.useMutation({
     onSuccess: () => {
@@ -121,7 +126,7 @@ export default function Settings() {
     onError: e => toast.error(e.message),
   });
 
-  const syncBusy = pullCustomers.isPending;
+  const syncBusy = pullAll.isPending || syncStatus?.running === true;
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -160,21 +165,33 @@ export default function Settings() {
             ) : (
               <Skeleton className="h-5 w-24" />
             )}
+            {syncStatus?.running && (
+              <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200">
+                <RefreshCcw className="h-3 w-3 mr-1 animate-spin" />
+                Synchronization running
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-muted-foreground">
             Server-side, read-only synchronization from the approved CustomerGroupFinData reporting view. The browser
             cannot submit SQL, and write-back to SoftOne is disabled.
           </p>
           <div className="flex gap-2 flex-wrap">
-            <Button className="gap-2" onClick={() => pullCustomers.mutate()} disabled={syncBusy}>
-              <RefreshCcw className={`h-4 w-4 ${pullCustomers.isPending ? "animate-spin" : ""}`} />
-              Pull Customers
-            </Button>
-            <Button variant="outline" className="gap-2" disabled>
-              <RefreshCcw className="h-4 w-4" />
-              Invoices pending approved source
+            <Button
+              className="gap-2"
+              onClick={() => pullAll.mutate()}
+              disabled={syncBusy || !syncStatus?.configured || !syncStatus?.enabled}
+            >
+              <RefreshCcw className={`h-4 w-4 ${syncBusy ? "animate-spin" : ""}`} />
+              {syncBusy ? "Synchronization running…" : "Sync Customers & Invoices"}
             </Button>
           </div>
+          {syncStatus?.running && (
+            <p className="text-sm text-blue-700">
+              Another user or scheduled task has already started synchronization. This button will become available
+              automatically when it finishes.
+            </p>
+          )}
           {syncStatus && syncStatus.logs.length > 0 && (
             <div className="pt-2">
               <div className="text-sm font-medium mb-1">Recent sync activity</div>

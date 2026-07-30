@@ -1,9 +1,11 @@
 import "dotenv/config";
 import { syncSoftOneCustomers } from "../server/lib/softoneSql";
+import { withSoftOneSyncLock } from "../server/lib/softoneSyncLock";
 
 async function main() {
-  const result = await syncSoftOneCustomers();
-  console.log(`SoftOne customer sync completed: ${result.synced} records.`);
+  const execution = await withSoftOneSyncLock(() => syncSoftOneCustomers());
+  if (!execution.acquired) throw new Error("SoftOne synchronization is already running.");
+  console.log(`SoftOne customer sync completed: ${execution.result.synced} records.`);
   process.exit(0);
 }
 
