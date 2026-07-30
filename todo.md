@@ -1061,3 +1061,9 @@
 - [x] AI Summary: include collection notes as context
 - [x] Vitest coverage for collection profile set/get roundtrip (with cleanup)
 - [x] Fixed remaining test-data pollution: cleanup hooks added to groupAiSummary + addPromise side-effects tests; purged leftover vitest rows from activity log
+
+## Unified "what happens next?" task action panel (user request 30/7)
+- [x] Promise to Pay tasks: same card-style panel as Follow-up (Reschedule, Escalate, Done — schedule next step); remove the invoice-check step from the PTP flow
+- [x] Pending Follow-up tasks: keep the card-style panel (Reschedule, Convert to Promise to Pay, Escalate, Done — schedule next step)
+- [x] Consistent visual style: icon cards with title + description, matching the reference screenshot
+- [x] Tasks page now uses the shared TaskDetailDialog (removed the old inline dialog that had no action panels)

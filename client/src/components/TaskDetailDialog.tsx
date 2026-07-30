@@ -367,12 +367,40 @@ export default function TaskDetailDialog({
                   )}
                   {task.promise.status === "Pending" && (task.status === "Pending" || task.status === "In Progress") && (
                     <div className="border-t pt-2 mt-1 space-y-2">
+                      <div className="text-sm font-medium flex items-center gap-1.5 text-blue-900">
+                        <HandCoins className="h-4 w-4" /> Promise — what happens next?
+                      </div>
                       {fuMode === "none" && (
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-1 text-emerald-700 h-7 px-2 text-xs"
+                        <div className="grid gap-1.5">
+                          <button
+                            type="button"
+                            className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                            onClick={() => {
+                              setFuAmount(String(task.promise!.amount ?? ""));
+                              setFuDate(new Date(task.promise!.promisedDate).toISOString().slice(0, 10));
+                              setFuMode("reschedule-promise" as any);
+                            }}
+                          >
+                            <CalendarClock className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                            <div>
+                              <div className="text-sm font-medium">Reschedule</div>
+                              <div className="text-xs text-muted-foreground">Move the promised payment to a new date.</div>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-red-50 hover:border-red-300 transition-colors"
+                            onClick={() => setFuMode("escalate")}
+                          >
+                            <ArrowUpCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                            <div>
+                              <div className="text-sm font-medium">Escalate</div>
+                              <div className="text-xs text-muted-foreground">Hand this over to the Account Manager (or another team member).</div>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-violet-50 hover:border-violet-300 transition-colors"
                             onClick={() => {
                               setResolveAs(null);
                               setNextType("promise");
@@ -381,28 +409,12 @@ export default function TaskDetailDialog({
                               setFuMode("next-task");
                             }}
                           >
-                            <HandCoins className="h-3.5 w-3.5" /> Close & next task
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-1 text-blue-700 h-7 px-2 text-xs"
-                            onClick={() => {
-                              setFuAmount(String(task.promise!.amount ?? ""));
-                              setFuDate(new Date(task.promise!.promisedDate).toISOString().slice(0, 10));
-                              setFuMode("reschedule-promise" as any);
-                            }}
-                          >
-                            <CalendarClock className="h-3.5 w-3.5" /> Reschedule promise
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-1 text-red-700 h-7 px-2 text-xs"
-                            onClick={() => setFuMode("escalate")}
-                          >
-                            <ArrowUpCircle className="h-3.5 w-3.5" /> Escalate
-                          </Button>
+                            <CheckCircle2 className="h-4 w-4 text-violet-600 mt-0.5 shrink-0" />
+                            <div>
+                              <div className="text-sm font-medium">Done — schedule next step</div>
+                              <div className="text-xs text-muted-foreground">Mark the promise Kept or Not paid and set the next Promise to Pay or Follow-up; this task is closed.</div>
+                            </div>
+                          </button>
                         </div>
                       )}
                       {fuMode === "next-task" && (
@@ -445,29 +457,6 @@ export default function TaskDetailDialog({
                               <CalendarClock className="h-3.5 w-3.5" /> Pending Follow-up
                             </Button>
                           </div>
-                          {openInv && openInv.invoices.length > 0 && (
-                            <div className="rounded-md border bg-white max-h-36 overflow-y-auto">
-                              <div className="text-[11px] font-medium text-muted-foreground px-2 pt-1.5">Open invoices — click to prefill date/amount</div>
-                              {openInv.invoices.slice(0, 20).map(inv => (
-                                <button
-                                  key={inv.id}
-                                  type="button"
-                                  className="flex w-full items-center justify-between px-2 py-1 text-xs hover:bg-muted/60"
-                                  onClick={() => {
-                                    if (inv.dueDate) setFuDate(new Date(inv.dueDate).toISOString().slice(0, 10));
-                                    setFuAmount(String(inv.amount.toFixed(2)));
-                                  }}
-                                >
-                                  <span className="font-mono">{inv.invoiceNumber}</span>
-                                  <span className={inv.overdue ? "text-red-600" : "text-muted-foreground"}>{fmtDate(inv.dueDate)}</span>
-                                  <span className="font-mono font-medium">€{inv.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                          {openInv && openInv.invoices.length === 0 && (
-                            <div className="text-xs text-muted-foreground">No open invoices for this group.</div>
-                          )}
                           <div className="grid grid-cols-2 gap-2">
                             <div className="grid gap-1">
                               <Label htmlFor="nt-amount" className="text-xs">{nextType === "promise" ? "Promised amount (EUR)" : "Expected amount (optional)"}</Label>
