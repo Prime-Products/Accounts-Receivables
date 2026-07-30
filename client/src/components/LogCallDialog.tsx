@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, FileText, Gavel, HandCoins, Info, Lightbulb, Mail, Phone, Plus, User } from "lucide-react";
+import { CheckCircle2, Info, Mail, Phone, Plus, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -20,15 +20,7 @@ const STATUS_LABELS: Record<string, string> = {
   Broken: "Not Confirmed Payment",
 };
 
-const ACTION_ICONS: Record<string, typeof Lightbulb> = {
-  legal_review: Gavel,
-  escalate_account_manager: ArrowUpRight,
-  request_payment_plan: HandCoins,
-  send_soa: FileText,
-  friendly_reminder: Mail,
-  schedule_follow_up: CalendarClock,
-  monitor: CheckCircle2,
-};
+
 
 export default function LogCallDialog({
   group,
@@ -59,8 +51,6 @@ export default function LogCallDialog({
   const [followUpDate, setFollowUpDate] = useState("");
   const [promisedDate, setPromisedDate] = useState("");
   const [promiseMode, setPromiseMode] = useState<"reschedule" | "new">("reschedule");
-  // After a successful save we show the Suggested Next Action instead of closing.
-  const [savedCall, setSavedCall] = useState<{ outcome: (typeof OUTCOMES)[number]; confirmationStatus: string } | null>(null);
   const utils = trpc.useUtils();
 
   // Existing open promise for this group (offered for rescheduling on Confirmed)
@@ -76,14 +66,7 @@ export default function LogCallDialog({
       ? groupContacts?.find(c => String(c.id) === selectedContactId)
       : undefined;
 
-  const { data: suggestion, isLoading: suggestionLoading } = trpc.calls.suggestNextAction.useQuery(
-    {
-      group,
-      outcome: savedCall?.outcome ?? "Reached",
-      confirmationStatus: (savedCall?.confirmationStatus as any) || "none",
-    },
-    { enabled: open && savedCall !== null },
-  );
+
 
   useEffect(() => {
     if (open) {
@@ -102,7 +85,6 @@ export default function LogCallDialog({
       setFollowUpDate("");
       setPromisedDate("");
       setPromiseMode("reschedule");
-      setSavedCall(null);
     }
   }, [open, defaultCustomerId]);
 
@@ -112,11 +94,7 @@ export default function LogCallDialog({
       utils.customers.invalidate();
       utils.calls.invalidate();
       utils.tasks.invalidate();
-      // Show the Suggested Next Action panel instead of closing.
-      setSavedCall({
-        outcome: variables.outcome,
-        confirmationStatus: (variables.confirmationStatus as string) ?? "",
-      });
+      onOpenChange(false);
     },
     onError: e => toast.error(e.message),
   });
@@ -210,36 +188,6 @@ export default function LogCallDialog({
             <Phone className="h-4 w-4" /> Log Call — {group}
           </DialogTitle>
         </DialogHeader>
-        {savedCall ? (
-          <div className="space-y-4 py-2">
-            <div className="flex items-center gap-2 text-sm font-medium text-green-700">
-              <CheckCircle2 className="h-4 w-4" /> Call logged successfully
-            </div>
-            <div className="border rounded-lg p-4 space-y-3">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <Lightbulb className="h-4 w-4 text-amber-500" /> Suggested Next Action
-              </div>
-              {suggestionLoading ? (
-                <div className="text-sm text-muted-foreground animate-pulse">Analyzing group data…</div>
-              ) : suggestion ? (
-                <div className="space-y-2">
-                  <div className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
-                    suggestion.severity === "critical" ? "bg-red-50 text-red-800 border border-red-200" :
-                    suggestion.severity === "warning" ? "bg-amber-50 text-amber-800 border border-amber-200" :
-                    "bg-blue-50 text-blue-800 border border-blue-200"
-                  }`}>
-                    {(() => {
-                      const Icon = ACTION_ICONS[suggestion.action] ?? Lightbulb;
-                      return <Icon className="h-4 w-4 shrink-0" />;
-                    })()}
-                    {suggestion.label}
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{suggestion.reason}</p>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : (
         <div className="space-y-3">
           {collectionProfile?.notes?.trim() ? (
             <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-2 flex items-start gap-2">
@@ -491,23 +439,16 @@ export default function LogCallDialog({
           <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What was discussed…" rows={3} />
           </div>
         </div>
-        )}
         <DialogFooter>
-          {savedCall ? (
-            <Button onClick={() => onOpenChange(false)}>Close</Button>
-          ) : (
-            <>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSubmit}
-                disabled={logCall.isPending || !confirmationStatus}
-              >
-                {logCall.isPending ? "Saving…" : "Log Call"}
-              </Button>
-            </>
-          )}
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={logCall.isPending || !confirmationStatus}
+          >
+            {logCall.isPending ? "Saving…" : "Log Call"}
+          </Button>
         </DialogFooter>
       </ResizableDialogContent>
     </Dialog>

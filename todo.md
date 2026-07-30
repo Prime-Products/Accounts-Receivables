@@ -1097,9 +1097,16 @@
 - [x] Cleanup: removed 41 orphaned test wire transfers; testFixtures cleanup now also deletes fixture transfers/allocations/invoices
 
 ## Escalate task creates new task for assignee (user request 30/7)
-- [ ] Fix escalate procedure: create new task for assignee instead of reassigning original
-- [ ] Original task marked Completed with escalation note in description
-- [ ] New task has title "Escalated: {original title}", description includes original task + escalation note
-- [ ] Vitest coverage for escalate flow (creates new task, closes original)
+- [x] Fix escalate procedure: create new task for assignee instead of reassigning original
+- [x] Original task marked Completed with escalation note in description
+- [x] New task has title "Escalated: {original title}", description includes original task + escalation note
+- [x] Vitest coverage for escalate flow (creates new task, closes original)
 
 - [x] Fix escalate task: creates new task for assignee, closes original (238 tests pass)
+
+## Remove Suggested Next Action feature (user request 30/7)
+- [x] Remove suggestNextAction backend procedure from ar.ts router
+- [x] Remove SuggestedNextActionCard component from client
+- [x] Remove the suggested next action display from LogCallDialog
+- [x] Remove LLM call for next action suggestion
+- [x] Update tests to remove coverage for suggested next action
