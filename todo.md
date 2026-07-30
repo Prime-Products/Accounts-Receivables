@@ -1124,3 +1124,8 @@
 - [x] Make the three action buttons mandatory (cannot log call without selecting one)
 - [x] Update UI to show clear selection requirement
 - [x] Test that Broken status requires action selection
+
+## Remove placeholder columns from Team page (user request 30/7)
+- [x] Identify and remove placeholder/empty columns from Team members table
+- [x] Keep only relevant columns: Name, Role, Status (Active/Inactive), Actions
+- [x] Test Team page displays clean table without dashes
