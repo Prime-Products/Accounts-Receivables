@@ -1129,3 +1129,10 @@
 - [x] Identify and remove placeholder/empty columns from Team members table
 - [x] Keep only relevant columns: Name, Role, Status (Active/Inactive), Actions
 - [x] Test Team page displays clean table without dashes
+
+## Rework task action dialog Kept/Broken flow (user request 30/7)
+- [x] Find the task action dialog with Reschedule/Escalate/Done options
+- [x] Remove the initial Reschedule/Escalate/Done card entirely (Done removed completely)
+- [x] Show only two buttons initially: Kept and Broken (rename Not Confirmed/Not paid to Broken)
+- [x] When Broken pressed, show three options: Reschedule, Promise to Pay, Pending Follow-up
+- [x] Test the new flow and run vitest
