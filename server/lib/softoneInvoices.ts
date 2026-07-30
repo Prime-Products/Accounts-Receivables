@@ -9,8 +9,9 @@ import {
 } from "./softoneSql";
 
 const MAX_OPEN_INVOICES = 50_000;
-const SOFTONE_INVOICE_PAGE_SIZE = 500;
-const MAX_SOFTONE_INVOICE_PAGES = 200;
+const SOFTONE_INVOICE_PAGE_SIZE = 100;
+const MAX_SOFTONE_INVOICE_PAGES = 500;
+const SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE = 250;
 const SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE = 250;
 type SourceRow = Record<string, unknown>;
 
@@ -177,6 +178,21 @@ WHERE EXISTS (
         AND INTERNAL_CUSTOMER.[TRDGROUP] = 473
     )
 )`;
+
+export function buildSoftOneOpenInvoiceDocumentsQuery(findocs: string[]) {
+  if (
+    findocs.length === 0 ||
+    findocs.length > SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE ||
+    findocs.some(value => !/^\d+$/.test(value))
+  ) {
+    throw new Error("Invalid SoftOne document lookup identifiers.");
+  }
+  return `SELECT
+  CAST(FIN.[FINDOC] AS bigint) AS [FINDOC],
+  CAST(FIN.[FINCODE] AS nchar(64)) AS [FINCODE]
+FROM [dbo].[FINDOC] AS FIN
+WHERE FIN.[FINDOC] IN (${findocs.join(", ")})`;
+}
 
 export const softOneCompaniesQuery = `SELECT
   CAST([COMPANY] AS int) AS [COMPANY],
@@ -365,15 +381,34 @@ export function normalizeSoftOneOpenInvoiceRows(
   });
 }
 
-async function queryMaps(pool: ConnectionPool) {
-  const documentResult = await pool
-    .request()
-    .query<SourceRow>(softOneOpenInvoiceDocumentsQuery);
+async function queryMaps(
+  pool: ConnectionPool,
+  rows: SourceRow[],
+  setStage: (stage: string) => void,
+) {
+  const findocs = Array.from(new Set(rows.map(row => identity(row, "FINDOC"))));
+  const documentRows: SourceRow[] = [];
+  for (
+    let index = 0;
+    index < findocs.length;
+    index += SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE
+  ) {
+    const batch = findocs.slice(index, index + SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE);
+    setStage(
+      `query open invoice document lookup batch ${Math.floor(index / SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE) + 1}`,
+    );
+    const result = await pool
+      .request()
+      .query<SourceRow>(buildSoftOneOpenInvoiceDocumentsQuery(batch));
+    documentRows.push(...result.recordset);
+  }
+  setStage("query SoftOne companies");
   const companyResult = await pool.request().query<SourceRow>(softOneCompaniesQuery);
+  setStage("query SoftOne currencies");
   const currencyResult = await pool.request().query<SourceRow>(softOneCurrenciesQuery);
   return {
     documents: new Map(
-      documentResult.recordset.map(row => [
+      documentRows.map(row => [
         identity(row, "FINDOC"),
         identity(row, "FINCODE"),
       ]),
@@ -393,10 +428,14 @@ async function queryMaps(pool: ConnectionPool) {
   };
 }
 
-async function querySoftOneOpenInvoiceSource(pool: ConnectionPool) {
+async function querySoftOneOpenInvoiceSource(
+  pool: ConnectionPool,
+  setStage: (stage: string) => void = () => undefined,
+) {
   const records: SourceRow[] = [];
   let afterFindoc = 0;
   for (let page = 0; page < MAX_SOFTONE_INVOICE_PAGES; page += 1) {
+    setStage(`query open invoice source page ${page + 1} after FINDOC ${afterFindoc}`);
     const result = await pool
       .request()
       .query<SourceRow>(buildSoftOneOpenInvoiceFinancialsQuery(afterFindoc));
@@ -419,9 +458,12 @@ async function querySoftOneOpenInvoiceSource(pool: ConnectionPool) {
   throw new Error("SoftOne invoice page limit exceeded.");
 }
 
-async function loadSoftOneOpenInvoices(pool: ConnectionPool) {
-  const rows = await querySoftOneOpenInvoiceSource(pool);
-  const maps = await queryMaps(pool);
+async function loadSoftOneOpenInvoices(
+  pool: ConnectionPool,
+  setStage: (stage: string) => void,
+) {
+  const rows = await querySoftOneOpenInvoiceSource(pool, setStage);
+  const maps = await queryMaps(pool, rows, setStage);
   return normalizeSoftOneOpenInvoiceRows(
     rows,
     maps.documents,
@@ -512,7 +554,9 @@ export async function inspectSoftOneOpenInvoices() {
     stage = "query positive open invoice candidates";
     const positiveOpenRows = await querySoftOneOpenInvoiceSource(pool);
     stage = "query open invoice lookups";
-    const maps = await queryMaps(pool);
+    const maps = await queryMaps(pool, positiveOpenRows, stageName => {
+      stage = stageName;
+    });
     stage = "normalize positive open invoice preview";
     const records = normalizeSoftOneOpenInvoiceRows(
       positiveOpenRows,
@@ -578,7 +622,9 @@ export async function syncSoftOneOpenInvoices() {
   try {
     pool = await openSoftOneSqlPool();
     stage = "query and normalize open invoices";
-    const records = await loadSoftOneOpenInvoices(pool);
+    const records = await loadSoftOneOpenInvoices(pool, stageName => {
+      stage = stageName;
+    });
     stage = "resolve invoice-only customers";
     const insertedCustomers = await ensureInvoiceCustomers(pool, records);
     stage = "upsert MariaDB invoices";

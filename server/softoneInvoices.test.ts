@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateSoftOneOpenInvoiceParts,
   buildSoftOneInvoiceCustomerLookupQuery,
+  buildSoftOneOpenInvoiceDocumentsQuery,
   buildSoftOneOpenInvoiceFinancialsQuery,
   normalizeSoftOneCurrencyName,
   normalizeSoftOneOpenInvoiceRows,
@@ -145,7 +146,7 @@ describe("SoftOne open invoice sync", () => {
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
     );
     expect(softOneOpenInvoiceFinancialsQuery).not.toContain("HAVING");
-    expect(softOneOpenInvoiceFinancialsQuery).toContain("TOP (500)");
+    expect(softOneOpenInvoiceFinancialsQuery).toContain("TOP (100)");
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
       "FP_PAGE.[FINDOC] > 0",
     );
@@ -202,6 +203,15 @@ describe("SoftOne open invoice sync", () => {
     expect(query).not.toMatch(/\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i);
     expect(() =>
       buildSoftOneInvoiceCustomerLookupQuery(["10036); DROP TABLE TRDR"]),
+    ).toThrow(/invalid.*identifiers/i);
+  });
+
+  it("builds bounded numeric document lookup queries", () => {
+    const query = buildSoftOneOpenInvoiceDocumentsQuery(["1403582", "1422083"]);
+    expect(query).toContain("FIN.[FINDOC] IN (1403582, 1422083)");
+    expect(query).not.toMatch(/\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i);
+    expect(() =>
+      buildSoftOneOpenInvoiceDocumentsQuery(["1403582); DROP TABLE FINDOC"]),
     ).toThrow(/invalid.*identifiers/i);
   });
 });
