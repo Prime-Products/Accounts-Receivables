@@ -197,6 +197,40 @@ async function findOpenGroupPromise(group: string) {
 }
 
 /**
+ * Open (not fully allocated) wire transfers for a set of customers — the
+ * "payments on account" rows of the transactions list. Fully allocated
+ * transfers are hidden (like paid invoices); internal inter-office transfers
+ * are excluded. Remaining = amount − sum(allocations).
+ */
+async function listOpenWireTransfers(customerIds: Set<number>, customerNames: Map<number, string>) {
+  const all = await db.listAllWireTransfers().catch(() => []);
+  const mine = all.filter(t => customerIds.has(t.customerId) && !t.isInternal);
+  if (mine.length === 0) return [];
+  const allocated = await db.sumAllocationsByWireTransferIds(mine.map(t => t.id)).catch(() => new Map<number, number>());
+  return mine
+    .map(t => {
+      const alloc = allocated.get(t.id) ?? 0;
+      const unallocated = Number(t.amount) - alloc;
+      return {
+        id: t.id,
+        customerId: t.customerId,
+        customerName: customerNames.get(t.customerId) ?? "—",
+        amount: Number(t.amount),
+        allocated: alloc,
+        unallocated,
+        currency: t.currency ?? "EUR",
+        transferDate: t.transferDate,
+        status: t.status,
+        referenceNumber: t.referenceNumber ?? null,
+        branch: t.branch ?? null,
+        notes: t.notes ?? null,
+      };
+    })
+    .filter(t => t.unallocated > 0.005)
+    .sort((a, b) => b.transferDate - a.transferDate);
+}
+
+/**
  * Reschedule an existing open promise to a new date/amount (customer moved the payment).
  * Updates the promise row, moves the linked follow-up task's due date, and logs the change.
  */
@@ -1048,9 +1082,11 @@ export const customersRouter = router({
       // Match the Invoices page ordering: dueDate DESC (newest due first) so
       // not-yet-due invoices appear at the top instead of a wall of old overdue rows.
       const sortedInvoices = [...scoped].sort((a, b) => b.dueDate - a.dueDate);
-      const customerNames = new Map(members.map(m => [m.id, m.name]));
-      const allVesselRows = await db.listVessels();
-      const vesselNameById = new Map(allVesselRows.map(v => [v.id, v.name]));
+     const customerNames = new Map(members.map(m => [m.id, m.name]));
+     const allVesselRows = await db.listVessels();
+     const vesselNameById = new Map(allVesselRows.map(v => [v.id, v.name]));
+      // Open (unallocated) wire transfers — the transactions list's payment rows.
+      const openTransfers = await listOpenWireTransfers(memberIds, customerNames);
       // Unified: the group's account status IS the hold status (companies inherit it).
       const groupHoldStatus = watchStatus;
       const activityLogs = await db.listActivityLog(input.group, 200).catch(() => []);
@@ -1137,16 +1173,17 @@ export const customersRouter = router({
           turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
           turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
         },
-        invoices: sortedInvoices.map(i => ({
-          ...i,
-          customerName: customerNames.get(i.customerId) ?? "",
-          vesselName: i.vesselId ? (vesselNameById.get(i.vesselId) ?? null) : null,
-          outstanding: outstanding(i),
-          daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, Date.now()) : 0,
-        })),
-        activityLogs,
-      };
-    }),
+       invoices: sortedInvoices.map(i => ({
+         ...i,
+         customerName: customerNames.get(i.customerId) ?? "",
+         vesselName: i.vesselId ? (vesselNameById.get(i.vesselId) ?? null) : null,
+         outstanding: outstanding(i),
+         daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, Date.now()) : 0,
+       })),
+        openTransfers,
+       activityLogs,
+     };
+   }),
   /** All promises-to-pay for the member companies of a group. */
   groupPromises: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
     const customers = await db.listCustomers();
@@ -1523,25 +1560,27 @@ export const customersRouter = router({
     const accountManager = (customer as any).accountManagerId && teamMap360.has((customer as any).accountManagerId)
       ? { id: (customer as any).accountManagerId as number, name: teamMap360.get((customer as any).accountManagerId)!.name }
       : null;
-    const collector = (customer as any).collectorId && teamMap360.has((customer as any).collectorId)
-      ? { id: (customer as any).collectorId as number, name: teamMap360.get((customer as any).collectorId)!.name }
-      : null;
-    return {
-      customer,
-      accountManager,
-      collector,
+   const collector = (customer as any).collectorId && teamMap360.has((customer as any).collectorId)
+     ? { id: (customer as any).collectorId as number, name: teamMap360.get((customer as any).collectorId)!.name }
+     : null;
+    const openTransfers360 = await listOpenWireTransfers(new Set([input.id]), new Map([[input.id, customer.name]]));
+   return {
+     customer,
+     accountManager,
+     collector,
       invoices: invoices.map(i => ({
         ...i,
         vesselName: i.vesselId ? (vesselName360.get(i.vesselId) ?? null) : null,
         outstanding: outstanding(i),
         daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, Date.now()) : 0,
       })),
-      receipts,
-      contracts,
-      installments,
-      promises,
-      tasks,
-      aging,
+     receipts,
+     contracts,
+     installments,
+     promises,
+     tasks,
+      openTransfers: openTransfers360,
+     aging,
       rating: ratingResult,
       behavior: behaviorRow,
       groupKey,

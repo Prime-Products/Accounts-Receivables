@@ -10,6 +10,7 @@ import { ActivityLog } from "@/components/ActivityLog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -782,7 +783,7 @@ export default function GroupDetail() {
           {/* Invoices for current scope */}
           <Card>
             <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">Invoices ({scopeLabel})</CardTitle>
+              <CardTitle className="text-base">Transactions ({scopeLabel})</CardTitle>
               <div className="flex items-center gap-2">
               <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
               <div className="flex items-center rounded-md border p-0.5">
@@ -861,12 +862,15 @@ export default function GroupDetail() {
                   </p>
                 </>
               ) : (
+              <>
+              <UnallocatedTransfersTable rows={(data as any).openTransfers ?? []} />
               <div className="max-h-[480px] overflow-auto">
                 <InvoicesTable
                   rows={filteredInvoices as any}
                   onDisputeChanged={() => utils.customers.groupDetail.invalidate()}
                 />
               </div>
+              </>
               )}
             </CardContent>
           </Card>

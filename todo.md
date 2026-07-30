@@ -1080,3 +1080,11 @@
 - [x] Root-cause fix 2: server/testFixtures.ts — all DB-mutating tests now create their own isolated fixture customers instead of touching real customers/groups (10 test files migrated)
 - [x] Fixture visibility: invalidate the customers micro-cache when fixtures are created/removed
 - [x] Full suite green (232 tests) with real data verified unchanged after the run
+
+## Transactions list on group/customer card (user request 30/7)
+- [x] Investigate wire transfers + allocation model (how allocations link transfers to invoices)
+- [x] Backend: groupDetail + get360 return openTransfers — wire transfers with unallocated remainder (fully allocated & internal hidden)
+- [x] Frontend: group card "Transactions" section — payments-on-account table above the invoice list (credit notes prepared for later)
+- [x] Same list on the customer card (shared UnallocatedTransfersTable, tab renamed Transactions)
+- [x] Vitest coverage for the transactions query (isolated fixtures) — 233 tests green
+- [x] Bugfix: stale "Open promise exists €7,777" in Log Call — closed 6 orphan Pending promises left from the audit recovery; user's own task cancellations respected

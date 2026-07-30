@@ -7,6 +7,7 @@ import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -308,7 +309,7 @@ export default function CustomerDetail() {
 
       <Tabs defaultValue="invoices">
         <TabsList>
-          <TabsTrigger value="invoices">Invoices ({invoices.length})</TabsTrigger>
+          <TabsTrigger value="invoices">Transactions ({invoices.length})</TabsTrigger>
           <TabsTrigger value="receipts">Payment History ({receipts.length})</TabsTrigger>
           <TabsTrigger value="contracts">Contracts ({contracts.length})</TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
@@ -342,6 +343,7 @@ export default function CustomerDetail() {
               </div>
             </div>
             <CardContent className="p-0">
+              <UnallocatedTransfersTable rows={(data as any).openTransfers ?? []} showCustomer={false} />
               {visibleInvoices.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">No invoices for this customer.</div>
               ) : (
