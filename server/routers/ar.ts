@@ -29,6 +29,7 @@ import {
   outstanding,
   outstandingOriginal,
   setFxRates,
+  toEur,
 } from "../lib/arLogic";
 import { buildExcel, buildPdf, TableSpec } from "../lib/exports";
 import { generateMonthlyForecast } from "../lib/smartForecast";
@@ -218,6 +219,7 @@ async function listOpenWireTransfers(customerIds: Set<number>, customerNames: Ma
         amount: Number(t.amount),
         allocated: alloc,
         unallocated,
+        unallocatedEur: toEur(unallocated, t.currency ?? "EUR"),
         currency: t.currency ?? "EUR",
         transferDate: t.transferDate,
         status: t.status,
@@ -1170,6 +1172,8 @@ export const customersRouter = router({
           openCount: open.length,
           openByCurrency,
           dueNextMonth: gDueNextMonth,
+          unallocatedPayments: openTransfers.reduce((s, t) => s + t.unallocatedEur, 0),
+          netOpenBalance: open.reduce((s, i) => s + outstanding(i), 0) - openTransfers.reduce((s, t) => s + t.unallocatedEur, 0),
           turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
           turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
         },
@@ -1564,6 +1568,7 @@ export const customersRouter = router({
      ? { id: (customer as any).collectorId as number, name: teamMap360.get((customer as any).collectorId)!.name }
      : null;
     const openTransfers360 = await listOpenWireTransfers(new Set([input.id]), new Map([[input.id, customer.name]]));
+    const unallocatedPayments360 = openTransfers360.reduce((s, t) => s + t.unallocatedEur, 0);
    return {
      customer,
      accountManager,
@@ -1574,12 +1579,13 @@ export const customersRouter = router({
         outstanding: outstanding(i),
         daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, Date.now()) : 0,
       })),
-     receipts,
-     contracts,
-     installments,
-     promises,
-     tasks,
+      receipts,
+      contracts,
+      installments,
+      promises,
+      tasks,
       openTransfers: openTransfers360,
+      unallocatedPayments: unallocatedPayments360,
      aging,
       rating: ratingResult,
       behavior: behaviorRow,

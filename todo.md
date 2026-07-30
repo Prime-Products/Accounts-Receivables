@@ -1088,3 +1088,10 @@
 - [x] Same list on the customer card (shared UnallocatedTransfersTable, tab renamed Transactions)
 - [x] Vitest coverage for the transactions query (isolated fixtures) — 233 tests green
 - [x] Bugfix: stale "Open promise exists €7,777" in Log Call — closed 6 orphan Pending promises left from the audit recovery; user's own task cancellations respected
+## Net Open Balance (user request 30/7 — "προχωρά το 2")
+- [x] Backend: groupDetail returns unallocated payments total (EUR) and net open balance (invoices − unallocated transfers)
+- [x] Backend: get360 returns the same for the single customer
+- [x] Group card: Open Balance KPI shows net balance with breakdown line (invoices total − unallocated payments)
+- [x] Customer card: Open Balance KPI shows net balance with the same breakdown
+- [x] Vitest coverage for the net balance computation (isolated fixtures) — 235 tests green
+- [x] Cleanup: removed 41 orphaned test wire transfers; testFixtures cleanup now also deletes fixture transfers/allocations/invoices

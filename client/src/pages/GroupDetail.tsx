@@ -606,7 +606,15 @@ export default function GroupDetail() {
             <Card>
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Open Balance</div>
-                <div className="text-xl font-bold font-mono">{fmtEur(data.totals.openBalance)}</div>
+                <div className="text-xl font-bold font-mono">{fmtEur((data.totals as any).netOpenBalance ?? data.totals.openBalance)}</div>
+                {((data.totals as any).unallocatedPayments ?? 0) > 0.005 && (
+                  <div
+                    className="text-[11px] font-mono mt-0.5 text-emerald-600"
+                    title="Open invoices minus payments on account that are not yet allocated"
+                  >
+                    {fmtEur(data.totals.openBalance)} inv − {fmtEur((data.totals as any).unallocatedPayments)} on acct
+                  </div>
+                )}
                 <div className="text-[11px] text-muted-foreground mt-0.5">
                   {fmtByCurrency(data.totals.openByCurrency, { skipEurOnly: true })}
                 </div>

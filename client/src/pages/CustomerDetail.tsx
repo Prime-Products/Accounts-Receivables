@@ -205,7 +205,17 @@ export default function CustomerDetail() {
         <Card>
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Open Balance</div>
-            <div className="text-xl font-bold font-mono">{fmtEur(aging.current + aging.totalOverdue)}</div>
+            <div className="text-xl font-bold font-mono">
+              {fmtEur(aging.current + aging.totalOverdue - ((data as any).unallocatedPayments ?? 0))}
+            </div>
+            {((data as any).unallocatedPayments ?? 0) > 0.005 && (
+              <div
+                className="text-[11px] font-mono mt-0.5 text-emerald-600"
+                title="Open invoices minus payments on account that are not yet allocated"
+              >
+                {fmtEur(aging.current + aging.totalOverdue)} inv − {fmtEur((data as any).unallocatedPayments)} on acct
+              </div>
+            )}
             <div className="text-[11px] text-muted-foreground mt-0.5">
               {fmtByCurrency(agingAny.totalByCurrency, { skipEurOnly: true }) || `${openInvoices.length} open invoice(s)`}
             </div>
