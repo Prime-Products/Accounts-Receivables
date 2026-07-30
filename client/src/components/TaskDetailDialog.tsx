@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
 import NextActionDialog from "@/components/NextActionDialog";
+import EscalationPanel from "@/components/EscalationPanel";
 import { WatcherStack, watcherColor, watcherInitials } from "@/components/WatcherStack";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
@@ -386,6 +387,13 @@ export default function TaskDetailDialog({
                   <div className="text-xs text-muted-foreground">Completion notes</div>
                   <div>{task.completionNotes}</div>
                 </div>
+              )}
+
+              {task.title.startsWith("Escalated: ") && (
+                <EscalationPanel
+                  taskId={task.id}
+                  taskOpen={task.status === "Pending" || task.status === "In Progress"}
+                />
               )}
 
               {(task as any).attachedInvoices && (task as any).attachedInvoices.length > 0 && (

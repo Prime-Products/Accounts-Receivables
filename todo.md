@@ -1180,3 +1180,11 @@
 - [x] Option "New log call" proceeds to the normal LogCallDialog
 - [x] If no active communication exists, Log Call opens directly (no extra step)
 - [x] Vitest coverage for the active-communication lookup endpoint
+
+## Escalation workflow rework (user request 31/7)
+- [x] Escalation summary: auto-generated snapshot (open balance, overdue, promise history kept/broken, reschedule counts, recent log calls, escalation reason) shown on escalated tasks
+- [x] Management decision actions on escalated tasks: On Hold / Stop Services, Legal Review, Return to Collector
+- [x] On Hold and Legal group statuses: badges on Customers list + GroupDetail, filter options
+- [x] Return to Collector: reassigns task back to the escalating collector with management instructions
+- [x] Auto-watcher: escalating collector automatically becomes watcher on the escalated task
+- [x] Auto-watcher: creator of a task assigned to someone else automatically becomes watcher

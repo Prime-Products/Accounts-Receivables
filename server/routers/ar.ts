@@ -2612,6 +2612,14 @@ export const tasksRouter = router({
       if (input.invoiceIds && input.invoiceIds.length > 0) {
         await db.addTaskInvoices(id, input.invoiceIds);
       }
+      // When you create a task for someone else, you automatically become a
+      // watcher so you can follow whether they helped.
+      if (input.assigneeId != null) {
+        const creatorMember = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+        if (creatorMember && creatorMember.id !== input.assigneeId) {
+          await db.addTaskWatcher(id, creatorMember.id).catch(() => {});
+        }
+      }
       await audit(ctx, "Create Task", "task", id, `Manual task "${input.title}" for ${customer.name}`);
       return { id };
     }),
@@ -3132,7 +3140,11 @@ export const tasksRouter = router({
 
       // Create a new task for the assignee
       const newTaskTitle = `Escalated: ${task.title}`;
-      const newTaskDescription = `Original task: ${task.title}\n\n${task.description ?? ""}\n\n${escalationNote}`;
+      // The (Escalated-by: N) marker lets "Return to Collector" reliably find the
+      // original collector's team member id later.
+      const escalatorMember = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+      const escalatedByMarker = escalatorMember ? `\n(Escalated-by: ${escalatorMember.id})` : "";
+      const newTaskDescription = `Original task: ${task.title}\n\n${task.description ?? ""}\n\n${escalationNote}${escalatedByMarker}`;
      const newTaskId = await db.createTask({
        customerId: task.customerId,
        title: newTaskTitle,
@@ -3149,6 +3161,9 @@ export const tasksRouter = router({
         ...existingWatchers.map(w => w.memberId),
         ...(input.watcherIds ?? []),
       ]);
+      // The escalating collector automatically watches the escalated task so they
+      // can follow management's decision.
+      if (escalatorMember) watcherIds.add(escalatorMember.id);
       watcherIds.delete(targetId); // The assignee doesn't need to watch their own task
       for (const memberId of Array.from(watcherIds)) {
         await db.addTaskWatcher(newTaskId, memberId).catch(() => {});
@@ -3177,6 +3192,163 @@ export const tasksRouter = router({
      }
       await audit(ctx, "Escalate Task", "task", input.taskId, `Escalated to ${member.name} (new task: ${newTaskId})`);
       return { success: true, assigneeName: member.name, newTaskId };
+    }),
+  /**
+   * Live snapshot shown on an escalated task so management can decide without
+   * digging: balances, promise history, recent activity and the escalation reason.
+   */
+  escalationSummary: protectedProcedure
+    .input(z.object({ taskId: z.number() }))
+    .query(async ({ input }) => {
+      const task = await db.getTask(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
+      let group = followUpMatch?.[1] ?? null;
+      const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
+      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
+      if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found for this task" });
+
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === group);
+      const memberIds = new Set(members.map(m => m.id));
+      const now = Date.now();
+
+      const [allInvoices, allPromises, activity] = await Promise.all([
+        db.listInvoices(),
+        db.listPromises(),
+        db.listActivityLog(group, 8).catch(() => []),
+      ]);
+      const invs = allInvoices.filter(i => memberIds.has(i.customerId) && isOpenInvoice(i));
+      let openBalanceEur = 0;
+      let overdueEur = 0;
+      let overdueCount = 0;
+      let oldestOverdueDays = 0;
+      for (const i of invs) {
+        const outEur = toEur(outstanding(i), i.currency ?? "EUR");
+        openBalanceEur += outEur;
+        if (i.dueDate != null && i.dueDate < now) {
+          overdueEur += outEur;
+          overdueCount += 1;
+          const days = Math.floor((now - i.dueDate) / 86400000);
+          if (days > oldestOverdueDays) oldestOverdueDays = days;
+        }
+      }
+
+      const proms = allPromises.filter(p => memberIds.has(p.customerId));
+      const promisesTotal = proms.length;
+      const promisesKept = proms.filter(p => p.status === "Kept").length;
+      const promisesBroken = proms.filter(p => p.status === "Broken").length;
+      const totalReschedules = proms.reduce((s, p) => s + (((p as any).rescheduleCount as number) ?? 0), 0);
+
+      // The escalation reason is the "⬆ Escalated to …" line recorded on the task.
+      const reasonLine = (task.description ?? "").split("\n").find(l => l.startsWith("⬆")) ?? null;
+      // Management decision already recorded on this task (if any).
+      const decisionLine = (task.description ?? "").split("\n").filter(l => l.startsWith("⚖")).pop() ?? null;
+
+      return {
+        group,
+        openBalanceEur: Math.round(openBalanceEur * 100) / 100,
+        overdueEur: Math.round(overdueEur * 100) / 100,
+        overdueCount,
+        oldestOverdueDays,
+        promisesTotal,
+        promisesKept,
+        promisesBroken,
+        totalReschedules,
+        escalationReason: reasonLine,
+        decision: decisionLine,
+        recentActivity: activity.map(a => ({
+          id: a.id,
+          title: a.title,
+          description: a.description,
+          activityType: a.activityType,
+          createdAt: a.createdAt,
+        })),
+      };
+    }),
+  /**
+   * Management decision on an escalated task:
+   * - "On Hold"             → group account status becomes On Hold; task stays open.
+   * - "Legal Review"        → group account status becomes Legal; task stays open.
+   * - "Return to Collector" → task reassigned back to the escalating collector with instructions.
+   */
+  escalationDecision: protectedProcedure
+    .input(z.object({
+      taskId: z.number(),
+      decision: z.enum(["On Hold", "Legal Review", "Return to Collector"]),
+      note: z.string().max(1000).optional(),
+      /** Explicit collector to return the task to (falls back to the Escalated-by marker). */
+      returnToMemberId: z.number().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const task = await db.getTask(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      if (task.status === "Completed" || task.status === "Cancelled") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This task is already closed" });
+      }
+      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
+      let group = followUpMatch?.[1] ?? null;
+      const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
+      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
+
+      const when = new Date().toLocaleDateString("en-GB");
+      const by = ctx.user.name ?? "user";
+      const decisionNote = `⚖ Decision: ${input.decision} by ${by} on ${when}${input.note ? ` — ${input.note}` : ""}`;
+
+      let returnedToName: string | null = null;
+      if (input.decision === "Return to Collector") {
+        // Find the original collector: explicit pick → Escalated-by marker → error.
+        let collectorId = input.returnToMemberId ?? null;
+        if (!collectorId) {
+          const m = task.description?.match(/\(Escalated-by: (\d+)\)/);
+          collectorId = m ? Number(m[1]) : null;
+        }
+        if (!collectorId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Could not identify the original collector — pick a team member to return the task to." });
+        }
+        const collector = await db.getTeamMemberById(collectorId);
+        if (!collector) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+        returnedToName = collector.name;
+        await db.updateTask(input.taskId, {
+          assigneeId: collectorId,
+          dueDate: Date.now(),
+          description: `${task.description ?? ""}\n${decisionNote}`.trim(),
+        } as any);
+        // Management (the decider) keeps watching the returned task.
+        const deciderMember = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+        if (deciderMember && deciderMember.id !== collectorId) {
+          await db.addTaskWatcher(input.taskId, deciderMember.id).catch(() => {});
+        }
+      } else {
+        // On Hold / Legal Review: record the decision and flag the group.
+        await db.updateTask(input.taskId, {
+          description: `${task.description ?? ""}\n${decisionNote}`.trim(),
+        } as any);
+        if (group) {
+          const watch = input.decision === "On Hold" ? "On Hold" : "Legal";
+          await db.setGroupWatchStatus(group, watch as any, ctx.user.id);
+          await db.createGroupNote({
+            groupName: group,
+            content: `${decisionNote} (escalation decision on task #${input.taskId})`,
+            createdBy: ctx.user.id,
+            createdAt: Date.now(),
+          }).catch(() => {});
+        }
+      }
+
+      if (group) {
+        await db.addActivityLog({
+          groupName: group,
+          customerId: task.customerId ?? undefined,
+          activityType: "status_change",
+          title: `Escalation decision: ${input.decision}${returnedToName ? ` → ${returnedToName}` : ""}`,
+          description: input.note ?? null,
+          createdBy: ctx.user.id,
+          createdAt: new Date(),
+        }).catch(() => {});
+      }
+      await audit(ctx, "Escalation Decision", "task", input.taskId, `${input.decision}${returnedToName ? ` → ${returnedToName}` : ""}${input.note ? ` — ${input.note}` : ""}`);
+      return { success: true, decision: input.decision, returnedToName };
     }),
 });
 

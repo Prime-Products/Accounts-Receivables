@@ -1057,7 +1057,12 @@ export async function getTeamMemberById(id: number) {
   const rows = await db.select().from(teamMembers).where(eq(teamMembers.id, id)).limit(1);
   return rows[0] ?? null;
 }
-
+/** Team member linked to a signed-in auth user (teamMembers.userId), if any. */
+export async function getTeamMemberByUserId(userId: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(teamMembers).where(eq(teamMembers.userId, userId)).limit(1);
+  return rows[0] ?? null;
+}
 export async function deleteTeamMember(id: number) {
   const db = await requireDb();
   // Detach from customers and tasks first, then delete.
