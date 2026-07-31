@@ -1282,3 +1282,7 @@
 - [x] No automatic matching to invoices — open amount comes from the ERP, manual allocations are subtracted, fully matched credit notes disappear from the list
 - [x] Vitest: `server/creditNotes.test.ts` (visibility, EUR conversion, group netting, partial/full matching)
 - [x] Vitest coverage for the credit-note visibility, FX conversion, balance netting and manual matching (server/creditNotes.test.ts)
+
+## Tasks list navigation (user request 31/7)
+
+- [x] Tasks page: the Group cell is a link that opens the company card (`/customers/<id>`); the row click still opens the task dialog (`server/tasksGroupLink.test.ts`)
