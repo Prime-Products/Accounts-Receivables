@@ -492,7 +492,7 @@ export default function GroupDetail() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" className="gap-1" onClick={() => navigate("/customers")}>
-            <ArrowLeft className="h-4 w-4" /> Collections
+            <ArrowLeft className="h-4 w-4" /> Group List
           </Button>
           <div>
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
