@@ -167,11 +167,11 @@ function CustomerCombobox({
 export default function WireTransfersPage() {
   const wtpCols = useResizableColumns("wire-transfers-page", {
     chevron: 36,
+    date: 120,
     customer: 280,
     branch: 160,
     amount: 110,
     allocated: 100,
-    date: 120,
     status: 100,
     ref: 130,
     actions: 170,
@@ -457,11 +457,11 @@ export default function WireTransfersPage() {
                     <TableCell style={wtpCols.style("chevron")}></TableCell>
                     {(
                       [
+                        ["date", "Date"],
                         ["customer", "Customer"],
                         ["branch", "Branch"],
                         ["amount", "Amount"],
                         ["allocated", "Allocated"],
-                        ["date", "Date"],
                         ["status", "Status"],
                         ["ref", "Ref / Notes"],
                       ] as const
@@ -493,6 +493,7 @@ export default function WireTransfersPage() {
                               )
                             ) : null}
                           </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm">{fmtDate(Number(t.transferDate))}</TableCell>
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
                               {t.isInternal && (
@@ -530,7 +531,6 @@ export default function WireTransfersPage() {
                               "-"
                             )}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm">{fmtDate(Number(t.transferDate))}</TableCell>
                           <TableCell>
                             <span
                               className={`px-2 py-1 rounded text-xs font-medium ${

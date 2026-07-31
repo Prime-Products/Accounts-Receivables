@@ -1304,3 +1304,10 @@
 - [x] Same toggle on the Wire Transfers tab of the customer and group card
 - [x] Vitest coverage: internal transfers excluded unless requested, and cleanup left no orphan rows
 - [x] Fix the allocation vitest teardown so derived inter-office transfers are deleted with their source transfer (no new orphan rows)
+- [x] Merge wire transfers (payments) as rows inside the unified transactions table, not a separate block
+- [x] Restore the issue-date column and sort invoices, credit notes and transfers together by issue date
+- [x] Toggle "Payments" to show only wire transfers in the transactions list
+- [x] Remove the Allocate action from the customer/group transactions list — allocation happens only on the Wire Transfers page
+- [x] Vitest coverage: merged transaction rows carry an issue date and sort correctly; transfers-only filter works
+- [x] Wire Transfers page: move the Date column to the first position (before Customer)
+- [x] Vitest coverage: Date column leads the wire transfers table (header, row cells, stored widths)

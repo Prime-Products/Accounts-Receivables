@@ -11,10 +11,10 @@ import NewTaskDialog from "@/components/NewTaskDialog";
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { invoiceDisplayStatus } from "@/lib/invoiceFilters";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, FileMinus2, FileSignature, Send, Ship, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, Send, Ship, Undo2, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AllocateCreditNoteDialog } from "@/components/AllocateCreditNoteDialog";
+import { Link } from "wouter";
 
 // Lazy import to break the circular dependency (VesselDetailDialog renders InvoicesTable).
 const VesselDetailDialog = lazy(() =>
@@ -47,6 +47,22 @@ export interface InvoiceRowData {
  * are ordered together with the invoices by issue date, because that is how the
  * customer's account statement reads.
  */
+/** A wire transfer with an unallocated remainder, as shown inside the transactions list. */
+export interface OpenTransferRow {
+  id: number;
+  customerId: number;
+  customerName: string;
+  amount: number;
+  allocated: number;
+  unallocated: number;
+  currency: string;
+  transferDate: number;
+  status: "Pending" | "Received";
+  referenceNumber: string | null;
+  branch: string | null;
+  notes: string | null;
+}
+
 export interface CreditNoteRowData {
   id: number;
   customerId: number;
@@ -63,10 +79,15 @@ export interface CreditNoteRowData {
   contractNo?: string | null;
 }
 
-/** A row of the transactions list: either an invoice or an open credit note. */
+/**
+ * A row of the transactions list: an invoice, an open credit note or a payment
+ * (wire transfer). All three are ordered together by issue date, the way an
+ * account statement reads.
+ */
 type TxRow =
   | { kind: "invoice"; issueDate: number; sortId: number; invoice: InvoiceRowData }
-  | { kind: "credit"; issueDate: number; sortId: number; credit: CreditNoteRowData };
+  | { kind: "credit"; issueDate: number; sortId: number; credit: CreditNoteRowData }
+  | { kind: "transfer"; issueDate: number; sortId: number; transfer: OpenTransferRow };
 
 type SortKey =
   | "invoiceNumber"
@@ -150,10 +171,10 @@ function CreditNoteRow({
         </Badge>
       </TableCell>
       <TableCell className="text-xs whitespace-nowrap" title="Issue date of the credit note">{fmtDate(cn.docDate)}</TableCell>
+      <TableCell className="text-xs whitespace-nowrap text-muted-foreground/60" title="A credit note has no due date">—</TableCell>
       <TableCell>
         <div className="flex flex-nowrap items-center gap-1">
           <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200">Credit note</Badge>
-          <AllocateCreditNoteDialog creditNote={cn} />
         </div>
       </TableCell>
       <TableCell className="text-right font-mono text-sm whitespace-nowrap text-sky-700">
@@ -182,9 +203,76 @@ function CreditNoteRow({
   );
 }
 
+/**
+ * One payment (wire transfer) line inside the transactions list. Only transfers
+ * with an unallocated remainder reach this list — fully allocated payments
+ * disappear like paid invoices. Amounts are shown negative because a payment
+ * reduces what the customer owes, and matching happens on the Wire Transfers
+ * page, so this row only links there.
+ */
+function PaymentRow({
+  t,
+  showCustomer,
+  enableSelection,
+}: {
+  t: OpenTransferRow;
+  showCustomer: boolean;
+  enableSelection: boolean;
+}) {
+  const cur = t.currency && t.currency !== "EUR" ? t.currency : null;
+  const neg = (v: number) => (cur ? `−${fmtCur(v, cur, 2)}` : `−${fmtEur(v)}`);
+  return (
+    <TableRow className="bg-emerald-50/40 hover:bg-emerald-50">
+      {enableSelection && <TableCell className="w-8" />}
+      <TableCell className="font-mono text-xs whitespace-nowrap">
+        <span className="inline-flex items-center gap-1" title={t.referenceNumber ? `Payment ref. ${t.referenceNumber}` : "Payment on account"}>
+          <Banknote className="h-3.5 w-3.5 text-emerald-600 shrink-0" aria-label="Payment" role="img" />
+          {t.referenceNumber ?? "—"}
+        </span>
+      </TableCell>
+      {showCustomer && (
+        <TableCell className="font-medium overflow-hidden text-sm">
+          <span className="block truncate" title={t.customerName ?? undefined}>{t.customerName ?? "—"}</span>
+        </TableCell>
+      )}
+      <TableCell className="overflow-hidden">
+        <span className="text-muted-foreground/50 text-xs">—</span>
+      </TableCell>
+      <TableCell>
+        {t.branch ? (
+          <Badge variant="outline" className={branchColors[branchShort(t.branch)] ?? "bg-gray-50 text-gray-600 border-gray-200"} title={t.branch}>
+            {branchShort(t.branch)}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground/50 text-xs">—</span>
+        )}
+      </TableCell>
+      <TableCell className="text-xs whitespace-nowrap" title="Date the payment was received">{fmtDate(t.transferDate)}</TableCell>
+      <TableCell className="text-xs whitespace-nowrap text-muted-foreground/60">—</TableCell>
+      <TableCell>
+        <div className="flex flex-nowrap items-center gap-1">
+          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">Payment</Badge>
+          {t.status === "Pending" && (
+            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
+          )}
+          <Link href="/wire-transfers" className="text-xs text-primary hover:underline whitespace-nowrap" title="Matching is done on the Wire Transfers page">
+            Allocate →
+          </Link>
+        </div>
+      </TableCell>
+      <TableCell className="text-right font-mono text-sm whitespace-nowrap text-emerald-700">{neg(t.amount)}</TableCell>
+      <TableCell className="text-right font-mono text-sm whitespace-nowrap" title="Already matched against invoices">
+        {t.allocated > 0.005 ? (cur ? fmtCur(t.allocated, cur, 2) : fmtEur(t.allocated)) : <span className="text-muted-foreground/50">—</span>}
+      </TableCell>
+      <TableCell className="text-right font-mono text-sm font-semibold whitespace-nowrap text-emerald-700">{neg(t.unallocated)}</TableCell>
+    </TableRow>
+  );
+}
+
 export function InvoicesTable({
   rows,
   creditNotes = [],
+  transfers = [],
   showCustomer = true,
   onDisputeChanged,
   disableVesselDialog = false,
@@ -193,6 +281,8 @@ export function InvoicesTable({
   rows: InvoiceRowData[];
   /** Open credit notes to merge into the same list (ordered by issue date). */
   creditNotes?: CreditNoteRowData[];
+  /** Payments (wire transfers with an unallocated remainder) to merge into the list. */
+  transfers?: OpenTransferRow[];
   /** Show the Customer column (hidden on the single-customer card). */
   showCustomer?: boolean;
   /** Called after a dispute change so the parent can refresh its own query. */
@@ -228,6 +318,7 @@ export function InvoicesTable({
       ...(showCustomer ? { customerName: 170 } : {}),
       vesselName: 100,
       company: 100,
+      issueDate: 100,
       dueDate: 100,
       status: 175,
       amount: 110,
@@ -278,28 +369,35 @@ export function InvoicesTable({
       sortId: i.id,
       invoice: i,
     }));
-    if (creditNotes.length === 0) return invoiceRows;
+    if (creditNotes.length === 0 && transfers.length === 0) return invoiceRows;
     const creditRows: TxRow[] = creditNotes.map(c => ({
       kind: "credit" as const,
       issueDate: c.docDate ?? 0,
       sortId: c.id,
       credit: c,
     }));
+    const transferRows: TxRow[] = transfers.map(t => ({
+      kind: "transfer" as const,
+      issueDate: t.transferDate ?? 0,
+      sortId: t.id,
+      transfer: t,
+    }));
+    const extras = [...creditRows, ...transferRows];
     if (sortKey) {
-      // Keep the user's invoice ordering, then drop credit notes in by issue date
-      // relative to the invoices around them.
+      // Keep the user's invoice ordering, then drop credit notes and payments in
+      // by issue date relative to the invoices around them.
       const merged = [...invoiceRows];
-      for (const cr of creditRows) {
+      for (const cr of extras) {
         const at = merged.findIndex(r => r.kind === "invoice" && r.issueDate <= cr.issueDate);
         if (at === -1) merged.push(cr);
         else merged.splice(at, 0, cr);
       }
       return merged;
     }
-    return [...invoiceRows, ...creditRows].sort(
+    return [...invoiceRows, ...extras].sort(
       (a, b) => b.issueDate - a.issueDate || b.sortId - a.sortId,
     );
-  }, [sortedRows, creditNotes, sortKey]);
+  }, [sortedRows, creditNotes, transfers, sortKey]);
 
   const selectedRows = useMemo(() => rows.filter(r => selectedIds.has(r.id)), [rows, selectedIds]);
   const toggleRow = (id: number) => {
@@ -353,6 +451,7 @@ export function InvoicesTable({
             {showCustomer && <SortableHead label="Customer" k="customerName" />}
             <SortableHead label="Vessel" k="vesselName" />
             <SortableHead label="Branch" k="company" />
+            <SortableHead label="Issue Date" k="issueDate" />
             <SortableHead label="Due Date" k="dueDate" />
             <SortableHead label="Status" k="status" />
             <SortableHead label="Amount" k="amount" align="right" />
@@ -361,7 +460,14 @@ export function InvoicesTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {txRows.map(row => row.kind === "credit" ? (
+          {txRows.map(row => row.kind === "transfer" ? (
+            <PaymentRow
+              key={`wt-${row.transfer.id}`}
+              t={row.transfer}
+              showCustomer={showCustomer}
+              enableSelection={enableSelection}
+            />
+          ) : row.kind === "credit" ? (
             <CreditNoteRow
               key={`cn-${row.credit.id}`}
               cn={row.credit}
@@ -418,6 +524,7 @@ export function InvoicesTable({
                   {branchShort(i.company)}
                 </Badge>
               </TableCell>
+              <TableCell className="text-xs whitespace-nowrap" title="Issue date">{fmtDate(i.issueDate)}</TableCell>
               <TableCell className="text-xs whitespace-nowrap">{fmtDate(i.dueDate)}</TableCell>
               <TableCell>
                 {/* flex-nowrap: the primary badge and Disputed stay on one line
