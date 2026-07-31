@@ -3700,7 +3700,8 @@ export const reportsRouter = router({
         if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
         const memberIds = new Set(members.map(m => m.id));
         const names = new Map(members.map(m => [m.id, m.name]));
-        const allInvoices = await db.listInvoices();
+        const [allInvoices, vesselRows] = await Promise.all([db.listInvoices(), db.listVessels()]);
+        const vesselNames = new Map(vesselRows.map(vessel => [vessel.id, vessel.name]));
         const open = allInvoices.filter(
           i =>
             memberIds.has(i.customerId) &&
@@ -3747,6 +3748,8 @@ export const reportsRouter = router({
                 outOrig: outstandingOriginal(i).toFixed(2),
                 out: outstanding(i).toFixed(2),
                 days: daysOverdue(i.dueDate, now),
+                vessel: i.vesselId ? vesselNames.get(i.vesselId) ?? "" : "",
+                comments: i.notes ?? "",
               })),
             {
               company: "TOTAL",
@@ -3767,7 +3770,11 @@ export const reportsRouter = router({
         if (!input.customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "customerId is required for SOA export" });
         const customer = await db.getCustomer(input.customerId);
         if (!customer) throw new TRPCError({ code: "NOT_FOUND" });
-        const invoices = await db.listInvoices({ customerId: input.customerId });
+        const [invoices, vesselRows] = await Promise.all([
+          db.listInvoices({ customerId: input.customerId }),
+          db.listVessels(),
+        ]);
+        const vesselNames = new Map(vesselRows.map(vessel => [vessel.id, vessel.name]));
         const open = invoices.filter(isOpenInvoice);
         spec = {
           title: `Statement of Account — ${customer.name}`,
@@ -3798,6 +3805,8 @@ export const reportsRouter = router({
               outOrig: outstandingOriginal(i).toFixed(2),
               out: outstanding(i).toFixed(2),
               days: daysOverdue(i.dueDate, now),
+              vessel: i.vesselId ? vesselNames.get(i.vesselId) ?? "" : "",
+              comments: i.notes ?? "",
             })),
             {
               invoice: "TOTAL",
