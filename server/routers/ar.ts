@@ -725,19 +725,10 @@ export const customersRouter = router({
         }
         if (inv.dueDate <= eom) g.overdueEomBalance += outstanding(inv);
       }
-      // The approved SoftOne reporting view provides customer-level financial
-      // totals but no invoice rows. Use those totals only when invoice detail
-      // is absent, avoiding double counting once an invoice source is added.
-      if (customerInvoices.length === 0) {
-        const softOneBalance = Number(c.balance ?? 0);
-        const softOneOverdue = Number(c.overdue ?? 0);
-        g.openBalance += softOneBalance;
-        g.overdueBalance += softOneOverdue;
-        g.overdueEomBalance += Number(c.overdueEndOfMonth ?? 0);
-        if (softOneBalance !== 0) {
-          g.openByCurrency.EUR = (g.openByCurrency.EUR ?? 0) + softOneBalance;
-        }
-      }
+      // Keep the list and Group Card on the same source of truth: imported
+      // invoice detail. CustomerGroupFinData totals can be group-level values
+      // repeated on members that have no invoice rows, so mixing them with the
+      // group's invoices double-counts Open, Overdue, and Overdue EOM.
     }
     return Array.from(groups.values())
       .filter(hasReceivableActivity)
