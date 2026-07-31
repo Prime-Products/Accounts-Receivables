@@ -1255,3 +1255,6 @@
 - [x] Keep the decision actions (On Hold / Legal Review / Return to Collector) unchanged below the story
 - [x] Vitest coverage for the history collection and the narrative fallback when the LLM is unavailable
 - [x] Fix: panel no longer blanks out to an empty skeleton while the summary query loads
+
+## Group card cleanup (user request 31/7)
+- [x] Remove the "Companies of the group" collapsible card — the "All companies (group)" selector at the top already scopes the data

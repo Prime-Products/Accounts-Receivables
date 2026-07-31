@@ -26,7 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowLeft, Building2, ChevronDown, Eye, EyeOff, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Eye, EyeOff, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { useMemo, useState } from "react";
@@ -335,7 +335,6 @@ export default function GroupDetail() {
   const [branch, setBranch] = useState<string>("all");
   const [agingFilter, setAgingFilter] = useState<AgingBucket>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [companiesOpen, setCompaniesOpen] = useState(false);
   const [invoiceView, setInvoiceView] = useState<"list" | "byBranch">("list");
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
   // The transactions list is a collection worklist, so settled invoices are hidden
@@ -921,91 +920,6 @@ export default function GroupDetail() {
               </>
               )}
             </CardContent>
-          </Card>
-
-          {/* Member companies (folded by default) */}
-          <Card>
-            <CardHeader
-              className="pb-2 cursor-pointer select-none"
-              onClick={() => setCompaniesOpen(o => !o)}
-              role="button"
-              aria-expanded={companiesOpen}
-            >
-              <CardTitle className="text-base flex items-center gap-2">
-                <Building2 className="h-4 w-4" /> Companies of the group
-                <span className="text-xs font-normal text-muted-foreground">({data.companies.length})</span>
-                {branch !== "all" && (
-                  <Badge variant="outline" className={branchColors[branchShort(branch)] ?? ""}>
-                    {branchShort(branch)} only
-                  </Badge>
-                )}
-                <ChevronDown
-                  className={`ml-auto h-4 w-4 text-muted-foreground transition-transform duration-200 ${companiesOpen ? "rotate-180" : ""}`}
-                />
-              </CardTitle>
-            </CardHeader>
-            {companiesOpen && (
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Company</TableHead>
-                    <TableHead className="text-right">Behavior</TableHead>
-                    <TableHead className="text-right">Open Balance</TableHead>
-                    <TableHead className="text-right">Overdue</TableHead>
-                    <TableHead className="text-right">Open Inv.</TableHead>
-                    <TableHead className="text-right">Card</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.companies.map(c => (
-                    <TableRow
-                      key={c.id}
-                      className={`cursor-pointer ${String(c.id) === companyId ? "bg-primary/5" : ""}`}
-                      onClick={() => setCompanyId(String(c.id) === companyId ? "all" : String(c.id))}
-                    >
-                      <TableCell className="font-medium">{c.name}</TableCell>
-                      <TableCell className="text-right">
-                        {c.medianDaysLate !== null ? (
-                          <span
-                            className={`font-mono text-xs ${
-                              Number(c.medianDaysLate) > 30 ? "text-red-600" : Number(c.medianDaysLate) > 7 ? "text-amber-600" : "text-emerald-700"
-                            }`}
-                            title={`Last year: median ${c.medianDaysLate}d / avg ${c.avgDaysLate}d late (${c.historyPayments} payments)`}
-                          >
-                            med {c.medianDaysLate}d
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">{fmtEur(c.openBalance)}</TableCell>
-                      <TableCell className={`text-right font-mono ${c.overdueBalance > 0 ? "text-red-600" : ""}`}>
-                        {fmtEur(c.overdueBalance)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">{c.invoiceCount}</TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs"
-                          onClick={e => {
-                            e.stopPropagation();
-                            navigate(`/customers/${c.id}`);
-                          }}
-                        >
-                          Customer 360 →
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              <p className="px-4 py-2 text-[11px] text-muted-foreground">
-                Click a company row to scope all data above to that company; click again to return to the whole group.
-              </p>
-            </CardContent>
-            )}
           </Card>
 
           {/* Unified Activity Log */}
