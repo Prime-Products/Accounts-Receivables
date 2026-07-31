@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   cleanupPreviewLimit,
-  findIneligibleSoftOneCustomers,
+  findStaleSoftOneCustomers,
   selectCleanupPreviewRows,
   type SoftOneCleanupCustomer,
+  validateSoftOneCustomerSyncEvidence,
 } from "./lib/softoneCustomerCleanup";
+
+const latestSync = new Date("2026-07-31T08:00:00Z");
 
 const customers: SoftOneCleanupCustomer[] = [
   {
@@ -13,6 +16,7 @@ const customers: SoftOneCleanupCustomer[] = [
     name: "Valid customer",
     customerGroup: "External",
     softoneId: "101",
+    softoneSyncedAt: latestSync,
   },
   {
     id: 2,
@@ -20,6 +24,7 @@ const customers: SoftOneCleanupCustomer[] = [
     name: "LOUKIS ATHANASIOS",
     customerGroup: "Suppliers",
     softoneId: "202",
+    softoneSyncedAt: new Date("2026-07-30T08:00:00Z"),
   },
   {
     id: 3,
@@ -27,6 +32,7 @@ const customers: SoftOneCleanupCustomer[] = [
     name: "Prime Products branch",
     customerGroup: "PRIME PRODUCTS",
     softoneId: "303",
+    softoneSyncedAt: null,
   },
   {
     id: 4,
@@ -34,24 +40,19 @@ const customers: SoftOneCleanupCustomer[] = [
     name: "Manual customer",
     customerGroup: null,
     softoneId: null,
+    softoneSyncedAt: null,
   },
 ];
 
 describe("SoftOne ineligible customer cleanup planning", () => {
-  it("selects only imported rows absent from current eligible membership", () => {
-    const result = findIneligibleSoftOneCustomers(
-      customers,
-      new Set(["101"]),
-    );
+  it("selects only imported rows outside the latest successful sync batch", () => {
+    const result = findStaleSoftOneCustomers(customers, latestSync);
 
     expect(result.map(customer => customer.softoneId)).toEqual(["202", "303"]);
   });
 
   it("supports a bounded, case-insensitive preview search", () => {
-    const ineligible = findIneligibleSoftOneCustomers(
-      customers,
-      new Set(["101"]),
-    );
+    const ineligible = findStaleSoftOneCustomers(customers, latestSync);
 
     expect(selectCleanupPreviewRows(ineligible, "loukis", 200)).toEqual([
       expect.objectContaining({ softoneId: "202" }),
@@ -66,5 +67,32 @@ describe("SoftOne ineligible customer cleanup planning", () => {
     expect(cleanupPreviewLimit("500")).toBe(500);
     expect(cleanupPreviewLimit("0")).toBe(200);
     expect(cleanupPreviewLimit("501")).toBe(200);
+  });
+
+  it("requires the latest timestamp batch to match a recent successful log", () => {
+    expect(
+      validateSoftOneCustomerSyncEvidence({
+        syncedAt: latestSync,
+        synchronizedCustomers: 10_685,
+        logCreatedAt: new Date("2026-07-31T08:01:00Z"),
+        loggedCustomers: 10_685,
+      }),
+    ).toMatchObject({ synchronizedCustomers: 10_685 });
+    expect(() =>
+      validateSoftOneCustomerSyncEvidence({
+        syncedAt: latestSync,
+        synchronizedCustomers: 10_684,
+        logCreatedAt: new Date("2026-07-31T08:01:00Z"),
+        loggedCustomers: 10_685,
+      }),
+    ).toThrow(/count does not match/i);
+    expect(() =>
+      validateSoftOneCustomerSyncEvidence({
+        syncedAt: latestSync,
+        synchronizedCustomers: 10_685,
+        logCreatedAt: new Date("2026-07-31T10:00:00Z"),
+        loggedCustomers: 10_685,
+      }),
+    ).toThrow(/does not align/i);
   });
 });
