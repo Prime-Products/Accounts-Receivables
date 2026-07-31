@@ -5,6 +5,7 @@ import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
+import NextActionDialog from "@/components/NextActionDialog";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, ArrowUpCircle, CalendarClock, CheckCircle2, FileText, HandCoins, ThumbsDown, ThumbsUp, User, XCircle } from "lucide-react";
@@ -21,10 +22,6 @@ const promiseStatusColors: Record<string, string> = {
   Broken: "bg-red-100 text-red-700 border-red-200",
 };
 
-// The live Manus Promise-to-Pay dialog uses the direct Kept/Broken flow.
-// Keep the newer follow-up actions available for non-promise tasks only.
-const showPromiseNextActions = false;
-
 /**
  * Standalone task detail dialog — same UI as the Tasks page dialog, but usable
  * from any page (e.g. the Customers groups list badges) without navigating away.
@@ -39,6 +36,7 @@ export default function TaskDetailDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const utils = trpc.useUtils();
+  const [nextActionGroup, setNextActionGroup] = useState<string | null>(null);
   // Latch the last non-null taskId: after mutations (e.g. promise Kept), parent
   // lists refetch and pass taskId=null while the dialog is still open — without
   // this latch the dialog would flash "Task not found".
@@ -70,10 +68,14 @@ export default function TaskDetailDialog({
   });
   const setPromiseStatus = trpc.forecast.updatePromise.useMutation({
     onSuccess: (_r, vars) => {
-      toast.success(`Promise marked ${vars.status} — follow-up task completed`);
+      toast.success(`Promise marked ${vars.status === "Broken" ? "Not Confirmed" : vars.status} — follow-up task completed`);
       utils.tasks.list.invalidate();
       utils.customers.groups.invalidate();
       utils.customers.groupDetail.invalidate();
+      if (vars.status === "Broken" && task) {
+        // The customer did not pay — ask the user what happens next.
+        setNextActionGroup(((task as any).groupName as string) ?? task.customerName ?? null);
+      }
       // Close the task dialog: the linked task has just been auto-completed and
       // the badge will refresh — keeping it open would show stale data.
       onOpenChange(false);
@@ -359,11 +361,11 @@ export default function TaskDetailDialog({
                         disabled={setPromiseStatus.isPending}
                         onClick={() => setPromiseStatus.mutate({ id: task.promise!.id, status: "Broken" })}
                       >
-                        <ThumbsDown className="h-4 w-4" /> Broken
+                        <ThumbsDown className="h-4 w-4" /> Not Confirmed
                       </Button>
                     </div>
                   )}
-                  {showPromiseNextActions && task.promise.status === "Pending" && (task.status === "Pending" || task.status === "In Progress") && (
+                  {task.promise.status === "Pending" && (task.status === "Pending" || task.status === "In Progress") && (
                     <div className="border-t pt-2 mt-1 space-y-2">
                       <div className="text-sm font-medium flex items-center gap-1.5 text-blue-900">
                         <HandCoins className="h-4 w-4" /> Promise — what happens next?
@@ -825,19 +827,17 @@ export default function TaskDetailDialog({
 
               {(task.status === "Pending" || task.status === "In Progress") && (
                 <div className="flex gap-2 justify-end pt-1">
-                  {!task.promise && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1 text-emerald-700"
-                      onClick={() => {
-                        setStatus.mutate({ id: task.id, status: "Completed" });
-                        onOpenChange(false);
-                      }}
-                    >
-                      <CheckCircle2 className="h-4 w-4" /> Mark Done
-                    </Button>
-                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 text-emerald-700"
+                    onClick={() => {
+                      setStatus.mutate({ id: task.id, status: "Completed" });
+                      onOpenChange(false);
+                    }}
+                  >
+                    <CheckCircle2 className="h-4 w-4" /> Mark Done
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"
@@ -858,6 +858,15 @@ export default function TaskDetailDialog({
         )}
       </ResizableDialogContent>
     </Dialog>
+      {nextActionGroup && (
+        <NextActionDialog
+          group={nextActionGroup}
+          open={nextActionGroup != null}
+          onOpenChange={v => {
+            if (!v) setNextActionGroup(null);
+          }}
+        />
+      )}
     </>
   );
 }
