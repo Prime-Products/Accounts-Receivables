@@ -291,8 +291,15 @@ describe("Wire Transfer Allocation (Συμψηφισμός, group-level)", () =>
   afterAll(async () => {
     // Remove allocations first, then transfers, invoices, customers
     for (const tid of createdTransfers) {
+      // Cross-branch allocations auto-create derived inter-office transfers;
+      // drop them too, or they linger as orphan rows once the fixture
+      // customers are purged.
+      await db.deleteInternalTransfersBySource(tid);
       const allocs = await db.listAllocationsByWireTransfer(tid);
-      for (const a of allocs) await db.deleteWireTransferAllocation(a.id);
+      for (const a of allocs) {
+        await db.deleteInternalTransfersByAllocation(a.id);
+        await db.deleteWireTransferAllocation(a.id);
+      }
       await db.deleteWireTransfer(tid);
     }
     // Mark fixture invoices as Paid so they never appear in open-invoice lists

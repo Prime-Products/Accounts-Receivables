@@ -1296,3 +1296,11 @@
 - [x] Backend: `allocateCreditNote` / `removeCreditNoteAllocation` / `listCreditNoteAllocations` with group, currency, invoice-outstanding and over-allocation guards
 - [x] Allocation dialog `AllocateCreditNoteDialog`: group open invoices, search, Max fill, remaining credit, existing matches with undo
 - [x] Vitest `server/creditNoteAllocation.test.ts` (partial match → Partially Paid, undo reverts to Open, full match hides the credit note, over-allocation rejected)
+
+## Internal transfers: cleanup + toggle (user request 31/7)
+
+- [x] Delete the vitest leftover wire transfers (45 orphan rows whose customer no longer exists, incl. the repeated "Our office → Prime Products LTD €3,000" internal rows) and the 2 orphan test invoices — 8 real transfers left (5 client + 3 internal)
+- [x] Wire Transfers page: by default show only client transfers; a toggle reveals the intercompany (internal) ones
+- [x] Same toggle on the Wire Transfers tab of the customer and group card
+- [x] Vitest coverage: internal transfers excluded unless requested, and cleanup left no orphan rows
+- [x] Fix the allocation vitest teardown so derived inter-office transfers are deleted with their source transfer (no new orphan rows)
