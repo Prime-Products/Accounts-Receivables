@@ -9,6 +9,7 @@ import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
+import { OpenCreditNotesTable } from "@/components/OpenCreditNotesTable";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -211,14 +212,24 @@ export default function CustomerDetail() {
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Open Balance</div>
             <div className="text-xl font-bold font-mono">
-              {fmtEur(aging.current + aging.totalOverdue - ((data as any).unallocatedPayments ?? 0))}
+              {fmtEur(
+                aging.current +
+                  aging.totalOverdue -
+                  ((data as any).unallocatedPayments ?? 0) -
+                  ((data as any).openCreditNotesTotal ?? 0),
+              )}
             </div>
-            {((data as any).unallocatedPayments ?? 0) > 0.005 && (
+            {(((data as any).unallocatedPayments ?? 0) > 0.005 ||
+              ((data as any).openCreditNotesTotal ?? 0) > 0.005) && (
               <div
                 className="text-[11px] font-mono mt-0.5 text-emerald-600"
-                title="Open invoices minus payments on account that are not yet allocated"
+                title="Open invoices minus payments on account and credit notes that are not yet matched"
               >
-                {fmtEur(aging.current + aging.totalOverdue)} inv − {fmtEur((data as any).unallocatedPayments)} on acct
+                {fmtEur(aging.current + aging.totalOverdue)} inv
+                {((data as any).unallocatedPayments ?? 0) > 0.005 && ` − ${fmtEur((data as any).unallocatedPayments)} on acct`}
+                {((data as any).openCreditNotesTotal ?? 0) > 0.005 && (
+                  <span className="text-sky-600"> − {fmtEur((data as any).openCreditNotesTotal)} credit</span>
+                )}
               </div>
             )}
             <div className="text-[11px] text-muted-foreground mt-0.5">
@@ -369,6 +380,7 @@ export default function CustomerDetail() {
             </div>
             <CardContent className="p-0">
               <UnallocatedTransfersTable rows={(data as any).openTransfers ?? []} showCustomer={false} />
+              <OpenCreditNotesTable rows={(data as any).openCreditNotes ?? []} showCustomer={false} />
               {visibleInvoices.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">No invoices for this customer.</div>
               ) : (

@@ -263,6 +263,48 @@ async function listOpenWireTransfers(customerIds: Set<number>, customerNames: Ma
 }
 
 /**
+ * Open (not yet matched) credit notes for a set of customers — the "credit notes"
+ * rows of the transactions list. Like payments on account they reduce what the
+ * customer owes, and they are NEVER matched to invoices automatically: `openAmount`
+ * comes from the ERP and manual allocations are subtracted from it. Fully matched
+ * credit notes disappear from the list (like paid invoices).
+ */
+async function listOpenCreditNotes(customerIds: Set<number>, customerNames: Map<number, string>) {
+  const ids = Array.from(customerIds);
+  if (ids.length === 0) return [];
+  const rows = await db.listCreditNotesByCustomerIds(ids).catch(() => []);
+  if (rows.length === 0) return [];
+  const allocated = await db
+    .sumAllocationsByCreditNoteIds(rows.map(r => r.id))
+    .catch(() => new Map<number, number>());
+  const vesselRows = await db.listVessels().catch(() => []);
+  const vesselName = new Map(vesselRows.map(v => [v.id, v.name]));
+  return rows
+    .map(r => {
+      const alloc = allocated.get(r.id) ?? 0;
+      const open = Number(r.openAmount) - alloc;
+      return {
+        id: r.id,
+        customerId: r.customerId,
+        customerName: customerNames.get(r.customerId) ?? "—",
+        docNumber: r.docNumber,
+        docDate: r.docDate,
+        currency: r.currency ?? "EUR",
+        amount: Number(r.amount),
+        allocated: alloc,
+        open,
+        openEur: toEur(open, r.currency ?? "EUR"),
+        branch: r.branch ?? null,
+        vesselName: r.vesselId ? (vesselName.get(r.vesselId) ?? null) : null,
+        contractNo: r.contractNo ?? null,
+        notes: r.notes ?? null,
+      };
+    })
+    .filter(r => r.open > 0.005)
+    .sort((a, b) => b.docDate - a.docDate);
+}
+
+/**
  * Reschedule an existing open promise to a new date/amount (customer moved the payment).
  * Updates the promise row, moves the linked follow-up task's due date, and logs the change.
  */
@@ -1155,6 +1197,9 @@ export const customersRouter = router({
      const vesselNameById = new Map(allVesselRows.map(v => [v.id, v.name]));
       // Open (unallocated) wire transfers — the transactions list's payment rows.
       const openTransfers = await listOpenWireTransfers(memberIds, customerNames);
+      // Open (unmatched) credit notes — also part of the transactions list.
+      const openCreditNotes = await listOpenCreditNotes(memberIds, customerNames);
+      const openCreditNotesEur = openCreditNotes.reduce((s, c) => s + c.openEur, 0);
       // Unified: the group's account status IS the hold status (companies inherit it).
       const groupHoldStatus = watchStatus;
       const activityLogs = await db.listActivityLog(input.group, 200).catch(() => []);
@@ -1239,7 +1284,12 @@ export const customersRouter = router({
           openByCurrency,
           dueNextMonth: gDueNextMonth,
           unallocatedPayments: openTransfers.reduce((s, t) => s + t.unallocatedEur, 0),
-          netOpenBalance: open.reduce((s, i) => s + outstanding(i), 0) - openTransfers.reduce((s, t) => s + t.unallocatedEur, 0),
+          openCreditNotes: openCreditNotesEur,
+          openCreditNotesCount: openCreditNotes.length,
+          netOpenBalance:
+            open.reduce((s, i) => s + outstanding(i), 0) -
+            openTransfers.reduce((s, t) => s + t.unallocatedEur, 0) -
+            openCreditNotesEur,
           turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
           turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
         },
@@ -1251,6 +1301,7 @@ export const customersRouter = router({
          daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, Date.now()) : 0,
        })),
         openTransfers,
+        openCreditNotes,
        activityLogs,
      };
    }),
@@ -1635,6 +1686,8 @@ export const customersRouter = router({
      : null;
     const openTransfers360 = await listOpenWireTransfers(new Set([input.id]), new Map([[input.id, customer.name]]));
     const unallocatedPayments360 = openTransfers360.reduce((s, t) => s + t.unallocatedEur, 0);
+    const openCreditNotes360 = await listOpenCreditNotes(new Set([input.id]), new Map([[input.id, customer.name]]));
+    const openCreditNotesEur360 = openCreditNotes360.reduce((s, c) => s + c.openEur, 0);
    return {
      customer,
      accountManager,
@@ -1652,6 +1705,8 @@ export const customersRouter = router({
       tasks,
       openTransfers: openTransfers360,
       unallocatedPayments: unallocatedPayments360,
+      openCreditNotes: openCreditNotes360,
+      openCreditNotesTotal: openCreditNotesEur360,
      aging,
       rating: ratingResult,
       behavior: behaviorRow,

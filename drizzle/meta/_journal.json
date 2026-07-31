@@ -267,6 +267,13 @@
       "when": 1785494099191,
       "tag": "0037_milky_mantis",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1785528308829,
+      "tag": "0038_wealthy_betty_brant",
+      "breakpoints": true
     }
   ]
 }

@@ -13,6 +13,7 @@ import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
+import { OpenCreditNotesTable } from "@/components/OpenCreditNotesTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -636,12 +637,18 @@ export default function GroupDetail() {
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Open Balance</div>
                 <div className="text-xl font-bold font-mono">{fmtEur((data.totals as any).netOpenBalance ?? data.totals.openBalance)}</div>
-                {((data.totals as any).unallocatedPayments ?? 0) > 0.005 && (
+                {(((data.totals as any).unallocatedPayments ?? 0) > 0.005 ||
+                  ((data.totals as any).openCreditNotes ?? 0) > 0.005) && (
                   <div
                     className="text-[11px] font-mono mt-0.5 text-emerald-600"
-                    title="Open invoices minus payments on account that are not yet allocated"
+                    title="Open invoices minus payments on account and credit notes that are not yet matched"
                   >
-                    {fmtEur(data.totals.openBalance)} inv − {fmtEur((data.totals as any).unallocatedPayments)} on acct
+                    {fmtEur(data.totals.openBalance)} inv
+                    {((data.totals as any).unallocatedPayments ?? 0) > 0.005 &&
+                      ` − ${fmtEur((data.totals as any).unallocatedPayments)} on acct`}
+                    {((data.totals as any).openCreditNotes ?? 0) > 0.005 && (
+                      <span className="text-sky-600"> − {fmtEur((data.totals as any).openCreditNotes)} credit</span>
+                    )}
                   </div>
                 )}
                 <div className="text-[11px] text-muted-foreground mt-0.5">
@@ -1015,6 +1022,7 @@ export default function GroupDetail() {
               ) : (
               <>
               <UnallocatedTransfersTable rows={(data as any).openTransfers ?? []} />
+              <OpenCreditNotesTable rows={(data as any).openCreditNotes ?? []} />
               <div className="max-h-[480px] overflow-auto">
                 <InvoicesTable
                   rows={filteredInvoices as any}

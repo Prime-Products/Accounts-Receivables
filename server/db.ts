@@ -46,6 +46,12 @@ import {
   InsertPaymentBankDetails,
 } from "../drizzle/schema";
 import { vessels, InsertVessel } from "../drizzle/schema";
+import {
+  creditNotes,
+  creditNoteAllocations,
+  InsertCreditNote,
+  InsertCreditNoteAllocation,
+} from "../drizzle/schema";
 import { teamMembers, InsertTeamMember } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1380,4 +1386,93 @@ export async function listIncomingAllocationsByCustomer(customerId: number) {
     .innerJoin(wireTransfers, eq(wireTransferAllocations.wireTransferId, wireTransfers.id))
     .where(eq(invoices.customerId, customerId))
     .orderBy(desc(wireTransferAllocations.createdAt));
+}
+
+/* ------------------------------------------------------------------ *
+ * Credit notes (πιστωτικά) — open documents not yet matched to invoices
+ * ------------------------------------------------------------------ */
+
+/** All credit notes, newest document first. */
+export async function listCreditNotes() {
+  const db = await requireDb();
+  return db.select().from(creditNotes).orderBy(desc(creditNotes.docDate));
+}
+
+/** Credit notes of one customer, newest document first. */
+export async function listCreditNotesByCustomerId(customerId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(creditNotes)
+    .where(eq(creditNotes.customerId, customerId))
+    .orderBy(desc(creditNotes.docDate));
+}
+
+/** Credit notes of several customers (a group), newest document first. */
+export async function listCreditNotesByCustomerIds(customerIds: number[]) {
+  if (customerIds.length === 0) return [];
+  const db = await requireDb();
+  return db
+    .select()
+    .from(creditNotes)
+    .where(inArray(creditNotes.customerId, customerIds))
+    .orderBy(desc(creditNotes.docDate));
+}
+
+export async function getCreditNote(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(creditNotes).where(eq(creditNotes.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createCreditNote(data: InsertCreditNote) {
+  const db = await requireDb();
+  const res = await db.insert(creditNotes).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function updateCreditNote(id: number, data: Partial<InsertCreditNote>) {
+  const db = await requireDb();
+  await db.update(creditNotes).set(data).where(eq(creditNotes.id, id));
+}
+
+export async function deleteCreditNote(id: number) {
+  const db = await requireDb();
+  await db.delete(creditNotes).where(eq(creditNotes.id, id));
+}
+
+/** Sum of manual allocations per credit note id (for "still open" computations). */
+export async function sumAllocationsByCreditNoteIds(ids: number[]) {
+  const map = new Map<number, number>();
+  if (ids.length === 0) return map;
+  const db = await requireDb();
+  const rows = await db
+    .select({
+      creditNoteId: creditNoteAllocations.creditNoteId,
+      total: sql<string>`SUM(${creditNoteAllocations.amount})`,
+    })
+    .from(creditNoteAllocations)
+    .where(inArray(creditNoteAllocations.creditNoteId, ids))
+    .groupBy(creditNoteAllocations.creditNoteId);
+  for (const r of rows) map.set(r.creditNoteId, Number(r.total ?? 0));
+  return map;
+}
+
+export async function listAllocationsByCreditNote(creditNoteId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(creditNoteAllocations)
+    .where(eq(creditNoteAllocations.creditNoteId, creditNoteId));
+}
+
+export async function createCreditNoteAllocation(data: InsertCreditNoteAllocation) {
+  const db = await requireDb();
+  const res = await db.insert(creditNoteAllocations).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function deleteCreditNoteAllocation(id: number) {
+  const db = await requireDb();
+  await db.delete(creditNoteAllocations).where(eq(creditNoteAllocations.id, id));
 }

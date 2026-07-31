@@ -1271,3 +1271,14 @@
 - [x] Simplify the escalated-task dialog layout: title + Escalated badge, then plain label/value rows (Group, Assigned, Due Date, Watchers), then Comments, then Decision buttons, keeping the existing colours and style
 - [x] Escalation panel rewritten as a plain "Decision" section with three inline outline buttons (On Hold / Legal Review / Return); no orange card, no summary card
 - [x] TaskCommentsThread accepts hideHeading so the dialog can own the "Comments" section heading
+
+## Open credit notes (PRIMELTD_OPENCNs.xlsx, user request 31/7)
+- [ ] Schema: credit_notes table (branch, customer, doc number, doc date, currency, original amount, open amount, amountEur, vessel, contract no, days)
+- [x] Import the open credit notes (incl. the 7 UAE rows the Excel grand total skips), matched to existing customers by company name — 238 of 306 rows imported; the 68 rows of 37 companies missing from the customer list were left out by user decision (`--create-missing` flag exists but is off)
+- [x] Schema: `credit_notes` + `credit_note_allocations` tables (drizzle migration 0038, applied)
+- [x] Backend: `listOpenCreditNotes` in the AR router; `customers.get360` returns `openCreditNotes` / `openCreditNotesTotal`, `customers.groupDetail` returns `openCreditNotes` and `totals.openCreditNotes` / `openCreditNotesCount`, and `netOpenBalance` subtracts them
+- [x] Transactions view (group card + Customer 360): `OpenCreditNotesTable` above the invoice list — date, credit note number, company, branch, vessel, contract, negative amounts
+- [x] Open Balance card shows "inv − on acct − credit" breakdown on both the customer and group card
+- [x] No automatic matching to invoices — open amount comes from the ERP, manual allocations are subtracted, fully matched credit notes disappear from the list
+- [x] Vitest: `server/creditNotes.test.ts` (visibility, EUR conversion, group netting, partial/full matching)
+- [ ] Vitest coverage for the credit-note import mapping and the balance netting

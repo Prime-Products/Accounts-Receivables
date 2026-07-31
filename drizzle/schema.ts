@@ -712,3 +712,61 @@ export const requestNotifications = mysqlTable(
 
 export type RequestNotification = typeof requestNotifications.$inferSelect;
 export type InsertRequestNotification = typeof requestNotifications.$inferInsert;
+/**
+ * Credit notes (πιστωτικά) that are still open, i.e. not yet matched against an
+ * invoice. They reduce the customer's outstanding balance but are NEVER matched
+ * automatically — allocation is a manual decision, like wire transfers.
+ */
+export const creditNotes = mysqlTable(
+  "credit_notes",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    customerId: int("customerId").notNull(),
+    /** Document number as issued by the ERP, e.g. "CNV-000035" or "ΠΦΠ-Γ02453". */
+    docNumber: varchar("docNumber", { length: 64 }).notNull(),
+    /** Issue date of the credit note (unix ms, UTC). */
+    docDate: bigint("docDate", { mode: "number" }).notNull(),
+    /** Our issuing branch, same values as invoice branches. */
+    branch: varchar("branch", { length: 128 }),
+    currency: varchar("currency", { length: 8 }).default("EUR").notNull(),
+    /** Original document value, stored positive. */
+    amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+    /** Still unmatched (open) part of the credit note, stored positive. */
+    openAmount: decimal("openAmount", { precision: 14, scale: 2 }).notNull(),
+    /** openAmount converted to EUR with the FX rates in app settings. */
+    openAmountEur: decimal("openAmountEur", { precision: 14, scale: 2 }),
+    /** Optional vessel the credit note concerns; FK to vessels.id. */
+    vesselId: int("vesselId"),
+    /** Contract number as printed on the ERP document (free text). */
+    contractNo: varchar("contractNo", { length: 64 }),
+    notes: text("notes"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  t => [
+    index("idx_credit_notes_customerId").on(t.customerId),
+    index("idx_credit_notes_docNumber").on(t.docNumber),
+    index("idx_credit_notes_docDate").on(t.docDate),
+    index("idx_credit_notes_branch").on(t.branch),
+  ]
+);
+export type CreditNote = typeof creditNotes.$inferSelect;
+export type InsertCreditNote = typeof creditNotes.$inferInsert;
+/** Manual allocation of a credit note against an invoice (συμψηφισμός). */
+export const creditNoteAllocations = mysqlTable(
+  "credit_note_allocations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    creditNoteId: int("creditNoteId").notNull(),
+    invoiceId: int("invoiceId").notNull(),
+    amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+    createdBy: int("createdBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  t => [
+    index("idx_cna_creditNoteId").on(t.creditNoteId),
+    index("idx_cna_invoiceId").on(t.invoiceId),
+  ]
+);
+export type CreditNoteAllocation = typeof creditNoteAllocations.$inferSelect;
+export type InsertCreditNoteAllocation = typeof creditNoteAllocations.$inferInsert;
