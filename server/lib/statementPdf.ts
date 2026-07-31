@@ -62,10 +62,8 @@ export function buildStatementPdf(stmt: GroupStatement): Promise<Buffer> {
       pageIndex++;
     };
 
-    // ---- consolidated group summary cover page (only for multi-company groups) ----
-    if (stmt.companies.length > 1) {
-      renderCoverPage(doc, stmt, newPage);
-    }
+    // ---- consolidated group summary cover section (all groups, same layout) ----
+    renderCoverPage(doc, stmt, newPage);
 
     // ---- continuous flow: companies follow one another, page break only when needed ----
     let first = true;
@@ -73,7 +71,7 @@ export function buildStatementPdf(stmt: GroupStatement): Promise<Buffer> {
       if (pageIndex === -1) {
         newPage();
         doc.y = M;
-      } else if (!first || stmt.companies.length > 1) {
+      } else {
         // separator between statements (or after the cover page index)
         ensureSpace(doc, 170, newPage, () => (doc.y = M));
         if (doc.y > M + 2) {

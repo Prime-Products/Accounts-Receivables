@@ -1212,5 +1212,6 @@
 - [x] Master company index on cover: company rows with per-currency balances, overdue column, dash for zeros
 - [x] Each company statement starts on a new page after the cover
 - [x] Unify SOA PDF style: company pages get same header/brand block and section styling as the cover page
-- [ ] SOA PDF continuous flow: company statements follow each other with separators, page break only when content doesn't fit
-- [ ] SOA PDF kickers: company pages "COMPANY" (not "COMPANY STATEMENT"), cover page "GROUP" (not "GROUP CONSOLIDATED SUMMARY")
+- [x] SOA PDF continuous flow: company statements follow each other with separators, page break only when content doesn't fit
+- [x] SOA PDF kickers: company pages "COMPANY" (not "COMPANY STATEMENT"), cover page "GROUP" (not "GROUP CONSOLIDATED SUMMARY")
+- [x] SOA: single-company groups get the same summary cover section as multi-company groups
