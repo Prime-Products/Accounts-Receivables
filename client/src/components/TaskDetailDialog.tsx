@@ -190,6 +190,18 @@ export default function TaskDetailDialog({
     onError: e => toast.error(e.message),
   });
   const isTaskOpen = task ? task.status === "Pending" || task.status === "In Progress" : false;
+  /** Escalated tasks get a slimmer layout: comments on top, no promise controls. */
+  const isEscalated = task ? task.title.startsWith("Escalated: ") : false;
+  /**
+   * The "⬆ Escalated to …" line is already shown by the escalation panel, so it is
+   * stripped from the description here to avoid printing it twice.
+   */
+  const descriptionText = (() => {
+    const d = task?.description ?? "";
+    if (!d) return "";
+    const kept = isEscalated ? d.split("\n").filter(l => !l.trim().startsWith("⬆")) : d.split("\n");
+    return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  })();
   const { data: openInv } = trpc.tasks.groupOpenInvoices.useQuery(
     { taskId: task?.id ?? 0 },
     { enabled: open && !!task && isTaskOpen && fuMode === "next-task" }
@@ -230,6 +242,11 @@ export default function TaskDetailDialog({
                   </Badge>
                 )}
               </div>
+
+              {/* On an escalated task the conversation is the point of the screen,
+                  so the comments thread sits at the very top. */}
+              {isEscalated && <TaskCommentsThread taskId={task.id} />}
+
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <div className="text-xs text-muted-foreground">Group</div>
@@ -377,9 +394,9 @@ export default function TaskDetailDialog({
                   </div>
                 )}
               </div>
-              {task.description && (
+              {descriptionText && (
                 <div className="text-sm text-muted-foreground bg-muted/40 rounded-md p-3 whitespace-pre-wrap">
-                  {task.description}
+                  {descriptionText}
                 </div>
               )}
               {task.completionNotes && (
@@ -422,7 +439,7 @@ export default function TaskDetailDialog({
                 </div>
               )}
 
-              {task.promise && (
+              {task.promise && !isEscalated && (
                 <div className="rounded-md border p-3 space-y-2">
                   <div className="text-sm font-medium flex items-center gap-1.5">
                     <HandCoins className="h-4 w-4" /> Promise-to-Pay
@@ -949,7 +966,7 @@ export default function TaskDetailDialog({
                 </div>
               )}
 
-              <TaskCommentsThread taskId={task.id} />
+              {!isEscalated && <TaskCommentsThread taskId={task.id} />}
             </div>
           </>
         )}
