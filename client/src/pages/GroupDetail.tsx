@@ -11,6 +11,7 @@ import { ActivityLog } from "@/components/ActivityLog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { hideSettled, countSettled } from "@/lib/invoiceFilters";
 import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowLeft, Building2, ChevronDown, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Building2, ChevronDown, Eye, EyeOff, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { useMemo, useState } from "react";
@@ -337,6 +338,9 @@ export default function GroupDetail() {
   const [companiesOpen, setCompaniesOpen] = useState(false);
   const [invoiceView, setInvoiceView] = useState<"list" | "byBranch">("list");
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
+  // The transactions list is a collection worklist, so settled invoices are hidden
+  // by default; the toggle brings them back for reconciliation/history checks.
+  const [showPaid, setShowPaid] = useState(false);
 
   // Convert aging bucket to minDaysOverdue for queries
   const getMinDaysOverdue = (bucket: AgingBucket): number | undefined => {
@@ -412,6 +416,7 @@ export default function GroupDetail() {
     if (!data?.invoices) return [];
     const now = Date.now();
     return data.invoices.filter(inv => {
+      if (hideSettled(inv as any, showPaid, statusFilter)) return false;
       if (statusFilter !== "all" && inv.status !== statusFilter) return false;
       if (installmentFilter === "installments" && !(inv as any).isContractInstallment) return false;
       if (agingFilter !== "all") {
@@ -421,7 +426,13 @@ export default function GroupDetail() {
       }
       return true;
     });
-  }, [data?.invoices, agingFilter, statusFilter, installmentFilter]);
+  }, [data?.invoices, agingFilter, statusFilter, installmentFilter, showPaid]);
+
+  /** How many settled invoices are currently being hidden (for the toggle label). */
+  const paidHiddenCount = useMemo(() => {
+    if (!data?.invoices) return 0;
+    return countSettled(data.invoices as any);
+  }, [data?.invoices]);
 
   /** Totals of the currently filtered invoice list: EUR + per-currency (like Invoices page). */
   const filteredTotals = useMemo(() => {
@@ -785,6 +796,11 @@ export default function GroupDetail() {
               <span>
                 Outstanding total: <span className="font-mono font-semibold">{fmtEur(filteredTotals.eurTotal)}</span>
               </span>
+              {!showPaid && paidHiddenCount > 0 && (
+                <span className="text-muted-foreground text-xs">
+                  {paidHiddenCount} settled invoice(s) hidden
+                </span>
+              )}
               {fmtByCurrency(filteredTotals.byCur, { skipEurOnly: true }) && (
                 <span className="text-muted-foreground">
                   Per currency: <span className="font-mono">{fmtByCurrency(filteredTotals.byCur)}</span>
@@ -798,6 +814,20 @@ export default function GroupDetail() {
             <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Transactions ({scopeLabel})</CardTitle>
               <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={showPaid ? "secondary" : "ghost"}
+                className="h-7 px-2.5 text-xs gap-1.5 border"
+                onClick={() => setShowPaid(p => !p)}
+                title={
+                  showPaid
+                    ? "Hide fully paid invoices — show only what is still outstanding"
+                    : "Also show fully paid invoices (history / reconciliation)"
+                }
+              >
+                {showPaid ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                {showPaid ? "Hide paid" : `Show paid${paidHiddenCount > 0 ? ` (${paidHiddenCount})` : ""}`}
+              </Button>
               <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
               <div className="flex items-center rounded-md border p-0.5">
                 <Button
@@ -836,10 +866,15 @@ export default function GroupDetail() {
                       {(() => {
                         const byBranch = new Map<string, { count: number; totalEur: number }>();
                         for (const i of filteredInvoices) {
+                          // Outstanding, not the invoice face value — a partly paid
+                          // invoice must only contribute what is still owed.
+                          const raw = Number(i.amount) - Number(i.paidAmount);
+                          if (raw <= 0.005) continue;
+                          const ratio = Number(i.amount) > 0 ? Number(i.amountEur ?? i.amount) / Number(i.amount) : 1;
                           const key = branchShort(i.company);
                           const cur = byBranch.get(key) ?? { count: 0, totalEur: 0 };
                           cur.count += 1;
-                          cur.totalEur += Number(i.amountEur ?? i.amount ?? 0);
+                          cur.totalEur += raw * ratio;
                           byBranch.set(key, cur);
                         }
                         const grand = Array.from(byBranch.values()).reduce((s, b) => s + b.totalEur, 0);
