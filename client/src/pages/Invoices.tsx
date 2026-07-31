@@ -24,7 +24,6 @@ const METHODS = ["Cash", "Bank Transfer", "Cheque", "Card"] as const;
 
 export default function Invoices() {
   const { data: invoices, isLoading } = trpc.invoices.list.useQuery();
-  const { data: aging } = trpc.invoices.aging.useQuery();
   const { data: customers } = trpc.customers.list.useQuery();
   const utils = trpc.useUtils();
 
@@ -46,6 +45,9 @@ export default function Invoices() {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("contract") === "overdue";
   });
+  /** The aging cards follow the installments filter, so they always describe the rows below them. */
+  const installmentsOnly = contractFilter === "installments";
+  const { data: aging } = trpc.invoices.aging.useQuery({ installmentsOnly });
   const [groupView, setGroupView] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("view") === "group";
@@ -347,23 +349,32 @@ export default function Invoices() {
 
       {/* Aging summary strip */}
       {aging && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
+        <div className="space-y-2">
+          {installmentsOnly && (
+            <div className="text-xs text-violet-700 dark:text-violet-300 font-medium">
+              Aging of contract installments only
+            </div>
+          )}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
             <button
               key={b}
               onClick={() => setBucketFilter(bucketFilter === b ? "all" : b)}
-              className={`rounded-lg border p-3 text-left transition-colors ${bucketFilter === b ? "ring-2 ring-primary bg-primary/5" : "bg-card hover:bg-muted/50"}`}
+              className={`rounded-lg border p-3 text-left transition-colors ${bucketFilter === b ? "ring-2 ring-primary bg-primary/5" : installmentsOnly ? "bg-violet-50/60 dark:bg-violet-950/20 border-violet-200 dark:border-violet-900 hover:bg-violet-100/60 dark:hover:bg-violet-950/40" : "bg-card hover:bg-muted/50"}`}
             >
               <div className="text-xs text-muted-foreground">{b} days overdue</div>
               <div className="text-lg font-bold font-mono">{fmtEur(aging.buckets[b].amount)}</div>
-              <div className="text-xs text-muted-foreground">{aging.buckets[b].count} invoice(s)</div>
+              <div className="text-xs text-muted-foreground">
+                {aging.buckets[b].count} {installmentsOnly ? "installment(s)" : "invoice(s)"}
+              </div>
               {fmtByCurrency((aging as any).bucketsByCurrency?.[b], { skipEurOnly: true }) && (
                 <div className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate" title={fmtByCurrency((aging as any).bucketsByCurrency?.[b])}>
                   {fmtByCurrency((aging as any).bucketsByCurrency?.[b])}
                 </div>
               )}
             </button>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 

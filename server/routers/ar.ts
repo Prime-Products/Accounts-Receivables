@@ -2178,10 +2178,20 @@ export const invoicesRouter = router({
         daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, now) : 0,
       }));
     }),
-  aging: protectedProcedure.query(async () => {
-    const invoices = await db.listInvoices();
-    return computeAging(invoices, Date.now());
-  }),
+  /**
+   * Aging buckets for the open book. With `installmentsOnly` the buckets cover
+   * ONLY contract installments, so the cards on the Invoices page match the rows
+   * shown while the "Installments only" filter is active.
+   */
+  aging: protectedProcedure
+    .input(z.object({ installmentsOnly: z.boolean().optional() }).optional())
+    .query(async ({ input }) => {
+      const invoices = await db.listInvoices();
+      const scoped = input?.installmentsOnly
+        ? invoices.filter(i => Boolean((i as any).isContractInstallment))
+        : invoices;
+      return computeAging(scoped, Date.now());
+    }),
 
   /**
    * Cancel the payment of an invoice: reverts ALL wire-transfer allocations that
