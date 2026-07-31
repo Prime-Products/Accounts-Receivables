@@ -69,6 +69,8 @@ const FONT_PATHS = [
   ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
   ["/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"],
 ] as const;
+const BRAND_BLUE = "#1e2f46";
+const BRAND_RED = "#d52f39";
 
 function soaFonts(doc: PDFKit.PDFDocument) {
   const configured = process.env.PDF_FONT_PATH;
@@ -148,10 +150,16 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
     }
 
     const drawBrandHeader = () => {
-      doc.fillColor("#dc2626").font(fonts.bold).fontSize(11).text("COMPANY", pageLeft, 54);
-      const companyFontSize = groupName.length > 28 ? 17 : 20;
-      doc.fillColor("#111827").fontSize(companyFontSize).text(groupName, pageLeft, 72, {
-        width: pageWidth * 0.66,
+      doc.fillColor(BRAND_RED).font(fonts.bold).fontSize(11).text("COMPANY", pageLeft, 54);
+      const companyWidth = pageWidth * 0.58;
+      let companyFontSize = 20;
+      while (companyFontSize > 13) {
+        doc.font(fonts.bold).fontSize(companyFontSize);
+        if (doc.widthOfString(groupName) <= companyWidth) break;
+        companyFontSize -= 0.5;
+      }
+      doc.fillColor(BRAND_BLUE).fontSize(companyFontSize).text(groupName, pageLeft, 72, {
+        width: companyWidth,
         height: 28,
         ellipsis: true,
         lineBreak: false,
@@ -160,7 +168,7 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
         width: pageWidth * 0.42,
         align: "right",
       });
-      doc.fillColor("#1d4ed8").fontSize(12).text("PRIME PRODUCTS LTD", pageLeft + pageWidth * 0.58, 74, {
+      doc.fillColor(BRAND_BLUE).fontSize(12).text("PRIME PRODUCTS LTD", pageLeft + pageWidth * 0.58, 74, {
         width: pageWidth * 0.42,
         align: "right",
       });
@@ -169,13 +177,13 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
           width: pageWidth * 0.52,
           align: "right",
         });
-      doc.fillColor("#111827").font(fonts.bold).fontSize(9)
+      doc.fillColor(BRAND_BLUE).font(fonts.bold).fontSize(9)
         .text(
           `Date: ${now.toLocaleDateString("el-GR")}   |   Payment Terms: ${spec.paymentTermsDays ?? 30} days Credit / Πίστωση ${spec.paymentTermsDays ?? 30} ημερών`,
           pageLeft,
           112,
         );
-      doc.moveTo(pageLeft, 128).lineTo(pageRight, 128).strokeColor("#111827").lineWidth(1).stroke();
+      doc.moveTo(pageLeft, 128).lineTo(pageRight, 128).strokeColor(BRAND_BLUE).lineWidth(1).stroke();
       doc.y = 150;
     };
 
@@ -198,15 +206,15 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
       { label: "Upcoming\nNext Month", width: 56, align: "right" as const },
     ];
     let y = doc.y;
-    doc.moveTo(pageLeft, y).lineTo(pageRight, y).strokeColor("#111827").stroke();
+    doc.moveTo(pageLeft, y).lineTo(pageRight, y).strokeColor(BRAND_BLUE).stroke();
     y += 8;
     let x = pageLeft;
     for (const column of summaryColumns) {
-      doc.fillColor("#111827").font(fonts.bold).fontSize(7)
+      doc.fillColor(BRAND_BLUE).font(fonts.bold).fontSize(6.4)
         .text(column.label, x, y, {
           width: column.width,
           height: 22,
-          align: column.align,
+          align: column.label === "Company" ? "left" : "center",
           lineGap: -1,
         });
       x += column.width;
@@ -225,7 +233,7 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
       ];
       values.forEach((value, index) => {
         const column = summaryColumns[index];
-        doc.fillColor("#111827").font(index === 0 ? fonts.bold : fonts.regular).fontSize(8)
+        doc.fillColor(BRAND_BLUE).font(index === 0 ? fonts.bold : fonts.regular).fontSize(8)
           .text(value, x, y, { width: column.width, align: column.align });
         x += column.width;
       });
@@ -239,9 +247,9 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
       { key: "invoice", label: "Documents", width: 92, align: "left" as const },
       { key: "amount", label: "Doc.\nAmount", width: 64, align: "right" as const },
       { key: "outOrig", label: "Open Doc.\nAmount", width: 64, align: "right" as const },
-      { key: "days", label: "Overdue", width: 50, align: "right" as const },
-      { key: "vessel", label: "Vessel", width: 80, align: "left" as const },
-      { key: "comments", label: "Comments", width: 91, align: "left" as const },
+      { key: "days", label: "Overdue", width: 56, align: "right" as const },
+      { key: "vessel", label: "Vessel", width: 78, align: "left" as const },
+      { key: "comments", label: "Comments", width: 87, align: "left" as const },
     ];
     for (const [branch, total] of branchTotals) {
       const branchRows = rows.filter(row => String(row.branch ?? "PRIME PRODUCTS LTD") === branch);
@@ -254,7 +262,7 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
         ? "PRIME PRODUCTS LTD (REPRESENTATION DISTRIBUTION OF INDUSTRIAL SAFETY PRODUCTS)"
         : normalizedBranch;
       const headingY = doc.y;
-      doc.fillColor("#111827").font(fonts.bold).fontSize(10)
+      doc.fillColor(BRAND_BLUE).font(fonts.bold).fontSize(10)
         .text(branchHeading, pageLeft, headingY, { width: 110 });
       doc.fontSize(7.2).text(branchDescription, pageLeft + 110, headingY, {
         width: pageWidth - 200,
@@ -266,12 +274,12 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
         align: "right",
       });
       y = headingY + 30;
-      doc.moveTo(pageLeft, y).lineTo(pageRight, y).strokeColor("#111827").stroke();
+      doc.moveTo(pageLeft, y).lineTo(pageRight, y).strokeColor(BRAND_BLUE).stroke();
       y += 7;
       x = pageLeft;
       for (const column of detailColumns) {
-        doc.font(fonts.bold).fontSize(7).text(column.label, x, y, {
-          width: column.width - 6,
+        doc.fillColor(BRAND_BLUE).font(fonts.bold).fontSize(6.8).text(column.label, x, y, {
+          width: column.width - 10,
           height: 22,
           align: column.align,
           lineGap: -1,
@@ -291,9 +299,10 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
           let value: string | number = row[column.key] ?? "";
           if (["amount", "outOrig"].includes(column.key)) value = europeanAmount(value);
           if (column.key === "issue" && value) {
-            value = new Date(String(value)).toLocaleDateString("en-GB");
+            const date = new Date(String(value));
+            value = `${date.getUTCDate()}/${date.getUTCMonth() + 1}/${date.getUTCFullYear()}`;
           }
-          doc.fillColor(column.key === "days" && Number(value) > 0 ? "#dc2626" : "#111827")
+          doc.fillColor(column.key === "days" && Number(value) > 0 ? BRAND_RED : BRAND_BLUE)
             .font(column.key === "invoice" ? fonts.bold : fonts.regular)
             .fontSize(7.5)
             .text(String(value), x, y, { width: column.width - 4, align: column.align, ellipsis: true });
