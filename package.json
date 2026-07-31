@@ -22,7 +22,8 @@
     "inspect:softone-invoices": "tsx scripts/inspect-softone-invoices.ts",
     "sync:softone-invoices": "tsx scripts/sync-softone-invoices.ts",
     "inspect:softone-vessels": "tsx scripts/inspect-softone-vessels.ts",
-    "sync:softone-vessels": "tsx scripts/sync-softone-vessels.ts"
+    "sync:softone-vessels": "tsx scripts/sync-softone-vessels.ts",
+    "inspect:softone-contract-installments": "tsx scripts/inspect-softone-contract-installments.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
