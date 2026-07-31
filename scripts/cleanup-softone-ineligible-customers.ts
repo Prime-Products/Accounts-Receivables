@@ -12,6 +12,12 @@ import { withSoftOneSyncLock } from "../server/lib/softoneSyncLock";
 import { querySoftOneEntityTypes } from "../server/lib/softoneSql";
 
 const REQUIRED_CONFIRMATION = "true";
+const REMOVABLE_SUPPLIER_DEPENDENCIES = new Set([
+  "tasks",
+  "forecast_entries",
+  "promises_to_pay",
+  "activity_log",
+]);
 
 type CustomerRow = RowDataPacket & SoftOneCleanupCustomer;
 type LatestBatchRow = RowDataPacket & {
@@ -69,7 +75,23 @@ async function countDependencies(
       if (Number(rows[0]?.count ?? 0) > 0) blockers.push(`${table}: ${rows[0].count}`);
     }
   }
+  for (const table of ["task_comments", "task_invoices"]) {
+    const [rows] = await connection.query<(RowDataPacket & { count: number })[]>(
+      `SELECT COUNT(*) AS count
+       FROM \`${table}\` AS dependency
+       INNER JOIN tasks ON tasks.id = dependency.taskId
+       WHERE tasks.customerId IN (${customerMarks})`,
+      customerIds,
+    );
+    if (Number(rows[0]?.count ?? 0) > 0) {
+      blockers.push(`${table}: ${rows[0].count}`);
+    }
+  }
   return blockers;
+}
+
+function dependencyTable(blocker: string) {
+  return blocker.split(":", 1)[0];
 }
 
 async function runCleanup(apply: boolean) {
@@ -152,6 +174,12 @@ async function runCleanup(apply: boolean) {
     );
     const invoiceIds = invoiceRows.map(invoice => invoice.id);
     const blockers = await countDependencies(connection, customerIds, invoiceIds);
+    const hardBlockers = blockers.filter(
+      blocker => !REMOVABLE_SUPPLIER_DEPENDENCIES.has(dependencyTable(blocker)),
+    );
+    const removableBlockers = blockers.filter(blocker =>
+      REMOVABLE_SUPPLIER_DEPENDENCIES.has(dependencyTable(blocker)),
+    );
     const hasNonSoftOneInvoices = invoiceRows.some(invoice => !invoice.softoneId);
 
     if (!apply) {
@@ -195,12 +223,18 @@ async function runCleanup(apply: boolean) {
           "Cleanup blocked: at least one ineligible customer has a non-SoftOne invoice.",
         );
       }
-      if (blockers.length > 0) {
+      if (removableBlockers.length > 0) {
         console.log(
-          `Cleanup blocked by operational dependencies (${blockers.join(", ")}).`,
+          `Confirmed supplier dependencies scheduled for transactional removal ` +
+            `(${removableBlockers.join(", ")}).`,
         );
       }
-      if (!hasNonSoftOneInvoices && blockers.length === 0) {
+      if (hardBlockers.length > 0) {
+        console.log(
+          `Cleanup blocked by protected operational dependencies (${hardBlockers.join(", ")}).`,
+        );
+      }
+      if (!hasNonSoftOneInvoices && hardBlockers.length === 0) {
         console.log(
           "Cleanup is eligible to apply after this preview is reviewed.",
         );
@@ -214,12 +248,42 @@ async function runCleanup(apply: boolean) {
         "Cleanup stopped: an ineligible customer has a non-SoftOne invoice.",
       );
     }
-    if (blockers.length > 0) {
+    if (hardBlockers.length > 0) {
       throw new Error(
-        `Cleanup stopped; operational dependencies found (${blockers.join(", ")}). No data was changed.`,
+        `Cleanup stopped; protected operational dependencies found (${hardBlockers.join(", ")}). No data was changed.`,
       );
     }
 
+    const invoiceMarks = invoiceIds.map(() => "?").join(", ");
+    let removedPromises = 0;
+    if (invoiceIds.length > 0) {
+      const [promiseResult] = await connection.execute<mysql.ResultSetHeader>(
+        `DELETE FROM promises_to_pay
+         WHERE customerId IN (${customerMarks})
+            OR invoiceId IN (${invoiceMarks})`,
+        [...customerIds, ...invoiceIds],
+      );
+      removedPromises = promiseResult.affectedRows;
+    } else {
+      const [promiseResult] = await connection.execute<mysql.ResultSetHeader>(
+        `DELETE FROM promises_to_pay WHERE customerId IN (${customerMarks})`,
+        customerIds,
+      );
+      removedPromises = promiseResult.affectedRows;
+    }
+    const removedDependencies: string[] = [];
+    if (removedPromises > 0) {
+      removedDependencies.push(`promises_to_pay: ${removedPromises}`);
+    }
+    for (const table of ["activity_log", "forecast_entries", "tasks"]) {
+      const [result] = await connection.execute<mysql.ResultSetHeader>(
+        `DELETE FROM \`${table}\` WHERE customerId IN (${customerMarks})`,
+        customerIds,
+      );
+      if (result.affectedRows > 0) {
+        removedDependencies.push(`${table}: ${result.affectedRows}`);
+      }
+    }
     const [invoiceResult] = await connection.execute<mysql.ResultSetHeader>(
       `DELETE FROM invoices WHERE customerId IN (${customerMarks})`,
       customerIds,
@@ -233,6 +297,11 @@ async function runCleanup(apply: boolean) {
     console.log(
       `Ineligible SoftOne cleanup completed: ${customerResult.affectedRows} customers and ${invoiceResult.affectedRows} invoices removed.`,
     );
+    if (removedDependencies.length > 0) {
+      console.log(
+        `Removed confirmed supplier dependencies (${removedDependencies.join(", ")}).`,
+      );
+    }
   } catch (error) {
     if (apply) await connection.rollback();
     throw error;
