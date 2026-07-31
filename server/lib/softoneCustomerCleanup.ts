@@ -4,16 +4,45 @@ export type SoftOneCleanupCustomer = {
   name: string;
   customerGroup: string | null;
   softoneId: string | null;
+  softoneSyncedAt: Date | string | null;
 };
 
-export function findIneligibleSoftOneCustomers(
-  customers: SoftOneCleanupCustomer[],
-  validSoftOneIds: ReadonlySet<string>,
+export type SoftOneCustomerSyncEvidence = {
+  syncedAt: Date;
+  synchronizedCustomers: number;
+  logCreatedAt: Date;
+  loggedCustomers: number;
+};
+
+export function validateSoftOneCustomerSyncEvidence(
+  evidence: SoftOneCustomerSyncEvidence,
 ) {
+  if (evidence.synchronizedCustomers !== evidence.loggedCustomers) {
+    throw new Error(
+      "Cleanup stopped: latest customer timestamp count does not match the latest successful sync log.",
+    );
+  }
+  const completionLag =
+    evidence.logCreatedAt.getTime() - evidence.syncedAt.getTime();
+  if (completionLag < 0 || completionLag > 60 * 60 * 1_000) {
+    throw new Error(
+      "Cleanup stopped: latest customer timestamp does not align with the latest successful sync log.",
+    );
+  }
+  return evidence;
+}
+
+export function findStaleSoftOneCustomers(
+  customers: SoftOneCleanupCustomer[],
+  latestSuccessfulSync: Date,
+) {
+  const latestTimestamp = latestSuccessfulSync.getTime();
   return customers.filter(
     (customer): customer is SoftOneCleanupCustomer & { softoneId: string } =>
       Boolean(
-        customer.softoneId && !validSoftOneIds.has(customer.softoneId),
+        customer.softoneId &&
+          (customer.softoneSyncedAt === null ||
+            new Date(customer.softoneSyncedAt).getTime() !== latestTimestamp),
       ),
   );
 }

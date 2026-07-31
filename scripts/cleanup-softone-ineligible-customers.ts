@@ -1,17 +1,25 @@
 import "dotenv/config";
 import mysql, { type RowDataPacket } from "mysql2/promise";
-import { queryEligibleSoftOneCustomerMembership } from "../server/lib/softoneSql";
 import {
   cleanupPreviewLimit,
-  findIneligibleSoftOneCustomers,
+  findStaleSoftOneCustomers,
   selectCleanupPreviewRows,
   type SoftOneCleanupCustomer,
+  validateSoftOneCustomerSyncEvidence,
 } from "../server/lib/softoneCustomerCleanup";
 import { withSoftOneSyncLock } from "../server/lib/softoneSyncLock";
 
 const REQUIRED_CONFIRMATION = "true";
 
 type CustomerRow = RowDataPacket & SoftOneCleanupCustomer;
+type LatestBatchRow = RowDataPacket & {
+  syncedAt: Date;
+  recordCount: number;
+};
+type LatestSyncLogRow = RowDataPacket & {
+  createdAt: Date;
+  recordCount: number;
+};
 
 async function countDependencies(
   connection: mysql.Connection,
@@ -74,21 +82,48 @@ async function runCleanup(apply: boolean) {
   }
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required.");
 
-  const validRows = await queryEligibleSoftOneCustomerMembership();
-  const validIds = new Set(validRows.map(row => String(row.TRDR)));
-
   const connection = await mysql.createConnection(process.env.DATABASE_URL);
   try {
     if (apply) await connection.beginTransaction();
+    const [latestBatchRows] = await connection.query<LatestBatchRow[]>(
+      `SELECT softoneSyncedAt AS syncedAt, COUNT(*) AS recordCount
+       FROM customers
+       WHERE softoneId IS NOT NULL AND softoneSyncedAt IS NOT NULL
+       GROUP BY softoneSyncedAt
+       ORDER BY softoneSyncedAt DESC
+       LIMIT 1`,
+    );
+    const [latestSyncLogRows] = await connection.query<LatestSyncLogRow[]>(
+      `SELECT createdAt, recordCount
+       FROM sync_logs
+       WHERE direction = 'Pull'
+         AND entityType = 'customers'
+         AND status = 'Success'
+       ORDER BY createdAt DESC
+       LIMIT 1`,
+    );
+    const latestBatch = latestBatchRows[0];
+    const latestSyncLog = latestSyncLogRows[0];
+    if (!latestBatch || !latestSyncLog) {
+      throw new Error(
+        "Cleanup stopped: no completed SoftOne customer sync evidence was found.",
+      );
+    }
+    const evidence = validateSoftOneCustomerSyncEvidence({
+      syncedAt: new Date(latestBatch.syncedAt),
+      synchronizedCustomers: Number(latestBatch.recordCount),
+      logCreatedAt: new Date(latestSyncLog.createdAt),
+      loggedCustomers: Number(latestSyncLog.recordCount),
+    });
     const [allCustomers] = await connection.query<CustomerRow[]>(
-      `SELECT id, code, name, customerGroup, softoneId
+      `SELECT id, code, name, customerGroup, softoneId, softoneSyncedAt
        FROM customers
        WHERE softoneId IS NOT NULL
        ${apply ? "FOR UPDATE" : ""}`,
     );
-    const invalidCustomers = findIneligibleSoftOneCustomers(
+    const invalidCustomers = findStaleSoftOneCustomers(
       allCustomers,
-      validIds,
+      evidence.syncedAt,
     );
     if (invalidCustomers.length === 0) {
       if (apply) await connection.rollback();
@@ -123,6 +158,10 @@ async function runCleanup(apply: boolean) {
       console.log(
         `Ineligible SoftOne cleanup preview: ${invalidCustomers.length} customer(s), ` +
           `${invoiceRows.length} invoice(s), ${previewRows.length} displayed.`,
+      );
+      console.log(
+        `Validated latest successful customer sync: ${evidence.synchronizedCustomers} ` +
+          `customer(s) at ${evidence.syncedAt.toISOString()}.`,
       );
       for (const customer of previewRows) {
         console.log(
