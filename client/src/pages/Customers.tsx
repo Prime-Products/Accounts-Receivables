@@ -112,12 +112,13 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
     () => (members.length > 0 ? [...members].sort((a, b) => b.openBalance - a.openBalance)[0].id : undefined),
     [members]
   );
-  const hasLinkedTask = taskId != null && (status === "Confirmed" || status === "Pending Follow-up");
-  const isOverdue = !!taskOverdue && (status === "Confirmed" || status === "Pending Follow-up");
+  const taskBackedStatuses = ["Confirmed", "Pending Follow-up", "Escalated"];
+  const hasLinkedTask = taskId != null && taskBackedStatuses.includes(status);
+  const isOverdue = !!taskOverdue && taskBackedStatuses.includes(status);
   // Task-backed statuses must always open the task; a missing open task means the
   // status is stale (e.g. the task was cancelled) → offer to reset it instead of
   // silently opening the Log Call dialog.
-  const isTaskBacked = status === "Confirmed" || status === "Pending Follow-up";
+  const isTaskBacked = taskBackedStatuses.includes(status);
   const utils = trpc.useUtils();
   const resetStale = trpc.calls.resetStaleConfirmation.useMutation({
     onSuccess: r => {
@@ -266,7 +267,7 @@ export default function Customers() {
   const [ratingFilter, setRatingFilter] = useState<string>("all");
   const [confirmationFilter, setConfirmationFilter] = useState<string>(() => {
     const p = new URLSearchParams(window.location.search).get("conf");
-    return p && ["not-contacted", "confirmed", "pending", "broken"].includes(p) ? p : "all";
+    return p && ["not-contacted", "confirmed", "pending", "broken", "escalated"].includes(p) ? p : "all";
   });
   // Keep filters in sync with the URL — dashboard cards navigate here with ?status= / ?conf=
   // and the lazy useState initializers above only run on first mount.
@@ -277,7 +278,7 @@ export default function Customers() {
       setStatusFilter(s);
     }
     const c = params.get("conf");
-    if (c && ["not-contacted", "confirmed", "pending", "broken"].includes(c)) {
+    if (c && ["not-contacted", "confirmed", "pending", "broken", "escalated"].includes(c)) {
       setConfirmationFilter(c);
     }
   }, [searchStr]);
@@ -377,7 +378,8 @@ export default function Customers() {
         (confirmationFilter === "not-contacted" && g.confirmationStatus === "Not Contacted") ||
         (confirmationFilter === "confirmed" && g.confirmationStatus === "Confirmed") ||
         (confirmationFilter === "pending" && g.confirmationStatus === "Pending Follow-up") ||
-        (confirmationFilter === "broken" && g.confirmationStatus === "Broken");
+        (confirmationFilter === "broken" && g.confirmationStatus === "Broken") ||
+        (confirmationFilter === "escalated" && g.confirmationStatus === "Escalated");
       const gManager = (g as any).accountManager as { id: number; name: string } | null;
       const matchesManager =
         managerFilter === "all" ||
@@ -503,7 +505,7 @@ export default function Customers() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Users className="h-6 w-6" /> Customers
+            <Users className="h-6 w-6" /> Collections
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {view === "groups"
@@ -612,7 +614,8 @@ export default function Customers() {
                 <SelectItem value="not-contacted">Not Contacted</SelectItem>
                 <SelectItem value="confirmed">Promise to Pay</SelectItem>
                 <SelectItem value="pending">Pending Follow-up</SelectItem>
-                <SelectItem value="broken">Not Confirmed Payment</SelectItem>
+                <SelectItem value="broken">Broken</SelectItem>
+                <SelectItem value="escalated">Escalated</SelectItem>
               </SelectContent>
             </Select>
             <Select value={managerFilter} onValueChange={setManagerFilter}>

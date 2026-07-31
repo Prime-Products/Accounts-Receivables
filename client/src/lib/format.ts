@@ -109,13 +109,15 @@ export const confirmationStatusColors: Record<string, string> = {
   "Pending Follow-up": "bg-blue-100 text-blue-800 border-blue-200",
   Broken: "bg-red-100 text-red-700 border-red-200",
   Kept: "bg-emerald-600 text-white border-emerald-700",
+  Escalated: "bg-orange-100 text-orange-800 border-orange-300",
 };
 
-/** Display labels for confirmation statuses ("Confirmed" → "Promise to Pay", "Broken" → "Not Confirmed Payment"; DB values stay unchanged). */
+/** Display labels for confirmation statuses ("Confirmed" → "Promise to Pay"; DB values stay unchanged). */
 export const confirmationStatusLabels: Record<string, string> = {
   "Not Contacted": "Not Contacted",
   Confirmed: "Promise to Pay",
   "Pending Follow-up": "Pending Follow-up",
-  Broken: "Not Confirmed Payment",
+  Broken: "Broken",
   Kept: "Paid — Promise Kept",
+  Escalated: "Escalated",
 };

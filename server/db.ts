@@ -9,6 +9,8 @@ import {
   contracts,
   customers,
   emailHistory,
+  emailTemplates,
+  emailTemplateTypes,
   forecastEntries,
   groupConfirmationStatus,
   groupNotes,
@@ -35,6 +37,7 @@ import {
   tasks,
   taskComments,
   taskInvoices,
+  taskWatchers,
   userProfiles,
   users,
 } from "../drizzle/schema";
@@ -532,6 +535,59 @@ export async function deleteTaskComment(id: number) {
   await db.delete(taskComments).where(eq(taskComments.id, id));
 }
 
+// ---------- Task watchers (avatar stack) ----------
+export async function listTaskWatchers(taskId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: taskWatchers.id,
+      taskId: taskWatchers.taskId,
+      memberId: taskWatchers.memberId,
+      name: teamMembers.name,
+      title: teamMembers.title,
+    })
+    .from(taskWatchers)
+    .innerJoin(teamMembers, eq(taskWatchers.memberId, teamMembers.id))
+    .where(eq(taskWatchers.taskId, taskId))
+    .orderBy(taskWatchers.createdAt);
+}
+
+export async function listWatchersForTasks(taskIds: number[]) {
+  if (taskIds.length === 0) return [];
+  const db = await requireDb();
+  return db
+    .select({
+      id: taskWatchers.id,
+      taskId: taskWatchers.taskId,
+      memberId: taskWatchers.memberId,
+      name: teamMembers.name,
+      title: teamMembers.title,
+    })
+    .from(taskWatchers)
+    .innerJoin(teamMembers, eq(taskWatchers.memberId, teamMembers.id))
+    .where(inArray(taskWatchers.taskId, taskIds))
+    .orderBy(taskWatchers.createdAt);
+}
+
+export async function addTaskWatcher(taskId: number, memberId: number) {
+  const db = await requireDb();
+  // Avoid duplicates
+  const existing = await db
+    .select({ id: taskWatchers.id })
+    .from(taskWatchers)
+    .where(and(eq(taskWatchers.taskId, taskId), eq(taskWatchers.memberId, memberId)));
+  if (existing.length > 0) return existing[0].id;
+  const res = await db.insert(taskWatchers).values({ taskId, memberId });
+  return Number((res as any)[0].insertId);
+}
+
+export async function removeTaskWatcher(taskId: number, memberId: number) {
+  const db = await requireDb();
+  await db
+    .delete(taskWatchers)
+    .where(and(eq(taskWatchers.taskId, taskId), eq(taskWatchers.memberId, memberId)));
+}
+
 // ---------- Task ↔ invoice attachments ----------
 export async function listTaskInvoices(taskId: number) {
   const db = await requireDb();
@@ -704,6 +760,37 @@ export async function setSetting(key: string, value: string, updatedBy?: number)
     .insert(appSettings)
     .values({ key, value, updatedBy })
     .onDuplicateKeyUpdate({ set: { value, updatedBy } });
+}
+
+// ---------- Email templates (editable subject/body per template type) ----------
+export async function listEmailTemplates() {
+  const db = await requireDb();
+  return db.select().from(emailTemplates);
+}
+
+export async function getEmailTemplate(templateType: (typeof emailTemplateTypes)[number]) {
+  const db = await requireDb();
+  const rows = await db.select().from(emailTemplates).where(eq(emailTemplates.templateType, templateType)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertEmailTemplate(data: {
+  templateType: (typeof emailTemplateTypes)[number];
+  subject: string;
+  body: string;
+  updatedBy?: number;
+}) {
+  const db = await requireDb();
+  await db
+    .insert(emailTemplates)
+    .values(data)
+    .onDuplicateKeyUpdate({ set: { subject: data.subject, body: data.body, updatedBy: data.updatedBy } });
+}
+
+/** Drop the stored override so the built-in default text applies again. */
+export async function deleteEmailTemplate(templateType: (typeof emailTemplateTypes)[number]) {
+  const db = await requireDb();
+  await db.delete(emailTemplates).where(eq(emailTemplates.templateType, templateType));
 }
 
 export async function listPromises(customerId?: number) {
@@ -1114,7 +1201,12 @@ export async function getTeamMemberById(id: number) {
   const rows = await db.select().from(teamMembers).where(eq(teamMembers.id, id)).limit(1);
   return rows[0] ?? null;
 }
-
+/** Team member linked to a signed-in auth user (teamMembers.userId), if any. */
+export async function getTeamMemberByUserId(userId: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(teamMembers).where(eq(teamMembers.userId, userId)).limit(1);
+  return rows[0] ?? null;
+}
 export async function deleteTeamMember(id: number) {
   const db = await requireDb();
   // Detach from customers and tasks first, then delete.

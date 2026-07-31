@@ -190,7 +190,7 @@ export default function NewTaskDialog({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Assignee (optional)</Label>
+            <Label>Assigned to (optional)</Label>
             <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} />
           </div>
           {attachInvoices && attachInvoices.length > 0 && (

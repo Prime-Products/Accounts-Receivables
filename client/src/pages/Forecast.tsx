@@ -646,8 +646,8 @@ export default function Forecast() {
                               : "bg-sky-100 text-sky-800 border-sky-200"
                         }
                       >
-                        {p.status === "Broken" ? "Not Confirmed" : p.status}
-                      </Badge>
+                        {p.status}
+                     </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-52 truncate">{p.notes || "—"}</TableCell>
                     <TableCell className="text-right font-mono">{fmtEur(Number(p.amount))}</TableCell>
@@ -657,9 +657,9 @@ export default function Forecast() {
                           <Button size="sm" variant="ghost" className="text-emerald-700" onClick={() => setPromiseStatus.mutate({ id: p.id, status: "Kept" })}>
                             Kept
                           </Button>
-                          <Button size="sm" variant="ghost" className="text-red-600" onClick={() => setPromiseStatus.mutate({ id: p.id, status: "Broken" })}>
-                            Not Confirmed
-                          </Button>
+                         <Button size="sm" variant="ghost" className="text-red-600" onClick={() => setPromiseStatus.mutate({ id: p.id, status: "Broken" })}>
+                            Broken
+                         </Button>
                         </div>
                       )}
                     </TableCell>
