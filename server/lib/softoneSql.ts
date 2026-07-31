@@ -11,6 +11,7 @@ const SOFTONE_FINANCIAL_BATCH_SIZE = 50;
 const SOFTONE_CUSTOMER_PAGE_SIZE = 500;
 const MAX_SOFTONE_CUSTOMER_PAGES = 200;
 const SOFTONE_QUERY_WATCHDOG_MS = 45_000;
+const SOFTONE_REQUESTS_PER_CONNECTION = 5;
 
 // Keep financial values and text names in separate result sets. The production
 // unixODBC driver can return HY010 when variable-length text is fetched
@@ -166,23 +167,39 @@ FROM [dbo].[CustomerGroupFinData] AS source
 WHERE source.[TRDR] IN (${numericIdentifiers(softoneIds)})`;
 }
 
-async function queryNamesInBatches(
-  pool: ConnectionPool,
+async function closeSoftOnePool(pool: ConnectionPool | null) {
+  if (!pool) return;
+  await Promise.race([
+    pool.close().catch(() => undefined),
+    new Promise<void>(resolve => setTimeout(resolve, 5_000)),
+  ]);
+}
+
+async function queryNamesWithRecycledPools(
   identifiers: string[],
   buildQuery: (batch: string[]) => string,
   batchSize = SOFTONE_NAME_BATCH_SIZE,
 ) {
   const rows: SourceRow[] = [];
-  for (let index = 0; index < identifiers.length; index += batchSize) {
-    const batchNumber = Math.floor(index / batchSize) + 1;
-    const result = await querySoftOneWithWatchdog(
-      pool,
-      buildQuery(identifiers.slice(index, index + batchSize)),
-      `batch ${batchNumber}`,
-    );
-    rows.push(...result.recordset);
+  let pool: ConnectionPool | null = null;
+  try {
+    for (let index = 0; index < identifiers.length; index += batchSize) {
+      const batchNumber = Math.floor(index / batchSize) + 1;
+      if ((batchNumber - 1) % SOFTONE_REQUESTS_PER_CONNECTION === 0) {
+        await closeSoftOnePool(pool);
+        pool = await openSoftOneSqlPool();
+      }
+      const result = await querySoftOneWithWatchdog(
+        pool!,
+        buildQuery(identifiers.slice(index, index + batchSize)),
+        `batch ${batchNumber}`,
+      );
+      rows.push(...result.recordset);
+    }
+    return rows;
+  } finally {
+    await closeSoftOnePool(pool);
   }
-  return rows;
 }
 
 export async function queryCustomersInPages(pool: ConnectionPool) {
@@ -212,6 +229,44 @@ export async function queryCustomersInPages(pool: ConnectionPool) {
     if (pageTrdrs.length < SOFTONE_CUSTOMER_PAGE_SIZE) return rows;
   }
   throw new Error("SoftOne customer page limit exceeded.");
+}
+
+async function queryCustomersWithRecycledPools() {
+  const rows: SourceRow[] = [];
+  let afterTrdr = 0;
+  let pool: ConnectionPool | null = null;
+  try {
+    for (let page = 0; page < MAX_SOFTONE_CUSTOMER_PAGES; page += 1) {
+      if (page % SOFTONE_REQUESTS_PER_CONNECTION === 0) {
+        await closeSoftOnePool(pool);
+        pool = await openSoftOneSqlPool();
+      }
+      const result = await querySoftOneWithWatchdog(
+        pool!,
+        buildSoftOneCustomersQuery(afterTrdr),
+        `customer page ${page + 1}`,
+      );
+      if (result.recordset.length === 0) return rows;
+      rows.push(...result.recordset);
+      if (rows.length > MAX_CUSTOMERS) {
+        throw new Error("SoftOne customer row limit exceeded.");
+      }
+      const pageTrdrs = Array.from(
+        new Set(result.recordset.map(row => Number(row.TRDR))),
+      )
+        .filter(Number.isSafeInteger)
+        .sort((left, right) => left - right);
+      const nextCursor = pageTrdrs.at(-1);
+      if (nextCursor === undefined || nextCursor <= afterTrdr) {
+        throw new Error("SoftOne customer pagination did not advance.");
+      }
+      afterTrdr = nextCursor;
+      if (pageTrdrs.length < SOFTONE_CUSTOMER_PAGE_SIZE) return rows;
+    }
+    throw new Error("SoftOne customer page limit exceeded.");
+  } finally {
+    await closeSoftOnePool(pool);
+  }
 }
 
 export function isSoftOneSqlConfigured() {
@@ -371,16 +426,13 @@ export async function syncSoftOneCustomers() {
   }
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
 
-  let pool: ConnectionPool | null = null;
   let stage = "connect";
   try {
-    pool = await openSoftOneSqlPool();
-    stage = "query CustomerGroupFinData financials";
-    const membershipRows = await queryCustomersInPages(pool);
+    stage = "query active customer membership";
+    const membershipRows = await queryCustomersWithRecycledPools();
     const membershipIds = membershipRows.map(row => readIdentity(row, "TRDR"));
     stage = "query CustomerGroupFinData financial batches";
-    const financialRows = await queryNamesInBatches(
-      pool,
+    const financialRows = await queryNamesWithRecycledPools(
       membershipIds,
       buildSoftOneCustomerFinancialsQuery,
       SOFTONE_FINANCIAL_BATCH_SIZE,
@@ -410,14 +462,12 @@ export async function syncSoftOneCustomers() {
       ),
     );
     stage = "query customer and master names";
-    const customerNameRows = await queryNamesInBatches(
-      pool,
+    const customerNameRows = await queryNamesWithRecycledPools(
       customerAndMasterIds,
       buildSoftOneCustomerNamesQuery,
     );
     stage = "query active customer group names";
-    const customerGroupRows = await queryNamesInBatches(
-      pool,
+    const customerGroupRows = await queryNamesWithRecycledPools(
       customerGroupIds,
       buildSoftOneCustomerGroupNamesQuery,
     );
@@ -457,13 +507,6 @@ export async function syncSoftOneCustomers() {
     return { synced: records.length };
   } catch (error) {
     throw new Error(softOneSqlError(error, stage));
-  } finally {
-    if (pool) {
-      await Promise.race([
-        pool.close().catch(() => undefined),
-        new Promise<void>(resolve => setTimeout(resolve, 5_000)),
-      ]);
-    }
   }
 }
 
