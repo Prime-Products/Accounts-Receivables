@@ -1223,4 +1223,22 @@
 - [x] Group card invoice list: hide fully paid invoices by default (exclude from list, count, totals and by-branch view) with a toggle to include them
 - [x] Same settled-invoice rule applied to the individual customer card invoice list
 - [x] By-branch view sums outstanding instead of invoice face value
+- [x] Import contacts from Contactsall.xlsx: name, position, email, phone, linked to the right customer/group
+- [x] Contacts page: group filter and department/position filter for the imported data
+- [x] Re-import contacts: keep every distinct person, not one row per shared company mailbox
+- [x] Prefer person-specific email over generic mailbox when a row has several addresses
+- [x] Contacts: drop the Company column, organise every contact by group instead
+- [x] New/Edit Contact dialog: pick a group rather than a company
+- [x] Check how many of the 5,970 unmatched CRM rows are AR customers under a different name spelling
+- [x] Import contacts of companies that have no current AR balance (customers exist only when they owe money)
+- [x] Keep directory-only companies (no invoices) out of the Collections groups and companies views
+- [x] Update test fixtures so suites asserting on customers.groups create a ledger invoice
+- [x] Separate derived Overdue from stored invoice status (Open/Partially Paid can also be overdue)
+- [x] Migrate stored "Overdue" invoices back to Open / Partially Paid based on paidAmount
+- [x] Stop the taskEngine sweep from writing status = Overdue
+- [x] Show Overdue as a derived badge next to the settlement status in all invoice tables
+- [x] Keep status filters working with a separate Overdue filter
+- [x] Primary invoice badge: Open when not yet due, Overdue once past due (single badge, no Open+Overdue pair)
+- [x] Disputed is the ONLY secondary badge, shown next to the primary Open/Overdue badge
+- [x] Status dropdown edits the settlement status only; Overdue stays derived and non-selectable
 - [x] Rename "Customers" nav item + page title to "Collections" (route /customers unchanged, Groups stays the default sub-view)

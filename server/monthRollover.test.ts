@@ -6,10 +6,14 @@ import type { TrpcContext } from "./_core/context";
 import type { AuthenticatedUser } from "./_core/context";
 
 // --- isolated fixture customer (post-incident: never touch real customers) ---
-import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+import { createTestCustomer, createTestInvoice, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
 let __fx: TestCustomerFixture | null = null;
 async function getFixtureCustomer() {
-  if (!__fx) __fx = await createTestCustomer();
+  if (!__fx) {
+    __fx = await createTestCustomer();
+    // customers.groups lists invoiced groups only — directory-only companies are excluded.
+    await createTestInvoice(__fx);
+  }
   return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
 }
 afterAll(async () => {

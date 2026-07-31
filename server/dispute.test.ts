@@ -34,13 +34,12 @@ describe("invoice dispute", () => {
     expect(disputed!.notes ?? "").toContain("TEST dispute reason — wrong charge");
     expect(disputed!.notes ?? "").toContain("[Dispute ");
 
-    // Revert: status must be re-derived from amounts/due date (Open or Overdue for an unpaid invoice)
+    // Revert: status is re-derived from the amounts only. Overdue is never stored,
+    // so an unpaid invoice always reverts to Open regardless of its due date.
     const revert = await caller.invoices.markDisputed({ id: inv!.id, disputed: false });
-    expect(["Open", "Overdue"]).toContain(revert.status);
+    expect(revert.status).toBe("Open");
     const reverted = await db.getInvoice(inv!.id);
     expect(reverted!.status).toBe(revert.status);
-    const expected = Date.now() > reverted!.dueDate ? "Overdue" : "Open";
-    expect(reverted!.status).toBe(expected);
   });
 
   it("rejects disputing a non-existent invoice", async () => {

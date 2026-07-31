@@ -46,7 +46,7 @@ describe("SoftOne open invoice sync", () => {
     expect(new Date(invoice.dueDate).toISOString().slice(0, 10)).toBe("2026-08-31");
   });
 
-  it("marks an unpaid past-due invoice as overdue", () => {
+  it("keeps overdue as a derived property instead of a stored status", () => {
     const [invoice] = normalizeSoftOneOpenInvoiceRows(
       [{ ...row, DUE_DATE: 20260701, OPEN_AMOUNT: 100 }],
       new Map([["1403582", "INV-1"]]),
@@ -54,7 +54,7 @@ describe("SoftOne open invoice sync", () => {
       new Map([["999", "EURO"]]),
       Date.UTC(2026, 6, 29),
     );
-    expect(invoice.status).toBe("Overdue");
+    expect(invoice.status).toBe("Open");
   });
 
   it("rejects incomplete lookups, duplicates, and non-positive open amounts", () => {

@@ -45,6 +45,35 @@ export async function createTestCustomer(prefix = "VITESTFIX"): Promise<TestCust
   return { id: res.id, name: uniq, group: uniq };
 }
 
+/**
+ * Give a fixture customer a minimal open invoice.
+ *
+ * `customers.groups` only lists groups that have been invoiced, because the CRM
+ * import registers thousands of directory-only companies (contacts but no ledger)
+ * that must stay out of the collections worklist. Any suite asserting on
+ * `customers.groups()` therefore has to put at least one invoice on its fixture.
+ */
+export async function createTestInvoice(
+  fx: TestCustomerFixture,
+  opts: { amount?: number; dueInDays?: number } = {},
+): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable in test fixture");
+  const now = Date.now();
+  const [res] = await db
+    .insert(invoices)
+    .values({
+      customerId: fx.id,
+      invoiceNumber: `VTFX-INV-${now}-${Math.floor(Math.random() * 100000)}`,
+      issueDate: now,
+      dueDate: now + (opts.dueInDays ?? 30) * 24 * 60 * 60 * 1000,
+      amount: String(opts.amount ?? 1000),
+    } as typeof invoices.$inferInsert)
+    .$returningId();
+  invalidateCache("invoices");
+  return res.id;
+}
+
 /** Hard-delete the fixture customer and every row tied to it. */
 export async function cleanupTestCustomer(fx: TestCustomerFixture): Promise<void> {
   const db = await getDb();

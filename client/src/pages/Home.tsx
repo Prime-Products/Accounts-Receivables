@@ -246,7 +246,7 @@ export default function Home() {
             <CardTitle className="text-base">Aging Buckets (Overdue)</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {(["0-30", "31-60", "61-90", "91-119", "120+"] as const).map(bucket => {
+            {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(bucket => {
               const b = data.aging.buckets[bucket];
               const max = Math.max(1, ...Object.values(data.aging.buckets).map(x => x.amount));
               const widthPct = Math.round((b.amount / max) * 100);
@@ -254,7 +254,7 @@ export default function Home() {
                 "0-30": "bg-sky-500",
                 "31-60": "bg-amber-500",
                 "61-90": "bg-orange-500",
-                "91-119": "bg-red-500",
+                "91-120": "bg-red-500",
                 "120+": "bg-red-700",
               };
               return (

@@ -50,11 +50,30 @@ function ContactFormDialog({
 }) {
   const utils = trpc.useUtils();
   const { data: customers } = trpc.customers.list.useQuery(undefined, { enabled: open && !contact });
-  const [customerId, setCustomerId] = useState<string>(contact ? String(contact.customerId) : "");
+  const [groupName, setGroupName] = useState<string>("");
   const [name, setName] = useState(contact?.name ?? "");
   const [email, setEmail] = useState(contact?.email ?? "");
   const [phone, setPhone] = useState(contact?.phone ?? "");
   const [title, setTitle] = useState(contact?.title ?? "");
+
+  /**
+   * Contacts belong to a group. A group can span several legal entities, so we
+   * still need a customer row to attach to — pick the group's primary company
+   * behind the scenes and keep the choice a pure group choice for the user.
+   */
+  const groups = useMemo(() => {
+    if (!customers) return [] as { group: string; customerId: number }[];
+    const map = new Map<string, number>();
+    for (const c of customers) {
+      const g = ((c as { customerGroup?: string | null }).customerGroup ?? "").trim() || c.name;
+      if (!map.has(g)) map.set(g, c.id);
+      // A company whose own name equals the group name is the best representative.
+      if (c.name === g) map.set(g, c.id);
+    }
+    const out: { group: string; customerId: number }[] = [];
+    map.forEach((customerId, group) => out.push({ group, customerId }));
+    return out.sort((a, b) => a.group.localeCompare(b.group));
+  }, [customers]);
 
   const onDone = () => {
     utils.paymentContacts.listAll.invalidate();
@@ -90,12 +109,13 @@ function ContactFormDialog({
         title: title.trim() || undefined,
       });
     } else {
-      if (!customerId) {
-        toast.error("Select a company");
+      const target = groups.find(g => g.group === groupName);
+      if (!target) {
+        toast.error("Select a group");
         return;
       }
       add.mutate({
-        customerId: Number(customerId),
+        customerId: target.customerId,
         name: name.trim(),
         email: email.trim(),
         phone: phone.trim() || undefined,
@@ -115,19 +135,19 @@ function ContactFormDialog({
         <div className="space-y-3">
           {contact ? (
             <div className="text-sm text-muted-foreground">
-              Company: <span className="font-medium text-foreground">{contact.companyName}</span>
+              Group: <span className="font-medium text-foreground">{contact.groupName}</span>
             </div>
           ) : (
             <div className="space-y-1.5">
-              <Label>Company *</Label>
-              <Select value={customerId || undefined} onValueChange={setCustomerId}>
+              <Label>Group *</Label>
+              <Select value={groupName || undefined} onValueChange={setGroupName}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select company…" />
+                  <SelectValue placeholder="Select group…" />
                 </SelectTrigger>
-                <SelectContent>
-                  {(customers ?? []).map(c => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name}
+                <SelectContent className="max-h-72">
+                  {groups.map(g => (
+                    <SelectItem key={g.group} value={g.group}>
+                      {g.group}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -171,13 +191,16 @@ export default function Contacts() {
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
+  const [groupFilter, setGroupFilter] = useState("all");
+  const [positionFilter, setPositionFilter] = useState("all");
+  /** How many rows are rendered; the list holds ~1.4k contacts after the ERP import. */
+  const [visibleCount, setVisibleCount] = useState(100);
   const cols = useResizableColumns("contacts", {
-    name: 200,
-    position: 140,
-    email: 240,
+    name: 250,
+    position: 170,
+    email: 300,
     phone: 160,
-    company: 220,
-    group: 200,
+    group: 300,
     actions: 90,
   });
   const [formOpen, setFormOpen] = useState(false);
@@ -193,20 +216,45 @@ export default function Contacts() {
     onError: e => toast.error(e.message),
   });
 
+  /** Group and position dropdown options, derived from the loaded contacts. */
+  const groupOptions = useMemo(() => {
+    if (!contacts) return [];
+    const set: Record<string, true> = {};
+    for (const c of contacts) set[c.groupName] = true;
+    return Object.keys(set).sort((a, b) => a.localeCompare(b));
+  }, [contacts]);
+
+  const positionOptions = useMemo(() => {
+    if (!contacts) return [];
+    const set: Record<string, true> = {};
+    for (const c of contacts) {
+      const t = (c.title ?? "").trim();
+      // Split combined values like "Marine — Captain" so the base department is filterable.
+      const base = t ? t.split("—")[0].trim() : "";
+      if (base) set[base] = true;
+    }
+    return Object.keys(set).sort((a, b) => a.localeCompare(b));
+  }, [contacts]);
+
   const filtered = useMemo(() => {
     if (!contacts) return [];
-    if (!search) return contacts;
     const q = search.toLowerCase();
-    return contacts.filter(
-      c =>
+    return contacts.filter(c => {
+      if (groupFilter !== "all" && c.groupName !== groupFilter) return false;
+      if (positionFilter !== "all" && !(c.title ?? "").toLowerCase().startsWith(positionFilter.toLowerCase()))
+        return false;
+      if (!q) return true;
+      return (
         c.name.toLowerCase().includes(q) ||
         c.email.toLowerCase().includes(q) ||
         (c.phone ?? "").toLowerCase().includes(q) ||
         (c.title ?? "").toLowerCase().includes(q) ||
-        c.companyName.toLowerCase().includes(q) ||
         c.groupName.toLowerCase().includes(q)
-    );
-  }, [contacts, search]);
+      );
+    });
+  }, [contacts, search, groupFilter, positionFilter]);
+
+  const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -230,14 +278,61 @@ export default function Contacts() {
         </Button>
       </div>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Search by name, email, company, group…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-80">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search by name, email, phone, group…"
+            value={search}
+            onChange={e => {
+              setSearch(e.target.value);
+              setVisibleCount(100);
+            }}
+          />
+        </div>
+        <Select
+          value={groupFilter}
+          onValueChange={v => {
+            setGroupFilter(v);
+            setVisibleCount(100);
+          }}
+        >
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="All groups" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            <SelectItem value="all">All groups ({groupOptions.length})</SelectItem>
+            {groupOptions.map(g => (
+              <SelectItem key={g} value={g}>
+                {g}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={positionFilter}
+          onValueChange={v => {
+            setPositionFilter(v);
+            setVisibleCount(100);
+          }}
+        >
+          <SelectTrigger className="w-[190px]">
+            <SelectValue placeholder="All positions" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            <SelectItem value="all">All positions</SelectItem>
+            {positionOptions.map(p => (
+              <SelectItem key={p} value={p}>
+                {p}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-sm text-muted-foreground ml-auto">
+          {filtered.length.toLocaleString()} contact{filtered.length === 1 ? "" : "s"}
+          {filtered.length > visible.length ? ` — showing ${visible.length.toLocaleString()}` : ""}
+        </span>
       </div>
 
       {isLoading ? (
@@ -257,7 +352,6 @@ export default function Contacts() {
                     ["position", "Position"],
                     ["email", "Email"],
                     ["phone", "Phone"],
-                    ["company", "Company"],
                     ["group", "Group"],
                   ] as const
                 ).map(([key, label]) => (
@@ -270,35 +364,49 @@ export default function Contacts() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length === 0 ? (
+              {visible.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                    {search ? "No contacts match your search" : "No contacts yet — add your first one"}
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                    {search || groupFilter !== "all" || positionFilter !== "all"
+                      ? "No contacts match your filters"
+                      : "No contacts yet — add your first one"}
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map(c => (
+                visible.map(c => (
                   <TableRow key={c.id}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{c.title || "—"}</TableCell>
-                    <TableCell>
-                      <a className="text-blue-600 hover:underline inline-flex items-center gap-1" href={`mailto:${c.email}`}>
-                        <Mail className="h-3 w-3" /> {c.email}
+                    <TableCell className="font-medium truncate" title={c.name}>
+                      {c.name}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground truncate" title={c.title ?? ""}>
+                      {c.title || "—"}
+                    </TableCell>
+                    <TableCell className="truncate">
+                      <a
+                        className="text-blue-600 hover:underline inline-flex items-center gap-1 max-w-full"
+                        href={`mailto:${c.email}`}
+                        title={c.email}
+                      >
+                        <Mail className="h-3 w-3 shrink-0" /> <span className="truncate">{c.email}</span>
                       </a>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="truncate">
                       {c.phone ? (
-                        <a className="text-blue-600 hover:underline inline-flex items-center gap-1" href={`tel:${c.phone}`}>
-                          <Phone className="h-3 w-3" /> {c.phone}
+                        <a
+                          className="text-blue-600 hover:underline inline-flex items-center gap-1 max-w-full"
+                          href={`tel:${c.phone}`}
+                          title={c.phone}
+                        >
+                          <Phone className="h-3 w-3 shrink-0" /> <span className="truncate">{c.phone}</span>
                         </a>
                       ) : (
                         "—"
                       )}
                     </TableCell>
-                    <TableCell>{c.companyName}</TableCell>
-                    <TableCell>
+                    <TableCell className="truncate">
                       <button
-                        className="text-left hover:underline decoration-dotted underline-offset-2"
+                        className="text-left hover:underline decoration-dotted underline-offset-2 max-w-full truncate block"
+                        title={c.groupName}
                         onClick={() => navigate(`/groups/${encodeURIComponent(c.groupName)}`)}
                       >
                         {c.groupName}
@@ -338,9 +446,22 @@ export default function Contacts() {
       )}
 
       {!isLoading && contacts && (
-        <p className="text-xs text-muted-foreground">
-          {filtered.length} of {contacts.length} contact(s)
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            Showing {visible.length.toLocaleString()} of {filtered.length.toLocaleString()} filtered ·{" "}
+            {contacts.length.toLocaleString()} total
+          </p>
+          {filtered.length > visible.length && (
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setVisibleCount(v => v + 200)}>
+                Show 200 more
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setVisibleCount(filtered.length)}>
+                Show all ({filtered.length.toLocaleString()})
+              </Button>
+            </div>
+          )}
+        </div>
       )}
 
       {formOpen && (
@@ -352,7 +473,7 @@ export default function Contacts() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete contact?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove {deleting?.name} ({deleting?.email}) from {deleting?.companyName}.
+              This will permanently remove {deleting?.name} ({deleting?.email}) from {deleting?.groupName}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

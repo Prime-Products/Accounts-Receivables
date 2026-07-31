@@ -212,7 +212,7 @@ export default function LogCallDialog({
               <SelectContent>
                 {groupContacts?.map(c => (
                   <SelectItem key={c.id} value={String(c.id)}>
-                    {c.name} {c.title ? `(${c.title})` : ""} — {c.companyName}
+                    {c.name} {c.title ? `(${c.title})` : ""}
                   </SelectItem>
                 ))}
                 <SelectItem value="other">Other (type a name)</SelectItem>
@@ -243,7 +243,6 @@ export default function LogCallDialog({
                         <a className="text-blue-600 hover:underline" href={`tel:${selectedContact.phone}`}>{selectedContact.phone}</a>
                       </div>
                     )}
-                    <div className="text-muted-foreground">{selectedContact.companyName}</div>
                   </div>
             )}
             {selectedContactId === "add-new" && (

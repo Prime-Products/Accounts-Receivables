@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import * as db from "./db";
+import { createTestInvoice } from "./testFixtures";
 import type { TrpcContext } from "./_core/context";
 import { appRouter } from "./routers";
 import { getDb } from "./db";
@@ -58,6 +59,8 @@ describe("Confirmation badge → linked task (customers.groups.confirmationTaskI
       customerGroup: group,
       creditLimit: "0",
     } as any);
+    // customers.groups lists invoiced groups only — directory-only companies are excluded.
+    await createTestInvoice({ id: customerId, name: `${group} Co`, group });
 
     const followUpDate = Date.now() + 5 * 24 * 60 * 60 * 1000;
     await caller.calls.logCall({
@@ -91,6 +94,8 @@ describe("Confirmation badge → linked task (customers.groups.confirmationTaskI
       customerGroup: group,
       creditLimit: "0",
     } as any);
+    // customers.groups lists invoiced groups only — directory-only companies are excluded.
+    await createTestInvoice({ id: customerId, name: `${group} Co`, group });
 
     const promisedDate = Date.now() + 10 * 24 * 60 * 60 * 1000;
     await caller.calls.logCall({
@@ -124,6 +129,8 @@ describe("Confirmation badge → linked task (customers.groups.confirmationTaskI
       customerGroup: group,
       creditLimit: "0",
     } as any);
+    // customers.groups lists invoiced groups only — directory-only companies are excluded.
+    await createTestInvoice({ id: customerId, name: `${group} Co`, group });
 
     await caller.calls.logCall({
       group,

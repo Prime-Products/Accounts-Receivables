@@ -7,7 +7,7 @@ import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
-import { hideSettled, countSettled } from "@/lib/invoiceFilters";
+import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
@@ -78,7 +78,7 @@ export default function CustomerDetail() {
   const now = Date.now();
   const visibleInvoices = invoices.filter(i => {
     if (hideSettled(i as any, showPaid, statusFilter)) return false;
-    if (statusFilter !== "all" && i.status !== statusFilter) return false;
+    if (!matchesStatusFilter(i as any, statusFilter)) return false;
     if (installmentFilter === "installments" && !(i as any).isContractInstallment) return false;
     return true;
   });
@@ -311,7 +311,7 @@ export default function CustomerDetail() {
               <div className="text-[11px] text-muted-foreground">Current (not due)</div>
               <div className="text-sm font-bold font-mono">{fmtEur(aging.current)}</div>
             </div>
-            {(["0-30", "31-60", "61-90", "91-119", "120+"] as const).map(b => (
+            {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
               <div key={b} className="rounded-md border bg-muted/40 px-3 py-2">
                 <div className="text-[11px] text-muted-foreground">{b} days overdue</div>
                 <div className="text-sm font-bold font-mono">{fmtEur(aging.buckets[b].amount)}</div>

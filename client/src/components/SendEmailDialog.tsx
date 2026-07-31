@@ -64,10 +64,18 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
   const [newContactPhone, setNewContactPhone] = useState("");
   const [newContactTitle, setNewContactTitle] = useState("");
 
-  const { data: paymentContacts } = trpc.paymentContacts.list.useQuery(
-    { customerId: customerId! },
-    { enabled: !!customerId }
+  // Contacts belong to the group, not to a single legal entity, so the picker
+  // lists everyone in the group and falls back to the company when the dialog is
+  // opened without a group context.
+  const { data: groupContacts } = trpc.paymentContacts.listByGroup.useQuery(
+    { group: groupName! },
+    { enabled: open && !!groupName }
   );
+  const { data: companyContacts } = trpc.paymentContacts.list.useQuery(
+    { customerId: customerId! },
+    { enabled: open && !groupName && !!customerId }
+  );
+  const paymentContacts = groupName ? groupContacts : companyContacts;
 
   const isSmart = (smartTemplates as readonly string[]).includes(templateType);
   const { data: prefill, isFetching: prefillLoading } = trpc.calls.emailPrefill.useQuery(
@@ -239,10 +247,12 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
           </div>
 
           {/* Payment Contacts Section */}
-          {customerId && (
+          {(groupName || customerId) && (
             <div className="space-y-2 p-3 bg-muted rounded-lg">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-semibold">Payment Contacts</Label>
+                <Label className="text-sm font-semibold">
+                  Contacts{groupName ? ` — ${groupName}` : ""}
+                </Label>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -302,7 +312,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
                 </div>
               )}
 
-              {/* Contacts List */}
+              {/* Contacts List — group-wide when a group is in context */}
               {paymentContacts && paymentContacts.length > 0 ? (
                 <div className="space-y-1">
                   {paymentContacts.map(contact => (

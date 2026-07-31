@@ -11,7 +11,7 @@ import { ActivityLog } from "@/components/ActivityLog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
-import { hideSettled, countSettled } from "@/lib/invoiceFilters";
+import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +33,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 
-const AGING_BUCKETS = ["all", "0-30", "31-60", "61-90", "91-119", "120+"] as const;
+const AGING_BUCKETS = ["all", "0-30", "31-60", "61-90", "91-120", "120+"] as const;
 type AgingBucket = (typeof AGING_BUCKETS)[number];
 
 /** Click-to-edit forecast amount on the group card. Saving corrects the month's forecast (expected + initial baseline). */
@@ -348,7 +348,7 @@ export default function GroupDetail() {
     if (bucket === "0-30") return 0;
     if (bucket === "31-60") return 31;
     if (bucket === "61-90") return 61;
-    if (bucket === "91-119") return 91;
+    if (bucket === "91-120") return 91;
     if (bucket === "120+") return 120;
     return undefined;
   };
@@ -367,13 +367,13 @@ export default function GroupDetail() {
   const { data: groupForecast } = trpc.customers.groupForecast.useQuery({ group }, { enabled: !!group });
 
   /** Bucket an overdue invoice by days overdue (same rule as the Invoices page). */
-  const bucketOf = (dueDate: number, now: number): "0-30" | "31-60" | "61-90" | "91-119" | "120+" | null => {
+  const bucketOf = (dueDate: number, now: number): "0-30" | "31-60" | "61-90" | "91-120" | "120+" | null => {
     if (now <= dueDate) return null;
     const d = Math.floor((now - dueDate) / (24 * 60 * 60 * 1000));
     if (d <= 30) return "0-30";
     if (d <= 60) return "31-60";
     if (d <= 90) return "61-90";
-    if (d < 120) return "91-119";
+    if (d <= 120) return "91-120";
     return "120+";
   };
 
@@ -382,11 +382,11 @@ export default function GroupDetail() {
   const computedAging = useMemo(() => {
     if (!data?.invoices) return null;
     const mk = () => ({ amount: 0, count: 0, byCur: {} as Record<string, number> });
-    const buckets: Record<"0-30" | "31-60" | "61-90" | "91-119" | "120+", ReturnType<typeof mk>> = {
+    const buckets: Record<"0-30" | "31-60" | "61-90" | "91-120" | "120+", ReturnType<typeof mk>> = {
       "0-30": mk(),
       "31-60": mk(),
       "61-90": mk(),
-      "91-119": mk(),
+      "91-120": mk(),
       "120+": mk(),
     };
     let current = 0;
@@ -417,7 +417,7 @@ export default function GroupDetail() {
     const now = Date.now();
     return data.invoices.filter(inv => {
       if (hideSettled(inv as any, showPaid, statusFilter)) return false;
-      if (statusFilter !== "all" && inv.status !== statusFilter) return false;
+      if (!matchesStatusFilter(inv as any, statusFilter)) return false;
       if (installmentFilter === "installments" && !(inv as any).isContractInstallment) return false;
       if (agingFilter !== "all") {
         if (inv.status === "Paid") return false;
@@ -740,7 +740,7 @@ export default function GroupDetail() {
                   <div className="text-lg font-bold font-mono">{fmtEur(computedAging?.current ?? 0)}</div>
                   <div className="text-xs text-muted-foreground">{computedAging?.currentCount ?? 0} invoice(s)</div>
                 </div>
-                {(["0-30", "31-60", "61-90", "91-119", "120+"] as const).map(b => (
+                {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
                   <button
                     key={b}
                     onClick={() => setAgingFilter(agingFilter === b ? "all" : b)}
