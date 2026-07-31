@@ -140,9 +140,10 @@ describe("escalation case history", () => {
       stats,
       escalatedBy: "Maria Theologou",
     });
-    expect(story).toContain("€89,715");
-    expect(story).toContain("52");
-    expect(story).toContain("226");
+    // The story is about the escalated TASK, so the group-wide balance and the
+    // aging of the whole relationship must NOT appear in it.
+    expect(story).not.toContain("€89,715");
+    expect(story).not.toContain("226");
     expect(story).toContain("2 τηλεφωνικές προσπάθειες");
     expect(story).toContain("3 υποσχέσεις");
     expect(story).toContain("Maria Theologou");

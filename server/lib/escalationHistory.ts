@@ -170,6 +170,34 @@ export function buildTimeline(sources: CaseEvent[][], limit = 60): CaseEvent[] {
   return all.length > limit ? all.slice(all.length - limit) : all;
 }
 
+/**
+ * Narrow a group-wide timeline down to the escalated TASK's own story.
+ *
+ * Management asked for a short read about this task only — not the whole group
+ * relationship. The task's story starts when the work that led to it started
+ * (the original follow-up/promise task was created) and ends at the escalation.
+ * Everything older than that window belongs to the group card, not here.
+ *
+ * `startedAt` is the creation date of the original task; `escalatedAt` the moment
+ * it was handed over. A small grace window before the start keeps the triggering
+ * call/promise in scope when it was logged minutes earlier.
+ */
+export function scopeToTask(
+  events: CaseEvent[],
+  opts: { startedAt: number | null; escalatedAt: number | null; graceDays?: number; limit?: number }
+): CaseEvent[] {
+  const grace = (opts.graceDays ?? 3) * DAY;
+  const from = opts.startedAt != null ? opts.startedAt - grace : null;
+  const to = opts.escalatedAt != null ? opts.escalatedAt + DAY : null;
+  const inWindow = events.filter(e => {
+    if (from != null && e.at < from) return false;
+    if (to != null && e.at > to) return false;
+    return true;
+  });
+  const limit = opts.limit ?? 25;
+  return inWindow.length > limit ? inWindow.slice(inWindow.length - limit) : inWindow;
+}
+
 /** Counters the narrative can lean on without the writer having to recount. */
 export function timelineStats(events: CaseEvent[]) {
   const calls = events.filter(e => e.kind === "call");
@@ -209,10 +237,6 @@ export function fallbackStory(input: {
 }): string {
   const s = input.stats;
   const parts: string[] = [];
-  parts.push(
-    `Ο όμιλος έχει ${money(input.overdueEur)} σε καθυστέρηση από ${input.overdueCount} τιμολόγια` +
-      (input.oldestOverdueDays > 0 ? `, με το παλαιότερο ${input.oldestOverdueDays} ημερών.` : ".")
-  );
   if (s.calls > 0) {
     parts.push(
       `Καταγράφηκαν ${s.calls} τηλεφωνικές προσπάθειες` +
@@ -229,6 +253,9 @@ export function fallbackStory(input: {
     );
   }
   if (s.payments > 0) parts.push(`Στο διάστημα αυτό εισπράχθηκαν ${s.payments} πληρωμές.`);
+  if (parts.length === 0) {
+    parts.push("Δεν καταγράφηκαν ενέργειες πάνω σε αυτό το task πριν την κλιμάκωση.");
+  }
   parts.push(
     input.escalatedBy
       ? `Η υπόθεση διαβιβάστηκε από ${input.escalatedBy} επειδή οι ενέργειες είσπραξης δεν απέδωσαν.`

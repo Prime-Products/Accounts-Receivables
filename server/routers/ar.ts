@@ -53,6 +53,7 @@ import {
   eventsFromReceipts,
   eventsFromTasks,
   fallbackStory,
+  scopeToTask,
   shortDate,
   timelineStats,
 } from "../lib/escalationHistory";
@@ -3376,13 +3377,11 @@ export const tasksRouter = router({
         ]);
 
       const invs = allInvoices.filter(i => memberIds.has(i.customerId) && isOpenInvoice(i));
-      let openBalanceEur = 0;
       let overdueEur = 0;
       let overdueCount = 0;
       let oldestOverdueDays = 0;
       for (const i of invs) {
         const outEur = toEur(outstanding(i), i.currency ?? "EUR");
-        openBalanceEur += outEur;
         if (i.dueDate != null && i.dueDate < now) {
           overdueEur += outEur;
           overdueCount += 1;
@@ -3395,54 +3394,67 @@ export const tasksRouter = router({
       const userNames = new Map(teamMembers.map(m => [m.id, m.name]));
       const groupTasks = allTasks.filter(t => t.customerId != null && memberIds.has(t.customerId));
       const groupReceipts = allReceipts.filter(r => memberIds.has(r.customerId));
-      const timeline = buildTimeline([
+      const fullTimeline = buildTimeline([
         eventsFromActivity(activity, id => (id != null ? userNames.get(id) ?? null : null)),
         eventsFromPromises(proms, id => memberNames.get(id) ?? null),
         eventsFromTasks(groupTasks),
         eventsFromReceipts(groupReceipts.slice(-20)),
         eventsFromNotes(notes),
       ]);
-      const stats = timelineStats(timeline);
       const reasonLine = (task.description ?? "").split("\n").find(l => l.startsWith("⬆")) ?? null;
 
-      // The biggest overdue invoices — the story should name what is actually stuck.
-      const topOverdue = invs
-        .filter(i => i.dueDate != null && i.dueDate < now)
-        .sort((a, b) => toEur(outstanding(b), b.currency ?? "EUR") - toEur(outstanding(a), a.currency ?? "EUR"))
-        .slice(0, 5)
-        .map(i => ({
-          invoice: i.invoiceNumber,
-          company: memberNames.get(i.customerId) ?? null,
-          outstandingEur: Math.round(toEur(outstanding(i), i.currency ?? "EUR")),
-          daysOverdue: Math.floor((now - Number(i.dueDate)) / 86400000),
-        }));
+      // ── Scope: this TASK, not the whole group relationship. ──────────────────
+      // Management reads this panel to understand one escalated task, so the story
+      // must cover only the work behind it: the original follow-up/promise task
+      // that was escalated, the calls and promises logged while it was open, and
+      // the handover itself. Older group history belongs to the group card.
+      const escalatedAt = task.createdAt instanceof Date ? task.createdAt.getTime() : Number(task.createdAt);
+      const originalTitle = (task.description ?? "").match(/Original task: (.+)/)?.[1]?.trim() ?? null;
+      const originalTask = originalTitle
+        ? groupTasks
+            .filter(t => t.title === originalTitle && t.id !== task.id)
+            .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0]
+        : undefined;
+      const startedAt = originalTask
+        ? originalTask.createdAt instanceof Date
+          ? originalTask.createdAt.getTime()
+          : Number(originalTask.createdAt)
+        : escalatedAt - 30 * 86400000; // no chain on file → last month of work
+
+      const timeline = scopeToTask(fullTimeline, { startedAt, escalatedAt });
+      const stats = timelineStats(timeline);
+
+      // Promises that belong to this task's window — the core of its story.
+      const scopedProms = proms.filter(p => {
+        const at = p.createdAt instanceof Date ? p.createdAt.getTime() : Number(p.createdAt);
+        return at >= startedAt - 3 * 86400000 && at <= escalatedAt + 86400000;
+      });
 
       const facts = {
-        group,
         today: shortDate(now),
-        openBalanceEur: Math.round(openBalanceEur),
-        overdueEur: Math.round(overdueEur),
-        overdueCount,
-        oldestOverdueDays,
-        promises: {
-          total: proms.length,
-          kept: proms.filter(p => p.status === "Kept").length,
-          broken: proms.filter(p => p.status === "Broken").length,
-          pending: proms.filter(p => p.status === "Pending").length,
-          reschedules: proms.reduce((s, p) => s + (((p as any).rescheduleCount as number) ?? 0), 0),
+        /** What was being chased and since when. */
+        task: {
+          escalatedTitle: task.title,
+          originalTask: originalTitle,
+          workStarted: shortDate(startedAt),
+          escalatedOn: shortDate(escalatedAt),
+          daysWorked: Math.max(0, Math.floor((escalatedAt - startedAt) / 86400000)),
+          postponedTimes: (originalTask as any)?.rescheduleCount ?? 0,
         },
-        currentCollectorStance: confirmation?.status ?? null,
         escalationLine: reasonLine,
-        escalatedTaskTitle: task.title,
-        collectionNotes: profile?.notes ? profile.notes.slice(0, 600) : null,
-        topOverdueInvoices: topOverdue,
+        promisesInThisCase: {
+          total: scopedProms.length,
+          kept: scopedProms.filter(p => p.status === "Kept").length,
+          broken: scopedProms.filter(p => p.status === "Broken").length,
+          pending: scopedProms.filter(p => p.status === "Pending").length,
+        },
         activityCounters: stats,
-        internalComments: comments.slice(-5).map(c => ({ by: c.authorName, body: c.body.slice(0, 300) })),
+        internalComments: comments.slice(-3).map(c => ({ by: c.authorName, body: c.body.slice(0, 200) })),
         timeline: timeline.map(e => ({
           date: shortDate(e.at),
           kind: e.kind,
           what: e.what,
-          detail: e.detail ? e.detail.slice(0, 300) : null,
+          detail: e.detail ? e.detail.slice(0, 200) : null,
           by: e.who ?? null,
         })),
       };
@@ -3454,8 +3466,8 @@ export const tasksRouter = router({
           overdueEur,
           overdueCount,
           oldestOverdueDays,
-          promisesTotal: proms.length,
-          promisesBroken: proms.filter(p => p.status === "Broken").length,
+          promisesTotal: scopedProms.length,
+          promisesBroken: scopedProms.filter(p => p.status === "Broken").length,
           stats,
           escalatedBy: escalatedByName,
         });
@@ -3466,15 +3478,13 @@ export const tasksRouter = router({
           messages: [
             {
               role: "system",
-              content: `Είσαι έμπειρος credit manager. Διάβασε το ΙΣΤΟΡΙΚΟ της υπόθεσης (timeline με κλήσεις, υποσχέσεις, σημειώσεις, tasks, πληρωμές) και γράψε στα ΕΛΛΗΝΙΚΑ την ΙΣΤΟΡΙΑ του τι έγινε, για έναν διευθυντή που βλέπει την υπόθεση πρώτη φορά.
+              content: `Είσαι έμπειρος credit manager. Σου δίνεται το ιστορικό ΕΝΟΣ συγκεκριμένου task που κλιμακώθηκε. Γράψε στα ΕΛΛΗΝΙΚΑ, σε ΜΙΑ παράγραφο 45-70 λέξεων, τι έγινε πάνω σε ΑΥΤΟ το task μέχρι να κλιμακωθεί.
 
-Γράψε ΑΦΗΓΗΜΑΤΙΚΑ σε 2 σύντομες παραγράφους (σύνολο 110-150 λέξεις). ΟΧΙ bullets, ΟΧΙ τίτλους, ΟΧΙ πίνακες, ΟΧΙ επανάληψη αριθμοδεικτών σαν λίστα.
+Περιεχόμενο: τι ζητούσε το task, τι έγινε στη διάρκειά του με ημερομηνίες (κλήσεις και τι απαντούσαν, υποσχέσεις με ποσό/ημερομηνία και τι απέγιναν, αναβολές, πληρωμές), και με μια τελευταία πρόταση γιατί κλιμακώθηκε.
 
-Παράγραφος 1 — Τι συνέβη: ξεκίνα από πότε άρχισε το πρόβλημα και πώς εξελίχθηκε χρονολογικά. Ανάφερε συγκεκριμένα γεγονότα με ημερομηνίες: πόσες φορές τηλεφωνήσαμε και τι απαντούσαν, ποιες υποσχέσεις δόθηκαν (ποσό και ημερομηνία) και τι απέγιναν, αν μετατοπίστηκαν, αν μπήκαν πληρωμές. Χρησιμοποίησε τα ονόματα των ανθρώπων/εταιρειών όπου υπάρχουν.
+ΑΠΑΓΟΡΕΥΕΤΑΙ: bullets, τίτλοι, πίνακες, δεύτερη παράγραφος, γενικά στοιχεία για τον όμιλο (συνολικά υπόλοιπα, aging, λίστες τιμολογίων, ιστορικό άλλων tasks), προτάσεις ενεργειών, συστάσεις ή συμπεράσματα — η απόφαση ανήκει στον αναγνώστη.
 
-Παράγραφος 2 — Γιατί έφτασε εδώ και τι διακυβεύεται: τι εμπόδισε την είσπραξη, ποιο είναι το ανοιχτό/καθυστερημένο ποσό και πόσο παλιό, ποια είναι τα μεγαλύτερα τιμολόγια που κολλάνε, και ποιο είναι το κρίσιμο ερώτημα που πρέπει να απαντήσει η διοίκηση τώρα. Κλείσε με μία καθαρή πρόταση για την ενέργεια που προτείνεται (π.χ. «Προτείνεται …»), χωρίς να αναφερθείς στον εαυτό σου ή στον ρόλο σου.
-
-Κανόνες: Γράψε μόνο ό,τι στηρίζεται στα δεδομένα — αν λείπει κάτι, προσπέρασέ το σιωπηλά (μη γράφεις «δεν υπάρχουν στοιχεία»). ΠΟΣΑ: γράψε τα ΠΑΝΤΑ με ΚΟΜΜΑ ως διαχωριστικό χιλιάδων και χωρίς δεκαδικά, όπως €89,715 και €9,000 — ΠΟΤΕ με τελεία (λάθος: €89.715, €9.000). Ημερομηνίες σε μορφή 06/08/2026. ΜΗΝ γράψεις το όνομα του ομίλου — φαίνεται ήδη στον τίτλο· ξεκίνα με το γεγονός, όχι με το όνομα (τα ονόματα των εταιρειών-μελών επιτρέπονται όταν ξεχωρίζει ποια χρωστά). Η αφήγηση απευθύνεται σε αυτόν που παρέλαβε την κλιμάκωση, άρα ΜΗΝ προτείνεις να επικοινωνήσει με τον παραλήπτη της κλιμάκωσης — πρότεινε ενέργεια προς τον πελάτη (π.χ. διακοπή υπηρεσιών, νομικές ενέργειες, διακανονισμός, στοχευμένη διεκδίκηση συγκεκριμένων τιμολογίων). Μην αναφέρεις ότι διάβασες JSON ή timeline.`,
+Κανόνες: Μόνο ό,τι στηρίζεται στα δεδομένα· αν λείπει κάτι, προσπέρασέ το σιωπηλά (μη γράφεις «δεν υπάρχουν στοιχεία»). ΠΟΣΑ πάντα με ΚΟΜΜΑ για χιλιάδες, χωρίς δεκαδικά (σωστό: €66,666 — λάθος: €66.666). Ημερομηνίες σε μορφή 06/08/2026. ΜΗΝ γράψεις το όνομα του ομίλου (φαίνεται στον τίτλο). Μην αναφέρεις ότι διάβασες JSON ή timeline.`,
             },
             { role: "user", content: JSON.stringify(facts) },
           ],
