@@ -385,7 +385,9 @@ export function normalizeSoftOneCustomerRows(
 }
 
 export async function openSoftOneSqlPool() {
-  const { default: sql } = await import("mssql/msnodesqlv8.js");
+  // Use mssql's pure TDS driver. The native msnodesqlv8/unixODBC adapter enters
+  // HY010 Function sequence state after repeated SoftOne result sets.
+  const { default: sql } = await import("mssql");
   const port = Number(process.env.SOFTONE_SQL_PORT ?? "1433");
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error("SOFTONE_SQL_PORT is invalid.");
@@ -397,7 +399,6 @@ export async function openSoftOneSqlPool() {
     user: requiredEnvironment("SOFTONE_SQL_USER"),
     password: requiredEnvironment("SOFTONE_SQL_PASSWORD"),
     port,
-    driver: "ODBC Driver 18 for SQL Server",
     connectionTimeout: 30_000,
     requestTimeout: 120_000,
     options: {
@@ -415,8 +416,19 @@ export async function openSoftOneSqlPool() {
 export async function testSoftOneSqlConnection() {
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
   const pool = await openSoftOneSqlPool();
-  await pool.close();
-  return { connected: true as const };
+  try {
+    const result = await querySoftOneWithWatchdog<{ connected: number }>(
+      pool,
+      "SELECT CAST(1 AS int) AS [connected]",
+      "connection test",
+    );
+    if (Number(result.recordset[0]?.connected) !== 1) {
+      throw new Error("SoftOne SQL connection test returned an unexpected result.");
+    }
+    return { connected: true as const };
+  } finally {
+    await closeSoftOnePool(pool);
+  }
 }
 
 export async function inspectSoftOneGroupResolution() {
