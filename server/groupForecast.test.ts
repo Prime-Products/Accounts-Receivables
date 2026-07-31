@@ -6,6 +6,18 @@ import { getDb } from "./db";
 import { tasks as tasksTable, promisesToPay } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 function createCaller() {
   return appRouter.createCaller({
     user: { id: 1, openId: "test-open-id", name: "Test User", role: "admin" } as any,
@@ -54,9 +66,7 @@ describe("customers.groupForecast", () => {
 describe("promise Kept/Broken auto-completes follow-up task", () => {
   it("marks the linked follow-up task Completed when the promise is marked Kept", async () => {
     const caller = createCaller();
-    const customers = await db.listCustomers();
-    if (customers.length === 0) return;
-    const cust = customers[0];
+    const cust = await getFixtureCustomer();
 
     // Create a promise via the router (creates the auto follow-up task with "(Promise #id)" marker).
     const promised = Date.now() + 3 * 24 * 60 * 60 * 1000;

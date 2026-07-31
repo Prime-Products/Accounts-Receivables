@@ -5,6 +5,18 @@ import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
 import type { AuthenticatedUser } from "./_core/context";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 function createAuthContext(): TrpcContext {
   const user: AuthenticatedUser = {
     id: 1,
@@ -42,8 +54,7 @@ describe("follow-up task cleanup across status sequences", () => {
 
   it("Pending Follow-up → Confirmed → Broken leaves no open follow-up task (regression: MSC case)", async () => {
     const caller = appRouter.createCaller(createAuthContext());
-    const customers = await db.listCustomers();
-    const cust = customers[0];
+    const cust = await getFixtureCustomer();
     expect(cust).toBeTruthy();
     const group = (cust.customerGroup ?? "").trim() || cust.name;
 

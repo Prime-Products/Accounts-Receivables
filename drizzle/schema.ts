@@ -333,6 +333,21 @@ export const groupNotes = mysqlTable("group_notes", {
 export type GroupNote = typeof groupNotes.$inferSelect;
 
 /**
+ * Per-group collection profile: free-text particularities that collectors must
+ * remember before contacting the customer (best call days/hours, preferred
+ * contact person, payment quirks, language, etc.). Always visible on the
+ * group card and inside the Log Call dialog.
+ */
+export const groupCollectionProfile = mysqlTable("group_collection_profile", {
+  id: int("id").autoincrement().primaryKey(),
+  groupName: varchar("groupName", { length: 255 }).notNull().unique(),
+  notes: text("notes").notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),
+});
+export type GroupCollectionProfile = typeof groupCollectionProfile.$inferSelect;
+
+/**
  * Manual watch-status override per customer group.
  * "Auto" follows the forecast rule; "Problematic" forces the flag;
  * "Normal" clears it even when the rule would flag the group.
