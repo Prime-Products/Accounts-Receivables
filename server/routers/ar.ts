@@ -165,7 +165,16 @@ function effectiveConfirmation<T extends { status: string; amount: string | null
  */
 async function createGroupPromise(
   ctx: { user: { id: number; name: string | null } },
-  input: { group: string; customerId?: number; amount?: number; promisedDate: number; notes?: string; contactName?: string }
+  input: {
+    group: string;
+    customerId?: number;
+    amount?: number;
+    promisedDate: number;
+    notes?: string;
+    contactName?: string;
+    /** Team member who owns the promise-check task; falls back to the caller's own member record. */
+    assigneeId?: number | null;
+  }
 ) {
   let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
   if (!cust) {
@@ -203,9 +212,40 @@ async function createGroupPromise(
     dueDate: input.promisedDate,
     status: "Pending",
     assignedTo: ctx.user.id,
-  });
+    assigneeId: await resolveTaskAssignee(ctx, input.assigneeId),
+  } as any);
   await audit(ctx, "Create Task", "task", taskId, `Auto follow-up for promise #${id} (${cust.name})`);
   return id;
+}
+
+/**
+ * Team member who should own an auto-created call task. An explicitly picked
+ * assignee always wins; otherwise the task stays with the colleague who logged
+ * the call (their own team-member record), so nothing is silently unassigned.
+ */
+async function resolveTaskAssignee(
+  ctx: { user: { id: number } },
+  assigneeId?: number | null
+): Promise<number | null> {
+  if (assigneeId != null) {
+    const member = await db.getTeamMemberById(assigneeId).catch(() => null);
+    if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+    return member.id;
+  }
+  const own = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+  return own ? own.id : null;
+}
+
+/**
+ * When a task changes hands, the previous owner keeps following it as a watcher
+ * so they still see whether the payment came in.
+ */
+async function handOverTask(taskId: number, previousAssigneeId: number | null, nextAssigneeId: number | null) {
+  if (nextAssigneeId == null || previousAssigneeId === nextAssigneeId) return;
+  await db.updateTask(taskId, { assigneeId: nextAssigneeId } as any);
+  if (previousAssigneeId != null) {
+    await db.addTaskWatcher(taskId, previousAssigneeId).catch(() => {});
+  }
 }
 
 /**
@@ -311,7 +351,15 @@ async function listOpenCreditNotes(customerIds: Set<number>, customerNames: Map<
  */
 async function rescheduleGroupPromise(
   ctx: { user: { id: number; name: string | null } },
-  input: { group: string; promiseId: number; amount: number; promisedDate: number; notes?: string }
+  input: {
+    group: string;
+    promiseId: number;
+    amount: number;
+    promisedDate: number;
+    notes?: string;
+    /** Reassign the linked promise-check task when a different colleague is picked. */
+    assigneeId?: number | null;
+  }
 ) {
   const promise = await db.getPromise(input.promiseId);
   if (!promise || promise.status !== "Pending") return null;
@@ -352,6 +400,9 @@ async function rescheduleGroupPromise(
       description: `Verify that ${cust?.name ?? "the customer"} paid ${effAmount > 0 ? `the promised amount of ${rLabel}` : "the promised payment"} due ${newDateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`,
       dueDate: input.promisedDate,
     });
+    if (input.assigneeId != null) {
+      await handOverTask(linked.id, (linked as any).assigneeId ?? null, await resolveTaskAssignee(ctx, input.assigneeId));
+    }
     await audit(ctx, "Update Task", "task", linked.id, `Follow-up moved to ${newDateStr} (promise #${input.promiseId} rescheduled)`);
   }
   return input.promiseId;
@@ -364,7 +415,16 @@ async function rescheduleGroupPromise(
  */
 async function upsertFollowUpTask(
   ctx: { user: { id: number; name: string | null } },
-  input: { group: string; customerId?: number; followUpDate: number; amount?: number; notes?: string; contactName?: string }
+  input: {
+    group: string;
+    customerId?: number;
+    followUpDate: number;
+    amount?: number;
+    notes?: string;
+    contactName?: string;
+    /** Team member who owns the follow-up call; falls back to the caller. */
+    assigneeId?: number | null;
+  }
 ) {
   let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
   if (!cust) {
@@ -392,6 +452,9 @@ async function upsertFollowUpTask(
       dueDate: input.followUpDate,
       ...(dateChanged ? { rescheduleCount: (existing.rescheduleCount ?? 0) + 1 } : {}),
     });
+    if (input.assigneeId != null) {
+      await handOverTask(existing.id, (existing as any).assigneeId ?? null, await resolveTaskAssignee(ctx, input.assigneeId));
+    }
     await audit(
       ctx,
       "Update Task",
@@ -411,7 +474,8 @@ async function upsertFollowUpTask(
     dueDate: input.followUpDate,
     status: "Pending",
     assignedTo: ctx.user.id,
-  });
+    assigneeId: await resolveTaskAssignee(ctx, input.assigneeId),
+  } as any);
   await audit(ctx, "Create Task", "task", taskId, `Auto follow-up call task for ${input.group} on ${dateStr}`);
   return taskId;
 }
@@ -3790,6 +3854,13 @@ export const teamRouter = router({
   list: protectedProcedure
     .input(z.object({ includeInactive: z.boolean().optional() }).optional())
     .query(async ({ input }) => db.listTeamMembers(input?.includeInactive ?? false)),
+  /**
+   * The caller's own team-member record (or null when their login is not linked
+   * to one). Used to default assignee pickers to "me".
+   */
+  myMember: protectedProcedure.query(async ({ ctx }) => {
+    return db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+  }),
   create: protectedProcedure
     .input(z.object({
       name: z.string().min(1).max(191),
@@ -4893,6 +4964,11 @@ export const callsRouter = router({
         promisedDate: z.number().optional(),
         // When Confirmed and an open promise already exists: reschedule it instead of creating a new one.
         reschedulePromiseId: z.number().optional(),
+        /**
+         * Team member who should own the auto-created follow-up / promise-check task.
+         * Omitted → the task stays with the colleague who logged the call.
+         */
+        assigneeId: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -4957,6 +5033,7 @@ export const callsRouter = router({
               amount: input.confirmationAmount ?? 0,
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
+              assigneeId: input.assigneeId ?? null,
             });
           }
           if (!rescheduled) {
@@ -4967,6 +5044,7 @@ export const callsRouter = router({
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
               contactName: input.contactName,
+              assigneeId: input.assigneeId ?? null,
             });
           }
         }
@@ -4980,6 +5058,7 @@ export const callsRouter = router({
             amount: input.confirmationAmount,
             notes: input.notes,
             contactName: input.contactName,
+            assigneeId: input.assigneeId ?? null,
           });
         }
       }

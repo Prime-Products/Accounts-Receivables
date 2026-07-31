@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { trpc } from "@/lib/trpc";
 import { CheckCircle2, Info, Mail, Phone, Plus, User } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -50,6 +51,8 @@ export default function LogCallDialog({
   const [followUpDate, setFollowUpDate] = useState("");
   const [promisedDate, setPromisedDate] = useState("");
   const [promiseMode, setPromiseMode] = useState<"reschedule" | "new">("reschedule");
+  /** Team member who will own the auto-created follow-up / promise-check task. */
+  const [assigneeId, setAssigneeId] = useState<number | null>(null);
   const utils = trpc.useUtils();
 
   // Existing open promise for this group (offered for rescheduling on Confirmed)
@@ -60,6 +63,8 @@ export default function LogCallDialog({
   const { data: groupContacts } = trpc.paymentContacts.listByGroup.useQuery({ group }, { enabled: open });
   // Collection notes (call preferences & particularities) — shown as a reminder before logging the call
   const { data: collectionProfile } = trpc.customers.getCollectionProfile.useQuery({ group }, { enabled: open });
+  // Own team-member record — the default owner of the task created by this call.
+  const { data: myMember } = trpc.team.myMember.useQuery(undefined, { enabled: open });
   const selectedContact =
     selectedContactId && selectedContactId !== "other" && selectedContactId !== "add-new"
       ? groupContacts?.find(c => String(c.id) === selectedContactId)
@@ -84,8 +89,15 @@ export default function LogCallDialog({
       setFollowUpDate("");
       setPromisedDate("");
       setPromiseMode("reschedule");
+      setAssigneeId(null);
     }
   }, [open, defaultCustomerId]);
+
+  // Default the assignee to the colleague logging the call (they keep the task
+  // unless they explicitly hand it to someone else).
+  useEffect(() => {
+    if (open && assigneeId == null && myMember?.id) setAssigneeId(myMember.id);
+  }, [open, myMember?.id, assigneeId]);
 
     const logCall = trpc.calls.logCall.useMutation({
     onSuccess: (_data, variables) => {
@@ -150,9 +162,11 @@ export default function LogCallDialog({
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.promisedDate = promisedDate ? new Date(promisedDate).getTime() : undefined;
       logData.promiseMode = promiseMode;
+      if (assigneeId) logData.assigneeId = assigneeId;
     } else if (confirmationStatus === "Pending Follow-up") {
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.followUpDate = followUpDate ? new Date(followUpDate).getTime() : undefined;
+      if (assigneeId) logData.assigneeId = assigneeId;
     }
 
     logCall.mutate(logData);
@@ -341,10 +355,13 @@ export default function LogCallDialog({
                 value={promisedDate}
                 onChange={e => setPromisedDate(e.target.value)}
               />
+              <Label className="mt-2">Assigned to</Label>
+              <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} placeholder="Unassigned" />
               <p className="text-xs text-muted-foreground">
                 {openPromise && promiseMode === "reschedule"
                   ? "The existing promise and its follow-up task will be moved to the new date."
                   : "A Promise-to-Pay record will be created automatically."}
+                {" "}The check task on the promised date goes to the colleague selected above.
               </p>
             </div>
           )}
@@ -379,6 +396,11 @@ export default function LogCallDialog({
                 value={followUpDate}
                 onChange={e => setFollowUpDate(e.target.value)}
               />
+              <Label className="mt-2">Assigned to</Label>
+              <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} placeholder="Unassigned" />
+              <p className="text-xs text-muted-foreground">
+                The follow-up call task is created for the colleague selected above.
+              </p>
             </div>
           )}
 

@@ -1311,3 +1311,10 @@
 - [x] Vitest coverage: merged transaction rows carry an issue date and sort correctly; transfers-only filter works
 - [x] Wire Transfers page: move the Date column to the first position (before Customer)
 - [x] Vitest coverage: Date column leads the wire transfers table (header, row cells, stored widths)
+
+## Log Call: assignee for the auto-created follow-up task (user request 1/8)
+- [x] Log Call dialog: "Assigned to" picker for Promise to Pay (Confirmed) and Pending Follow-up, defaulting to the current user
+- [x] `calls.logCall` accepts an `assigneeId` team-member id and passes it to the promise / follow-up task helpers
+- [x] Rescheduling an existing promise or follow-up also updates the assignee, keeping the previous owner as watcher
+- [x] New `team.myMember` procedure so pickers can default to the logged-in colleague
+- [x] Vitest coverage: task created for the chosen assignee, hand-over adds previous owner as watcher, unknown member rejected
