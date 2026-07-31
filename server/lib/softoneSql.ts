@@ -10,6 +10,7 @@ const SOFTONE_NAME_BATCH_SIZE = 250;
 const SOFTONE_FINANCIAL_BATCH_SIZE = 50;
 const SOFTONE_CUSTOMER_PAGE_SIZE = 500;
 const MAX_SOFTONE_CUSTOMER_PAGES = 200;
+const SOFTONE_QUERY_WATCHDOG_MS = 45_000;
 
 // Keep financial values and text names in separate result sets. The production
 // unixODBC driver can return HY010 when variable-length text is fetched
@@ -76,6 +77,45 @@ INNER JOIN (
 
 type SourceRow = Record<string, unknown>;
 
+function softOneWatchdogTimeout() {
+  const configured = Number(process.env.SOFTONE_SQL_WATCHDOG_MS ?? "");
+  return Number.isSafeInteger(configured) && configured >= 5_000
+    ? configured
+    : SOFTONE_QUERY_WATCHDOG_MS;
+}
+
+export async function querySoftOneWithWatchdog<T extends SourceRow>(
+  pool: ConnectionPool,
+  query: string,
+  label: string,
+) {
+  const request = pool.request();
+  const timeoutMs = softOneWatchdogTimeout();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const queryPromise = request.query<T>(query);
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      try {
+        request.cancel();
+      } catch {
+        // The watchdog error below is the useful error for the operator.
+      }
+      const error = new Error(
+        `SoftOne query "${label}" exceeded ${Math.round(timeoutMs / 1_000)} seconds.`,
+      );
+      Object.assign(error, { code: "ETIMEOUT" });
+      reject(error);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([queryPromise, timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    // A cancelled native ODBC request may reject after the watchdog won.
+    void queryPromise.catch(() => undefined);
+  }
+}
+
 function numericIdentifiers(values: string[]) {
   if (
     values.length === 0 ||
@@ -131,9 +171,12 @@ async function queryNamesInBatches(
 ) {
   const rows: SourceRow[] = [];
   for (let index = 0; index < identifiers.length; index += batchSize) {
-    const result = await pool
-      .request()
-      .query<SourceRow>(buildQuery(identifiers.slice(index, index + batchSize)));
+    const batchNumber = Math.floor(index / batchSize) + 1;
+    const result = await querySoftOneWithWatchdog(
+      pool,
+      buildQuery(identifiers.slice(index, index + batchSize)),
+      `batch ${batchNumber}`,
+    );
     rows.push(...result.recordset);
   }
   return rows;
@@ -143,9 +186,11 @@ export async function queryCustomersInPages(pool: ConnectionPool) {
   const rows: SourceRow[] = [];
   let afterTrdr = 0;
   for (let page = 0; page < MAX_SOFTONE_CUSTOMER_PAGES; page += 1) {
-    const result = await pool
-      .request()
-      .query<SourceRow>(buildSoftOneCustomersQuery(afterTrdr));
+    const result = await querySoftOneWithWatchdog(
+      pool,
+      buildSoftOneCustomersQuery(afterTrdr),
+      `customer page ${page + 1}`,
+    );
     if (result.recordset.length === 0) return rows;
     rows.push(...result.recordset);
     if (rows.length > MAX_CUSTOMERS) {
