@@ -605,7 +605,7 @@ export default function TaskDetailDialog({
                      {fuMode === "escalate" && !task.description?.includes("(Follow-up: ") && (
                        <div className="grid gap-2">
                          <div className="grid gap-1">
-                           <Label className="text-xs">Escalate to (defaults to the group's Account Manager)</Label>
+                           <Label className="text-xs">Escalate to (optional — defaults to the group's Account Manager)</Label>
                            <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
                          </div>
                          <div className="grid gap-1">
@@ -862,7 +862,7 @@ export default function TaskDetailDialog({
                     {fuMode === "escalate" && (
                       <div className="grid gap-2">
                         <div className="grid gap-1">
-                          <Label className="text-xs">Escalate to (defaults to the group's Account Manager)</Label>
+                          <Label className="text-xs">Escalate to (optional — defaults to the group's Account Manager)</Label>
                           <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
                         </div>
                         <div className="grid gap-1">

@@ -3149,7 +3149,12 @@ export const tasksRouter = router({
       let cust = task.customerId ? await db.getCustomer(task.customerId) : null;
       if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
 
-      // Pick the target: explicit assignee or the group's account manager
+      // Pick the target. Preference order:
+      //   1. explicit assignee picked in the dialog
+      //   2. the group's account manager (when one is set)
+      //   3. any manager/admin-level team member, then any active team member
+      // A missing account manager must never block an escalation — the collector
+      // decides where the case goes.
       let targetId = input.assigneeId ?? null;
       if (!targetId && group) {
         const customers = await db.listCustomers();
@@ -3158,7 +3163,21 @@ export const tasksRouter = router({
         targetId = withManager ? ((withManager as any).accountManagerId as number) : null;
       }
       if (!targetId) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "No account manager found for this group — pick a team member to escalate to." });
+        // Fall back to a sensible escalation target so the action always works.
+        const team = await db.listTeamMembers().catch(() => [] as any[]);
+        const active = (team as any[]).filter(m => m.active !== false && m.id !== undefined);
+        // Prefer senior titles, but any active member is an acceptable target.
+        const rank = (title?: string | null) => {
+          const t = (title ?? "").toLowerCase();
+          if (t.includes("director") || t.includes("cfo") || t.includes("chief")) return 0;
+          if (t.includes("manager") || t.includes("head")) return 1;
+          return 2;
+        };
+        const best = active.sort((a, b) => rank(a.title) - rank(b.title) || a.id - b.id)[0];
+        targetId = best ? (best.id as number) : null;
+      }
+      if (!targetId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No team member is available to escalate to — add a team member first." });
       }
       const member = await db.getTeamMemberById(targetId);
       if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
