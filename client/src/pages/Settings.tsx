@@ -111,7 +111,7 @@ export default function Settings() {
 
   const pullAll = trpc.admin.syncPullAll.useMutation({
     onSuccess: r => {
-      toast.success(`SoftOne sync completed: ${r.customers} customers, ${r.invoices} invoices`);
+      toast.success(`SoftOne sync completed: ${r.customers} customers, ${r.vessels} vessels, ${r.invoices} invoices`);
       utils.invalidate();
     },
     onError: e => {
