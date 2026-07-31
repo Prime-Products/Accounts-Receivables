@@ -1,10 +1,9 @@
-import type { ConnectionPool } from "mssql";
 import type { SoftOneInvoiceUpsert } from "../db";
 import * as db from "../db";
 import { toEur } from "./arLogic";
 import {
   isSoftOneSqlConfigured,
-  openSoftOneSqlPool,
+  querySoftOneWithFreshPool,
   softOneSqlError,
 } from "./softoneSql";
 
@@ -424,7 +423,6 @@ export function normalizeSoftOneOpenInvoiceRows(
 }
 
 async function queryMaps(
-  pool: ConnectionPool,
   rows: SourceRow[],
   setStage: (stage: string) => void,
 ) {
@@ -439,15 +437,22 @@ async function queryMaps(
     setStage(
       `query open invoice document lookup batch ${Math.floor(index / SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE) + 1}`,
     );
-    const result = await pool
-      .request()
-      .query<SourceRow>(buildSoftOneOpenInvoiceDocumentsQuery(batch));
+    const result = await querySoftOneWithFreshPool<SourceRow>(
+      buildSoftOneOpenInvoiceDocumentsQuery(batch),
+      `open invoice document lookup batch ${Math.floor(index / SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE) + 1}`,
+    );
     documentRows.push(...result.recordset);
   }
   setStage("query SoftOne companies");
-  const companyResult = await pool.request().query<SourceRow>(softOneCompaniesQuery);
+  const companyResult = await querySoftOneWithFreshPool<SourceRow>(
+    softOneCompaniesQuery,
+    "SoftOne companies",
+  );
   setStage("query SoftOne currencies");
-  const currencyResult = await pool.request().query<SourceRow>(softOneCurrenciesQuery);
+  const currencyResult = await querySoftOneWithFreshPool<SourceRow>(
+    softOneCurrenciesQuery,
+    "SoftOne currencies",
+  );
   return {
     documents: new Map(
       documentRows.map(row => [
@@ -471,16 +476,16 @@ async function queryMaps(
 }
 
 async function querySoftOneOpenInvoiceSource(
-  pool: ConnectionPool,
   setStage: (stage: string) => void = () => undefined,
 ) {
   const records: SourceRow[] = [];
   let afterFindoc = 0;
   for (let page = 0; page < MAX_SOFTONE_INVOICE_PAGES; page += 1) {
     setStage(`query open invoice source page ${page + 1} after FINDOC ${afterFindoc}`);
-    const result = await pool
-      .request()
-      .query<SourceRow>(buildSoftOneOpenInvoiceFinancialsQuery(afterFindoc));
+    const result = await querySoftOneWithFreshPool<SourceRow>(
+      buildSoftOneOpenInvoiceFinancialsQuery(afterFindoc),
+      `open invoice source page ${page + 1} after FINDOC ${afterFindoc}`,
+    );
     if (result.recordset.length === 0) return records;
     const pageRecords = aggregateSoftOneOpenInvoiceParts(result.recordset);
     records.push(...pageRecords);
@@ -501,11 +506,10 @@ async function querySoftOneOpenInvoiceSource(
 }
 
 async function loadSoftOneOpenInvoices(
-  pool: ConnectionPool,
   setStage: (stage: string) => void,
 ) {
-  const rows = await querySoftOneOpenInvoiceSource(pool, setStage);
-  const maps = await queryMaps(pool, rows, setStage);
+  const rows = await querySoftOneOpenInvoiceSource(setStage);
+  const maps = await queryMaps(rows, setStage);
   const records = normalizeSoftOneOpenInvoiceRows(
     rows,
     maps.documents,
@@ -526,9 +530,10 @@ async function loadSoftOneOpenInvoices(
   ) {
     const batch = findocs.slice(index, index + SOFTONE_INSTALLMENT_LOOKUP_BATCH_SIZE);
     setStage(`query contract installment lookup batch ${Math.floor(index / SOFTONE_INSTALLMENT_LOOKUP_BATCH_SIZE) + 1}`);
-    const result = await pool
-      .request()
-      .query<SourceRow>(buildSoftOneInvoiceInstallmentLookupQuery(batch));
+    const result = await querySoftOneWithFreshPool<SourceRow>(
+      buildSoftOneInvoiceInstallmentLookupQuery(batch),
+      `contract installment lookup batch ${Math.floor(index / SOFTONE_INSTALLMENT_LOOKUP_BATCH_SIZE) + 1}`,
+    );
     installmentRows.push(...result.recordset);
   }
   const allocationsByInvoiceCustomer = new Map<string, SoftOneInvoiceUpsert["vesselAllocations"]>();
@@ -571,7 +576,6 @@ async function loadSoftOneOpenInvoices(
 }
 
 async function ensureInvoiceCustomers(
-  pool: ConnectionPool,
   records: SoftOneInvoiceUpsert[],
 ) {
   const existingIds = new Set(
@@ -598,9 +602,10 @@ async function ensureInvoiceCustomers(
       index,
       index + SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE,
     );
-    const result = await pool
-      .request()
-      .query<SourceRow>(buildSoftOneInvoiceCustomerLookupQuery(batch));
+    const result = await querySoftOneWithFreshPool<SourceRow>(
+      buildSoftOneInvoiceCustomerLookupQuery(batch),
+      `invoice customer lookup batch ${Math.floor(index / SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE) + 1}`,
+    );
     rows.push(...result.recordset);
   }
   const synchronizedAt = new Date();
@@ -631,28 +636,29 @@ async function ensureInvoiceCustomers(
 
 export async function inspectSoftOneOpenInvoices() {
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
-  let pool: ConnectionPool | null = null;
   let stage = "connect";
   try {
-    pool = await openSoftOneSqlPool();
     stage = "query server-side open invoice amount summary";
-    const summaryResult = await pool
-      .request()
-      .query<SourceRow>(softOneOpenInvoiceAmountSummaryQuery);
+    const summaryResult = await querySoftOneWithFreshPool<SourceRow>(
+      softOneOpenInvoiceAmountSummaryQuery,
+      "open invoice amount summary",
+    );
     const summary = summaryResult.recordset[0];
     if (!summary) throw new Error("SoftOne returned no open invoice amount summary.");
     stage = "query server-side document type breakdown";
-    const typeResult = await pool
-      .request()
-      .query<SourceRow>(softOneOpenInvoiceTypeBreakdownQuery);
+    const typeResult = await querySoftOneWithFreshPool<SourceRow>(
+      softOneOpenInvoiceTypeBreakdownQuery,
+      "open invoice type breakdown",
+    );
     stage = "query known report invoice amount samples";
-    const sampleResult = await pool
-      .request()
-      .query<SourceRow>(softOneInvoiceAmountSamplesQuery);
+    const sampleResult = await querySoftOneWithFreshPool<SourceRow>(
+      softOneInvoiceAmountSamplesQuery,
+      "open invoice amount samples",
+    );
     stage = "query positive open invoice candidates";
-    const positiveOpenRows = await querySoftOneOpenInvoiceSource(pool);
+    const positiveOpenRows = await querySoftOneOpenInvoiceSource();
     stage = "query open invoice lookups";
-    const maps = await queryMaps(pool, positiveOpenRows, stageName => {
+    const maps = await queryMaps(positiveOpenRows, stageName => {
       stage = stageName;
     });
     stage = "normalize positive open invoice preview";
@@ -705,8 +711,6 @@ export async function inspectSoftOneOpenInvoices() {
     };
   } catch (error) {
     throw new Error(softOneSqlError(error, stage));
-  } finally {
-    await pool?.close().catch(() => undefined);
   }
 }
 
@@ -715,16 +719,14 @@ export async function syncSoftOneOpenInvoices() {
     throw new Error("SoftOne SQL invoice synchronization is disabled.");
   }
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
-  let pool: ConnectionPool | null = null;
   let stage = "connect";
   try {
-    pool = await openSoftOneSqlPool();
     stage = "query and normalize open invoices";
-    const records = await loadSoftOneOpenInvoices(pool, stageName => {
+    const records = await loadSoftOneOpenInvoices(stageName => {
       stage = stageName;
     });
     stage = "resolve invoice-only customers";
-    const insertedCustomers = await ensureInvoiceCustomers(pool, records);
+    const insertedCustomers = await ensureInvoiceCustomers(records);
     stage = "upsert MariaDB invoices";
     await db.upsertSoftOneInvoices(records);
     await db.addSyncLog({
@@ -737,7 +739,5 @@ export async function syncSoftOneOpenInvoices() {
     return { synced: records.length, insertedCustomers };
   } catch (error) {
     throw new Error(softOneSqlError(error, stage));
-  } finally {
-    await pool?.close().catch(() => undefined);
   }
 }

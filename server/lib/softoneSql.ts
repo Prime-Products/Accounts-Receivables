@@ -141,6 +141,19 @@ FROM [dbo].[TRDR] AS customer
 WHERE customer.[TRDR] IN (${numericIdentifiers(softoneIds)})`;
 }
 
+/** Native unixODBC can enter HY010 after a successful result set. Use once. */
+export async function querySoftOneWithFreshPool<T extends SourceRow>(
+  query: string,
+  label: string,
+) {
+  const pool = await openSoftOneSqlPool();
+  try {
+    return await querySoftOneWithWatchdog<T>(pool, query, label);
+  } finally {
+    await closeSoftOnePool(pool);
+  }
+}
+
 export function buildSoftOneEntityTypesQuery(softoneIds: string[]) {
   return `SELECT
   CAST(entity.[TRDR] AS bigint) AS [TRDR],
