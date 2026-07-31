@@ -1,4 +1,6 @@
 import type { config as SqlConfig, ConnectionPool } from "mssql";
+import { spawn } from "node:child_process";
+import path from "node:path";
 import type { InsertCustomer } from "../../drizzle/schema";
 import * as db from "../db";
 import { excludeInternalCustomerGroup } from "./softoneExclusions";
@@ -146,12 +148,57 @@ export async function querySoftOneWithFreshPool<T extends SourceRow>(
   query: string,
   label: string,
 ) {
-  const pool = await openSoftOneSqlPool();
-  try {
-    return await querySoftOneWithWatchdog<T>(pool, query, label);
-  } finally {
-    await closeSoftOnePool(pool);
-  }
+  console.log(`[SoftOne] Starting ${label}...`);
+  const cli = path.resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
+  const worker = path.resolve(process.cwd(), "scripts", "softone-query-worker.ts");
+  const timeoutMs = softOneWatchdogTimeout();
+  return new Promise<{ recordset: T[] }>((resolve, reject) => {
+    const child = spawn(process.execPath, [cli, worker], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      const error = new Error(
+        `SoftOne query "${label}" exceeded ${Math.round(timeoutMs / 1_000)} seconds.`,
+      );
+      Object.assign(error, { code: "ETIMEOUT" });
+      reject(error);
+    }, timeoutMs);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", chunk => { stdout += chunk; });
+    child.stderr.on("data", chunk => { stderr += chunk; });
+    child.on("error", error => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", code => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        try {
+          const payload = JSON.parse(stderr) as { message?: string; code?: string };
+          const error = new Error(payload.message || `SoftOne query worker exited with code ${code}.`);
+          if (payload.code) Object.assign(error, { code: payload.code });
+          reject(error);
+        } catch {
+          reject(new Error(stderr.trim().slice(0, 500) || `SoftOne query worker exited with code ${code}.`));
+        }
+        return;
+      }
+      try {
+        const payload = JSON.parse(stdout) as { recordset: T[] };
+        console.log(`[SoftOne] Completed ${label}.`);
+        resolve(payload);
+      } catch {
+        reject(new Error(`SoftOne query worker returned invalid JSON for ${label}.`));
+      }
+    });
+    child.stdin.end(JSON.stringify({ query }));
+  });
 }
 
 export function buildSoftOneEntityTypesQuery(softoneIds: string[]) {
@@ -385,9 +432,7 @@ export function normalizeSoftOneCustomerRows(
 }
 
 export async function openSoftOneSqlPool() {
-  // Use mssql's pure TDS driver. The native msnodesqlv8/unixODBC adapter enters
-  // HY010 Function sequence state after repeated SoftOne result sets.
-  const { default: sql } = await import("mssql");
+  const { default: sql } = await import("mssql/msnodesqlv8.js");
   const port = Number(process.env.SOFTONE_SQL_PORT ?? "1433");
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error("SOFTONE_SQL_PORT is invalid.");
@@ -399,6 +444,7 @@ export async function openSoftOneSqlPool() {
     user: requiredEnvironment("SOFTONE_SQL_USER"),
     password: requiredEnvironment("SOFTONE_SQL_PASSWORD"),
     port,
+    driver: "ODBC Driver 18 for SQL Server",
     connectionTimeout: 30_000,
     requestTimeout: 120_000,
     options: {
