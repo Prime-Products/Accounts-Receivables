@@ -149,3 +149,60 @@ Remaining minor overlaps seen:
   block right. Fix: change left kicker on company pages to "COMPANY STATEMENT" (red).
 - Round 3 verified: cover page unchanged & correct; company pages now "COMPANY STATEMENT"
   red kicker left + brand block right — no duplicate title. All pages share one style. ✔
+
+## Continuous flow rework (user request 31/7)
+- User wants NO forced page break per company: statements flow one after another,
+  separated by a visual divider; break page only when content doesn't fit.
+- Kicker labels: company pages -> "COMPANY"; cover -> "GROUP". Brand block right stays.
+- Implementation plan (statementPdf.ts):
+  * renderCompany: replace newPage() at start with ensureSpace(doc, ~160) so a company
+    starts on same page if enough room; draw a separator line + gap between companies.
+  * Company header inside flow: kicker+name+meta rendered at doc.y (not fixed M top);
+    brand block only drawn once per page top? -> simpler: brand block only on page 1
+    of cover and on each new page via pageAdded? Keep simple: brand block once per company header (top-right of page) only when company starts at top of page; otherwise skip.
+  * Footer numbering: pageRanges per company breaks (shared pages). Switch to global
+    numbering: "GROUPNAME — Page N of TOTAL".
+
+## Continuous flow verification (DYNACOM, 23 pages vs 40 before)
+GOOD: companies flow one after another; page break only when needed; kickers now
+"GROUP" (cover) and "COMPANY"; brand block only at top of page; ~40% fewer pages.
+ISSUES FOUND:
+1. Footer overprint on pages 1-2: TWO footers overlap ("DYNACOM — Summary — Page 1 of 2"
+   AND "DYNACOM — Page 1 of 23"). Cause: cover pageRange still pushed AND new global
+   range covers all pages 0..end. Fix: drop the cover-specific range; use single global
+   range "GROUPNAME — Page N of TOTAL".
+2. Separator between companies not visible mid-page (e.g. page 2: FUJAIRAH bank details
+   then COMPANY AGRORESORT — no divider drawn? Actually page 2->3 break. Page 3 has two
+   companies AGRORESORT + ALIAKMONAS with NO horizontal divider between them —
+   the separator condition `doc.y > M + 2` uses doc.y but renderCompany sets doc.y...
+   check: separator only drawn when doc.y > M+2 — should be true mid-page. Verify why
+   line missing; maybe drawn but too faint/position — hline uses LINE color #333? check.
+   Actually gap exists but line seems absent. Investigate ordering: ensureSpace ->
+   newPage resets doc.y=M -> then condition false (no separator at top of page, correct).
+   Mid-page it should draw. Page 3: ALIAKMONAS starts mid-page, no line visible above
+   "COMPANY". Hmm — maybe line IS drawn at sy=doc.y+12 but doc.y was stale after
+   renderCompany finished with doc.y += 14 after bank details... need check bank details
+   sets doc.y properly. Possibly line drawn behind/at same y as text.
+
+## Round 2 (flow2)
+FIXED: footer overlap gone — single "DYNACOM — Page N of 21/23" per page. Page count 23 (21 shown? footer says 21 — pageIndex logic; check!). Actually footer says "Page 1 of 21" but pdfinfo says 23 pages — MISMATCH: last 2 pages may be phantom/unnumbered. CHECK pages 22-23.
+STILL: no visible hline separator between companies mid-page (page 3 AGRORESORT→ALIAKMONAS). hline drawn at sy but maybe stroke color/width reset later... hline IS used elsewhere fine (headers). Suspect: after renderCompany bank details, doc.y ok; separator at doc.y+14 then header top=doc.y... maybe line overwritten by white bg? No bg. Could be that separator IS drawn but off-screen due to doc.y being top of NEXT page (if ensureSpace triggered addPage, doc.y=M → condition doc.y > M+2 false → skip, correct no line at page top).
+Page 3 top: bank-details continuation text spilled to page top (Code - BOFAUS3N...) — acceptable but shows bank details can split across pages.
+Page 3 mid: gap present but no line. Investigate whether hline after doc.save()/restore removed... we removed save/restore in final patch. hline strokes immediately, should render. Maybe LINE color is white? LINE = ? check constant.
+ROOT CAUSE page mismatch: pdfkit auto-added pages (e.g. long bank details wrapping near
+bottom trigger implicit addPage) are NOT counted by manual pageIndex. Footer loop must
+use doc.bufferedPageRange() (real page count) instead of manual pageRanges bookkeeping.
+Also separator invisible: likely because after renderCompany the analysis table maintains
+its own `ay` cursor and sets doc.y at end — verify. But simplest robust fix: draw the
+separator + extra spacing INSIDE the flow right before renderHeader using doc.y as-is.
+Separator missing likely because doc.y after renderCompany < actual drawn content (ay
+used directly at bank details, doc.y updated only at end?). Check renderCompany tail.
+
+## Round 3 (flow3)
+FIXED: footers now on ALL 23 pages "Page N of 23" — bufferedPageRange fix worked.
+Page 3: there IS a visible thin hline at ~y between SGD bank details and "COMPANY
+ALIAKMONAS" — separator appears to render now (after doc.x = M fix in bank details).
+Remaining: verify a couple more pages & the single-company group (MINERVA) case,
+then run tests, cleanup script, checkpoint.
+MINERVA verified: 7 pages, summary flows into first company on page 1 (compact!),
+footers correct, style unified. All good.

@@ -64,16 +64,31 @@ export function buildStatementPdf(stmt: GroupStatement): Promise<Buffer> {
 
     // ---- consolidated group summary cover page (only for multi-company groups) ----
     if (stmt.companies.length > 1) {
-      const start = pageIndex + 1;
       renderCoverPage(doc, stmt, newPage);
-      pageRanges.push({ name: `${stmt.groupName} — Summary`, start, end: pageIndex });
     }
 
+    // ---- continuous flow: companies follow one another, page break only when needed ----
+    let first = true;
     for (const company of stmt.companies) {
-      const start = pageIndex + 1;
+      if (pageIndex === -1) {
+        newPage();
+        doc.y = M;
+      } else if (!first || stmt.companies.length > 1) {
+        // separator between statements (or after the cover page index)
+        ensureSpace(doc, 170, newPage, () => (doc.y = M));
+        if (doc.y > M + 2) {
+          const sy = doc.y + 14;
+          hline(doc, sy, LINE, 1.2);
+          doc.x = M;
+          doc.y = sy + 18;
+        }
+      }
       renderCompany(doc, company, stmt.date, newPage);
-      pageRanges.push({ name: company.companyName, start, end: pageIndex });
+      first = false;
     }
+    // use the real buffered page count — pdfkit may auto-add pages on text wrap
+    const realRange = doc.bufferedPageRange();
+    pageRanges.push({ name: stmt.groupName, start: realRange.start, end: realRange.start + realRange.count - 1 });
 
     // per-company page numbering in footer
     for (const range of pageRanges) {
@@ -99,7 +114,6 @@ export function buildStatementPdf(stmt: GroupStatement): Promise<Buffer> {
 }
 
 function renderCompany(doc: PDFKit.PDFDocument, company: CompanyStatement, date: number, newPage: () => void) {
-  newPage();
   renderHeader(doc, company, date);
 
   // ---- TOTAL AMOUNTS ----
@@ -130,7 +144,7 @@ function renderCompany(doc: PDFKit.PDFDocument, company: CompanyStatement, date:
   // ---- ANALYSIS ----
   sectionTitle(doc, "ANALYSIS");
   for (const a of company.analyses) {
-    ensureSpace(doc, 90, newPage);
+    ensureSpace(doc, 90, newPage, () => (doc.y = M + 10));
     // branch heading
     const hy = doc.y + 6;
     doc.font(FONT_BOLD).fontSize(11).fillColor(BLACK).text(a.branch.city, M, hy);
@@ -204,14 +218,18 @@ function renderBrandBlock(doc: PDFKit.PDFDocument) {
 }
 
 function renderHeader(doc: PDFKit.PDFDocument, company: CompanyStatement, date: number) {
-  renderBrandBlock(doc);
+  // flow-relative header: renders wherever doc.y currently is
+  const top = Math.max(doc.y, M);
+  const atPageTop = top <= M + 12;
+  if (atPageTop) renderBrandBlock(doc);
 
   // left: red kicker + big company name — same pattern as the cover page
-  doc.font(FONT_BOLD).fontSize(12).fillColor(RED).text("COMPANY STATEMENT", M, M);
+  doc.font(FONT_BOLD).fontSize(12).fillColor(RED).text("COMPANY", M, top);
   doc.font(FONT_BOLD).fontSize(19).fillColor(BLACK);
-  const nameH = doc.heightOfString(company.companyName.toUpperCase(), { width: CW - 240 });
-  doc.text(company.companyName.toUpperCase(), M, M + 16, { width: CW - 240 });
-  let y = M + 16 + nameH + 4;
+  const nameW = atPageTop ? CW - 240 : CW;
+  const nameH = doc.heightOfString(company.companyName.toUpperCase(), { width: nameW });
+  doc.text(company.companyName.toUpperCase(), M, top + 16, { width: nameW });
+  let y = top + 16 + nameH + 4;
 
   // meta line: Date | Payment Terms
   doc.font(FONT_BOLD).fontSize(9).fillColor(BLACK).text("Date: ", M, y, { continued: true });
@@ -261,7 +279,7 @@ function renderCoverPage(doc: PDFKit.PDFDocument, stmt: GroupStatement, newPage:
   // header: left = red kicker + group name; right = shared brand block
   renderBrandBlock(doc);
 
-  doc.font(FONT_BOLD).fontSize(12).fillColor(RED).text("GROUP CONSOLIDATED SUMMARY", M, M);
+  doc.font(FONT_BOLD).fontSize(12).fillColor(RED).text("GROUP", M, M);
   doc.font(FONT_BOLD).fontSize(19).fillColor(BLACK);
   const nameH = doc.heightOfString(stmt.groupName.toUpperCase(), { width: CW - 240 });
   doc.text(stmt.groupName.toUpperCase(), M, M + 16, { width: CW - 240 });
@@ -340,9 +358,10 @@ function renderCoverPage(doc: PDFKit.PDFDocument, stmt: GroupStatement, newPage:
   }
 }
 
-function ensureSpace(doc: PDFKit.PDFDocument, needed: number, newPage: () => void) {
+function ensureSpace(doc: PDFKit.PDFDocument, needed: number, newPage: () => void, after?: () => void) {
   if (doc.y + needed > 780) {
     newPage();
     doc.y = M + 10;
+    if (after) after();
   }
 }
