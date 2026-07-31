@@ -6,6 +6,8 @@ describe("SoftOne vessel sync", () => {
     expect(softOneVesselsQuery).toContain("[dbo].[CCCCUSTSHIP]");
     expect(softOneVesselsQuery).toContain("owner.[SODTYPE] = 13");
     expect(softOneVesselsQuery).toContain("owner.[TRDGROUP] <> 473");
+    expect(softOneVesselsQuery).toContain("[dbo].[CCCPRJCVESSEL]");
+    expect(softOneVesselsQuery).toContain("contract.[ACTIVE247] = 1");
   });
 
   it("normalizes CCCCUSTSHIP, TRDR, name, IMO and type", () => {
@@ -19,6 +21,7 @@ describe("SoftOne vessel sync", () => {
           IMO: "9321483",
           VESSEL_TYPE: "Tanker",
           OWNER_NAME: "TEST OWNER",
+          HAS_ACTIVE_CONTRACT: 1,
         },
       ])[0],
     ).toEqual({
@@ -28,6 +31,7 @@ describe("SoftOne vessel sync", () => {
       imo: "9321483",
       vesselType: "Tanker",
       ownerName: "TEST OWNER",
+      hasActiveContract: true,
     });
   });
 

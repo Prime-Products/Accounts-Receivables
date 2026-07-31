@@ -17,7 +17,15 @@ export const softOneVesselsQuery = `SELECT
   CAST(vessel.[NAME] AS nchar(191)) AS [VESSEL_NAME],
   CAST(vessel.[INNUM] AS nchar(32)) AS [IMO],
   CAST(vessel.[CCCSHIPTYPE] AS nchar(64)) AS [VESSEL_TYPE],
-  CAST(owner.[NAME] AS nchar(191)) AS [OWNER_NAME]
+  CAST(owner.[NAME] AS nchar(191)) AS [OWNER_NAME],
+  CAST(CASE WHEN EXISTS (
+    SELECT 1
+    FROM [dbo].[CCCPRJCVESSEL] AS contract_vessel
+    INNER JOIN [dbo].[CCCPRJC] AS contract
+      ON contract.[CCCPRJC] = contract_vessel.[CCCPRJC]
+    WHERE contract_vessel.[CCCCUSTSHIP] = vessel.[CCCCUSTSHIP]
+      AND contract.[ACTIVE247] = 1
+  ) THEN 1 ELSE 0 END AS int) AS [HAS_ACTIVE_CONTRACT]
 FROM [dbo].[CCCCUSTSHIP] AS vessel
 INNER JOIN [dbo].[TRDR] AS owner
   ON owner.[TRDR] = vessel.[TRDR]
@@ -57,6 +65,7 @@ export function normalizeSoftOneVessels(rows: SourceRow[]) {
       imo: text(row, "IMO") || null,
       vesselType: text(row, "VESSEL_TYPE") || null,
       ownerName: text(row, "OWNER_NAME") || null,
+      hasActiveContract: Number(row.HAS_ACTIVE_CONTRACT) === 1,
     };
   });
 }
@@ -76,7 +85,13 @@ export async function inspectSoftOneVessels() {
   try {
     pool = await openSoftOneSqlPool();
     const records = await loadSoftOneVessels(pool);
-    return { total: records.length, preview: records.slice(0, 20) };
+    const withActiveContract = records.filter(record => record.hasActiveContract).length;
+    return {
+      total: records.length,
+      withActiveContract,
+      withoutActiveContract: records.length - withActiveContract,
+      preview: records.slice(0, 20),
+    };
   } catch (error) {
     throw new Error(softOneSqlError(error, "query vessel registry"));
   } finally {
