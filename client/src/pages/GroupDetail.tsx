@@ -1082,14 +1082,15 @@ export default function GroupDetail() {
                 </>
               ) : (
               <>
-              <div className="max-h-[480px] overflow-auto">
-                <InvoicesTable
-                  rows={filteredInvoices as any}
-                  creditNotes={visibleCreditNotes as any}
-                  transfers={visibleTransfers as any}
-                  onDisputeChanged={() => utils.customers.groupDetail.invalidate()}
-                />
-              </div>
+              {/* The table scrolls inside its own container so the column header
+                  stays pinned while the collector scans the list. */}
+              <InvoicesTable
+                rows={filteredInvoices as any}
+                creditNotes={visibleCreditNotes as any}
+                transfers={visibleTransfers as any}
+                maxHeight="480px"
+                onDisputeChanged={() => utils.customers.groupDetail.invalidate()}
+              />
               </>
               )}
             </CardContent>

@@ -363,6 +363,7 @@ export function InvoicesTable({
   onDisputeChanged,
   disableVesselDialog = false,
   enableSelection = true,
+  maxHeight,
 }: {
   rows: InvoiceRowData[];
   /** Open credit notes to merge into the same list (ordered by issue date). */
@@ -377,6 +378,12 @@ export function InvoicesTable({
   disableVesselDialog?: boolean;
   /** Enable row selection + "Send to colleague" bulk action. */
   enableSelection?: boolean;
+  /**
+   * Vertical scroll height for the list (e.g. "480px"). When set, the table
+   * scrolls inside its own container and the column header stays pinned to the
+   * top of that box. Leave undefined to let the page scroll instead.
+   */
+  maxHeight?: string;
 }) {
   const utils = trpc.useUtils();
   const [dispTarget, setDispTarget] = useState<{ id: number; invoiceNumber: string } | null>(null);
@@ -493,7 +500,7 @@ export function InvoicesTable({
   const sendDefaultCustomerId = selectedRows.find(r => r.customerId != null)?.customerId ?? undefined;
 
   const SortableHead = ({ label, k, align }: { label: string; k: SortKey; align?: "right" }) => (
-    <TableHead className={`relative whitespace-nowrap px-2 ${align === "right" ? "text-right" : ""}`} style={cols.style(k)}>
+    <TableHead className={`relative whitespace-nowrap bg-background px-2 ${align === "right" ? "text-right" : ""}`} style={cols.style(k)}>
       <button
         type="button"
         onClick={() => toggleSort(k)}
@@ -513,11 +520,29 @@ export function InvoicesTable({
 
   return (
     <>
-      <Table className="table-fixed [&_td]:px-2 [&_td]:py-2" style={{ width: cols.totalWidth, minWidth: "100%" }}>
-        <TableHeader>
-          <TableRow>
+      {/*
+        `containerClassName` moves the vertical scrolling INTO the table's own
+        scroll container. A sticky <thead> only sticks to the nearest scrolling
+        ancestor, and shadcn's Table already wraps the table in an
+        `overflow-x-auto` div — so a `max-h` box placed *outside* that wrapper
+        would scroll past the header instead of pinning it.
+      */}
+      <Table
+        containerClassName={maxHeight ? "overflow-y-auto" : undefined}
+        containerStyle={maxHeight ? { maxHeight } : undefined}
+        className="table-fixed [&_td]:px-2 [&_td]:py-2"
+        style={{ width: cols.totalWidth, minWidth: "100%" }}
+      >
+        {/*
+          The header stays visible while the list scrolls. `sticky` needs an
+          opaque background (rows would otherwise show through) and a z-index
+          above the row content, and it sticks to whichever ancestor scrolls —
+          the card's own scroll box on the cards, the page on the full lists.
+        */}
+        <TableHeader className="sticky top-0 z-20 bg-background shadow-[inset_0_-1px_0_var(--border)]">
+          <TableRow className="hover:bg-transparent">
             {enableSelection && (
-              <TableHead className="w-8 px-2">
+              <TableHead className="w-8 px-2 bg-background">
                 <Checkbox checked={allVisibleSelected} onCheckedChange={toggleAll} aria-label="Select all invoices" />
               </TableHead>
             )}

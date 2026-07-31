@@ -1327,3 +1327,9 @@
 - [x] Allocate action available inline on received payment rows (no more link to the Wire Transfers page)
 - [x] Allocating or removing an allocation refreshes the customer card and the group card as well
 - [x] Vitest coverage: unified sort helper, column order, inline Match / Allocate actions
+
+## Transactions list: sticky column header (user request 1/8)
+- [x] Column header stays visible while scrolling the transactions list on the group card and the customer card
+- [x] Scrolling moved into the table's own container (shadcn Table now accepts containerClassName / containerStyle) so the sticky header actually pins
+- [x] Header cells painted with an opaque background so rows do not show through
+- [x] Vitest coverage: sticky classes, container forwarding, bounded height on both cards

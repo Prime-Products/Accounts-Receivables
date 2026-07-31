@@ -433,6 +433,7 @@ export default function CustomerDetail() {
                   creditNotes={visibleCreditNotes as any}
                   transfers={visibleTransfers as any}
                   showCustomer={false}
+                  maxHeight="480px"
                   onDisputeChanged={() => utils.customers.get360.invalidate()}
                 />
               )}
