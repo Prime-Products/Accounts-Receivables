@@ -4,9 +4,13 @@
  */
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
+import { existsSync } from "node:fs";
 
 export interface TableSpec {
   title: string;
+  kind?: "soa";
+  companyName?: string;
+  paymentTermsDays?: number;
   columns: { header: string; key: string; width?: number }[];
   rows: Record<string, string | number>[];
 }
@@ -22,6 +26,7 @@ export async function buildExcel(spec: TableSpec): Promise<Buffer> {
 }
 
 export function buildPdf(spec: TableSpec): Promise<Buffer> {
+  if (spec.kind === "soa") return buildSoaPdf(spec);
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40, size: "A4", layout: spec.columns.length > 5 ? "landscape" : "portrait" });
     const chunks: Buffer[] = [];
@@ -53,6 +58,204 @@ export function buildPdf(spec: TableSpec): Promise<Buffer> {
 
     drawRow(spec.columns.map(c => c.header), true);
     for (const row of spec.rows) drawRow(spec.columns.map(c => row[c.key] ?? ""));
+    doc.end();
+  });
+}
+
+const FONT_PATHS = [
+  ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
+  ["/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"],
+] as const;
+
+function soaFonts(doc: PDFKit.PDFDocument) {
+  const configured = process.env.PDF_FONT_PATH;
+  const pair = configured && existsSync(configured)
+    ? [configured, process.env.PDF_FONT_BOLD_PATH ?? configured]
+    : FONT_PATHS.find(([regular, bold]) => existsSync(regular) && existsSync(bold));
+  if (!pair) return { regular: "Helvetica", bold: "Helvetica-Bold" };
+  doc.registerFont("SoaRegular", pair[0]);
+  doc.registerFont("SoaBold", pair[1]);
+  return { regular: "SoaRegular", bold: "SoaBold" };
+}
+
+function europeanAmount(value: unknown) {
+  const amount = Number(value ?? 0);
+  return new Intl.NumberFormat("el-GR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 48, size: "A4", layout: "portrait" });
+    const chunks: Buffer[] = [];
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    const fonts = soaFonts(doc);
+    const rows = spec.rows.filter(row =>
+      String(row.company ?? row.invoice ?? "").toUpperCase() !== "TOTAL",
+    );
+    const pageLeft = 48;
+    const pageRight = doc.page.width - 48;
+    const pageWidth = pageRight - pageLeft;
+    const now = new Date();
+    const endOfMonth = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) - 1;
+    const endOfNextMonth = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 2, 1) - 1;
+    const groupName =
+      spec.companyName ??
+      spec.title.replace(/^Statement of Account — (?:Group )?/, "").replace(/\s+\([^)]*\)$/, "");
+
+    const amountFor = (row: Record<string, string | number>, key: string) =>
+      Number(row[key] ?? 0) || 0;
+    const branchTotals = new Map<string, {
+      currency: string;
+      balance: number;
+      overdue: number;
+      currentMonth: number;
+      nextMonth: number;
+    }>();
+    for (const row of rows) {
+      const branch = String(row.branch ?? "PRIME PRODUCTS LTD");
+      const total = branchTotals.get(branch) ?? {
+        currency: String(row.cur ?? "EUR"),
+        balance: 0,
+        overdue: 0,
+        currentMonth: 0,
+        nextMonth: 0,
+      };
+      const open = amountFor(row, "outOrig");
+      const due = Date.parse(String(row.due ?? ""));
+      total.balance += open;
+      if (amountFor(row, "days") > 0) total.overdue += open;
+      else if (due <= endOfMonth) total.currentMonth += open;
+      else if (due <= endOfNextMonth) total.nextMonth += open;
+      branchTotals.set(branch, total);
+    }
+
+    const drawBrandHeader = () => {
+      doc.rect(pageLeft, 0, pageWidth, 5).fill("#ef4444");
+      doc.rect(pageLeft + pageWidth / 2, 0, pageWidth / 2, 5).fill("#6366f1");
+      doc.fillColor("#dc2626").font(fonts.bold).fontSize(11).text("COMPANY", pageLeft, 54);
+      doc.fillColor("#111827").fontSize(20).text(groupName, pageLeft, 72, { width: pageWidth * 0.62 });
+      doc.fillColor("#6b7280").fontSize(12).text("STATEMENT OF ACCOUNT", pageLeft + pageWidth * 0.62, 55, {
+        width: pageWidth * 0.38,
+        align: "right",
+      });
+      doc.fillColor("#1d4ed8").fontSize(12).text("PRIME PRODUCTS LTD", pageLeft + pageWidth * 0.62, 74, {
+        width: pageWidth * 0.38,
+        align: "right",
+      });
+      doc.fillColor("#6b7280").font(fonts.regular).fontSize(8)
+        .text("Industrial Safety Products Representation & Distribution", pageLeft + pageWidth * 0.48, 91, {
+          width: pageWidth * 0.52,
+          align: "right",
+        });
+      doc.fillColor("#111827").font(fonts.bold).fontSize(9)
+        .text(`Date: ${now.toLocaleDateString("el-GR")}   |   Payment Terms: ${spec.paymentTermsDays ?? 30} days`, pageLeft, 112);
+      doc.moveTo(pageLeft, 128).lineTo(pageRight, 128).strokeColor("#111827").lineWidth(1).stroke();
+      doc.y = 150;
+    };
+
+    const ensureSpace = (height: number) => {
+      if (doc.y + height <= doc.page.height - 48) return;
+      doc.addPage();
+      drawBrandHeader();
+    };
+
+    drawBrandHeader();
+    doc.fillColor("#6b7280").font(fonts.bold).fontSize(12).text("TOTAL AMOUNTS");
+    doc.moveDown(0.5);
+    const summaryColumns = [
+      { label: "Company", width: 163, align: "left" as const },
+      { label: "Currency", width: 48, align: "center" as const },
+      { label: "Balance", width: 72, align: "right" as const },
+      { label: "Overdue", width: 72, align: "right" as const },
+      { label: "This Month", width: 72, align: "right" as const },
+      { label: "Next Month", width: 72, align: "right" as const },
+    ];
+    let y = doc.y;
+    doc.moveTo(pageLeft, y).lineTo(pageRight, y).strokeColor("#111827").stroke();
+    y += 8;
+    let x = pageLeft;
+    for (const column of summaryColumns) {
+      doc.fillColor("#111827").font(fonts.bold).fontSize(8)
+        .text(column.label, x, y, { width: column.width, align: column.align });
+      x += column.width;
+    }
+    y += 20;
+    for (const [branch, total] of branchTotals) {
+      x = pageLeft;
+      const values = [
+        branch,
+        total.currency,
+        europeanAmount(total.balance),
+        europeanAmount(total.overdue),
+        europeanAmount(total.currentMonth),
+        europeanAmount(total.nextMonth),
+      ];
+      values.forEach((value, index) => {
+        const column = summaryColumns[index];
+        doc.fillColor("#111827").font(index === 0 ? fonts.bold : fonts.regular).fontSize(8)
+          .text(value, x, y, { width: column.width, align: column.align });
+        x += column.width;
+      });
+      y += 20;
+      doc.moveTo(pageLeft, y - 5).lineTo(pageRight, y - 5).strokeColor("#d1d5db").lineWidth(0.5).stroke();
+    }
+    doc.y = y + 20;
+
+    const detailColumns = [
+      { key: "issue", label: "Doc. Date", width: 58, align: "left" as const },
+      { key: "invoice", label: "Document", width: 105, align: "left" as const },
+      { key: "amount", label: "Doc. Amount", width: 72, align: "right" as const },
+      { key: "outOrig", label: "Open Amount", width: 72, align: "right" as const },
+      { key: "days", label: "Overdue", width: 55, align: "right" as const },
+      { key: "company", label: "Company", width: 130, align: "left" as const },
+    ];
+    for (const [branch, total] of branchTotals) {
+      const branchRows = rows.filter(row => String(row.branch ?? "PRIME PRODUCTS LTD") === branch);
+      ensureSpace(90);
+      doc.fillColor("#6b7280").font(fonts.bold).fontSize(12).text("ANALYSIS");
+      doc.moveDown(0.6);
+      doc.fillColor("#111827").font(fonts.bold).fontSize(10).text(branch, pageLeft, doc.y, { width: pageWidth - 90 });
+      doc.font(fonts.regular).fontSize(8).text(`currency: ${total.currency === "EUR" ? "€" : total.currency}`, pageRight - 90, doc.y - 10, {
+        width: 90,
+        align: "right",
+      });
+      doc.moveDown(0.7);
+      y = doc.y;
+      doc.moveTo(pageLeft, y).lineTo(pageRight, y).strokeColor("#111827").stroke();
+      y += 7;
+      x = pageLeft;
+      for (const column of detailColumns) {
+        doc.font(fonts.bold).fontSize(7.5).text(column.label, x, y, { width: column.width, align: column.align });
+        x += column.width;
+      }
+      y += 20;
+      branchRows.forEach((row, rowIndex) => {
+        if (y > doc.page.height - 65) {
+          doc.addPage();
+          drawBrandHeader();
+          y = doc.y;
+        }
+        if (rowIndex % 2 === 1) doc.rect(pageLeft, y - 3, pageWidth, 18).fill("#f3f4f6");
+        x = pageLeft;
+        for (const column of detailColumns) {
+          let value: string | number = row[column.key] ?? "";
+          if (["amount", "outOrig"].includes(column.key)) value = europeanAmount(value);
+          doc.fillColor(column.key === "days" && Number(value) > 0 ? "#dc2626" : "#111827")
+            .font(column.key === "invoice" ? fonts.bold : fonts.regular)
+            .fontSize(7.5)
+            .text(String(value), x, y, { width: column.width - 4, align: column.align, ellipsis: true });
+          x += column.width;
+        }
+        y += 18;
+      });
+      doc.y = y + 18;
+    }
     doc.end();
   });
 }
