@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   cleanupPreviewLimit,
   findStaleSoftOneCustomers,
+  selectConfirmedIneligibleCustomers,
   selectCleanupPreviewRows,
   type SoftOneCleanupCustomer,
   validateSoftOneCustomerSyncEvidence,
@@ -67,6 +68,18 @@ describe("SoftOne ineligible customer cleanup planning", () => {
     expect(cleanupPreviewLimit("500")).toBe(500);
     expect(cleanupPreviewLimit("0")).toBe(200);
     expect(cleanupPreviewLimit("501")).toBe(200);
+  });
+
+  it("confirms only suppliers and the internal customer group", () => {
+    const stale = findStaleSoftOneCustomers(customers, latestSync);
+
+    expect(
+      selectConfirmedIneligibleCustomers(stale, [
+        { TRDR: 202, SODTYPE: 12, TRDGROUP: null },
+        { TRDR: 303, SODTYPE: 13, TRDGROUP: 473 },
+        { TRDR: 404, SODTYPE: 13, TRDGROUP: 10 },
+      ]).map(customer => customer.softoneId),
+    ).toEqual(["202", "303"]);
   });
 
   it("requires the latest timestamp batch to match a recent successful log", () => {
