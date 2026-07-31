@@ -89,6 +89,7 @@ export async function querySoftOneWithWatchdog<T extends SourceRow>(
   query: string,
   label: string,
 ) {
+  console.log(`[SoftOne] Starting ${label}...`);
   const request = pool.request();
   const timeoutMs = softOneWatchdogTimeout();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -108,7 +109,9 @@ export async function querySoftOneWithWatchdog<T extends SourceRow>(
     }, timeoutMs);
   });
   try {
-    return await Promise.race([queryPromise, timeoutPromise]);
+    const result = await Promise.race([queryPromise, timeoutPromise]);
+    console.log(`[SoftOne] Completed ${label}.`);
+    return result;
   } finally {
     if (timer) clearTimeout(timer);
     // A cancelled native ODBC request may reject after the watchdog won.
