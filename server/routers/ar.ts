@@ -41,6 +41,16 @@ import { hasReceivableActivity } from "../lib/receivableGroup";
 import { invokeLLM } from "../_core/llm";
 import { suggestNextAction, type NextActionInput } from "../lib/nextAction";
 
+function exportFilenamePart(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 async function audit(ctx: { user: { id: number; name: string | null } }, action: string, entityType: string, entityId?: string | number, details?: string) {
   try {
     await db.addAudit({
@@ -3825,8 +3835,13 @@ export const reportsRouter = router({
       }
       const buffer = input.format === "xlsx" ? await buildExcel(spec) : await buildPdf(spec);
       await audit(ctx, `Export ${input.report} (${input.format})`, "report", input.report);
+      const exportDate = new Date().toISOString().slice(0, 10);
+      const filenameBase =
+        (input.report === "soa" || input.report === "soa-group") && spec.companyName
+          ? `SOA-${exportFilenamePart(spec.companyName)}`
+          : input.report;
       return {
-        filename: `${input.report}-${new Date().toISOString().slice(0, 10)}.${input.format}`,
+        filename: `${filenameBase}-${exportDate}.${input.format}`,
         mimeType: input.format === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/pdf",
         base64: buffer.toString("base64"),
       };
