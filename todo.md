@@ -1223,4 +1223,6 @@
 - [x] Group card invoice list: hide fully paid invoices by default (exclude from list, count, totals and by-branch view) with a toggle to include them
 - [x] Same settled-invoice rule applied to the individual customer card invoice list
 - [x] By-branch view sums outstanding instead of invoice face value
+- [x] Import contacts from Contactsall.xlsx: name, position, email, phone, linked to the right customer/group
+- [x] Contacts page: group filter and department/position filter for the imported data
 - [x] Rename "Customers" nav item + page title to "Collections" (route /customers unchanged, Groups stays the default sub-view)

@@ -896,6 +896,22 @@ export async function addPaymentContact(contact: InsertPaymentContact) {
   return result[0].insertId;
 }
 
+/**
+ * Insert many payment contacts in chunks. Used by the ERP contact import, where
+ * inserting one row at a time would mean thousands of round trips.
+ */
+export async function addPaymentContactsBulk(contacts: InsertPaymentContact[], chunkSize = 200) {
+  if (contacts.length === 0) return 0;
+  const db = await requireDb();
+  let inserted = 0;
+  for (let i = 0; i < contacts.length; i += chunkSize) {
+    const chunk = contacts.slice(i, i + chunkSize);
+    await db.insert(paymentContacts).values(chunk);
+    inserted += chunk.length;
+  }
+  return inserted;
+}
+
 export async function listPaymentContacts(customerId: number) {
   const db = await requireDb();
   return db
