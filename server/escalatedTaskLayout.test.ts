@@ -29,6 +29,33 @@ function showsPromiseBlock(title: string, hasPromise: boolean): boolean {
   return hasPromise && !isEscalated(title);
 }
 
+/** Badges shown above the field rows. */
+function badges(title: string, status: string, hasPromise: boolean): string[] {
+  if (isEscalated(title)) return ["Escalated"];
+  const out = ["Manual", status];
+  if (hasPromise) out.push("Promise Pending");
+  return out;
+}
+
+/** Column count of the label/value grid. */
+function fieldColumns(title: string): 1 | 2 {
+  return isEscalated(title) ? 1 : 2;
+}
+
+/** Whether the grey description box / invoice / contact rows are rendered. */
+function showsDescriptionBox(title: string, description: string | null): boolean {
+  const escalated = isEscalated(title);
+  return !escalated && descriptionText(description, escalated).length > 0;
+}
+
+/**
+ * The dialog renders its own "Comments" section heading for escalated tasks, so
+ * the thread itself must hide its internal heading to avoid printing it twice.
+ */
+function commentsThreadHidesOwnHeading(title: string): boolean {
+  return isEscalated(title);
+}
+
 describe("escalated task dialog layout", () => {
   const escalatedTitle = "Escalated: Promise to Pay — €80,000";
   const plainTitle = "Promise to Pay — €99,999";
@@ -48,6 +75,28 @@ describe("escalated task dialog layout", () => {
   it("puts comments on top for escalated tasks and at the bottom otherwise", () => {
     expect(commentsPosition(escalatedTitle)).toBe("top");
     expect(commentsPosition(plainTitle)).toBe("bottom");
+  });
+
+  it("shows a single Escalated badge instead of the full badge row", () => {
+    expect(badges(escalatedTitle, "Pending", true)).toEqual(["Escalated"]);
+    expect(badges(plainTitle, "Pending", true)).toEqual(["Manual", "Pending", "Promise Pending"]);
+  });
+
+  it("stacks the field rows in one column for escalated tasks", () => {
+    expect(fieldColumns(escalatedTitle)).toBe(1);
+    expect(fieldColumns(plainTitle)).toBe(2);
+  });
+
+  it("hides the description box on escalated tasks", () => {
+    const desc = "Original task: Promise to Pay — €80,000";
+    expect(showsDescriptionBox(escalatedTitle, desc)).toBe(false);
+    expect(showsDescriptionBox(plainTitle, desc)).toBe(true);
+    expect(showsDescriptionBox(plainTitle, null)).toBe(false);
+  });
+
+  it("lets the dialog own the Comments heading on escalated tasks", () => {
+    expect(commentsThreadHidesOwnHeading(escalatedTitle)).toBe(true);
+    expect(commentsThreadHidesOwnHeading(plainTitle)).toBe(false);
   });
 
   it("strips the escalation line from the description of an escalated task", () => {

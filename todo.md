@@ -1267,3 +1267,7 @@
 - [x] Invoices page: when "Installments only" is active, the aging cards show the aging of the installments (scoped buckets, per-currency, "installment(s)" wording and a scope label)
 - [x] Removed the AI summary ("What happened") from the escalated task panel — only the escalation reason and the three decisions remain
 - [x] Escalated task dialog: removed the Promise-to-Pay block (amount / promised date / Kept / Broken), removed the duplicated "Escalated to … on …" line from the description, and moved the comments thread to the top
+- [~] Import live data from hub.primeproducts.gr into the local database — CANCELLED by the user; no import performed, sandbox DB untouched
+- [x] Simplify the escalated-task dialog layout: title + Escalated badge, then plain label/value rows (Group, Assigned, Due Date, Watchers), then Comments, then Decision buttons, keeping the existing colours and style
+- [x] Escalation panel rewritten as a plain "Decision" section with three inline outline buttons (On Hold / Legal Review / Return); no orange card, no summary card
+- [x] TaskCommentsThread accepts hideHeading so the dialog can own the "Comments" section heading
