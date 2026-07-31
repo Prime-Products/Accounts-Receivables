@@ -334,7 +334,7 @@ export function normalizeSoftOneOpenInvoiceRows(
   documents: Map<string, string>,
   companies: Map<string, string>,
   currencies: Map<string, string>,
-  now = Date.now(),
+  _now = Date.now(),
 ) {
   if (rows.length === 0) throw new Error("SoftOne returned no open invoices.");
   if (rows.length > MAX_OPEN_INVOICES) {
@@ -379,7 +379,10 @@ export function normalizeSoftOneOpenInvoiceRows(
       dueDate,
       amount: amount.toFixed(2),
       paidAmount: paidAmount.toFixed(2),
-      status: dueDate < now ? "Overdue" : paidAmount > 0.005 ? "Partially Paid" : "Open",
+      // Manus treats overdue as a value derived from dueDate at read time.
+      // Persist only the settlement state so SoftOne-sourced invoices follow
+      // the exact same filters and badge behavior as the application UI.
+      status: paidAmount > 0.005 ? "Partially Paid" : "Open",
       softoneId,
     } satisfies SoftOneInvoiceUpsert;
   });

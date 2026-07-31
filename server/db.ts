@@ -296,6 +296,24 @@ export async function insertMissingSoftOneCustomers(records: InsertCustomer[]) {
   invalidateCache("customers:");
 }
 
+/**
+ * Bulk-creates customers, chunked to stay inside MySQL's placeholder limit.
+ * Used by the CRM contacts import to register directory-only companies
+ * (companies with people but no invoices yet).
+ */
+export async function createCustomersBulk(rows: InsertCustomer[], chunkSize = 200) {
+  if (rows.length === 0) return 0;
+  const db = await requireDb();
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    await db.insert(customers).values(chunk);
+    inserted += chunk.length;
+  }
+  invalidateCache("customers:");
+  return inserted;
+}
+
 // ---------- Invoices ----------
 export async function listInvoices(filter?: { customerId?: number; statuses?: string[] }) {
   const cacheable = !filter?.customerId && (!filter?.statuses || filter.statuses.length === 0);
@@ -1005,6 +1023,22 @@ export async function addPaymentContact(contact: InsertPaymentContact) {
   const db = await requireDb();
   const result = await db.insert(paymentContacts).values(contact);
   return result[0].insertId;
+}
+
+/**
+ * Insert many payment contacts in chunks. Used by the ERP contact import, where
+ * inserting one row at a time would mean thousands of round trips.
+ */
+export async function addPaymentContactsBulk(contacts: InsertPaymentContact[], chunkSize = 200) {
+  if (contacts.length === 0) return 0;
+  const db = await requireDb();
+  let inserted = 0;
+  for (let i = 0; i < contacts.length; i += chunkSize) {
+    const chunk = contacts.slice(i, i + chunkSize);
+    await db.insert(paymentContacts).values(chunk);
+    inserted += chunk.length;
+  }
+  return inserted;
 }
 
 export async function listPaymentContacts(customerId: number) {

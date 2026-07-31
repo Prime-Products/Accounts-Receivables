@@ -36,3 +36,42 @@ export function hideSettled(inv: SettleableInvoice, showPaid: boolean, statusFil
 export function countSettled(list: SettleableInvoice[]): number {
   return list.filter(isSettledInvoice).length;
 }
+
+/**
+ * Status filter for the invoice lists.
+ *
+ * "Overdue" is not a stored status — it is derived from the due date and can
+ * coexist with Open / Partially Paid / Disputed. Selecting it therefore filters
+ * on `daysOverdue`, while every other value matches the stored status.
+ */
+export function matchesStatusFilter(
+  inv: { status: string; daysOverdue?: number },
+  statusFilter: string,
+): boolean {
+  if (statusFilter === "all") return true;
+  if (statusFilter === "Overdue") return (inv.daysOverdue ?? 0) > 0;
+  return inv.status === statusFilter;
+}
+
+/**
+ * What the invoice row shows in the Status column.
+ *
+ * One primary badge answers "where does this invoice stand?" — it flips from
+ * Open to Overdue the day the due date passes, so the user never has to read
+ * two badges to learn that. Disputed is a different dimension (a commercial
+ * objection, not a stage of settlement), so it is the only value that appears
+ * as a second badge on top of the primary one.
+ */
+export function invoiceDisplayStatus(inv: { status: string; daysOverdue?: number }): {
+  primary: string;
+  secondary: "Disputed" | null;
+  daysOverdue: number;
+} {
+  const days = Number(inv.daysOverdue) || 0;
+  const disputed = inv.status === "Disputed";
+  // A disputed invoice keeps its settlement stage in the primary badge: it is
+  // still either open or late, and that is what drives the collection work.
+  const base = disputed ? "Open" : inv.status;
+  const primary = base === "Paid" ? "Paid" : days > 0 ? "Overdue" : base;
+  return { primary, secondary: disputed ? "Disputed" : null, daysOverdue: days };
+}
