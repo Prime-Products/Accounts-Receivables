@@ -1242,3 +1242,8 @@
 - [x] Disputed is the ONLY secondary badge, shown next to the primary Open/Overdue badge
 - [x] Status dropdown edits the settlement status only; Overdue stays derived and non-selectable
 - [x] Rename "Customers" nav item + page title to "Collections" (route /customers unchanged, Groups stays the default sub-view)
+
+## Bug: two status badges stacked in the group/customer card (user report 31/7)
+- [x] Verify the group and customer cards render a single primary badge (they do — the report came from a cached build; a hard refresh clears it)
+- [x] Keep the primary + Disputed badges on one line (status cell no longer wraps)
+- [x] Enforce a minimum width for the Status column so a stale saved column width from localStorage can never squeeze the badges

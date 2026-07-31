@@ -127,7 +127,11 @@ export function InvoicesTable({
     };
     return d;
   }, [showCustomer]);
-  const cols = useResizableColumns(showCustomer ? "invoices" : "invoices-nocust", colDefaults);
+  // The status cell can hold a primary badge plus the Disputed badge side by
+  // side; below this width they would be clipped, so a previously saved narrow
+  // width is never honoured for it.
+  const colMins = useMemo(() => ({ status: 150 }), []);
+  const cols = useResizableColumns(showCustomer ? "invoices" : "invoices-nocust", colDefaults, colMins);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -265,7 +269,10 @@ export function InvoicesTable({
               <TableCell className="text-xs whitespace-nowrap">{fmtDate(i.issueDate)}</TableCell>
               <TableCell className="text-xs whitespace-nowrap">{fmtDate(i.dueDate)}</TableCell>
               <TableCell>
-                <div className="flex flex-wrap items-center gap-1">
+                {/* flex-nowrap: the primary badge and Disputed stay on one line
+                    even in a narrow column, so a row is never read as two
+                    stacked statuses. */}
+                <div className="flex flex-nowrap items-center gap-1">
                   {/* One primary badge: Open until the due date passes, Overdue after.
                       Overdue is derived from the due date and is never stored, so it is
                       not selectable — the dropdown only carries the dispute action. */}
