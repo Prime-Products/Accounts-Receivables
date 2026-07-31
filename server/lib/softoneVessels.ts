@@ -10,6 +10,26 @@ import {
 type SourceRow = Record<string, unknown>;
 const MAX_VESSELS = 50_000;
 
+export function buildSoftOneVesselOwnerQuery(softoneId: number) {
+  if (!Number.isSafeInteger(softoneId) || softoneId <= 0) {
+    throw new Error("Invalid SoftOne vessel owner identifier.");
+  }
+  return `SELECT
+  CAST(owner.[TRDR] AS bigint) AS [TRDR],
+  CAST(owner.[CODE] AS nchar(64)) AS [CODE],
+  CAST(owner.[NAME] AS nchar(191)) AS [OWNER_NAME],
+  CAST(owner_group.[NAME] AS nchar(191)) AS [GROUP_NAME]
+FROM [dbo].[TRDR] AS owner
+LEFT JOIN [dbo].[TRDGROUP] AS owner_group
+  ON owner_group.[TRDGROUP] = owner.[TRDGROUP]
+WHERE owner.[TRDR] = ${softoneId}
+  AND owner.[COMPANY] = 1
+  AND owner.[SODTYPE] = 13
+  AND owner.[ISACTIVE] = 1
+  AND owner.[TRDGROUP] IS NOT NULL
+  AND owner.[TRDGROUP] <> 473`;
+}
+
 export const softOneVesselsQuery = `SELECT
   CAST(vessel.[CCCCUSTSHIP] AS bigint) AS [VESSEL_ID],
   CAST(vessel.[TRDR] AS bigint) AS [TRDR],
@@ -119,6 +139,44 @@ export async function syncSoftOneVessels() {
     return result;
   } catch (error) {
     throw new Error(softOneSqlError(error, "synchronize vessels"));
+  } finally {
+    await pool?.close().catch(() => undefined);
+  }
+}
+
+/** Insert one explicitly approved, eligible SoftOne vessel owner into Hub only. */
+export async function syncSoftOneVesselOwner(softoneId: number) {
+  if (process.env.SOFTONE_SQL_VESSEL_OWNER_SYNC_ENABLED !== "true") {
+    throw new Error("SoftOne SQL vessel owner synchronization is disabled.");
+  }
+  if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
+  let pool: ConnectionPool | null = null;
+  try {
+    pool = await openSoftOneSqlPool();
+    const result = await querySoftOneWithWatchdog<SourceRow>(
+      pool,
+      buildSoftOneVesselOwnerQuery(softoneId),
+      `approved vessel owner ${softoneId}`,
+    );
+    if (result.recordset.length !== 1) {
+      throw new Error(
+        `SoftOne vessel owner ${softoneId} was not found or is not an eligible active customer.`,
+      );
+    }
+    const row = result.recordset[0];
+    const ownerName = text(row, "OWNER_NAME");
+    if (!ownerName) throw new Error(`SoftOne vessel owner ${softoneId} has no name.`);
+    await db.insertMissingSoftOneCustomers([{
+      code: text(row, "CODE") || String(softoneId),
+      name: ownerName,
+      customerGroup: text(row, "GROUP_NAME") || ownerName,
+      masterSoftoneId: null,
+      softoneId: String(softoneId),
+      softoneSyncedAt: new Date(),
+    }]);
+    return { softoneId, name: ownerName };
+  } catch (error) {
+    throw new Error(softOneSqlError(error, `synchronize approved vessel owner ${softoneId}`));
   } finally {
     await pool?.close().catch(() => undefined);
   }
