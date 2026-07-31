@@ -1258,3 +1258,4 @@
 
 ## Group card cleanup (user request 31/7)
 - [x] Remove the "Companies of the group" collapsible card — the "All companies (group)" selector at the top already scopes the data
+- [x] Remove the "Days Ovd" column from the transactions table — the days already appear on the Overdue badge

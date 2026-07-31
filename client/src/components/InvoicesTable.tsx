@@ -123,7 +123,6 @@ export function InvoicesTable({
       amount: 110,
       paidAmount: 85,
       outstanding: 130,
-      daysOverdue: 95,
     };
     return d;
   }, [showCustomer]);
@@ -214,7 +213,6 @@ export function InvoicesTable({
             <SortableHead label="Amount" k="amount" align="right" />
             <SortableHead label="Paid" k="paidAmount" align="right" />
             <SortableHead label="Outstanding" k="outstanding" align="right" />
-            <SortableHead label="Days Ovd" k="daysOverdue" align="right" />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -344,9 +342,6 @@ export function InvoicesTable({
                 ) : (
                   fmtEur(i.outstanding)
                 )}
-              </TableCell>
-              <TableCell className={`text-right font-mono text-sm whitespace-nowrap ${i.daysOverdue > 0 ? "text-red-600 font-semibold" : ""}`}>
-                {i.daysOverdue > 0 ? i.daysOverdue : "—"}
               </TableCell>
             </TableRow>
           ))}
