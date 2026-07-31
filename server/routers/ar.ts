@@ -295,6 +295,7 @@ async function listOpenCreditNotes(customerIds: Set<number>, customerNames: Map<
         open,
         openEur: toEur(open, r.currency ?? "EUR"),
         branch: r.branch ?? null,
+        vesselId: r.vesselId ?? null,
         vesselName: r.vesselId ? (vesselName.get(r.vesselId) ?? null) : null,
         contractNo: r.contractNo ?? null,
         notes: r.notes ?? null,
@@ -2126,6 +2127,128 @@ export const customersRouter = router({
       await db.deleteInternalTransfersByAllocation(input.allocationId);
       await db.deleteWireTransferAllocation(input.allocationId);
       await audit(ctx, "Remove Wire Transfer Allocation", "invoice", alloc.invoiceId, `WT#${alloc.wireTransferId} allocation of ${Number(alloc.amount).toFixed(2)} removed`);
+      return { success: true };
+    }),
+
+  /** Existing matches of a credit note (with invoice + company info). */
+  listCreditNoteAllocations: protectedProcedure
+    .input(z.object({ creditNoteId: z.number() }))
+    .query(async ({ input }) => {
+      const [rows, customers] = await Promise.all([
+        db.listAllocationsByCreditNoteJoined(input.creditNoteId),
+        db.listCustomers(),
+      ]);
+      const names = new Map(customers.map(c => [c.id, c.name]));
+      return rows.map(r => ({
+        ...r,
+        amount: Number(r.amount),
+        invoiceCustomerName: r.invoiceCustomerId != null ? (names.get(r.invoiceCustomerId) ?? "—") : "—",
+      }));
+    }),
+
+  /**
+   * Match (συμψηφισμός) an open credit note against one or more invoices of the
+   * same group — the manual counterpart of `allocateWireTransfer`. Validates that
+   * the invoices belong to the credit note owner's group, that each amount fits
+   * the invoice outstanding, and that the total (including earlier matches) never
+   * exceeds the credit note's own amount. Only same-currency invoices are allowed,
+   * because a credit note settles a debt document 1:1 without an FX decision.
+   */
+  allocateCreditNote: protectedProcedure
+    .input(
+      z.object({
+        creditNoteId: z.number(),
+        allocations: z.array(z.object({ invoiceId: z.number(), amount: z.number().positive() })).min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const cn = await db.getCreditNote(input.creditNoteId);
+      if (!cn) throw new TRPCError({ code: "NOT_FOUND", message: "Credit note not found" });
+      const owner = await db.getCustomer(cn.customerId);
+      if (!owner) throw new TRPCError({ code: "NOT_FOUND", message: "Credit note customer not found" });
+      const groupKey = (owner.customerGroup ?? "").trim() || owner.name;
+      const customers = await db.listCustomers();
+      const memberIds = new Set(
+        customers.filter(c => (((c.customerGroup ?? "").trim() || c.name) === groupKey)).map(c => c.id)
+      );
+
+      const prior = await db.sumAllocationsByCreditNoteIds([cn.id]);
+      const alreadyMatched = prior.get(cn.id) ?? 0;
+      const totalNew = input.allocations.reduce((s, a) => s + a.amount, 0);
+      if (alreadyMatched + totalNew > Number(cn.openAmount) + 0.005) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Match total (${(alreadyMatched + totalNew).toFixed(2)}) exceeds the credit note open amount (${Number(cn.openAmount).toFixed(2)})`,
+        });
+      }
+
+      const cnCurrency = cn.currency ?? "EUR";
+      for (const a of input.allocations) {
+        const inv = await db.getInvoice(a.invoiceId);
+        if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: `Invoice #${a.invoiceId} not found` });
+        if (!memberIds.has(inv.customerId))
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Invoice ${inv.invoiceNumber} does not belong to group ${groupKey}` });
+        if (inv.status === "Paid")
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Invoice ${inv.invoiceNumber} is already paid` });
+        if ((inv.currency ?? "EUR") !== cnCurrency)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Invoice ${inv.invoiceNumber} is in ${inv.currency ?? "EUR"} — a ${cnCurrency} credit note can only settle ${cnCurrency} invoices`,
+          });
+        const open = Number(inv.amount) - Number(inv.paidAmount);
+        if (a.amount > open + 0.005)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Amount ${a.amount.toFixed(2)} exceeds outstanding ${open.toFixed(2)} of invoice ${inv.invoiceNumber}`,
+          });
+      }
+
+      const results: { invoiceId: number; invoiceNumber: string; newStatus: string }[] = [];
+      for (const a of input.allocations) {
+        const inv = await db.getInvoice(a.invoiceId);
+        if (!inv) continue;
+        await db.createCreditNoteAllocation({
+          creditNoteId: cn.id,
+          invoiceId: a.invoiceId,
+          amount: String(a.amount) as any,
+          createdBy: ctx.user.id,
+        });
+        const newPaid = Number(inv.paidAmount) + a.amount;
+        const fullyPaid = newPaid >= Number(inv.amount) - 0.005;
+        const newStatus = fullyPaid ? "Paid" : "Partially Paid";
+        await db.updateInvoice(a.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
+        results.push({ invoiceId: a.invoiceId, invoiceNumber: inv.invoiceNumber, newStatus });
+        await audit(
+          ctx,
+          "Match Credit Note",
+          "invoice",
+          a.invoiceId,
+          `${cn.docNumber} → ${inv.invoiceNumber} (${inv.company ?? "—"}): ${cnCurrency} ${a.amount.toFixed(2)} → ${newStatus}`
+        );
+      }
+      return { success: true, results };
+    }),
+
+  /** Undo a credit-note match and revert the invoice's paidAmount/status. */
+  removeCreditNoteAllocation: protectedProcedure
+    .input(z.object({ allocationId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const alloc = await db.getCreditNoteAllocation(input.allocationId);
+      if (!alloc) throw new TRPCError({ code: "NOT_FOUND", message: "Match not found" });
+      const inv = await db.getInvoice(alloc.invoiceId);
+      if (inv) {
+        const newPaid = Math.max(0, Number(inv.paidAmount) - Number(alloc.amount));
+        const newStatus = newPaid <= 0.005 ? "Open" : newPaid >= Number(inv.amount) - 0.005 ? "Paid" : "Partially Paid";
+        await db.updateInvoice(alloc.invoiceId, { paidAmount: String(newPaid) as any, status: newStatus as any });
+      }
+      await db.deleteCreditNoteAllocation(input.allocationId);
+      await audit(
+        ctx,
+        "Remove Credit Note Match",
+        "invoice",
+        alloc.invoiceId,
+        `Credit note #${alloc.creditNoteId} match of ${Number(alloc.amount).toFixed(2)} removed`
+      );
       return { success: true };
     }),
 

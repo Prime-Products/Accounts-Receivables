@@ -1287,3 +1287,12 @@
 
 - [x] Tasks page: the Group cell is a link that opens the company card (`/customers/<id>`); the row click still opens the task dialog (`server/tasksGroupLink.test.ts`)
 - [x] Invoice lists: replace the two-option scope tabs with one "Installments" toggle button (click filters, click again clears) — Invoices, Customer 360 and group card (`server/installmentToggle.test.ts`)
+
+## Credit notes inside the transactions list (user request 31/7)
+
+- [x] Merge open credit notes into the single transactions table (no separate block), ordered together with invoices by issue date (`InvoicesTable` `creditNotes` prop + `CreditNoteRow`)
+- [x] "Credit notes (n)" toggle button in the transactions toolbar — click shows only credit notes, click again clears (customer + group card)
+- [x] Credit-note rows: negative amounts, sky-tinted row, doc number with icon, issue date in the date column, Match action
+- [x] Backend: `allocateCreditNote` / `removeCreditNoteAllocation` / `listCreditNoteAllocations` with group, currency, invoice-outstanding and over-allocation guards
+- [x] Allocation dialog `AllocateCreditNoteDialog`: group open invoices, search, Max fill, remaining credit, existing matches with undo
+- [x] Vitest `server/creditNoteAllocation.test.ts` (partial match → Partially Paid, undo reverts to Open, full match hides the credit note, over-allocation rejected)

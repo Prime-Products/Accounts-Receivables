@@ -13,7 +13,6 @@ import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
-import { OpenCreditNotesTable } from "@/components/OpenCreditNotesTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -27,7 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowLeft, Eye, EyeOff, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { useMemo, useState } from "react";
@@ -340,6 +339,8 @@ export default function GroupDetail() {
   /** When set from the By vessel view, the list shows only this vessel's invoices ("none" = no vessel). */
   const [vesselDrill, setVesselDrill] = useState<string>("all");
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
+  // Credit-note toggle: when on, the transactions list shows only credit notes.
+  const [creditOnly, setCreditOnly] = useState(false);
   // The transactions list is a collection worklist, so settled invoices are hidden
   // by default; the toggle brings them back for reconciliation/history checks.
   const [showPaid, setShowPaid] = useState(false);
@@ -416,6 +417,7 @@ export default function GroupDetail() {
   // Invoices matching the selected status + aging bucket — powers the list and totals row.
   const filteredInvoices = useMemo(() => {
     if (!data?.invoices) return [];
+    if (creditOnly) return [];
     const now = Date.now();
     return data.invoices.filter(inv => {
       if (hideSettled(inv as any, showPaid, statusFilter)) return false;
@@ -432,7 +434,27 @@ export default function GroupDetail() {
       }
       return true;
     });
-  }, [data?.invoices, agingFilter, statusFilter, installmentFilter, showPaid, vesselDrill]);
+  }, [data?.invoices, agingFilter, statusFilter, installmentFilter, showPaid, vesselDrill, creditOnly]);
+
+  /**
+   * Credit notes shown inside the transactions list. They follow the vessel
+   * drill-down (a credit note can concern a vessel) but not the invoice-only
+   * filters (status, aging bucket, installments), which would otherwise hide them
+   * silently.
+   */
+  const allCreditNotes = ((data as any)?.openCreditNotes ?? []) as any[];
+  const visibleCreditNotes = useMemo(() => {
+    if (allCreditNotes.length === 0) return [];
+    if (!creditOnly && (installmentFilter === "installments" || statusFilter !== "all" || agingFilter !== "all")) return [];
+    if (vesselDrill !== "all") {
+      return allCreditNotes.filter(c => {
+        const name = c.vesselName ?? null;
+        if (vesselDrill === "none") return name == null;
+        return String(c.vesselId ?? "") === vesselDrill;
+      });
+    }
+    return allCreditNotes;
+  }, [allCreditNotes, creditOnly, installmentFilter, statusFilter, agingFilter, vesselDrill]);
 
   /** How many settled invoices are currently being hidden (for the toggle label). */
   const paidHiddenCount = useMemo(() => {
@@ -861,6 +883,18 @@ export default function GroupDetail() {
                 {showPaid ? "Hide paid" : `Show paid${paidHiddenCount > 0 ? ` (${paidHiddenCount})` : ""}`}
               </Button>
               <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
+              {allCreditNotes.length > 0 && (
+                <Button
+                  size="sm"
+                  variant={creditOnly ? "secondary" : "ghost"}
+                  className={`h-7 px-2.5 text-xs gap-1.5 border ${creditOnly ? "border-sky-300 bg-sky-100 text-sky-800 hover:bg-sky-100" : ""}`}
+                  onClick={() => setCreditOnly(v => !v)}
+                  title={creditOnly ? "Show invoices again" : "Show only credit notes"}
+                >
+                  <FileMinus2 className="h-3.5 w-3.5" />
+                  Credit notes ({allCreditNotes.length})
+                </Button>
+              )}
               <div className="flex items-center rounded-md border p-0.5">
                 <Button
                   size="sm"
@@ -1022,10 +1056,10 @@ export default function GroupDetail() {
               ) : (
               <>
               <UnallocatedTransfersTable rows={(data as any).openTransfers ?? []} />
-              <OpenCreditNotesTable rows={(data as any).openCreditNotes ?? []} />
               <div className="max-h-[480px] overflow-auto">
                 <InvoicesTable
                   rows={filteredInvoices as any}
+                  creditNotes={visibleCreditNotes as any}
                   onDisputeChanged={() => utils.customers.groupDetail.invalidate()}
                 />
               </div>

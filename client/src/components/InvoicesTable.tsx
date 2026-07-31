@@ -11,9 +11,10 @@ import NewTaskDialog from "@/components/NewTaskDialog";
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { invoiceDisplayStatus } from "@/lib/invoiceFilters";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, FileSignature, Send, Ship, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, FileMinus2, FileSignature, Send, Ship, Undo2, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { AllocateCreditNoteDialog } from "@/components/AllocateCreditNoteDialog";
 
 // Lazy import to break the circular dependency (VesselDetailDialog renders InvoicesTable).
 const VesselDetailDialog = lazy(() =>
@@ -40,6 +41,32 @@ export interface InvoiceRowData {
   outstanding: number;
   daysOverdue: number;
 }
+
+/**
+ * An open credit note as it appears INSIDE the transactions list. Credit notes
+ * are ordered together with the invoices by issue date, because that is how the
+ * customer's account statement reads.
+ */
+export interface CreditNoteRowData {
+  id: number;
+  customerId: number;
+  customerName?: string | null;
+  docNumber: string;
+  docDate: number;
+  branch?: string | null;
+  currency?: string | null;
+  amount: number;
+  allocated: number;
+  open: number;
+  openEur: number;
+  vesselName?: string | null;
+  contractNo?: string | null;
+}
+
+/** A row of the transactions list: either an invoice or an open credit note. */
+type TxRow =
+  | { kind: "invoice"; issueDate: number; sortId: number; invoice: InvoiceRowData }
+  | { kind: "credit"; issueDate: number; sortId: number; credit: CreditNoteRowData };
 
 type SortKey =
   | "invoiceNumber"
@@ -74,14 +101,98 @@ function sortValue(row: InvoiceRowData, key: SortKey): string | number {
  * Shared invoice table used by the Invoices page, the group card and the customer card,
  * so every view shows exactly the same information and actions.
  */
+/**
+ * One credit-note line inside the transactions list. It uses the same columns as
+ * an invoice so the eye can scan a single grid: the document number sits in the
+ * Invoice column, the issue date in the Due Date column (a credit note has no due
+ * date) and the amounts are shown negative, because a credit note reduces what
+ * the customer owes.
+ */
+function CreditNoteRow({
+  cn,
+  showCustomer,
+  enableSelection,
+}: {
+  cn: CreditNoteRowData;
+  showCustomer: boolean;
+  enableSelection: boolean;
+}) {
+  const cur = cn.currency && cn.currency !== "EUR" ? cn.currency : null;
+  return (
+    <TableRow className="bg-sky-50/40 hover:bg-sky-50">
+      {enableSelection && <TableCell className="w-8" />}
+      <TableCell className="font-mono text-xs whitespace-nowrap">
+        <span className="inline-flex items-center gap-1" title={`Credit note ${cn.docNumber}`}>
+          <FileMinus2 className="h-3.5 w-3.5 text-sky-600 shrink-0" aria-label="Credit note" role="img" />
+          {cn.docNumber}
+        </span>
+      </TableCell>
+      {showCustomer && (
+        <TableCell className="font-medium overflow-hidden text-sm">
+          <span className="block truncate" title={cn.customerName ?? undefined}>{cn.customerName ?? "—"}</span>
+        </TableCell>
+      )}
+      <TableCell className="overflow-hidden">
+        {cn.vesselName ? (
+          <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-full" title={`Vessel: ${cn.vesselName}`}>
+            <Ship className="h-3 w-3 shrink-0" />
+            <span className="truncate">{cn.vesselName}</span>
+          </Badge>
+        ) : cn.contractNo ? (
+          <span className="text-xs text-muted-foreground truncate" title={`Contract ${cn.contractNo}`}>{cn.contractNo}</span>
+        ) : (
+          <span className="text-muted-foreground/50 text-xs">—</span>
+        )}
+      </TableCell>
+      <TableCell>
+        <Badge variant="outline" className={branchColors[branchShort(cn.branch)] ?? "bg-gray-50 text-gray-600 border-gray-200"} title={cn.branch ?? undefined}>
+          {branchShort(cn.branch)}
+        </Badge>
+      </TableCell>
+      <TableCell className="text-xs whitespace-nowrap" title="Issue date of the credit note">{fmtDate(cn.docDate)}</TableCell>
+      <TableCell>
+        <div className="flex flex-nowrap items-center gap-1">
+          <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200">Credit note</Badge>
+          <AllocateCreditNoteDialog creditNote={cn} />
+        </div>
+      </TableCell>
+      <TableCell className="text-right font-mono text-sm whitespace-nowrap text-sky-700">
+        {cur ? (
+          <span>
+            −{fmtCur(cn.amount, cur, 2)}
+          </span>
+        ) : (
+          <>−{fmtEur(cn.amount)}</>
+        )}
+      </TableCell>
+      <TableCell className="text-right font-mono text-sm whitespace-nowrap" title="Already matched against invoices">
+        {cn.allocated > 0.005 ? (cur ? fmtCur(cn.allocated, cur, 2) : fmtEur(cn.allocated)) : <span className="text-muted-foreground/50">—</span>}
+      </TableCell>
+      <TableCell className="text-right font-mono text-sm font-semibold whitespace-nowrap text-sky-700">
+        {cur ? (
+          <span>
+            −{fmtCur(cn.open, cur, 2)}
+            <span className="block text-xs text-muted-foreground font-normal">≈ −{fmtEur(cn.openEur)}</span>
+          </span>
+        ) : (
+          <>−{fmtEur(cn.open)}</>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
 export function InvoicesTable({
   rows,
+  creditNotes = [],
   showCustomer = true,
   onDisputeChanged,
   disableVesselDialog = false,
   enableSelection = true,
 }: {
   rows: InvoiceRowData[];
+  /** Open credit notes to merge into the same list (ordered by issue date). */
+  creditNotes?: CreditNoteRowData[];
   /** Show the Customer column (hidden on the single-customer card). */
   showCustomer?: boolean;
   /** Called after a dispute change so the parent can refresh its own query. */
@@ -154,6 +265,42 @@ export function InvoicesTable({
     });
   }, [rows, sortKey, sortDir]);
 
+  /**
+   * Invoices and credit notes in ONE list. Default order is issue date, newest
+   * first — the way an account statement reads. When the user sorts by a column,
+   * invoices are sorted by that column and each credit note keeps its place by
+   * issue date, so the credit notes never pile up at one end of the table.
+   */
+  const txRows = useMemo<TxRow[]>(() => {
+    const invoiceRows: TxRow[] = sortedRows.map(i => ({
+      kind: "invoice" as const,
+      issueDate: i.issueDate ?? 0,
+      sortId: i.id,
+      invoice: i,
+    }));
+    if (creditNotes.length === 0) return invoiceRows;
+    const creditRows: TxRow[] = creditNotes.map(c => ({
+      kind: "credit" as const,
+      issueDate: c.docDate ?? 0,
+      sortId: c.id,
+      credit: c,
+    }));
+    if (sortKey) {
+      // Keep the user's invoice ordering, then drop credit notes in by issue date
+      // relative to the invoices around them.
+      const merged = [...invoiceRows];
+      for (const cr of creditRows) {
+        const at = merged.findIndex(r => r.kind === "invoice" && r.issueDate <= cr.issueDate);
+        if (at === -1) merged.push(cr);
+        else merged.splice(at, 0, cr);
+      }
+      return merged;
+    }
+    return [...invoiceRows, ...creditRows].sort(
+      (a, b) => b.issueDate - a.issueDate || b.sortId - a.sortId,
+    );
+  }, [sortedRows, creditNotes, sortKey]);
+
   const selectedRows = useMemo(() => rows.filter(r => selectedIds.has(r.id)), [rows, selectedIds]);
   const toggleRow = (id: number) => {
     setSelectedIds(prev => {
@@ -214,8 +361,17 @@ export function InvoicesTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {sortedRows.map(i => (
-            <TableRow key={i.id}>
+          {txRows.map(row => row.kind === "credit" ? (
+            <CreditNoteRow
+              key={`cn-${row.credit.id}`}
+              cn={row.credit}
+              showCustomer={showCustomer}
+              enableSelection={enableSelection}
+            />
+          ) : (() => {
+            const i = row.invoice;
+            return (
+            <TableRow key={`inv-${i.id}`}>
               {enableSelection && (
                 <TableCell className="w-8" onClick={e => e.stopPropagation()}>
                   <Checkbox
@@ -341,7 +497,8 @@ export function InvoicesTable({
                 )}
               </TableCell>
             </TableRow>
-          ))}
+            );
+          })())}
         </TableBody>
       </Table>
 

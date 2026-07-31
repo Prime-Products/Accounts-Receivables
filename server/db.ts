@@ -1466,6 +1466,42 @@ export async function listAllocationsByCreditNote(creditNoteId: number) {
     .where(eq(creditNoteAllocations.creditNoteId, creditNoteId));
 }
 
+/**
+ * Allocations of a credit note joined with the invoice they were matched to, so
+ * the matching dialog can show what has already been settled without a second
+ * round of queries.
+ */
+export async function listAllocationsByCreditNoteJoined(creditNoteId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: creditNoteAllocations.id,
+      creditNoteId: creditNoteAllocations.creditNoteId,
+      invoiceId: creditNoteAllocations.invoiceId,
+      amount: creditNoteAllocations.amount,
+      createdAt: creditNoteAllocations.createdAt,
+      invoiceNumber: invoices.invoiceNumber,
+      invoiceCompany: invoices.company,
+      invoiceCurrency: invoices.currency,
+      invoiceStatus: invoices.status,
+      invoiceCustomerId: invoices.customerId,
+    })
+    .from(creditNoteAllocations)
+    .leftJoin(invoices, eq(creditNoteAllocations.invoiceId, invoices.id))
+    .where(eq(creditNoteAllocations.creditNoteId, creditNoteId));
+}
+
+/** One allocation row by id (used when removing an allocation). */
+export async function getCreditNoteAllocation(id: number) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(creditNoteAllocations)
+    .where(eq(creditNoteAllocations.id, id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 export async function createCreditNoteAllocation(data: InsertCreditNoteAllocation) {
   const db = await requireDb();
   const res = await db.insert(creditNoteAllocations).values(data);

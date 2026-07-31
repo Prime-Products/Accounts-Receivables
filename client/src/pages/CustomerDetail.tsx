@@ -9,7 +9,6 @@ import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
-import { OpenCreditNotesTable } from "@/components/OpenCreditNotesTable";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Eye, EyeOff, FileDown, HandCoins, Layers, Plus } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, FileDown, FileMinus2, HandCoins, Layers, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -52,6 +51,8 @@ export default function CustomerDetail() {
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
+  // Credit-note toggle: when on, the transactions list shows only credit notes.
+  const [creditOnly, setCreditOnly] = useState(false);
   // Settled invoices are hidden by default (same rule as the group card).
   const [showPaid, setShowPaid] = useState(false);
 
@@ -78,12 +79,18 @@ export default function CustomerDetail() {
   const agingAny = aging as any;
   const now = Date.now();
   const visibleInvoices = invoices.filter(i => {
+    if (creditOnly) return false;
     if (hideSettled(i as any, showPaid, statusFilter)) return false;
     if (!matchesStatusFilter(i as any, statusFilter)) return false;
     if (installmentFilter === "installments" && !(i as any).isContractInstallment) return false;
     return true;
   });
   const paidHiddenCount = countSettled(invoices as any);
+  // Credit notes are part of the same list; the installment/status filters apply
+  // to invoices only, so they are hidden while those filters are narrowing down.
+  const allCreditNotes = ((data as any).openCreditNotes ?? []) as any[];
+  const visibleCreditNotes =
+    installmentFilter === "installments" || (statusFilter !== "all" && !creditOnly) ? [] : allCreditNotes;
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -350,8 +357,23 @@ export default function CustomerDetail() {
                 {statusFilter === "all"
                   ? `${visibleInvoices.length} invoice(s)${!showPaid && paidHiddenCount > 0 ? ` · ${paidHiddenCount} settled hidden` : ""}`
                   : `${visibleInvoices.length} ${statusFilter} invoice(s) · outstanding ${fmtEur(visibleInvoices.reduce((s, i) => s + Number((i as any).amountEur != null && Number(i.amount) > 0 ? ((Number(i.amount) - Number(i.paidAmount)) / Number(i.amount)) * Number((i as any).amountEur) : Number(i.amount) - Number(i.paidAmount)), 0))}`}
+                {visibleCreditNotes.length > 0 && (
+                  <span className="text-sky-700"> · {visibleCreditNotes.length} credit note(s) −{fmtEur(visibleCreditNotes.reduce((s, c) => s + Number(c.openEur ?? 0), 0))}</span>
+                )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+              {allCreditNotes.length > 0 && (
+                <Button
+                  size="sm"
+                  variant={creditOnly ? "secondary" : "ghost"}
+                  className={`h-8 px-2.5 text-xs gap-1.5 border ${creditOnly ? "border-sky-300 bg-sky-100 text-sky-800 hover:bg-sky-100" : ""}`}
+                  onClick={() => setCreditOnly(v => !v)}
+                  title={creditOnly ? "Show invoices again" : "Show only credit notes"}
+                >
+                  <FileMinus2 className="h-3.5 w-3.5" />
+                  Credit notes ({allCreditNotes.length})
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant={showPaid ? "secondary" : "ghost"}
@@ -380,12 +402,12 @@ export default function CustomerDetail() {
             </div>
             <CardContent className="p-0">
               <UnallocatedTransfersTable rows={(data as any).openTransfers ?? []} showCustomer={false} />
-              <OpenCreditNotesTable rows={(data as any).openCreditNotes ?? []} showCustomer={false} />
-              {visibleInvoices.length === 0 ? (
+              {visibleInvoices.length === 0 && visibleCreditNotes.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">No invoices for this customer.</div>
               ) : (
                 <InvoicesTable
                   rows={visibleInvoices as any}
+                  creditNotes={visibleCreditNotes as any}
                   showCustomer={false}
                   onDisputeChanged={() => utils.customers.get360.invalidate()}
                 />
