@@ -1287,7 +1287,7 @@ export async function upsertSoftOneVessels(records: SoftOneVesselUpsert[]) {
   });
   if (missingOwners.size > 0) {
     throw new Error(
-      `SoftOne vessels reference ${missingOwners.size} customers that are not synchronized.`,
+      `SoftOne vessels reference ${missingOwners.size} customers that are not synchronized: ${Array.from(missingOwners).slice(0, 20).join(", ")}.`,
     );
   }
   const batchSize = 250;
