@@ -1238,4 +1238,7 @@
 - [x] Stop the taskEngine sweep from writing status = Overdue
 - [x] Show Overdue as a derived badge next to the settlement status in all invoice tables
 - [x] Keep status filters working with a separate Overdue filter
+- [x] Primary invoice badge: Open when not yet due, Overdue once past due (single badge, no Open+Overdue pair)
+- [x] Disputed is the ONLY secondary badge, shown next to the primary Open/Overdue badge
+- [x] Status dropdown edits the settlement status only; Overdue stays derived and non-selectable
 - [x] Rename "Customers" nav item + page title to "Collections" (route /customers unchanged, Groups stays the default sub-view)

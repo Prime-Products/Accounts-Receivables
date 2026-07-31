@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
+import { invoiceDisplayStatus } from "@/lib/invoiceFilters";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, FileSignature, Send, Ship, Undo2, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
@@ -265,12 +266,29 @@ export function InvoicesTable({
               <TableCell className="text-xs whitespace-nowrap">{fmtDate(i.dueDate)}</TableCell>
               <TableCell>
                 <div className="flex flex-wrap items-center gap-1">
+                  {/* One primary badge: Open until the due date passes, Overdue after.
+                      Overdue is derived from the due date and is never stored, so it is
+                      not selectable — the dropdown only carries the dispute action. */}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button className="group inline-flex items-center gap-0.5" title="Change status">
-                        <Badge variant="outline" className={invoiceStatusColors[i.status]}>
-                          {i.status}
-                        </Badge>
+                        {(() => {
+                          const d = invoiceDisplayStatus(i);
+                          return (
+                            <Badge
+                              variant="outline"
+                              className={invoiceStatusColors[d.primary]}
+                              title={
+                                d.daysOverdue > 0
+                                  ? `Due ${fmtDate(i.dueDate)} — ${d.daysOverdue} day(s) overdue`
+                                  : `Due ${fmtDate(i.dueDate)}`
+                              }
+                            >
+                              {d.primary}
+                              {d.primary === "Overdue" ? ` ${d.daysOverdue}d` : ""}
+                            </Badge>
+                          );
+                        })()}
                         <ChevronDown className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                       </button>
                     </DropdownMenuTrigger>
@@ -288,15 +306,11 @@ export function InvoicesTable({
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  {/* Overdue is derived from the due date, never stored: an invoice stays
-                      Open / Partially Paid / Disputed and is flagged overdue on top of that. */}
-                  {i.daysOverdue > 0 && (
-                    <Badge
-                      variant="outline"
-                      className={invoiceStatusColors.Overdue}
-                      title={`Due ${fmtDate(i.dueDate)} — ${i.daysOverdue} day(s) overdue`}
-                    >
-                      Overdue {i.daysOverdue}d
+                  {/* Disputed is the only secondary badge: it is orthogonal to the
+                      settlement stage, so it sits next to Open / Overdue. */}
+                  {i.status === "Disputed" && (
+                    <Badge variant="outline" className={invoiceStatusColors.Disputed} title="Under dispute — see invoice notes for the reason">
+                      Disputed
                     </Badge>
                   )}
                 </div>
