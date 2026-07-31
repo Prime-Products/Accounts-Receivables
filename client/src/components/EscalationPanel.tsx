@@ -4,17 +4,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, CornerDownLeft, Gavel, PauseCircle, RefreshCw, TriangleAlert } from "lucide-react";
+import { ArrowLeft, CornerDownLeft, Gavel, PauseCircle, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 /**
  * Panel shown on escalated tasks ("Escalated: …").
  *
- * Management does not want KPI tiles here — they want the STORY: an AI narrative
- * that reads the whole case history (calls, promises, notes, tasks, payments) and
- * explains what happened and why it reached their desk. Below the story sit the
+ * Deliberately minimal: the escalation reason written by the collector, plus the
  * three decisions — On Hold / Stop Services, Legal Review, Return to Collector.
+ * No AI narrative and no KPI tiles; the task description above the panel and the
+ * group card already carry the detail.
  */
 export default function EscalationPanel({
   taskId,
@@ -27,16 +27,6 @@ export default function EscalationPanel({
 }) {
   const utils = trpc.useUtils();
   const { data: summary, isLoading } = trpc.tasks.escalationSummary.useQuery({ taskId });
-  const {
-    data: storyData,
-    isLoading: storyLoading,
-    isFetching: storyFetching,
-  } = trpc.tasks.escalationStory.useQuery(
-    { taskId },
-    // The narrative costs an LLM call, so keep it warm while the dialog is open
-    // instead of regenerating on every focus change.
-    { staleTime: 10 * 60 * 1000, refetchOnWindowFocus: false }
-  );
   const [mode, setMode] = useState<"none" | "On Hold" | "Legal Review" | "Return to Collector">("none");
   const [note, setNote] = useState("");
   const [returnTo, setReturnTo] = useState<number | null>(null);
@@ -74,49 +64,6 @@ export default function EscalationPanel({
           {summary.escalationReason}
         </div>
       )}
-
-      {/* The story: what happened, in the collector's own trail of work. */}
-      <div className="rounded-md bg-white border p-3">
-        <div className="flex items-center justify-between mb-1.5">
-          <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-            What happened
-          </div>
-          <button
-            type="button"
-            className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors disabled:opacity-50"
-            disabled={storyFetching}
-            onClick={() => utils.tasks.escalationStory.invalidate({ taskId })}
-            title="Regenerate the story from the latest history"
-          >
-            <RefreshCw className={`h-3 w-3 ${storyFetching ? "animate-spin" : ""}`} /> Refresh
-          </button>
-        </div>
-        {storyLoading ? (
-          <div className="space-y-1.5">
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-11/12" />
-            <Skeleton className="h-3 w-4/5" />
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-3/5" />
-          </div>
-        ) : storyData?.story ? (
-          <div className="space-y-2 text-[13px] leading-relaxed text-foreground">
-            {storyData.story
-              .split(/\n{2,}/)
-              .map(p => p.trim())
-              .filter(Boolean)
-              .map((p, idx) => (
-                <p key={idx}>{p}</p>
-              ))}
-            <div className="text-[11px] text-muted-foreground pt-0.5">
-              Based on {storyData.eventCount} recorded event{storyData.eventCount === 1 ? "" : "s"}
-              {storyData.generated ? "" : " · written from the case record"}
-            </div>
-          </div>
-        ) : (
-          <div className="text-xs text-muted-foreground">No history recorded for this case yet.</div>
-        )}
-      </div>
 
       {summary?.decision && (
         <div className="text-xs font-medium text-orange-900 bg-white rounded-md border border-orange-200 p-2">

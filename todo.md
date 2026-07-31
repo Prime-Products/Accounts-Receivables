@@ -1265,3 +1265,4 @@
 - [x] Escalation no longer requires an account manager on the company — falls back to a senior team member so the collector can always escalate
 - [x] Escalation story is too long — scoped to the escalated task's own history window (one paragraph, 45-70 words, no group-wide balances or recommendations)
 - [x] Invoices page: when "Installments only" is active, the aging cards show the aging of the installments (scoped buckets, per-currency, "installment(s)" wording and a scope label)
+- [x] Removed the AI summary ("What happened") from the escalated task panel — only the escalation reason and the three decisions remain

@@ -54,15 +54,6 @@ describe("Escalation summary & decision", () => {
     expect(typeof summary.stats.calls).toBe("number");
   });
 
-  it("escalationStory writes a narrative of the case", async () => {
-    const escTaskId = await createEscalatedTask(fx, snap);
-    const res = await makeCaller().tasks.escalationStory({ taskId: escTaskId });
-    expect(res.group).toBe(fx.group);
-    expect(typeof res.story).toBe("string");
-    expect(res.story.length).toBeGreaterThan(40);
-    expect(typeof res.eventCount).toBe("number");
-  }, 60000);
-
   it("On Hold decision flags the group and keeps the task open", async () => {
     const escTaskId = await createEscalatedTask(fx, snap);
     const res = await makeCaller().tasks.escalationDecision({
