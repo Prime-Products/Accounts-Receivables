@@ -247,6 +247,17 @@ export const taskInvoices = mysqlTable("task_invoices", {
 export type TaskInvoice = typeof taskInvoices.$inferSelect;
 export type InsertTaskInvoice = typeof taskInvoices.$inferInsert;
 
+/** Team members watching a task's progress — shown as an avatar stack on the task. */
+export const taskWatchers = mysqlTable("task_watchers", {
+  id: int("id").autoincrement().primaryKey(),
+  taskId: int("taskId").notNull(),
+  /** team_members.id of the watcher. */
+  memberId: int("memberId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [index("idx_task_watchers_taskId").on(t.taskId)]);
+export type TaskWatcher = typeof taskWatchers.$inferSelect;
+export type InsertTaskWatcher = typeof taskWatchers.$inferInsert;
+
 export const onHoldStatuses = ["Under Review", "Eligible for On Hold", "On Hold", "Legal", "Rejected", "Resolved"] as const;
 
 export const onHoldProposals = mysqlTable("on_hold_proposals", {
@@ -381,6 +392,7 @@ export const promisesToPay = mysqlTable("promises_to_pay", {
   amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
   status: mysqlEnum("status", promiseStatuses).default("Pending").notNull(),
   notes: text("notes"),
+  rescheduleCount: int("rescheduleCount").default(0).notNull(),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -407,7 +419,7 @@ export const syncLogs = mysqlTable("sync_logs", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-export const emailTemplateTypes = ["Friendly Reminder", "Final Notice", "Statement", "Custom"] as const;
+export const emailTemplateTypes = ["SOA", "Payment Reminder", "Overdue Notice", "Friendly Reminder", "Final Notice", "Statement", "Custom"] as const;
 
 export const activityTypes = ["note", "task", "promise", "email", "call", "status_change"] as const;
 
@@ -440,6 +452,21 @@ export const activityLog = mysqlTable("activity_log", {
 });
 
 export type UserProfile = typeof userProfiles.$inferSelect;
+
+/**
+ * Editable email templates used by the Send Email dialog. One row per template
+ * type; the body/subject may contain {{placeholders}} that are substituted with
+ * live customer figures when the dialog is opened.
+ */
+export const emailTemplates = mysqlTable("email_templates", {
+  id: int("id").autoincrement().primaryKey(),
+  templateType: mysqlEnum("templateType", emailTemplateTypes).notNull().unique(),
+  subject: varchar("subject", { length: 500 }).notNull(),
+  body: text("body").notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = typeof customers.$inferInsert;
 export type Invoice = typeof invoices.$inferSelect;
@@ -480,7 +507,7 @@ export const paymentContacts = mysqlTable("payment_contacts", {
 export type PaymentContact = typeof paymentContacts.$inferSelect;
 export type InsertPaymentContact = typeof paymentContacts.$inferInsert;
 
-export const confirmationStatuses = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken", "Kept"] as const;
+export const confirmationStatuses = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken", "Kept", "Escalated"] as const;
 export type ConfirmationStatus = (typeof confirmationStatuses)[number];
 
 /**

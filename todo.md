@@ -1095,3 +1095,132 @@
 - [x] Customer card: Open Balance KPI shows net balance with the same breakdown
 - [x] Vitest coverage for the net balance computation (isolated fixtures) — 235 tests green
 - [x] Cleanup: removed 41 orphaned test wire transfers; testFixtures cleanup now also deletes fixture transfers/allocations/invoices
+
+## Escalate task creates new task for assignee (user request 30/7)
+- [x] Fix escalate procedure: create new task for assignee instead of reassigning original
+- [x] Original task marked Completed with escalation note in description
+- [x] New task has title "Escalated: {original title}", description includes original task + escalation note
+- [x] Vitest coverage for escalate flow (creates new task, closes original)
+
+- [x] Fix escalate task: creates new task for assignee, closes original (238 tests pass)
+
+## Remove Suggested Next Action feature (user request 30/7)
+- [x] Remove suggestNextAction backend procedure from ar.ts router
+- [x] Remove SuggestedNextActionCard component from client
+- [x] Remove the suggested next action display from LogCallDialog
+- [x] Remove LLM call for next action suggestion
+- [x] Update tests to remove coverage for suggested next action
+
+## Broken status with action options (user request 30/7)
+- [x] Rename "Not Confirmed Payment" to "Broken" in LogCallDialog and STATUS_LABELS
+- [x] When Broken status selected, show action options: Reschedule, Pending Follow-up, Escalate
+- [x] Add reschedule attempt counter to promises table (rescheduleCount field)
+- [x] Track reschedule attempts in activity log ("Promise rescheduled — 2nd attempt", "3rd attempt", etc.)
+- [x] Display reschedule attempt count in the action panel when Broken is selected
+- [x] Update tests for Broken status and reschedule counter
+
+## Remove Escalate and make Broken actions mandatory (user request 30/7)
+- [x] Remove Escalate button from Broken section
+- [x] Make the three action buttons mandatory (cannot log call without selecting one)
+- [x] Update UI to show clear selection requirement
+- [x] Test that Broken status requires action selection
+
+## Remove placeholder columns from Team page (user request 30/7)
+- [x] Identify and remove placeholder/empty columns from Team members table
+- [x] Keep only relevant columns: Name, Role, Status (Active/Inactive), Actions
+- [x] Test Team page displays clean table without dashes
+
+## Rework task action dialog Kept/Broken flow (user request 30/7)
+- [x] Find the task action dialog with Reschedule/Escalate/Done options
+- [x] Remove the initial Reschedule/Escalate/Done card entirely (Done removed completely)
+- [x] Show only two buttons initially: Kept and Broken (rename Not Confirmed/Not paid to Broken)
+- [x] When Broken pressed, show three options: Reschedule, Promise to Pay, Pending Follow-up
+- [x] Test the new flow and run vitest
+
+## Broken options: Reschedule Promise / Pending Follow-up / Escalate (user request 30/7)
+- [x] Replace "Promise to Pay" option with "Escalate" in the Broken options panel
+- [x] Escalate opens the escalate form (assignee + note) and hands the task over
+- [x] Test the new flow and run vitest
+
+## Hide Mark Done for Promise to Pay tasks (user request 30/7)
+- [x] Hide "Mark Done" button when the task has a linked promise (closure happens via Kept/Broken flow)
+- [x] Keep "Mark Done" for plain manual tasks
+- [x] Test and run vitest
+
+## Escalated communication status (user request 30/7)
+- [x] Add "Escalated" to confirmation status enum/labels/colors and filters
+- [x] On escalate: set group communication status to "Escalated", badge links to the new escalated task
+- [x] When a new Promise/Follow-up task is created from the escalated task: close it as Completed, keep only the new task, status switches to Promise to Pay / Pending Follow-up
+- [x] Vitest coverage for the escalated status lifecycle
+
+## Task watchers with avatar stack (user request 30/7)
+- [x] Create visual mockup of avatar stack for user approval
+- [x] Add taskWatchers table (taskId, memberId)
+- [x] Escalate form: multi-select watchers
+- [x] Avatar stack on task cards and task dialog (initials, colored circles, +N counter)
+- [x] Manage watchers from task dialog (add/remove)
+- [x] Vitest coverage for watchers
+- [x] Watchers carried over when escalated task rolls into a new task
+
+## Escalated badge opens task directly (user request 31/7)
+- [x] Clicking the Escalated badge in the Customers list opens the escalated task dialog directly (not the Log Call flow)
+- [x] Same fix applied to the group detail page badge
+- [x] Stale Escalated badge (no open escalated task) resets to Not Contacted on click
+
+## Log Call fixes & multi-call flow (user request 30/7)
+- [x] Fix error when opening Log Call from the customer card (empty SelectItem value in company picker)
+- [x] Clarify/propose flow for a second Log Call when an active communication task already exists (proposal approved by user)
+- [x] Decide behavior for third+ concurrent log calls (same choice step every time; one active case per group)
+- [x] Document when a Log Call creates a task (group vs customer)
+
+## Active-communication choice step before Log Call (user request 30/7)
+- [x] When Log Call is clicked and an open promise/follow-up/escalated task exists, show a choice dialog first
+- [x] Choice dialog shows active communication summary (type, amount, due date)
+- [x] Option "Open the task" opens TaskDetailDialog for the active task
+- [x] Option "New log call" proceeds to the normal LogCallDialog
+- [x] If no active communication exists, Log Call opens directly (no extra step)
+- [x] Vitest coverage for the active-communication lookup endpoint
+
+## Escalation workflow rework (user request 31/7)
+- [x] Escalation summary: auto-generated snapshot (open balance, overdue, promise history kept/broken, reschedule counts, recent log calls, escalation reason) shown on escalated tasks
+- [x] Management decision actions on escalated tasks: On Hold / Stop Services, Legal Review, Return to Collector
+- [x] On Hold and Legal group statuses: badges on Customers list + GroupDetail, filter options
+- [x] Return to Collector: reassigns task back to the escalating collector with management instructions
+- [x] Auto-watcher: escalating collector automatically becomes watcher on the escalated task
+- [x] Auto-watcher: creator of a task assigned to someone else automatically becomes watcher
+## Email templates + Outlook flow (user request 31/7)
+- [x] Email templates: SOA, Payment Reminder, Overdue Notice — body prefilled with group data
+- [x] SOA export file (open invoices of the group) auto-downloaded on Send
+- [x] Send opens Outlook (mailto) with recipient, subject and body prefilled
+## Bug: test team members leaked into production data (user report 31/7)
+- [x] Delete leftover TM Mgr/Task test team members from database
+- [x] Fix test cleanup so test team members never persist
+
+## SOA statement redesign to match Prime Products sample (31/7)
+- [x] Statement data builder: per group-company statements, TOTAL AMOUNTS across 6 branches, ANALYSIS per branch, upcoming buckets
+- [x] PDF generation matching sample layout (logo, red headings, EU number format, bank details per branch)
+- [x] Wire new SOA PDF into Send Email download and GroupDetail SOA buttons
+- [x] Vitest coverage for statement builder
+- [x] TOTAL AMOUNTS: hide branch rows with all-zero balances
+- [x] ANALYSIS totals row, zebra striping, red overdue, per-company page numbers
+## Bug: SOA PDF blank pages (user report 31/7)
+- [x] Fix pagination in statement PDF — remove blank pages and bad table breaks
+- [x] Fix text overlapping table lines: branch display name wrapping onto header line, two-line column headers touching rule line
+
+## SOA cover page (user request 31/7)
+- [x] Consolidated group summary cover page: currency total boxes (balance + overdue per currency)
+- [x] Master company index on cover: company rows with per-currency balances, overdue column, dash for zeros
+- [x] Each company statement starts on a new page after the cover
+- [x] Unify SOA PDF style: company pages get same header/brand block and section styling as the cover page
+- [x] SOA PDF continuous flow: company statements follow each other with separators, page break only when content doesn't fit
+- [x] SOA PDF kickers: company pages "COMPANY" (not "COMPANY STATEMENT"), cover page "GROUP" (not "GROUP CONSOLIDATED SUMMARY")
+- [x] SOA: single-company groups get the same summary cover section as multi-company groups
+- [x] Email templates table in DB (subject/body per template type, editable)
+- [x] tRPC procedures: list/update/reset/preview email templates (admin)
+- [x] emailPrefill renders stored templates with placeholder substitution
+- [x] Settings → Email Templates editor UI with placeholder reference, live preview and reset
+- [x] SendEmailDialog uses the stored templates for all 6 template types (Custom left free-form)
+- [x] Group card invoice list: hide fully paid invoices by default (exclude from list, count, totals and by-branch view) with a toggle to include them
+- [x] Same settled-invoice rule applied to the individual customer card invoice list
+- [x] By-branch view sums outstanding instead of invoice face value
+- [x] Rename "Customers" nav item + page title to "Collections" (route /customers unchanged, Groups stays the default sub-view)

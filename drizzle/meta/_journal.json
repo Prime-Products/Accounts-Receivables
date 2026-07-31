@@ -239,6 +239,41 @@
       "when": 1785403686133,
       "tag": "0033_complex_hedge_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "5",
+      "when": 1785435698879,
+      "tag": "0034_jazzy_legion",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "5",
+      "when": 1785441067757,
+      "tag": "0035_ambiguous_speedball",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1785445264279,
+      "tag": "0036_right_omega_red",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1785450494728,
+      "tag": "0037_groovy_wildside",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1785494099191,
+      "tag": "0038_milky_mantis",
+      "breakpoints": true
     }
   ]
 }

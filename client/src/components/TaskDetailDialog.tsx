@@ -6,9 +6,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
 import NextActionDialog from "@/components/NextActionDialog";
+import EscalationPanel from "@/components/EscalationPanel";
+import { WatcherStack, watcherColor, watcherInitials } from "@/components/WatcherStack";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, ArrowUpCircle, CalendarClock, CheckCircle2, FileText, HandCoins, ThumbsDown, ThumbsUp, User, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowUpCircle, CalendarClock, CheckCircle2, Eye, FileText, HandCoins, Plus, ThumbsDown, ThumbsUp, User, X, XCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -66,9 +69,9 @@ export default function TaskDetailDialog({
     },
     onError: e => toast.error(e.message),
   });
-  const setPromiseStatus = trpc.forecast.updatePromise.useMutation({
-    onSuccess: (_r, vars) => {
-      toast.success(`Promise marked ${vars.status === "Broken" ? "Not Confirmed" : vars.status} — follow-up task completed`);
+ const setPromiseStatus = trpc.forecast.updatePromise.useMutation({
+   onSuccess: (_r, vars) => {
+      toast.success(`Promise marked ${vars.status} — follow-up task completed`);
       utils.tasks.list.invalidate();
       utils.customers.groups.invalidate();
       utils.customers.groupDetail.invalidate();
@@ -110,6 +113,8 @@ export default function TaskDetailDialog({
       setFuAssignee(null);
       setNextType("promise");
       setResolveAs(null);
+      setEscWatcherIds([]);
+      setWatcherPickerOpen(false);
     }
   }, [open]);
   const invalidateAll = () => {
@@ -144,6 +149,22 @@ export default function TaskDetailDialog({
     },
     onError: e => toast.error(e.message),
   });
+  // Watchers — team members following this task's progress
+  const [watcherPickerOpen, setWatcherPickerOpen] = useState(false);
+  const { data: teamMembers } = trpc.team.list.useQuery(undefined, { enabled: open });
+  const addWatcher = trpc.tasks.addWatcher.useMutation({
+    onSuccess: () => {
+      utils.tasks.list.invalidate();
+      setWatcherPickerOpen(false);
+    },
+    onError: e => toast.error(e.message),
+  });
+  const removeWatcher = trpc.tasks.removeWatcher.useMutation({
+    onSuccess: () => utils.tasks.list.invalidate(),
+    onError: e => toast.error(e.message),
+  });
+  // Watchers picked in the escalate form (applied to the NEW escalated task)
+  const [escWatcherIds, setEscWatcherIds] = useState<number[]>([]);
   const reschedule = trpc.tasks.reschedule.useMutation({
     onSuccess: r => {
       toast.success(`Due date updated${r.rescheduleCount > 0 ? ` — rescheduled ×${r.rescheduleCount}` : ""}`);
@@ -198,11 +219,11 @@ export default function TaskDetailDialog({
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className={taskTypeColors[task.type] ?? ""}>{task.type}</Badge>
                 <Badge variant="outline" className={taskStatusColors[task.status] ?? ""}>{task.status}</Badge>
-                {task.promise && (
-                  <Badge variant="outline" className={promiseStatusColors[task.promise.status] ?? ""}>
-                    Promise {task.promise.status === "Broken" ? "Not Confirmed" : task.promise.status}
-                  </Badge>
-                )}
+               {task.promise && (
+                 <Badge variant="outline" className={promiseStatusColors[task.promise.status] ?? ""}>
+                    Promise {task.promise.status}
+                 </Badge>
+               )}
                 {((task as any).rescheduleCount ?? 0) > 0 && (
                   <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
                     Rescheduled ×{(task as any).rescheduleCount}
@@ -262,11 +283,77 @@ export default function TaskDetailDialog({
                   )}
                 </div>
                 <div className="col-span-2">
-                  <div className="text-xs text-muted-foreground mb-1">Assignee</div>
+                  <div className="text-xs text-muted-foreground mb-1">Assigned to</div>
                   <TeamMemberSelect
                     value={task.assigneeId ?? null}
                     onChange={id => assignTask.mutate({ id: task.id, assigneeId: id })}
                   />
+                </div>
+                <div className="col-span-2">
+                  <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                    <Eye className="h-3 w-3" /> Watchers
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <WatcherStack watchers={((task as any).watchers ?? []) as any} max={5} size="md" />
+                    <Popover open={watcherPickerOpen} onOpenChange={setWatcherPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-8 w-8 p-0 rounded-full" title="Add watcher">
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-64 p-2" align="start">
+                        <div className="text-xs font-medium mb-1.5">Add a watcher</div>
+                        <div className="max-h-48 overflow-y-auto space-y-0.5">
+                          {(teamMembers ?? [])
+                            .filter(m => !((task as any).watchers ?? []).some((w: any) => w.memberId === m.id))
+                            .map(m => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted text-left"
+                                onClick={() => addWatcher.mutate({ taskId: task.id, memberId: m.id })}
+                              >
+                                <span
+                                  className="h-6 w-6 inline-flex items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                                  style={{ backgroundColor: watcherColor(m.name) }}
+                                >
+                                  {watcherInitials(m.name)}
+                                </span>
+                                <span className="truncate">{m.name}</span>
+                                {m.title && <span className="text-xs text-muted-foreground truncate ml-auto">{m.title}</span>}
+                              </button>
+                            ))}
+                          {(teamMembers ?? []).filter(m => !((task as any).watchers ?? []).some((w: any) => w.memberId === m.id)).length === 0 && (
+                            <div className="text-xs text-muted-foreground px-2 py-1.5">Everyone is already watching.</div>
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  {((task as any).watchers ?? []).length > 0 && (
+                    <div className="mt-1.5 space-y-0.5">
+                      {((task as any).watchers ?? []).map((w: any) => (
+                        <div key={w.memberId} className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span
+                            className="h-4 w-4 inline-flex items-center justify-center rounded-full text-[8px] font-semibold text-white shrink-0"
+                            style={{ backgroundColor: watcherColor(w.name) }}
+                          >
+                            {watcherInitials(w.name)}
+                          </span>
+                          <span className="truncate">{w.name}</span>
+                          {w.title && <span className="truncate">— {w.title}</span>}
+                          <button
+                            type="button"
+                            className="ml-auto hover:text-destructive"
+                            title="Remove watcher"
+                            onClick={() => removeWatcher.mutate({ taskId: task.id, memberId: w.memberId })}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {task.invoiceNumber && (
                   <div>
@@ -300,6 +387,13 @@ export default function TaskDetailDialog({
                   <div className="text-xs text-muted-foreground">Completion notes</div>
                   <div>{task.completionNotes}</div>
                 </div>
+              )}
+
+              {task.title.startsWith("Escalated: ") && (
+                <EscalationPanel
+                  taskId={task.id}
+                  taskOpen={task.status === "Pending" || task.status === "In Progress"}
+                />
               )}
 
               {(task as any).attachedInvoices && (task as any).attachedInvoices.length > 0 && (
@@ -343,123 +437,91 @@ export default function TaskDetailDialog({
                       <div>{fmtDate(task.promise.promisedDate)}</div>
                     </div>
                   </div>
-                  {task.promise.notes && <div className="text-xs text-muted-foreground">{task.promise.notes}</div>}
-                  {task.promise.status === "Pending" && (
-                    <div className="flex gap-2 pt-1">
-                      <Button
-                        size="sm"
-                        className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                        disabled={setPromiseStatus.isPending}
-                        onClick={() => setPromiseStatus.mutate({ id: task.promise!.id, status: "Kept" })}
+                 {task.promise.notes && <div className="text-xs text-muted-foreground">{task.promise.notes}</div>}
+                 {task.promise.status === "Pending" && (
+                   <div className="flex gap-2 pt-1">
+                     <Button
+                       size="sm"
+                       className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                       disabled={setPromiseStatus.isPending}
+                       onClick={() => setPromiseStatus.mutate({ id: task.promise!.id, status: "Kept" })}
+                     >
+                       <ThumbsUp className="h-4 w-4" /> Kept
+                     </Button>
+                     <Button
+                       size="sm"
+                       variant="destructive"
+                       className="gap-1"
+                       disabled={setPromiseStatus.isPending}
+                        onClick={() => setFuMode("broken-options" as any)}
                       >
-                        <ThumbsUp className="h-4 w-4" /> Kept
+                       <ThumbsDown className="h-4 w-4" /> Broken
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        className="gap-1"
-                        disabled={setPromiseStatus.isPending}
-                        onClick={() => setPromiseStatus.mutate({ id: task.promise!.id, status: "Broken" })}
-                      >
-                        <ThumbsDown className="h-4 w-4" /> Not Confirmed
-                      </Button>
-                    </div>
-                  )}
-                  {task.promise.status === "Pending" && (task.status === "Pending" || task.status === "In Progress") && (
-                    <div className="border-t pt-2 mt-1 space-y-2">
-                      <div className="text-sm font-medium flex items-center gap-1.5 text-blue-900">
-                        <HandCoins className="h-4 w-4" /> Promise — what happens next?
-                      </div>
-                      {fuMode === "none" && (
-                        <div className="grid gap-1.5">
-                          <button
-                            type="button"
-                            className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                            onClick={() => {
-                              setFuAmount(String(task.promise!.amount ?? ""));
-                              setFuDate(new Date(task.promise!.promisedDate).toISOString().slice(0, 10));
-                              setFuMode("reschedule-promise" as any);
-                            }}
-                          >
-                            <CalendarClock className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-                            <div>
-                              <div className="text-sm font-medium">Reschedule</div>
-                              <div className="text-xs text-muted-foreground">Move the promised payment to a new date.</div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-red-50 hover:border-red-300 transition-colors"
-                            onClick={() => setFuMode("escalate")}
-                          >
-                            <ArrowUpCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
-                            <div>
-                              <div className="text-sm font-medium">Escalate</div>
-                              <div className="text-xs text-muted-foreground">Hand this over to the Account Manager (or another team member).</div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-violet-50 hover:border-violet-300 transition-colors"
-                            onClick={() => {
-                              setResolveAs(null);
-                              setNextType("promise");
-                              setFuAmount("");
-                              setFuDate("");
-                              setFuMode("next-task");
-                            }}
-                          >
-                            <CheckCircle2 className="h-4 w-4 text-violet-600 mt-0.5 shrink-0" />
-                            <div>
-                              <div className="text-sm font-medium">Done — schedule next step</div>
-                              <div className="text-xs text-muted-foreground">Mark the promise Kept or Not paid and set the next Promise to Pay or Follow-up; this task is closed.</div>
-                            </div>
-                          </button>
-                        </div>
-                      )}
-                      {fuMode === "next-task" && (
-                        <div className="grid gap-2">
-                          <div className="text-xs font-medium text-muted-foreground">1 · How did the current promise end?</div>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant={resolveAs === "Kept" ? "default" : "outline"}
-                              className={`h-7 px-2 text-xs gap-1 ${resolveAs === "Kept" ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "text-emerald-700"}`}
-                              onClick={() => setResolveAs("Kept")}
-                            >
-                              <ThumbsUp className="h-3.5 w-3.5" /> Kept (paid)
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant={resolveAs === "Broken" ? "destructive" : "outline"}
-                              className={`h-7 px-2 text-xs gap-1 ${resolveAs === "Broken" ? "" : "text-red-700"}`}
-                              onClick={() => setResolveAs("Broken")}
-                            >
-                              <ThumbsDown className="h-3.5 w-3.5" /> Not paid
-                            </Button>
+                   </div>
+                 )}
+               {task.promise.status === "Pending" && (task.status === "Pending" || task.status === "In Progress") && (
+                  <div className="border-t pt-2 mt-1 space-y-2">
+                     {(fuMode as string) === "broken-options" && (
+                       <div className="grid gap-1.5">
+                         <div className="text-sm font-medium flex items-center gap-1.5 text-red-900">
+                           <ThumbsDown className="h-4 w-4" /> Promise broken — choose the next step
+                         </div>
+                         <button
+                           type="button"
+                           className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                           onClick={() => {
+                             setFuAmount(String(task.promise!.amount ?? ""));
+                             setFuDate(new Date(task.promise!.promisedDate).toISOString().slice(0, 10));
+                             setFuMode("reschedule-promise" as any);
+                           }}
+                         >
+                          <CalendarClock className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                          <div>
+                             <div className="text-sm font-medium">Reschedule Promise</div>
+                            <div className="text-xs text-muted-foreground">Move the promised payment to a new date.</div>
                           </div>
-                          <div className="text-xs font-medium text-muted-foreground pt-1">2 · What is the next step?</div>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant={nextType === "promise" ? "default" : "outline"}
-                              className="h-7 px-2 text-xs gap-1"
-                              onClick={() => setNextType("promise")}
-                            >
-                              <HandCoins className="h-3.5 w-3.5" /> Promise to Pay
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant={nextType === "follow-up" ? "default" : "outline"}
-                              className="h-7 px-2 text-xs gap-1"
-                              onClick={() => setNextType("follow-up")}
-                            >
-                              <CalendarClock className="h-3.5 w-3.5" /> Pending Follow-up
-                            </Button>
+                        </button>
+                        <button
+                          type="button"
+                          className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-violet-50 hover:border-violet-300 transition-colors"
+                          onClick={() => {
+                            setResolveAs("Broken");
+                            setNextType("follow-up");
+                            setFuAmount("");
+                            setFuDate("");
+                            setFuMode("next-task");
+                          }}
+                        >
+                          <CalendarClock className="h-4 w-4 text-violet-600 mt-0.5 shrink-0" />
+                          <div>
+                            <div className="text-sm font-medium">Pending Follow-up</div>
+                            <div className="text-xs text-muted-foreground">Schedule the next follow-up call; this task is closed.</div>
                           </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="grid gap-1">
-                              <Label htmlFor="nt-amount" className="text-xs">{nextType === "promise" ? "Promised amount (EUR)" : "Expected amount (optional)"}</Label>
+                        </button>
+                         <button
+                           type="button"
+                           className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-red-50 hover:border-red-300 transition-colors"
+                           onClick={() => setFuMode("escalate")}
+                         >
+                           <ArrowUpCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                           <div>
+                             <div className="text-sm font-medium">Escalate</div>
+                             <div className="text-xs text-muted-foreground">Hand this over to the Account Manager (or another team member).</div>
+                           </div>
+                         </button>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs justify-start text-muted-foreground" onClick={() => setFuMode("none")}>
+                          <ArrowLeft className="h-3.5 w-3.5" /> Back
+                        </Button>
+                       </div>
+                     )}
+                    {fuMode === "next-task" && (
+                      <div className="grid gap-2">
+                          <div className="text-xs font-medium text-muted-foreground">
+                            {nextType === "promise" ? "New Promise to Pay — the broken promise stays on record" : "Schedule the next follow-up call"}
+                          </div>
+                         <div className="grid grid-cols-2 gap-2">
+                           <div className="grid gap-1">
+                             <Label htmlFor="nt-amount" className="text-xs">{nextType === "promise" ? "Promised amount (EUR)" : "Expected amount (optional)"}</Label>
                               <Input id="nt-amount" type="number" min="0" step="0.01" className="h-8 bg-white" value={fuAmount} onChange={e => setFuAmount(e.target.value)} placeholder="0.00" />
                             </div>
                             <div className="grid gap-1">
@@ -467,14 +529,14 @@ export default function TaskDetailDialog({
                               <Input id="nt-date" type="date" className="h-8 bg-white" value={fuDate} onChange={e => setFuDate(e.target.value)} />
                             </div>
                           </div>
-                          <div className="grid gap-1">
-                            <Label htmlFor="nt-notes" className="text-xs">Notes (optional)</Label>
-                            <Textarea id="nt-notes" rows={2} className="bg-white text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} />
-                          </div>
-                          <div className="flex justify-between">
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("none")}>
-                              <ArrowLeft className="h-3.5 w-3.5" /> Back
-                            </Button>
+                         <div className="grid gap-1">
+                           <Label htmlFor="nt-notes" className="text-xs">Notes (optional)</Label>
+                           <Textarea id="nt-notes" rows={2} className="bg-white text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} />
+                         </div>
+                         <div className="flex justify-between">
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("broken-options" as any)}>
+                             <ArrowLeft className="h-3.5 w-3.5" /> Back
+                           </Button>
                             <Button
                               size="sm"
                               className="h-7 px-3 text-xs"
@@ -513,69 +575,94 @@ export default function TaskDetailDialog({
                               <Input id="pr-re-date" type="date" className="h-8" value={fuDate} onChange={e => setFuDate(e.target.value)} />
                             </div>
                           </div>
-                          <div className="grid gap-1">
-                            <Label htmlFor="pr-re-notes" className="text-xs">Notes (optional)</Label>
-                            <Textarea id="pr-re-notes" rows={2} className="text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} placeholder="e.g. customer asked to move the payment" />
-                          </div>
-                          <div className="flex justify-between">
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("none")}>
-                              <ArrowLeft className="h-3.5 w-3.5" /> Back
-                            </Button>
-                            <Button
-                              size="sm"
-                              className="h-7 px-3 text-xs"
-                              disabled={!fuDate || !fuAmount || Number(fuAmount) <= 0 || reschedulePromise.isPending}
+                         <div className="grid gap-1">
+                           <Label htmlFor="pr-re-notes" className="text-xs">Notes (optional)</Label>
+                           <Textarea id="pr-re-notes" rows={2} className="text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} placeholder="e.g. customer asked to move the payment" />
+                         </div>
+                         <div className="flex justify-between">
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("broken-options" as any)}>
+                             <ArrowLeft className="h-3.5 w-3.5" /> Back
+                           </Button>
+                           <Button
+                             size="sm"
+                             className="h-7 px-3 text-xs"
+                             disabled={!fuDate || !fuAmount || Number(fuAmount) <= 0 || reschedulePromise.isPending}
                               onClick={() =>
                                 reschedulePromise.mutate({
                                   taskId: task.id,
                                   promiseId: task.promise!.id,
                                   amount: Number(fuAmount),
-                                  promisedDate: new Date(`${fuDate}T12:00:00`).getTime(),
-                                  notes: fuNotes || undefined,
-                                })
-                              }
-                            >
-                              Reschedule
-                            </Button>
-                          </div>
+                                 promisedDate: new Date(`${fuDate}T12:00:00`).getTime(),
+                                 notes: fuNotes || undefined,
+                               })
+                             }
+                           >
+                            Reschedule
+                          </Button>
                         </div>
-                      )}
-                      {fuMode === "escalate" && !task.description?.includes("(Follow-up: ") && (
-                        <div className="grid gap-2">
-                          <div className="grid gap-1">
-                            <Label className="text-xs">Escalate to (defaults to the group's Account Manager)</Label>
-                            <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
-                          </div>
-                          <div className="grid gap-1">
-                            <Label htmlFor="pr-es-note" className="text-xs">Note (optional)</Label>
-                            <Textarea id="pr-es-note" rows={2} className="text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} placeholder="e.g. promise broken twice — needs manager attention" />
-                          </div>
-                          <div className="flex justify-between">
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("none")}>
-                              <ArrowLeft className="h-3.5 w-3.5" /> Back
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              className="h-7 px-3 text-xs"
-                              disabled={escalateTask.isPending}
-                              onClick={() =>
-                                escalateTask.mutate({
-                                  taskId: task.id,
-                                  assigneeId: fuAssignee ?? undefined,
-                                  note: fuNotes || undefined,
-                                })
-                              }
-                            >
-                              <ArrowUpCircle className="h-3.5 w-3.5" /> Escalate
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+                      </div>
+                    )}
+                     {fuMode === "escalate" && !task.description?.includes("(Follow-up: ") && (
+                       <div className="grid gap-2">
+                         <div className="grid gap-1">
+                           <Label className="text-xs">Escalate to (defaults to the group's Account Manager)</Label>
+                           <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
+                         </div>
+                         <div className="grid gap-1">
+                           <Label className="text-xs">Watchers (optional — they follow the escalated task)</Label>
+                           <div className="flex flex-wrap gap-1">
+                             {(teamMembers ?? []).map(m => {
+                               const selected = escWatcherIds.includes(m.id);
+                               return (
+                                 <button
+                                   key={m.id}
+                                   type="button"
+                                   className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${selected ? "border-transparent text-white" : "bg-white hover:bg-muted"}`}
+                                   style={selected ? { backgroundColor: watcherColor(m.name) } : undefined}
+                                   onClick={() =>
+                                     setEscWatcherIds(prev =>
+                                       prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id]
+                                     )
+                                   }
+                                 >
+                                   {selected && <CheckCircle2 className="h-3 w-3" />}
+                                   {m.name}
+                                 </button>
+                               );
+                             })}
+                           </div>
+                         </div>
+                         <div className="grid gap-1">
+                           <Label htmlFor="pr-es-note" className="text-xs">Note (optional)</Label>
+                           <Textarea id="pr-es-note" rows={2} className="bg-white text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} placeholder="e.g. promise broken twice — needs manager attention" />
+                         </div>
+                         <div className="flex justify-between">
+                           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("broken-options" as any)}>
+                             <ArrowLeft className="h-3.5 w-3.5" /> Back
+                           </Button>
+                           <Button
+                             size="sm"
+                             variant="destructive"
+                             className="h-7 px-3 text-xs"
+                             disabled={escalateTask.isPending}
+                             onClick={() =>
+                               escalateTask.mutate({
+                                 taskId: task.id,
+                                 assigneeId: fuAssignee ?? undefined,
+                                 note: fuNotes || undefined,
+                                 watcherIds: escWatcherIds.length > 0 ? escWatcherIds : undefined,
+                               })
+                             }
+                           >
+                             <ArrowUpCircle className="h-3.5 w-3.5" /> Escalate
+                           </Button>
+                         </div>
+                       </div>
+                     )}
+                   </div>
+                 )}
+               </div>
+             )}
 
               {(task.status === "Pending" || task.status === "In Progress") && (
                 task.description?.includes("(Follow-up: ") ? (
@@ -615,35 +702,18 @@ export default function TaskDetailDialog({
                             <div className="text-xs text-muted-foreground">Customer committed to pay — new Promise task is created, status becomes Promise to Pay, this task is cancelled.</div>
                           </div>
                         </button>
-                        <button
-                          type="button"
-                          className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-red-50 hover:border-red-300 transition-colors"
-                          onClick={() => setFuMode("escalate")}
-                        >
-                          <ArrowUpCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
-                          <div>
-                            <div className="text-sm font-medium">Escalate</div>
-                            <div className="text-xs text-muted-foreground">Hand this over to the Account Manager (or another team member).</div>
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-violet-50 hover:border-violet-300 transition-colors"
-                          onClick={() => {
-                            setResolveAs(null);
-                            setNextType("follow-up");
-                            setFuAmount("");
-                            setFuDate("");
-                            setFuMode("next-task");
-                          }}
-                        >
-                          <CheckCircle2 className="h-4 w-4 text-violet-600 mt-0.5 shrink-0" />
-                          <div>
-                            <div className="text-sm font-medium">Done — schedule next step</div>
-                            <div className="text-xs text-muted-foreground">Call finished — pick the next Promise to Pay or Follow-up from the open invoices; this task is closed.</div>
-                          </div>
-                        </button>
-                      </div>
+                       <button
+                         type="button"
+                         className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-red-50 hover:border-red-300 transition-colors"
+                         onClick={() => setFuMode("escalate")}
+                       >
+                         <ArrowUpCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                         <div>
+                           <div className="text-sm font-medium">Escalate</div>
+                           <div className="text-xs text-muted-foreground">Hand this over to the Account Manager (or another team member).</div>
+                         </div>
+                       </button>
+                     </div>
                     )}
                     {fuMode === "next-task" && (
                       <div className="grid gap-2">
@@ -796,6 +866,30 @@ export default function TaskDetailDialog({
                           <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
                         </div>
                         <div className="grid gap-1">
+                          <Label className="text-xs">Watchers (optional — they follow the escalated task)</Label>
+                          <div className="flex flex-wrap gap-1">
+                            {(teamMembers ?? []).map(m => {
+                              const selected = escWatcherIds.includes(m.id);
+                              return (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${selected ? "border-transparent text-white" : "bg-white hover:bg-muted"}`}
+                                  style={selected ? { backgroundColor: watcherColor(m.name) } : undefined}
+                                  onClick={() =>
+                                    setEscWatcherIds(prev =>
+                                      prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id]
+                                    )
+                                  }
+                                >
+                                  {selected && <CheckCircle2 className="h-3 w-3" />}
+                                  {m.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="grid gap-1">
                           <Label htmlFor="fu-es-note" className="text-xs">Note (optional)</Label>
                           <Textarea id="fu-es-note" rows={2} className="bg-white text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} placeholder="e.g. customer unresponsive after 3 calls" />
                         </div>
@@ -813,6 +907,7 @@ export default function TaskDetailDialog({
                                 taskId: task.id,
                                 assigneeId: fuAssignee ?? undefined,
                                 note: fuNotes || undefined,
+                                watcherIds: escWatcherIds.length > 0 ? escWatcherIds : undefined,
                               })
                             }
                           >
@@ -825,23 +920,25 @@ export default function TaskDetailDialog({
                 ) : null
               )}
 
-              {(task.status === "Pending" || task.status === "In Progress") && (
-                <div className="flex gap-2 justify-end pt-1">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1 text-emerald-700"
-                    onClick={() => {
-                      setStatus.mutate({ id: task.id, status: "Completed" });
-                      onOpenChange(false);
-                    }}
-                  >
-                    <CheckCircle2 className="h-4 w-4" /> Mark Done
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1 text-muted-foreground"
+             {(task.status === "Pending" || task.status === "In Progress") && (
+               <div className="flex gap-2 justify-end pt-1">
+                  {!(task.promise && task.promise.status === "Pending") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 text-emerald-700"
+                      onClick={() => {
+                        setStatus.mutate({ id: task.id, status: "Completed" });
+                        onOpenChange(false);
+                      }}
+                    >
+                      <CheckCircle2 className="h-4 w-4" /> Mark Done
+                    </Button>
+                  )}
+                 <Button
+                   size="sm"
+                   variant="outline"
+                   className="gap-1 text-muted-foreground"
                     onClick={() => {
                       setStatus.mutate({ id: task.id, status: "Cancelled" });
                       onOpenChange(false);

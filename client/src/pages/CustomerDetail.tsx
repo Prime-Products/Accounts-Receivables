@@ -7,6 +7,7 @@ import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { hideSettled, countSettled } from "@/lib/invoiceFilters";
 import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, FileDown, HandCoins, Layers, Plus } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, FileDown, HandCoins, Layers, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -50,6 +51,8 @@ export default function CustomerDetail() {
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
+  // Settled invoices are hidden by default (same rule as the group card).
+  const [showPaid, setShowPaid] = useState(false);
 
   const exportSoa = trpc.reports.export.useMutation({
     onSuccess: r => {
@@ -74,15 +77,17 @@ export default function CustomerDetail() {
   const agingAny = aging as any;
   const now = Date.now();
   const visibleInvoices = invoices.filter(i => {
+    if (hideSettled(i as any, showPaid, statusFilter)) return false;
     if (statusFilter !== "all" && i.status !== statusFilter) return false;
     if (installmentFilter === "installments" && !(i as any).isContractInstallment) return false;
     return true;
   });
+  const paidHiddenCount = countSettled(invoices as any);
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <Button variant="ghost" size="sm" className="gap-1 -ml-2" onClick={() => navigate("/customers")}>
-        <ArrowLeft className="h-4 w-4" /> Customers
+        <ArrowLeft className="h-4 w-4" /> Collections
       </Button>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -332,10 +337,20 @@ export default function CustomerDetail() {
             <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-1 flex-wrap">
               <div className="text-xs text-muted-foreground">
                 {statusFilter === "all"
-                  ? `${invoices.length} invoices`
+                  ? `${visibleInvoices.length} invoice(s)${!showPaid && paidHiddenCount > 0 ? ` · ${paidHiddenCount} settled hidden` : ""}`
                   : `${visibleInvoices.length} ${statusFilter} invoice(s) · outstanding ${fmtEur(visibleInvoices.reduce((s, i) => s + Number((i as any).amountEur != null && Number(i.amount) > 0 ? ((Number(i.amount) - Number(i.paidAmount)) / Number(i.amount)) * Number((i as any).amountEur) : Number(i.amount) - Number(i.paidAmount)), 0))}`}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant={showPaid ? "secondary" : "ghost"}
+                className="h-8 px-2.5 text-xs gap-1.5 border"
+                onClick={() => setShowPaid(p => !p)}
+                title={showPaid ? "Hide fully paid invoices" : "Also show fully paid invoices"}
+              >
+                {showPaid ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                {showPaid ? "Hide paid" : `Show paid${paidHiddenCount > 0 ? ` (${paidHiddenCount})` : ""}`}
+              </Button>
               <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-44 h-8 text-xs">

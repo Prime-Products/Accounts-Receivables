@@ -5,34 +5,37 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { downloadBase64 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { Mail, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { FileDown, Mail, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 interface SendEmailDialogProps {
   companies: { id: number; name: string; email?: string | null; contactPerson?: string | null }[];
   defaultCustomerId?: number;
+  /** When set, the SOA attachment covers the whole group (per-company statements). */
+  groupName?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
 
-const emailTemplates = {
-  "Friendly Reminder": {
-    subject: "Payment Reminder - Invoice Outstanding",
-    body: "Dear Valued Customer,\n\nWe hope this message finds you well. We noticed that you have an outstanding invoice with us.\n\nPlease arrange payment at your earliest convenience. If you have already processed this payment, please disregard this message.\n\nShould you have any questions, please don't hesitate to contact us.\n\nBest regards",
-  },
-  "Final Notice": {
-    subject: "Final Notice - Urgent Payment Required",
-    body: "Dear Valued Customer,\n\nThis is a final notice regarding your overdue invoice. Immediate payment is required to avoid further action.\n\nPlease remit payment immediately. If payment has already been made, please provide proof of payment.\n\nFor urgent matters, please contact our accounting department directly.\n\nBest regards",
-  },
-  Statement: {
-    subject: "Your Account Statement",
-    body: "Dear Valued Customer,\n\nPlease find attached your account statement for your review.\n\nIf you have any questions regarding the items listed, please contact us promptly.\n\nThank you for your business.\n\nBest regards",
-  },
-};
+/**
+ * All templates are rendered server-side from the (editable) text stored in
+ * Settings → Email Templates, with {{placeholders}} filled from live figures.
+ * Only "Custom" is left entirely to the user.
+ */
+const smartTemplates = [
+  "SOA",
+  "Payment Reminder",
+  "Overdue Notice",
+  "Friendly Reminder",
+  "Final Notice",
+  "Statement",
+] as const;
+type SmartTemplate = (typeof smartTemplates)[number];
 
-export default function SendEmailDialog({ companies, defaultCustomerId, open: externalOpen, onOpenChange }: SendEmailDialogProps) {
+export default function SendEmailDialog({ companies, defaultCustomerId, groupName, open: externalOpen, onOpenChange }: SendEmailDialogProps) {
   const utils = trpc.useUtils();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = externalOpen !== undefined ? externalOpen : internalOpen;
@@ -47,11 +50,14 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
   const [selectedContactId, setSelectedContactId] = useState<number | null>(null);
   const [recipientEmail, setRecipientEmail] = useState("");
   const [recipientName, setRecipientName] = useState("");
-  const [templateType, setTemplateType] = useState<"Friendly Reminder" | "Final Notice" | "Statement" | "Custom">(
-    "Friendly Reminder"
-  );
+  const [templateType, setTemplateType] = useState<
+    "SOA" | "Payment Reminder" | "Overdue Notice" | "Friendly Reminder" | "Final Notice" | "Statement" | "Custom"
+  >("SOA");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  // Whether the user has manually edited subject/body since picking a template —
+  // if so, we stop auto-overwriting with server prefill.
+  const [dirty, setDirty] = useState(false);
   const [addingContact, setAddingContact] = useState(false);
   const [newContactName, setNewContactName] = useState("");
   const [newContactEmail, setNewContactEmail] = useState("");
@@ -63,9 +69,27 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
     { enabled: !!customerId }
   );
 
+  const isSmart = (smartTemplates as readonly string[]).includes(templateType);
+  const { data: prefill, isFetching: prefillLoading } = trpc.calls.emailPrefill.useQuery(
+    { customerId: customerId!, template: templateType as SmartTemplate },
+    { enabled: open && !!customerId && isSmart }
+  );
+  // Apply server prefill whenever it arrives (unless the user already edited).
+  useEffect(() => {
+    if (prefill && isSmart && !dirty) {
+      setSubject(prefill.subject);
+      setBody(prefill.body);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill, templateType, isSmart]);
+
+  // SOA file export (attached manually in Outlook after auto-download).
+  const exportSoa = trpc.reports.export.useMutation({
+    onError: e => toast.error(`SOA download failed: ${e.message}`),
+  });
+
   const sendEmail = trpc.calls.sendGroupEmail.useMutation({
     onSuccess: () => {
-      toast.success("Email sent successfully");
       utils.calls.invalidate();
       setOpen(false);
       resetForm();
@@ -91,23 +115,26 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
     setSelectedContactId(null);
     setRecipientEmail("");
     setRecipientName("");
-    setTemplateType("Friendly Reminder");
+    setTemplateType("SOA");
     setSubject("");
     setBody("");
+    setDirty(false);
   };
 
   const handleTemplateChange = (template: string) => {
     setTemplateType(template as any);
-    if (template !== "Custom") {
-      const t = emailTemplates[template as keyof typeof emailTemplates];
-      setSubject(t.subject);
-      setBody(t.body);
+    setDirty(false);
+    if ((smartTemplates as readonly string[]).includes(template)) {
+      // Server prefill will arrive via the query; clear stale content meanwhile.
+      setSubject("");
+      setBody("");
     }
   };
 
   const handleCustomerChange = (id: number) => {
     setCustomerId(id);
     setSelectedContactId(null);
+    setDirty(false);
     const company = companies.find(c => c.id === id);
     if (company) {
       setRecipientEmail(company.email || "");
@@ -139,6 +166,40 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
   };
 
   const isFormValid = customerId && recipientEmail && subject && body;
+
+  /**
+   * Send flow: (1) for SOA — download the statement file so the user can attach
+   * it, (2) open Outlook (default mail app) with recipient/subject/body ready,
+   * (3) record the email in history + activity log.
+   */
+  const handleSend = async () => {
+    if (!customerId || !recipientEmail || !subject || !body) return;
+    if (templateType === "SOA") {
+      try {
+        // Whole-group statement (per-company, sample layout) when a group is
+        // known; otherwise single-customer statement.
+        const r = groupName
+          ? await exportSoa.mutateAsync({ report: "soa-group", format: "pdf", group: groupName })
+          : await exportSoa.mutateAsync({ report: "soa", format: "pdf", customerId });
+        downloadBase64(r.filename, r.mimeType, r.base64);
+        toast.success("SOA downloaded — attach it in Outlook before sending");
+      } catch {
+        // toast already shown by onError; continue to open the email anyway
+      }
+    }
+    // Open the default mail client (Outlook) with everything prefilled.
+    const mailto = `mailto:${encodeURIComponent(recipientEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailto;
+    toast.success("Opening Outlook…");
+    sendEmail.mutate({
+      customerId,
+      recipientEmail,
+      recipientName: recipientName || undefined,
+      templateType,
+      subject,
+      body,
+    });
+  };
 
   return (
     <Dialog
@@ -274,12 +335,40 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
                 <SelectValue placeholder="Select template…" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="SOA">SOA — Statement of Account (with attachment)</SelectItem>
+                <SelectItem value="Payment Reminder">Payment Reminder</SelectItem>
+                <SelectItem value="Overdue Notice">Overdue Notice</SelectItem>
                 <SelectItem value="Friendly Reminder">Friendly Reminder</SelectItem>
                 <SelectItem value="Final Notice">Final Notice</SelectItem>
                 <SelectItem value="Statement">Statement</SelectItem>
                 <SelectItem value="Custom">Custom</SelectItem>
               </SelectContent>
             </Select>
+            {isSmart && prefillLoading && (
+              <div className="text-xs text-muted-foreground">Preparing content from live figures…</div>
+            )}
+            {isSmart && !prefillLoading && (
+              <div className="text-xs text-muted-foreground">
+                Wording comes from Settings → Email Templates; figures are filled in automatically.
+              </div>
+            )}
+            {isSmart && prefill && (
+              <div className="text-xs text-muted-foreground">
+                {prefill.openCount} open invoice{prefill.openCount === 1 ? "" : "s"} · outstanding €
+                {prefill.openTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                {prefill.overdueCount > 0 &&
+                  ` · overdue €${prefill.overdueTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+              </div>
+            )}
+            {templateType === "SOA" && (
+              <div className="text-xs rounded-md border border-blue-200 bg-blue-50 text-blue-900 p-2 flex items-start gap-1.5">
+                <FileDown className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>
+                  On Send, the SOA (PDF) downloads automatically and Outlook opens with the text ready — just attach
+                  the downloaded file and press Send in Outlook.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Subject */}
@@ -289,7 +378,10 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
               type="text"
               placeholder="Email subject"
               value={subject}
-              onChange={e => setSubject(e.target.value)}
+              onChange={e => {
+                setSubject(e.target.value);
+                setDirty(true);
+              }}
             />
           </div>
 
@@ -299,8 +391,11 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
             <Textarea
               placeholder="Email body"
               value={body}
-              onChange={e => setBody(e.target.value)}
-              rows={6}
+              onChange={e => {
+                setBody(e.target.value);
+                setDirty(true);
+              }}
+              rows={10}
               className="resize-none"
             />
           </div>
@@ -309,19 +404,13 @@ export default function SendEmailDialog({ companies, defaultCustomerId, open: ex
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button disabled={!isFormValid || sendEmail.isPending} onClick={() => {
-            if (customerId && recipientEmail && subject && body) {
-              sendEmail.mutate({
-                customerId,
-                recipientEmail,
-                recipientName: recipientName || undefined,
-                templateType,
-                subject,
-                body,
-              });
-            }
-          }}>
-            {sendEmail.isPending ? "Sending…" : "Send Email"}
+          <Button
+            className="gap-1.5"
+            disabled={!isFormValid || sendEmail.isPending || exportSoa.isPending}
+            onClick={handleSend}
+          >
+            <Mail className="h-4 w-4" />
+            {exportSoa.isPending ? "Preparing SOA…" : sendEmail.isPending ? "Opening…" : "Send via Outlook"}
           </Button>
         </DialogFooter>
       </ResizableDialogContent>

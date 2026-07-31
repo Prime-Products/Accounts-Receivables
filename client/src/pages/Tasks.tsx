@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
+import { WatcherStack } from "@/components/WatcherStack";
 import { fmtDate, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { CheckCircle2, FileText, ListChecks, Search, XCircle } from "lucide-react";
@@ -23,6 +24,7 @@ export default function Tasks() {
     task: 280,
     invoice: 120,
     assignee: 150,
+    watchers: 110,
     due: 110,
     status: 110,
     actions: 120,
@@ -169,7 +171,8 @@ export default function Tasks() {
                       ["customer", "Group"],
                       ["task", "Task"],
                       ["invoice", "Invoice"],
-                      ["assignee", "Assignee"],
+                      ["assignee", "Assigned to"],
+                      ["watchers", "Watchers"],
                       ["due", "Due"],
                       ["status", "Status"],
                     ] as const
@@ -241,6 +244,9 @@ export default function Tasks() {
                           ))}
                         </SelectContent>
                       </Select>
+                    </TableCell>
+                    <TableCell className="overflow-hidden">
+                      <WatcherStack watchers={((t as any).watchers ?? []) as any} max={3} size="sm" />
                     </TableCell>
                     <TableCell className="text-sm">
                       {fmtDate(t.dueDate)}

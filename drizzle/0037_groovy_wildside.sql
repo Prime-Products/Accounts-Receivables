@@ -1,0 +1,1 @@
+ALTER TABLE `email_history` MODIFY COLUMN `templateType` enum('SOA','Payment Reminder','Overdue Notice','Friendly Reminder','Final Notice','Statement','Custom') NOT NULL;

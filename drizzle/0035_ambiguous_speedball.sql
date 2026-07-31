@@ -1,0 +1,1 @@
+ALTER TABLE `group_confirmation_status` MODIFY COLUMN `status` enum('Not Contacted','Confirmed','Pending Follow-up','Broken','Kept','Escalated') NOT NULL DEFAULT 'Not Contacted';
