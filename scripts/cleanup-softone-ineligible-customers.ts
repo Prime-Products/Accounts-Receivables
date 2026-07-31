@@ -1,16 +1,17 @@
 import "dotenv/config";
 import mysql, { type RowDataPacket } from "mysql2/promise";
+import { queryEligibleSoftOneCustomerMembership } from "../server/lib/softoneSql";
 import {
-  openSoftOneSqlPool,
-  queryCustomersInPages,
-} from "../server/lib/softoneSql";
+  cleanupPreviewLimit,
+  findIneligibleSoftOneCustomers,
+  selectCleanupPreviewRows,
+  type SoftOneCleanupCustomer,
+} from "../server/lib/softoneCustomerCleanup";
+import { withSoftOneSyncLock } from "../server/lib/softoneSyncLock";
 
 const REQUIRED_CONFIRMATION = "true";
 
-type CustomerRow = RowDataPacket & {
-  id: number;
-  softoneId: string | null;
-};
+type CustomerRow = RowDataPacket & SoftOneCleanupCustomer;
 
 async function countDependencies(
   connection: mysql.Connection,
@@ -61,8 +62,9 @@ async function countDependencies(
   return blockers;
 }
 
-async function main() {
+async function runCleanup(apply: boolean) {
   if (
+    apply &&
     process.env.SOFTONE_INVALID_CUSTOMER_CLEANUP_ENABLED !==
     REQUIRED_CONFIRMATION
   ) {
@@ -72,28 +74,24 @@ async function main() {
   }
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required.");
 
-  const softOne = await openSoftOneSqlPool();
-  let validRows: Record<string, unknown>[];
-  try {
-    validRows = await queryCustomersInPages(softOne);
-  } finally {
-    await softOne.close();
-  }
+  const validRows = await queryEligibleSoftOneCustomerMembership();
   const validIds = new Set(validRows.map(row => String(row.TRDR)));
 
   const connection = await mysql.createConnection(process.env.DATABASE_URL);
   try {
-    await connection.beginTransaction();
+    if (apply) await connection.beginTransaction();
     const [allCustomers] = await connection.query<CustomerRow[]>(
-      `SELECT id, softoneId FROM customers
+      `SELECT id, code, name, customerGroup, softoneId
+       FROM customers
        WHERE softoneId IS NOT NULL
-       FOR UPDATE`,
+       ${apply ? "FOR UPDATE" : ""}`,
     );
-    const invalidCustomers = allCustomers.filter(
-      customer => customer.softoneId && !validIds.has(customer.softoneId),
+    const invalidCustomers = findIneligibleSoftOneCustomers(
+      allCustomers,
+      validIds,
     );
     if (invalidCustomers.length === 0) {
-      await connection.rollback();
+      if (apply) await connection.rollback();
       console.log("No ineligible SoftOne customer records found; nothing changed.");
       return;
     }
@@ -105,17 +103,65 @@ async function main() {
     >(
       `SELECT id, softoneId FROM invoices
        WHERE customerId IN (${customerMarks})
-       FOR UPDATE`,
+       ${apply ? "FOR UPDATE" : ""}`,
       customerIds,
     );
-    if (invoiceRows.some(invoice => !invoice.softoneId)) {
+    const invoiceIds = invoiceRows.map(invoice => invoice.id);
+    const blockers = await countDependencies(connection, customerIds, invoiceIds);
+    const hasNonSoftOneInvoices = invoiceRows.some(invoice => !invoice.softoneId);
+
+    if (!apply) {
+      const search = process.env.SOFTONE_INVALID_CUSTOMER_PREVIEW_SEARCH;
+      const limit = cleanupPreviewLimit(
+        process.env.SOFTONE_INVALID_CUSTOMER_PREVIEW_LIMIT,
+      );
+      const previewRows = selectCleanupPreviewRows(
+        invalidCustomers,
+        search,
+        limit,
+      );
+      console.log(
+        `Ineligible SoftOne cleanup preview: ${invalidCustomers.length} customer(s), ` +
+          `${invoiceRows.length} invoice(s), ${previewRows.length} displayed.`,
+      );
+      for (const customer of previewRows) {
+        console.log(
+          JSON.stringify({
+            id: customer.id,
+            softoneId: customer.softoneId,
+            code: customer.code,
+            name: customer.name,
+            customerGroup: customer.customerGroup,
+          }),
+        );
+      }
+      if (search && previewRows.length === 0) {
+        console.log(`No preview rows matched search ${JSON.stringify(search)}.`);
+      }
+      if (hasNonSoftOneInvoices) {
+        console.log(
+          "Cleanup blocked: at least one ineligible customer has a non-SoftOne invoice.",
+        );
+      }
+      if (blockers.length > 0) {
+        console.log(
+          `Cleanup blocked by operational dependencies (${blockers.join(", ")}).`,
+        );
+      }
+      if (!hasNonSoftOneInvoices && blockers.length === 0) {
+        console.log(
+          "Cleanup is eligible to apply after this preview is reviewed.",
+        );
+      }
+      console.log("Preview completed; no data was changed.");
+      return;
+    }
+
+    if (hasNonSoftOneInvoices) {
       throw new Error(
         "Cleanup stopped: an ineligible customer has a non-SoftOne invoice.",
       );
     }
-
-    const invoiceIds = invoiceRows.map(invoice => invoice.id);
-    const blockers = await countDependencies(connection, customerIds, invoiceIds);
     if (blockers.length > 0) {
       throw new Error(
         `Cleanup stopped; operational dependencies found (${blockers.join(", ")}). No data was changed.`,
@@ -136,10 +182,26 @@ async function main() {
       `Ineligible SoftOne cleanup completed: ${customerResult.affectedRows} customers and ${invoiceResult.affectedRows} invoices removed.`,
     );
   } catch (error) {
-    await connection.rollback();
+    if (apply) await connection.rollback();
     throw error;
   } finally {
     await connection.end();
+  }
+}
+
+async function main() {
+  const apply = process.argv.includes("--apply");
+  const unknownArguments = process.argv
+    .slice(2)
+    .filter(argument => argument !== "--apply");
+  if (unknownArguments.length > 0) {
+    throw new Error(`Unknown cleanup argument: ${unknownArguments.join(", ")}`);
+  }
+  const execution = await withSoftOneSyncLock(() => runCleanup(apply));
+  if (!execution.acquired) {
+    throw new Error(
+      "SoftOne synchronization is already running; cleanup did not start.",
+    );
   }
 }
 

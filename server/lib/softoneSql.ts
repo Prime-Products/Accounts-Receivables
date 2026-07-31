@@ -271,6 +271,10 @@ async function queryCustomersWithRecycledPools() {
   }
 }
 
+export async function queryEligibleSoftOneCustomerMembership() {
+  return queryCustomersWithRecycledPools();
+}
+
 export function isSoftOneSqlConfigured() {
   return [
     "SOFTONE_SQL_SERVER",
