@@ -11,7 +11,9 @@ const SOFTONE_FINANCIAL_BATCH_SIZE = 50;
 const SOFTONE_CUSTOMER_PAGE_SIZE = 500;
 const MAX_SOFTONE_CUSTOMER_PAGES = 200;
 const SOFTONE_QUERY_WATCHDOG_MS = 45_000;
-const SOFTONE_REQUESTS_PER_CONNECTION = 5;
+// The production unixODBC session can enter HY010 after even one successful
+// result set, so every read uses a fresh connection.
+const SOFTONE_REQUESTS_PER_CONNECTION = 1;
 
 // Keep financial values and text names in separate result sets. The production
 // unixODBC driver can return HY010 when variable-length text is fetched
