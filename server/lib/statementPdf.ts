@@ -14,6 +14,7 @@ const BLACK = "#111111";
 const GRAY = "#777777";
 const ZEBRA = "#F5F5F5";
 const LINE = "#333333";
+const BLUE = "#1A56A0";
 
 const M = 40; // page margin
 const PW = 595.28; // A4 portrait width
@@ -195,36 +196,36 @@ function renderCompany(doc: PDFKit.PDFDocument, company: CompanyStatement, date:
   }
 }
 
-function renderHeader(doc: PDFKit.PDFDocument, company: CompanyStatement, date: number) {
-  // Brand (text-based logo block, top-right)
-  doc.font(FONT_BOLD).fontSize(16).fillColor(BLACK).text("PRIME", PW - M - 130, M, { width: 130, align: "right" });
-  doc.font(FONT_BOLD).fontSize(8).fillColor(GRAY).text("P R O D U C T S", PW - M - 130, M + 18, { width: 130, align: "right" });
-  // Title
-  doc.font(FONT_BOLD).fontSize(18).fillColor(RED).text("STATEMENT OF ACCOUNT", M, M + 6, { width: CW - 140 });
-  doc.y = M + 40;
+/** Shared brand block, top-right — identical on the cover and company pages. */
+function renderBrandBlock(doc: PDFKit.PDFDocument) {
+  doc.font(FONT_BOLD).fontSize(13).fillColor(GRAY).text("STATEMENT OF ACCOUNT", PW - M - 220, M, { width: 220, align: "right" });
+  doc.font(FONT_BOLD).fontSize(11).fillColor(BLUE).text("PRIME PRODUCTS LTD", PW - M - 220, M + 16, { width: 220, align: "right" });
+  doc.font(FONT).fontSize(7.5).fillColor(GRAY).text("Industrial Safety Products Representation & Distribution", PW - M - 220, M + 30, { width: 220, align: "right" });
+}
 
-  // company / date / payment terms header row
-  const y0 = doc.y;
-  hline(doc, y0, LINE, 1);
-  doc.font(FONT_BOLD).fontSize(7.5).fillColor(BLACK);
-  doc.text("COMPANY", M, y0 + 4);
-  doc.text("DATE", M + 280, y0 + 4);
-  doc.text("PAYMENT TERMS", M + 380, y0 + 4);
-  hline(doc, y0 + 16, LINE, 0.5);
-  doc.font(FONT_BOLD).fontSize(8.5);
-  const nameH2 = doc.heightOfString(company.companyName.toUpperCase(), { width: 270 });
-  doc.text(company.companyName.toUpperCase(), M, y0 + 20, { width: 270 });
-  doc.font(FONT).text(fmtDate(date), M + 280, y0 + 20);
-  const terms = `${company.paymentTermsDays} days Credit / Πίστωση ${company.paymentTermsDays} ημερών`;
-  const termsH = doc.heightOfString(terms, { width: 140 });
-  doc.text(terms, M + 380, y0 + 20, { width: 140 });
-  const rowBottom = y0 + 20 + Math.max(16, nameH2 + 4, termsH + 4);
-  hline(doc, rowBottom, LINE, 1);
-  doc.y = rowBottom + 4;
+function renderHeader(doc: PDFKit.PDFDocument, company: CompanyStatement, date: number) {
+  renderBrandBlock(doc);
+
+  // left: red kicker + big company name — same pattern as the cover page
+  doc.font(FONT_BOLD).fontSize(12).fillColor(RED).text("COMPANY STATEMENT", M, M);
+  doc.font(FONT_BOLD).fontSize(19).fillColor(BLACK);
+  const nameH = doc.heightOfString(company.companyName.toUpperCase(), { width: CW - 240 });
+  doc.text(company.companyName.toUpperCase(), M, M + 16, { width: CW - 240 });
+  let y = M + 16 + nameH + 4;
+
+  // meta line: Date | Payment Terms
+  doc.font(FONT_BOLD).fontSize(9).fillColor(BLACK).text("Date: ", M, y, { continued: true });
+  doc.font(FONT).text(fmtDate(date), { continued: true });
+  doc.font(FONT_BOLD).text("   |   Payment Terms: ", { continued: true });
+  doc.font(FONT).text(`${company.paymentTermsDays} days Credit / Πίστωση ${company.paymentTermsDays} ημερών`);
+  y += 16;
+  hline(doc, y, LINE, 1.2);
+  doc.y = y + 6;
 }
 
 function sectionTitle(doc: PDFKit.PDFDocument, title: string) {
-  doc.font(FONT_BOLD).fontSize(14).fillColor(RED).text(title, M, doc.y + 6);
+  // gray uppercase section label — same style as the cover page sections
+  doc.font(FONT_BOLD).fontSize(11).fillColor(GRAY).text(title, M, doc.y + 8);
   doc.y += 4;
 }
 
@@ -257,10 +258,8 @@ function renderCoverPage(doc: PDFKit.PDFDocument, stmt: GroupStatement, newPage:
   const summary = buildGroupSummary(stmt);
   newPage();
 
-  // header: left = red kicker + group name; right = brand block
-  doc.font(FONT_BOLD).fontSize(13).fillColor(GRAY).text("STATEMENT OF ACCOUNT", PW - M - 220, M, { width: 220, align: "right" });
-  doc.font(FONT_BOLD).fontSize(11).fillColor("#1A56A0").text("PRIME PRODUCTS LTD", PW - M - 220, M + 16, { width: 220, align: "right" });
-  doc.font(FONT).fontSize(7.5).fillColor(GRAY).text("Industrial Safety Products Representation & Distribution", PW - M - 220, M + 30, { width: 220, align: "right" });
+  // header: left = red kicker + group name; right = shared brand block
+  renderBrandBlock(doc);
 
   doc.font(FONT_BOLD).fontSize(12).fillColor(RED).text("GROUP CONSOLIDATED SUMMARY", M, M);
   doc.font(FONT_BOLD).fontSize(19).fillColor(BLACK);

@@ -1211,3 +1211,4 @@
 - [x] Consolidated group summary cover page: currency total boxes (balance + overdue per currency)
 - [x] Master company index on cover: company rows with per-currency balances, overdue column, dash for zeros
 - [x] Each company statement starts on a new page after the cover
+- [x] Unify SOA PDF style: company pages get same header/brand block and section styling as the cover page

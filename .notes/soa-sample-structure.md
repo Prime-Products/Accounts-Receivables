@@ -141,3 +141,11 @@ Remaining minor overlaps seen:
 - Footer "DYNACOM — Summary — Page 1 of 2" on cover pages; company statements start page 3,
   each on fresh page with own footer numbering. ✔
 - MINERVA small group: 8 pages (1 cover + 7). Single-company statements skip cover (len>1 check).
+
+## Unified style verification (DYNACOM round 2)
+- Company pages now match cover style: red kicker, big black company name, meta line
+  Date | Payment Terms, heavy rule, gray section titles (TOTAL AMOUNTS / ANALYSIS). ✔
+- ISSUE: company pages show "STATEMENT OF ACCOUNT" TWICE — red kicker left AND gray brand
+  block right. Fix: change left kicker on company pages to "COMPANY STATEMENT" (red).
+- Round 3 verified: cover page unchanged & correct; company pages now "COMPANY STATEMENT"
+  red kicker left + brand block right — no duplicate title. All pages share one style. ✔
