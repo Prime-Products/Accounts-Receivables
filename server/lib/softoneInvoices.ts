@@ -8,7 +8,11 @@ import {
 } from "./softoneSql";
 
 const MAX_OPEN_INVOICES = 50_000;
-const SOFTONE_INVOICE_PAGE_SIZE = 100;
+// Keep each ODBC result set deliberately small. Some SoftOne documents expand
+// to many FINPAYTERMS rows and msnodesqlv8 can otherwise fail while fetching a
+// large page with HY010 (Function sequence error). Pagination remains keyed by
+// FINDOC, so reducing this value changes only the number of read-only queries.
+const SOFTONE_INVOICE_PAGE_SIZE = 25;
 const MAX_SOFTONE_INVOICE_PAGES = 500;
 const SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE = 250;
 const SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE = 250;

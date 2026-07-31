@@ -149,7 +149,7 @@ describe("SoftOne open invoice sync", () => {
       /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
     );
     expect(softOneOpenInvoiceFinancialsQuery).not.toContain("HAVING");
-    expect(softOneOpenInvoiceFinancialsQuery).toContain("TOP (100)");
+    expect(softOneOpenInvoiceFinancialsQuery).toContain("TOP (25)");
     expect(softOneOpenInvoiceFinancialsQuery).toContain(
       "FP_PAGE.[FINDOC] > 0",
     );
