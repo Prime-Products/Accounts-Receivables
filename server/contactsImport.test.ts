@@ -97,4 +97,17 @@ describe("imported contacts in the database", () => {
     });
     expect(groupless.map(g => g.id)).toEqual([]);
   });
+
+  it("every group with contacts is reachable through listByGroup semantics", async () => {
+    const [contacts, customers] = await Promise.all([listAllPaymentContacts(), listCustomers()]);
+    const byId = new Map(customers.map(c => [c.id, c]));
+    const groupOf = (customerId: number) => {
+      const cu = byId.get(customerId);
+      return cu ? (cu.customerGroup ?? "").trim() || cu.name : "";
+    };
+    // Mirrors the router: members are all customers sharing the resolved group name.
+    const memberGroups = new Set(customers.map(c => (c.customerGroup ?? "").trim() || c.name));
+    const unreachable = contacts.filter(c => !memberGroups.has(groupOf(c.customerId)));
+    expect(unreachable.map(c => c.id)).toEqual([]);
+  });
 });

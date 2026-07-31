@@ -329,6 +329,8 @@ export default function Customers() {
   const filtered = useMemo(() => {
     if (!data) return [];
     let rows = data.filter(c => {
+      // Contacts-only companies (never invoiced) belong to the directory, not to collections.
+      if ((c as { hasLedger?: boolean }).hasLedger === false) return false;
       const matchesSearch =
         !search ||
         c.name.toLowerCase().includes(search.toLowerCase()) ||

@@ -561,6 +561,11 @@ export const customersRouter = router({
         overdueBalance,
         overdueEomBalance: overdueEom.reduce((s, i) => s + outstanding(i), 0),
         overdueCount: overdue.length,
+        /**
+         * False for companies imported from the CRM purely so their contacts exist
+         * — they have never been invoiced and must stay out of the collections views.
+         */
+        hasLedger: custInvoices.length > 0,
         rating: ratingResult.rating,
         ratingScore: ratingResult.score,
         ratingFactors: ratingResult.factors,
@@ -697,8 +702,15 @@ export const customersRouter = router({
       }
     >();
     const groupInvoices = new Map<string, typeof invoices>();
+    /**
+     * Groups that have at least one invoice ever. Contacts-only companies (imported
+     * from the CRM so their people are reachable before they owe anything) must not
+     * appear in the collections worklist.
+     */
+    const groupsWithLedger = new Set<string>();
     for (const c of customers) {
       const key = (c.customerGroup ?? "").trim() || c.name;
+      if ((byCustomer.get(c.id) ?? []).length > 0) groupsWithLedger.add(key);
       let g = groups.get(key);
       if (!g) {
         g = { group: key, companyCount: 0, openBalance: 0, overdueBalance: 0, overdueEomBalance: 0, overdueCount: 0, openByCurrency: {}, branches: new Set(), overdue90Plus: 0, promisesKept: 0, promisesBroken: 0, turnoverYtd: 0, turnoverLastYear: 0, collected: 0, openPromiseDate: null, openPromiseId: null };
@@ -745,6 +757,7 @@ export const customersRouter = router({
       }
     }
     return Array.from(groups.values())
+      .filter(g => groupsWithLedger.has(g.group))
       .map(g => {
         const beh = groupBehavior.get(g.group);
         const forecastExpected = forecastByGroup.get(g.group) ?? 0;

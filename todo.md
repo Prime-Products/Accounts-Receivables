@@ -1227,4 +1227,10 @@
 - [x] Contacts page: group filter and department/position filter for the imported data
 - [x] Re-import contacts: keep every distinct person, not one row per shared company mailbox
 - [x] Prefer person-specific email over generic mailbox when a row has several addresses
+- [x] Contacts: drop the Company column, organise every contact by group instead
+- [x] New/Edit Contact dialog: pick a group rather than a company
+- [x] Check how many of the 5,970 unmatched CRM rows are AR customers under a different name spelling
+- [x] Import contacts of companies that have no current AR balance (customers exist only when they owe money)
+- [x] Keep directory-only companies (no invoices) out of the Collections groups and companies views
+- [x] Update test fixtures so suites asserting on customers.groups create a ledger invoice
 - [x] Rename "Customers" nav item + page title to "Collections" (route /customers unchanged, Groups stays the default sub-view)

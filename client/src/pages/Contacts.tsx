@@ -50,11 +50,30 @@ function ContactFormDialog({
 }) {
   const utils = trpc.useUtils();
   const { data: customers } = trpc.customers.list.useQuery(undefined, { enabled: open && !contact });
-  const [customerId, setCustomerId] = useState<string>(contact ? String(contact.customerId) : "");
+  const [groupName, setGroupName] = useState<string>("");
   const [name, setName] = useState(contact?.name ?? "");
   const [email, setEmail] = useState(contact?.email ?? "");
   const [phone, setPhone] = useState(contact?.phone ?? "");
   const [title, setTitle] = useState(contact?.title ?? "");
+
+  /**
+   * Contacts belong to a group. A group can span several legal entities, so we
+   * still need a customer row to attach to — pick the group's primary company
+   * behind the scenes and keep the choice a pure group choice for the user.
+   */
+  const groups = useMemo(() => {
+    if (!customers) return [] as { group: string; customerId: number }[];
+    const map = new Map<string, number>();
+    for (const c of customers) {
+      const g = ((c as { customerGroup?: string | null }).customerGroup ?? "").trim() || c.name;
+      if (!map.has(g)) map.set(g, c.id);
+      // A company whose own name equals the group name is the best representative.
+      if (c.name === g) map.set(g, c.id);
+    }
+    const out: { group: string; customerId: number }[] = [];
+    map.forEach((customerId, group) => out.push({ group, customerId }));
+    return out.sort((a, b) => a.group.localeCompare(b.group));
+  }, [customers]);
 
   const onDone = () => {
     utils.paymentContacts.listAll.invalidate();
@@ -90,12 +109,13 @@ function ContactFormDialog({
         title: title.trim() || undefined,
       });
     } else {
-      if (!customerId) {
-        toast.error("Select a company");
+      const target = groups.find(g => g.group === groupName);
+      if (!target) {
+        toast.error("Select a group");
         return;
       }
       add.mutate({
-        customerId: Number(customerId),
+        customerId: target.customerId,
         name: name.trim(),
         email: email.trim(),
         phone: phone.trim() || undefined,
@@ -115,19 +135,19 @@ function ContactFormDialog({
         <div className="space-y-3">
           {contact ? (
             <div className="text-sm text-muted-foreground">
-              Company: <span className="font-medium text-foreground">{contact.companyName}</span>
+              Group: <span className="font-medium text-foreground">{contact.groupName}</span>
             </div>
           ) : (
             <div className="space-y-1.5">
-              <Label>Company *</Label>
-              <Select value={customerId || undefined} onValueChange={setCustomerId}>
+              <Label>Group *</Label>
+              <Select value={groupName || undefined} onValueChange={setGroupName}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select company…" />
+                  <SelectValue placeholder="Select group…" />
                 </SelectTrigger>
-                <SelectContent>
-                  {(customers ?? []).map(c => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name}
+                <SelectContent className="max-h-72">
+                  {groups.map(g => (
+                    <SelectItem key={g.group} value={g.group}>
+                      {g.group}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -176,12 +196,11 @@ export default function Contacts() {
   /** How many rows are rendered; the list holds ~1.4k contacts after the ERP import. */
   const [visibleCount, setVisibleCount] = useState(100);
   const cols = useResizableColumns("contacts", {
-    name: 230,
-    position: 150,
-    email: 260,
-    phone: 150,
-    company: 300,
-    group: 220,
+    name: 250,
+    position: 170,
+    email: 300,
+    phone: 160,
+    group: 300,
     actions: 90,
   });
   const [formOpen, setFormOpen] = useState(false);
@@ -230,7 +249,6 @@ export default function Contacts() {
         c.email.toLowerCase().includes(q) ||
         (c.phone ?? "").toLowerCase().includes(q) ||
         (c.title ?? "").toLowerCase().includes(q) ||
-        c.companyName.toLowerCase().includes(q) ||
         c.groupName.toLowerCase().includes(q)
       );
     });
@@ -265,7 +283,7 @@ export default function Contacts() {
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search by name, email, company, group…"
+            placeholder="Search by name, email, phone, group…"
             value={search}
             onChange={e => {
               setSearch(e.target.value);
@@ -334,7 +352,6 @@ export default function Contacts() {
                     ["position", "Position"],
                     ["email", "Email"],
                     ["phone", "Phone"],
-                    ["company", "Company"],
                     ["group", "Group"],
                   ] as const
                 ).map(([key, label]) => (
@@ -349,7 +366,7 @@ export default function Contacts() {
             <TableBody>
               {visible.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     {search || groupFilter !== "all" || positionFilter !== "all"
                       ? "No contacts match your filters"
                       : "No contacts yet — add your first one"}
@@ -385,9 +402,6 @@ export default function Contacts() {
                       ) : (
                         "—"
                       )}
-                    </TableCell>
-                    <TableCell className="truncate" title={c.companyName}>
-                      {c.companyName}
                     </TableCell>
                     <TableCell className="truncate">
                       <button
@@ -459,7 +473,7 @@ export default function Contacts() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete contact?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove {deleting?.name} ({deleting?.email}) from {deleting?.companyName}.
+              This will permanently remove {deleting?.name} ({deleting?.email}) from {deleting?.groupName}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

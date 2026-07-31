@@ -242,6 +242,24 @@ export async function updateCustomer(id: number, data: Partial<InsertCustomer>) 
   invalidateCache("customers:");
 }
 
+/**
+ * Bulk-creates customers, chunked to stay inside MySQL's placeholder limit.
+ * Used by the CRM contacts import to register directory-only companies
+ * (companies with people but no invoices yet).
+ */
+export async function createCustomersBulk(rows: InsertCustomer[], chunkSize = 200) {
+  if (rows.length === 0) return 0;
+  const db = await requireDb();
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    await db.insert(customers).values(chunk);
+    inserted += chunk.length;
+  }
+  invalidateCache("customers:");
+  return inserted;
+}
+
 // ---------- Invoices ----------
 export async function listInvoices(filter?: { customerId?: number; statuses?: string[] }) {
   const cacheable = !filter?.customerId && (!filter?.statuses || filter.statuses.length === 0);

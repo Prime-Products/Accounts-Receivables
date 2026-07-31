@@ -134,16 +134,41 @@ def phone(r):
             return p[:20]
     return None
 
+# Prime's own entities — internal staff, never customers.
+SELF_COMPANIES = {norm('PRIME PRODUCTS LTD'), norm('PRIME PRODUCTS')}
+
+def clean_company(s):
+    return re.sub(r'\s+', ' ', str(s).strip())[:255]
+
 records, seen = [], {}
-stats = dict(rows=0, no_company=0, unmatched=0, flagged=0, inactive=0, no_email=0, no_name=0, dupes=0)
+# Companies present in the CRM but absent from AR. They get created as
+# directory-only customers (no invoices) so their people are reachable and link
+# up automatically once the ERP sends the first invoice.
+new_companies = {}
+stats = dict(rows=0, no_company=0, unmatched=0, new_company=0, self_company=0,
+             flagged=0, inactive=0, no_email=0, no_name=0, dupes=0)
 for _, r in df.iterrows():
     stats['rows'] += 1
     cn = r['Name.1']
     if cn is None or pd.isna(cn):
         stats['no_company'] += 1; continue
+    nkey = norm(cn)
+    if nkey in SELF_COMPANIES:
+        stats['self_company'] += 1; continue
     m = cmap.get(norm(cn)) or gmap.get(norm(cn))
     if not m:
-        stats['unmatched'] += 1; continue
+        # Directory-only company: reuse a stable negative placeholder id so the
+        # importer knows it must create the customer first.
+        label = clean_company(cn)
+        if nkey not in new_companies:
+            new_companies[nkey] = dict(placeholderId=-(len(new_companies) + 1), name=label,
+                                       erpCode=None if pd.isna(r['Code.1']) else str(r['Code.1']).strip())
+            stats['new_company'] += 1
+        nc = new_companies[nkey]
+        m = (nc['placeholderId'], nc['name'], nc['name'], 'new')
+        stats['unmatched'] += 1
+    if not m:
+        continue
     flag = r['Table 01']
     if flag is not None and not pd.isna(flag) and str(flag).strip() in ('Invalid', 'Unsubscribe'):
         stats['flagged'] += 1; continue
@@ -188,9 +213,15 @@ for _, r in df.iterrows():
     seen[key] = (len(records), score)
     records.append(rec)
 
-json.dump(records, open("/tmp/contacts_import.json", "w"), ensure_ascii=False)
+payload = dict(
+    newCompanies=[dict(placeholderId=v['placeholderId'], name=v['name'], erpCode=v['erpCode'])
+                  for v in new_companies.values()],
+    contacts=records,
+)
+json.dump(payload, open("/tmp/contacts_import.json", "w"), ensure_ascii=False)
 print("STATS:", json.dumps(stats, indent=None))
 print("records to insert:", len(records))
+print("new directory-only companies:", len(new_companies))
 print("distinct customers:", len({r['customerId'] for r in records}))
 print("distinct groups:", len({r['group'] for r in records}))
 print("with phone:", sum(1 for r in records if r['phone']))
