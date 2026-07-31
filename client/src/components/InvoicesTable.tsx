@@ -8,13 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import NewTaskDialog from "@/components/NewTaskDialog";
+import { AllocateCreditNoteDialog } from "@/components/AllocateCreditNoteDialog";
+import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDialog";
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { invoiceDisplayStatus } from "@/lib/invoiceFilters";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, Send, Ship, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, Link2, Send, Ship, Undo2, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Link } from "wouter";
 
 // Lazy import to break the circular dependency (VesselDetailDialog renders InvoicesTable).
 const VesselDetailDialog = lazy(() =>
@@ -119,6 +120,48 @@ function sortValue(row: InvoiceRowData, key: SortKey): string | number {
 }
 
 /**
+ * The same sort value, but for ANY row of the transactions list. Credit notes and
+ * payments are ordered together with the invoices on every column — a click on
+ * "Vessel" or "Amount" must move all three kinds, not just the invoices.
+ *
+ * Credit notes and payments reduce the balance, so their amounts sort as negative
+ * numbers; the fields they do not have (due date, days overdue) sort as 0/empty.
+ */
+function txSortValue(row: TxRow, key: SortKey): string | number {
+  if (row.kind === "invoice") return sortValue(row.invoice, key);
+  if (row.kind === "credit") {
+    const c = row.credit;
+    switch (key) {
+      case "invoiceNumber": return c.docNumber ?? "";
+      case "customerName": return (c.customerName ?? "").toLowerCase();
+      case "vesselName": return (c.vesselName ?? "").toLowerCase();
+      case "company": return (c.branch ?? "").toLowerCase();
+      case "issueDate": return c.docDate ?? 0;
+      case "dueDate": return 0;
+      case "status": return "Credit note";
+      case "amount": return -(Number(c.amount) || 0);
+      case "paidAmount": return Number(c.allocated) || 0;
+      case "outstanding": return -(Number(c.openEur ?? c.open) || 0);
+      case "daysOverdue": return 0;
+    }
+  }
+  const t = row.transfer;
+  switch (key) {
+    case "invoiceNumber": return t.referenceNumber ?? "";
+    case "customerName": return (t.customerName ?? "").toLowerCase();
+    case "vesselName": return "";
+    case "company": return (t.branch ?? "").toLowerCase();
+    case "issueDate": return t.transferDate ?? 0;
+    case "dueDate": return 0;
+    case "status": return "Payment";
+    case "amount": return -(Number(t.amount) || 0);
+    case "paidAmount": return Number(t.allocated) || 0;
+    case "outstanding": return -(Number(t.unallocated) || 0);
+    case "daysOverdue": return 0;
+  }
+}
+
+/**
  * Shared invoice table used by the Invoices page, the group card and the customer card,
  * so every view shows exactly the same information and actions.
  */
@@ -142,6 +185,7 @@ function CreditNoteRow({
   return (
     <TableRow className="bg-sky-50/40 hover:bg-sky-50">
       {enableSelection && <TableCell className="w-8" />}
+      <TableCell className="text-xs whitespace-nowrap" title="Issue date of the credit note">{fmtDate(cn.docDate)}</TableCell>
       <TableCell className="font-mono text-xs whitespace-nowrap">
         <span className="inline-flex items-center gap-1" title={`Credit note ${cn.docNumber}`}>
           <FileMinus2 className="h-3.5 w-3.5 text-sky-600 shrink-0" aria-label="Credit note" role="img" />
@@ -170,11 +214,33 @@ function CreditNoteRow({
           {branchShort(cn.branch)}
         </Badge>
       </TableCell>
-      <TableCell className="text-xs whitespace-nowrap" title="Issue date of the credit note">{fmtDate(cn.docDate)}</TableCell>
       <TableCell className="text-xs whitespace-nowrap text-muted-foreground/60" title="A credit note has no due date">—</TableCell>
       <TableCell>
         <div className="flex flex-nowrap items-center gap-1">
           <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200">Credit note</Badge>
+          {cn.open > 0.005 && (
+            <AllocateCreditNoteDialog
+              creditNote={{
+                id: cn.id,
+                customerId: cn.customerId,
+                customerName: cn.customerName,
+                docNumber: cn.docNumber,
+                currency: cn.currency,
+                amount: cn.amount,
+                open: cn.open,
+              }}
+              trigger={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 gap-1 px-2 text-xs border-sky-200 text-sky-700 hover:bg-sky-100"
+                  title="Match this credit note against open invoices of the group"
+                >
+                  <Link2 className="h-3 w-3" /> Match
+                </Button>
+              }
+            />
+          )}
         </div>
       </TableCell>
       <TableCell className="text-right font-mono text-sm whitespace-nowrap text-sky-700">
@@ -207,8 +273,8 @@ function CreditNoteRow({
  * One payment (wire transfer) line inside the transactions list. Only transfers
  * with an unallocated remainder reach this list — fully allocated payments
  * disappear like paid invoices. Amounts are shown negative because a payment
- * reduces what the customer owes, and matching happens on the Wire Transfers
- * page, so this row only links there.
+ * reduces what the customer owes, and the remainder can be matched straight from
+ * this row with the same dialog the Wire Transfers page uses.
  */
 function PaymentRow({
   t,
@@ -224,6 +290,7 @@ function PaymentRow({
   return (
     <TableRow className="bg-emerald-50/40 hover:bg-emerald-50">
       {enableSelection && <TableCell className="w-8" />}
+      <TableCell className="text-xs whitespace-nowrap" title="Date the payment was received">{fmtDate(t.transferDate)}</TableCell>
       <TableCell className="font-mono text-xs whitespace-nowrap">
         <span className="inline-flex items-center gap-1" title={t.referenceNumber ? `Payment ref. ${t.referenceNumber}` : "Payment on account"}>
           <Banknote className="h-3.5 w-3.5 text-emerald-600 shrink-0" aria-label="Payment" role="img" />
@@ -247,7 +314,6 @@ function PaymentRow({
           <span className="text-muted-foreground/50 text-xs">—</span>
         )}
       </TableCell>
-      <TableCell className="text-xs whitespace-nowrap" title="Date the payment was received">{fmtDate(t.transferDate)}</TableCell>
       <TableCell className="text-xs whitespace-nowrap text-muted-foreground/60">—</TableCell>
       <TableCell>
         <div className="flex flex-nowrap items-center gap-1">
@@ -255,9 +321,29 @@ function PaymentRow({
           {t.status === "Pending" && (
             <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
           )}
-          <Link href="/wire-transfers" className="text-xs text-primary hover:underline whitespace-nowrap" title="Matching is done on the Wire Transfers page">
-            Allocate →
-          </Link>
+          {t.status === "Received" && (
+            <AllocateWireTransferDialog
+              transfer={{
+                id: t.id,
+                customerId: t.customerId,
+                customerName: t.customerName,
+                amount: t.amount,
+                currency: t.currency,
+                status: t.status,
+                allocatedAmount: t.allocated,
+              }}
+              trigger={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 gap-1 px-2 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                  title="Match this payment against open invoices of the group"
+                >
+                  <Link2 className="h-3 w-3" /> Allocate
+                </Button>
+              }
+            />
+          )}
         </div>
       </TableCell>
       <TableCell className="text-right font-mono text-sm whitespace-nowrap text-emerald-700">{neg(t.amount)}</TableCell>
@@ -314,11 +400,11 @@ export function InvoicesTable({
   // Per-row contract-installment toggle removed: the flag now comes only from DB sync / bulk Excel upload.
   const colDefaults = useMemo(() => {
     const d: Record<string, number> = {
+      issueDate: 100,
       invoiceNumber: 110,
       ...(showCustomer ? { customerName: 170 } : {}),
       vesselName: 100,
       company: 100,
-      issueDate: 100,
       dueDate: 100,
       status: 175,
       amount: 110,
@@ -345,31 +431,19 @@ export function InvoicesTable({
     }
   };
 
-  const sortedRows = useMemo(() => {
-    if (!sortKey) return rows;
-    const dir = sortDir === "asc" ? 1 : -1;
-    return [...rows].sort((a, b) => {
-      const va = sortValue(a, sortKey);
-      const vb = sortValue(b, sortKey);
-      if (typeof va === "string" && typeof vb === "string") return va.localeCompare(vb) * dir;
-      return ((va as number) - (vb as number)) * dir;
-    });
-  }, [rows, sortKey, sortDir]);
-
   /**
-   * Invoices and credit notes in ONE list. Default order is issue date, newest
-   * first — the way an account statement reads. When the user sorts by a column,
-   * invoices are sorted by that column and each credit note keeps its place by
-   * issue date, so the credit notes never pile up at one end of the table.
+   * Invoices, credit notes and payments in ONE list. Default order is issue date,
+   * newest first — the way an account statement reads. When the user sorts by a
+   * column, ALL three kinds are sorted together by that column, so sorting by
+   * vessel or amount moves the credit notes and payments as well.
    */
   const txRows = useMemo<TxRow[]>(() => {
-    const invoiceRows: TxRow[] = sortedRows.map(i => ({
+    const invoiceRows: TxRow[] = rows.map(i => ({
       kind: "invoice" as const,
       issueDate: i.issueDate ?? 0,
       sortId: i.id,
       invoice: i,
     }));
-    if (creditNotes.length === 0 && transfers.length === 0) return invoiceRows;
     const creditRows: TxRow[] = creditNotes.map(c => ({
       kind: "credit" as const,
       issueDate: c.docDate ?? 0,
@@ -382,22 +456,22 @@ export function InvoicesTable({
       sortId: t.id,
       transfer: t,
     }));
-    const extras = [...creditRows, ...transferRows];
-    if (sortKey) {
-      // Keep the user's invoice ordering, then drop credit notes and payments in
-      // by issue date relative to the invoices around them.
-      const merged = [...invoiceRows];
-      for (const cr of extras) {
-        const at = merged.findIndex(r => r.kind === "invoice" && r.issueDate <= cr.issueDate);
-        if (at === -1) merged.push(cr);
-        else merged.splice(at, 0, cr);
-      }
-      return merged;
+    const all = [...invoiceRows, ...creditRows, ...transferRows];
+    if (!sortKey) {
+      return all.sort((a, b) => b.issueDate - a.issueDate || b.sortId - a.sortId);
     }
-    return [...invoiceRows, ...extras].sort(
-      (a, b) => b.issueDate - a.issueDate || b.sortId - a.sortId,
-    );
-  }, [sortedRows, creditNotes, transfers, sortKey]);
+    const dir = sortDir === "asc" ? 1 : -1;
+    return all.sort((a, b) => {
+      const va = txSortValue(a, sortKey);
+      const vb = txSortValue(b, sortKey);
+      const cmp =
+        typeof va === "string" && typeof vb === "string"
+          ? va.localeCompare(vb)
+          : (va as number) - (vb as number);
+      // Stable tie-break, so equal values never shuffle between renders.
+      return cmp !== 0 ? cmp * dir : b.issueDate - a.issueDate || b.sortId - a.sortId;
+    });
+  }, [rows, creditNotes, transfers, sortKey, sortDir]);
 
   const selectedRows = useMemo(() => rows.filter(r => selectedIds.has(r.id)), [rows, selectedIds]);
   const toggleRow = (id: number) => {
@@ -408,11 +482,11 @@ export function InvoicesTable({
       return next;
     });
   };
-  const allVisibleSelected = sortedRows.length > 0 && sortedRows.every(r => selectedIds.has(r.id));
+  const allVisibleSelected = rows.length > 0 && rows.every(r => selectedIds.has(r.id));
   const toggleAll = () => {
     setSelectedIds(prev => {
       if (allVisibleSelected) return new Set();
-      return new Set(sortedRows.map(r => r.id));
+      return new Set(rows.map(r => r.id));
     });
   };
   // Default the task's customer to the customer of the first selected invoice (when known).
@@ -447,11 +521,11 @@ export function InvoicesTable({
                 <Checkbox checked={allVisibleSelected} onCheckedChange={toggleAll} aria-label="Select all invoices" />
               </TableHead>
             )}
+            <SortableHead label="Issue Date" k="issueDate" />
             <SortableHead label="Invoice" k="invoiceNumber" />
             {showCustomer && <SortableHead label="Customer" k="customerName" />}
             <SortableHead label="Vessel" k="vesselName" />
             <SortableHead label="Branch" k="company" />
-            <SortableHead label="Issue Date" k="issueDate" />
             <SortableHead label="Due Date" k="dueDate" />
             <SortableHead label="Status" k="status" />
             <SortableHead label="Amount" k="amount" align="right" />
@@ -487,6 +561,7 @@ export function InvoicesTable({
                   />
                 </TableCell>
               )}
+              <TableCell className="text-xs whitespace-nowrap" title="Issue date">{fmtDate(i.issueDate)}</TableCell>
               <TableCell className="font-mono text-xs whitespace-nowrap">
                 <span className="inline-flex items-center gap-1">
                   {i.invoiceNumber}
@@ -524,7 +599,6 @@ export function InvoicesTable({
                   {branchShort(i.company)}
                 </Badge>
               </TableCell>
-              <TableCell className="text-xs whitespace-nowrap" title="Issue date">{fmtDate(i.issueDate)}</TableCell>
               <TableCell className="text-xs whitespace-nowrap">{fmtDate(i.dueDate)}</TableCell>
               <TableCell>
                 {/* flex-nowrap: the primary badge and Disputed stay on one line

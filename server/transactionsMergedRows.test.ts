@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 /**
  * The transactions list of the customer/group card is ONE list: invoices, credit
  * notes and payments (wire transfers) share the same grid and are ordered by
- * issue date. Matching a payment happens on the Wire Transfers page only.
+ * issue date. Matching happens inline on the row itself — a credit note against
+ * open invoices, a received payment against open invoices — using the same
+ * dialogs the Wire Transfers page uses.
  */
 const table = readFileSync(new URL("../client/src/components/InvoicesTable.tsx", import.meta.url), "utf8");
 const customer = readFileSync(new URL("../client/src/pages/CustomerDetail.tsx", import.meta.url), "utf8");
@@ -31,11 +33,11 @@ describe("transactions list merges invoices, credit notes and payments", () => {
     expect(table).toContain("{fmtDate(t.transferDate)}");
   });
 
-  it("keeps allocation on the Wire Transfers page only", () => {
-    // No inline matching dialog inside the transactions list...
-    expect(table).not.toContain("AllocateCreditNoteDialog");
-    // ...just a link to the page that owns the allocation flow.
-    expect(table).toContain('href="/wire-transfers"');
+  it("offers matching inline on credit-note and payment rows", () => {
+    expect(table).toContain("AllocateCreditNoteDialog");
+    expect(table).toContain("AllocateWireTransferDialog");
+    // The old link out to the Wire Transfers page is gone.
+    expect(table).not.toContain('href="/wire-transfers"');
   });
 
   it("drops the old separate payments block from both cards", () => {

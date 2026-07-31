@@ -94,6 +94,8 @@ export function AllocateWireTransferDialog({
       utils.customers.listGroupOpenInvoices.invalidate({ customerId: transfer.customerId });
       utils.customers.getAllWireTransfers.invalidate();
       utils.invoices.invalidate();
+      utils.customers.get360.invalidate();
+      utils.customers.groupDetail.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -105,6 +107,10 @@ export function AllocateWireTransferDialog({
       utils.customers.listGroupOpenInvoices.invalidate({ customerId: transfer.customerId });
       utils.customers.getAllWireTransfers.invalidate();
       utils.invoices.invalidate();
+      // The transactions list on the customer/group card carries the payment
+      // rows, so both cards must refetch after a match changes.
+      utils.customers.get360.invalidate();
+      utils.customers.groupDetail.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });

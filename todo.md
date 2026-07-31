@@ -1318,3 +1318,12 @@
 - [x] Rescheduling an existing promise or follow-up also updates the assignee, keeping the previous owner as watcher
 - [x] New `team.myMember` procedure so pickers can default to the logged-in colleague
 - [x] Vitest coverage: task created for the chosen assignee, hand-over adds previous owner as watcher, unknown member rejected
+
+## Transactions list: unified sorting, Issue Date first, inline matching (user request 1/8)
+- [x] Sorting by any column moves invoices, credit notes and payments together (sorting by vessel no longer reorders only the amounts)
+- [x] Credit notes and payments sort as negative amounts, so a payment never ranks beside the biggest invoices
+- [x] Issue Date is the first column of the transactions table (header, all three row kinds, stored column widths)
+- [x] Match action restored on open credit-note rows
+- [x] Allocate action available inline on received payment rows (no more link to the Wire Transfers page)
+- [x] Allocating or removing an allocation refreshes the customer card and the group card as well
+- [x] Vitest coverage: unified sort helper, column order, inline Match / Allocate actions
