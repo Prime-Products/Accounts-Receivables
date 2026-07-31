@@ -5,6 +5,18 @@ import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
 import type { AuthenticatedUser } from "./_core/context";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 function createAuthContext(): TrpcContext {
   const user: AuthenticatedUser = {
     id: 1,
@@ -42,8 +54,7 @@ afterAll(async () => {
 describe("promise carryover — statuses stay active until their target date", () => {
   it("a Promise to Pay recorded last month stays Confirmed; when its date passes it stays Confirmed but flags taskOverdue", async () => {
     const caller = appRouter.createCaller(createAuthContext());
-    const customers = await db.listCustomers();
-    const cust = customers[0];
+    const cust = await getFixtureCustomer();
     expect(cust).toBeTruthy();
     const group = (cust.customerGroup ?? "").trim() || cust.name;
 
@@ -93,9 +104,10 @@ describe("promise carryover — statuses stay active until their target date", (
 describe("stale open promises — Not Contacted sweeps them", () => {
   it("a promise created directly (no Confirmed status) is cancelled when status is set to Not Contacted", async () => {
     const caller = appRouter.createCaller(createAuthContext());
-    const customers = await db.listCustomers();
+    const __fxc = await getFixtureCustomer();
+    const customers = [__fxc];
     const groupOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
-    const firstGroup = customers[0] ? groupOf(customers[0]) : "";
+    const firstGroup = groupOf(__fxc);
     // Pick a customer whose group differs from customers[0]'s group — groupForecast.test.ts
     // uses customers[0] concurrently, and our Not Contacted sweep would cancel its promise task.
     const cust = customers.find(c => groupOf(c) !== firstGroup) ?? customers[0];
@@ -120,9 +132,10 @@ describe("stale open promises — Not Contacted sweeps them", () => {
 describe("groups payload — promise date under badge", () => {
   it("a Confirmed group with an open promise exposes confirmationPromiseDate", async () => {
     const caller = appRouter.createCaller(createAuthContext());
-    const customers = await db.listCustomers();
+    const __fxc = await getFixtureCustomer();
+    const customers = [__fxc];
     const groupOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
-    const firstGroup = customers[0] ? groupOf(customers[0]) : "";
+    const firstGroup = groupOf(__fxc);
     const candidates = customers.filter(c => groupOf(c) !== firstGroup);
     const cust = candidates[1] ?? candidates[0] ?? customers[0];
     expect(cust).toBeTruthy();

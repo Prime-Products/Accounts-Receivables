@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { appRouter } from "./routers";
+import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 
 function callerAs(userId: number) {
   return appRouter.createCaller({
@@ -10,6 +11,14 @@ function callerAs(userId: number) {
 }
 
 describe("customers.groupPromises / groupNotes / groupAiSummary", () => {
+  let __snap: IdSnapshot;
+  beforeAll(async () => {
+    __snap = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap);
+  });
+
   it("lists promises for a group's member companies", async () => {
     const caller = callerAs(1);
     const groups = await caller.customers.groups({});

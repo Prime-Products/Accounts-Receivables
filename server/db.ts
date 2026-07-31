@@ -12,6 +12,7 @@ import {
   forecastEntries,
   groupConfirmationStatus,
   groupNotes,
+  groupCollectionProfile,
   groupWatchStatus,
   InsertActivityLog,
   InsertContract,
@@ -745,6 +746,28 @@ export async function updateGroupNote(id: number, content: string) {
 export async function deleteGroupNote(id: number) {
   const db = await requireDb();
   await db.delete(groupNotes).where(eq(groupNotes.id, id));
+}
+
+// ---------- Group collection profile (call preferences & particularities) ----------
+export async function getGroupCollectionProfile(groupName: string) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(groupCollectionProfile)
+    .where(eq(groupCollectionProfile.groupName, groupName))
+    .limit(1);
+  return rows[0] ?? null;
+}
+export async function upsertGroupCollectionProfile(
+  groupName: string,
+  notes: string,
+  updatedBy: number | null,
+) {
+  const db = await requireDb();
+  await db
+    .insert(groupCollectionProfile)
+    .values({ groupName, notes, updatedBy, updatedAt: Date.now() })
+    .onDuplicateKeyUpdate({ set: { notes, updatedBy, updatedAt: Date.now() } });
 }
 
 // ---------- Group status (unified workflow: Normal → Problematic → Critical → Legal / Resolved) ----------

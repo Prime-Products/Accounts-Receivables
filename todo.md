@@ -1038,3 +1038,60 @@
 - [x] When opening a Promise to Pay task (promise not kept), show actions: Reschedule promise (new date/amount) and Escalate (to Account Manager)
 - [x] Backend: reuse/extend promise reschedule to work from the task dialog
 - [x] Frontend: action panel in TaskDetailDialog for promise tasks
+
+## Rolling Status Flow Redesign (no full monthly reset)
+- [x] Month rollover: only reset groups whose status is Kept or Broken back to Not Contacted; keep Promise to Pay / Pending Follow-up statuses and their open tasks across months
+- [x] Backend: createNextTask procedure — from an open PTP/Follow-up task, create a new Promise to Pay (promise record + check task) or Pending Follow-up (follow-up task), update the group's confirmation status, and cancel the old task
+- [x] Backend: expose the group's open invoices (with due dates) for the next-task picker
+- [x] Frontend: TaskDetailDialog "Create next task" panel — choose PTP or Follow-up, see open invoices with due dates, set date/amount; old task is cancelled automatically
+- [x] Update month-rollover tests to the new partial-reset behavior; add tests for createNextTask
+
+## Open Balance card: due next month (user request 30/7)
+- [x] Backend: groupDetail returns dueNextMonth (open invoices due within next calendar month, EUR)
+- [x] Group card: Open Balance KPI shows "Due next month: €X" subtitle
+
+## Log Call: optional promise amount (user request 30/7)
+- [x] Backend: logCall accepts Promise to Pay without amount (date stays mandatory)
+- [x] Frontend: LogCallDialog no longer requires amount for Promise to Pay
+
+## Collection Notes per group (user request 30/7)
+- [x] Backend: collectionNotes field per group (schema + get/set procedures)
+- [x] Group card: always-visible editable Collection Notes box (call preferences, particularities)
+- [x] Log Call dialog: show the group's collection notes as a reminder
+- [x] AI Summary: include collection notes as context
+- [x] Vitest coverage for collection profile set/get roundtrip (with cleanup)
+- [x] Fixed remaining test-data pollution: cleanup hooks added to groupAiSummary + addPromise side-effects tests; purged leftover vitest rows from activity log
+
+## Unified "what happens next?" task action panel (user request 30/7)
+- [x] Promise to Pay tasks: same card-style panel as Follow-up (Reschedule, Escalate, Done — schedule next step); remove the invoice-check step from the PTP flow
+- [x] Pending Follow-up tasks: keep the card-style panel (Reschedule, Convert to Promise to Pay, Escalate, Done — schedule next step)
+- [x] Consistent visual style: icon cards with title + description, matching the reference screenshot
+- [x] Tasks page now uses the shared TaskDetailDialog (removed the old inline dialog that had no action panels)
+
+## Badge click / status sync flow (user request 30/7)
+- [x] Groups list badge (Promise to Pay / Pending Follow-up) must ALWAYS open the linked task — never the Log Call dialog directly
+- [x] Handle stale statuses: if the linked task is cancelled/closed but the status still says Pending Follow-up (e.g. MINERVA), fix the linkage or reset the status so the badge behaves consistently (resetStaleConfirmation mutation + auto-reset when a linked task is cancelled)
+- [x] Log Call should only be triggered from resolving a task as Kept or Not paid (the "Done — schedule next step" flow), not from the badge
+- [x] When a task is resolved Kept → group confirmation status becomes Kept; Not paid → Broken (automatic sync via updatePromise)
+
+## Test-isolation incident & recovery (30/7)
+- [x] Data recovery: rebuilt tasks + promises_to_pay from the audit trail after a faulty test cleanup wiped them (open tasks, statuses, amounts restored; activity log history not recoverable)
+- [x] Root-cause fix 1: guarded snapshot cleanup (no deletes when snapshot is unset)
+- [x] Root-cause fix 2: server/testFixtures.ts — all DB-mutating tests now create their own isolated fixture customers instead of touching real customers/groups (10 test files migrated)
+- [x] Fixture visibility: invalidate the customers micro-cache when fixtures are created/removed
+- [x] Full suite green (232 tests) with real data verified unchanged after the run
+
+## Transactions list on group/customer card (user request 30/7)
+- [x] Investigate wire transfers + allocation model (how allocations link transfers to invoices)
+- [x] Backend: groupDetail + get360 return openTransfers — wire transfers with unallocated remainder (fully allocated & internal hidden)
+- [x] Frontend: group card "Transactions" section — payments-on-account table above the invoice list (credit notes prepared for later)
+- [x] Same list on the customer card (shared UnallocatedTransfersTable, tab renamed Transactions)
+- [x] Vitest coverage for the transactions query (isolated fixtures) — 233 tests green
+- [x] Bugfix: stale "Open promise exists €7,777" in Log Call — closed 6 orphan Pending promises left from the audit recovery; user's own task cancellations respected
+## Net Open Balance (user request 30/7 — "προχωρά το 2")
+- [x] Backend: groupDetail returns unallocated payments total (EUR) and net open balance (invoices − unallocated transfers)
+- [x] Backend: get360 returns the same for the single customer
+- [x] Group card: Open Balance KPI shows net balance with breakdown line (invoices total − unallocated payments)
+- [x] Customer card: Open Balance KPI shows net balance with the same breakdown
+- [x] Vitest coverage for the net balance computation (isolated fixtures) — 235 tests green
+- [x] Cleanup: removed 41 orphaned test wire transfers; testFixtures cleanup now also deletes fixture transfers/allocations/invoices

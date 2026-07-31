@@ -10,6 +10,18 @@ import { getDb } from "./db";
 import { tasks as tasksTable, promisesToPay, activityLog as activityLogTable } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 function callerAs(userId: number) {
   return appRouter.createCaller({
     user: { id: userId, openId: "test-open-id", name: "Test User", email: null, loginMethod: "test", role: "admin" } as any,
@@ -97,11 +109,17 @@ describe("customers.groupActivity", () => {
 });
 
 describe("forecast.addPromise side effects", () => {
+  let __snap2: IdSnapshot;
+  beforeAll(async () => {
+    __snap2 = await snapshotIds();
+  });
+  afterAll(async () => {
+    await cleanupSince(__snap2);
+  });
+
   it("creates the promise, an activity-log entry, and a follow-up task due on the promised date", async () => {
     const caller = callerAs(1);
-    const customers = await db.listCustomers();
-    expect(customers.length).toBeGreaterThan(0);
-    const cust = customers[0];
+    const cust = await getFixtureCustomer();
     const groupKey = cust.customerGroup?.trim() ? cust.customerGroup.trim() : cust.name;
     const promisedDate = Date.UTC(2026, 7, 15); // 15 Aug 2026
 

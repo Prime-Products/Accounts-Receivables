@@ -93,11 +93,14 @@ export default function TaskDetailDialog({
   const [editingDue, setEditingDue] = useState(false);
   const [newDue, setNewDue] = useState("");
   // Follow-up task action panel: reschedule / convert to promise / escalate
-  const [fuMode, setFuMode] = useState<"none" | "reschedule" | "promise" | "escalate" | "reschedule-promise">("none");
+  const [fuMode, setFuMode] = useState<"none" | "reschedule" | "promise" | "escalate" | "reschedule-promise" | "next-task">("none");
   const [fuDate, setFuDate] = useState("");
   const [fuAmount, setFuAmount] = useState("");
   const [fuNotes, setFuNotes] = useState("");
   const [fuAssignee, setFuAssignee] = useState<number | null>(null);
+  // Next-task panel state
+  const [nextType, setNextType] = useState<"promise" | "follow-up">("promise");
+  const [resolveAs, setResolveAs] = useState<"Kept" | "Broken" | null>(null);
   useEffect(() => {
     if (!open) {
       setFuMode("none");
@@ -105,6 +108,8 @@ export default function TaskDetailDialog({
       setFuAmount("");
       setFuNotes("");
       setFuAssignee(null);
+      setNextType("promise");
+      setResolveAs(null);
     }
   }, [open]);
   const invalidateAll = () => {
@@ -151,6 +156,23 @@ export default function TaskDetailDialog({
     },
     onError: e => toast.error(e.message),
   });
+  const createNext = trpc.tasks.createNextTask.useMutation({
+    onSuccess: r => {
+      toast.success(
+        r.newPromiseId
+          ? "New Promise to Pay created — previous task closed"
+          : "New follow-up scheduled — previous task closed"
+      );
+      invalidateAll();
+      onOpenChange(false);
+    },
+    onError: e => toast.error(e.message),
+  });
+  const isTaskOpen = task ? task.status === "Pending" || task.status === "In Progress" : false;
+  const { data: openInv } = trpc.tasks.groupOpenInvoices.useQuery(
+    { taskId: task?.id ?? 0 },
+    { enabled: open && !!task && isTaskOpen && fuMode === "next-task" }
+  );
 
   return (
     <>
@@ -345,28 +367,138 @@ export default function TaskDetailDialog({
                   )}
                   {task.promise.status === "Pending" && (task.status === "Pending" || task.status === "In Progress") && (
                     <div className="border-t pt-2 mt-1 space-y-2">
+                      <div className="text-sm font-medium flex items-center gap-1.5 text-blue-900">
+                        <HandCoins className="h-4 w-4" /> Promise — what happens next?
+                      </div>
                       {fuMode === "none" && (
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-1 text-blue-700 h-7 px-2 text-xs"
+                        <div className="grid gap-1.5">
+                          <button
+                            type="button"
+                            className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-blue-50 hover:border-blue-300 transition-colors"
                             onClick={() => {
                               setFuAmount(String(task.promise!.amount ?? ""));
                               setFuDate(new Date(task.promise!.promisedDate).toISOString().slice(0, 10));
                               setFuMode("reschedule-promise" as any);
                             }}
                           >
-                            <CalendarClock className="h-3.5 w-3.5" /> Reschedule promise
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-1 text-red-700 h-7 px-2 text-xs"
+                            <CalendarClock className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                            <div>
+                              <div className="text-sm font-medium">Reschedule</div>
+                              <div className="text-xs text-muted-foreground">Move the promised payment to a new date.</div>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-red-50 hover:border-red-300 transition-colors"
                             onClick={() => setFuMode("escalate")}
                           >
-                            <ArrowUpCircle className="h-3.5 w-3.5" /> Escalate
-                          </Button>
+                            <ArrowUpCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                            <div>
+                              <div className="text-sm font-medium">Escalate</div>
+                              <div className="text-xs text-muted-foreground">Hand this over to the Account Manager (or another team member).</div>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-violet-50 hover:border-violet-300 transition-colors"
+                            onClick={() => {
+                              setResolveAs(null);
+                              setNextType("promise");
+                              setFuAmount("");
+                              setFuDate("");
+                              setFuMode("next-task");
+                            }}
+                          >
+                            <CheckCircle2 className="h-4 w-4 text-violet-600 mt-0.5 shrink-0" />
+                            <div>
+                              <div className="text-sm font-medium">Done — schedule next step</div>
+                              <div className="text-xs text-muted-foreground">Mark the promise Kept or Not paid and set the next Promise to Pay or Follow-up; this task is closed.</div>
+                            </div>
+                          </button>
+                        </div>
+                      )}
+                      {fuMode === "next-task" && (
+                        <div className="grid gap-2">
+                          <div className="text-xs font-medium text-muted-foreground">1 · How did the current promise end?</div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant={resolveAs === "Kept" ? "default" : "outline"}
+                              className={`h-7 px-2 text-xs gap-1 ${resolveAs === "Kept" ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "text-emerald-700"}`}
+                              onClick={() => setResolveAs("Kept")}
+                            >
+                              <ThumbsUp className="h-3.5 w-3.5" /> Kept (paid)
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={resolveAs === "Broken" ? "destructive" : "outline"}
+                              className={`h-7 px-2 text-xs gap-1 ${resolveAs === "Broken" ? "" : "text-red-700"}`}
+                              onClick={() => setResolveAs("Broken")}
+                            >
+                              <ThumbsDown className="h-3.5 w-3.5" /> Not paid
+                            </Button>
+                          </div>
+                          <div className="text-xs font-medium text-muted-foreground pt-1">2 · What is the next step?</div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant={nextType === "promise" ? "default" : "outline"}
+                              className="h-7 px-2 text-xs gap-1"
+                              onClick={() => setNextType("promise")}
+                            >
+                              <HandCoins className="h-3.5 w-3.5" /> Promise to Pay
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={nextType === "follow-up" ? "default" : "outline"}
+                              className="h-7 px-2 text-xs gap-1"
+                              onClick={() => setNextType("follow-up")}
+                            >
+                              <CalendarClock className="h-3.5 w-3.5" /> Pending Follow-up
+                            </Button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="grid gap-1">
+                              <Label htmlFor="nt-amount" className="text-xs">{nextType === "promise" ? "Promised amount (EUR)" : "Expected amount (optional)"}</Label>
+                              <Input id="nt-amount" type="number" min="0" step="0.01" className="h-8 bg-white" value={fuAmount} onChange={e => setFuAmount(e.target.value)} placeholder="0.00" />
+                            </div>
+                            <div className="grid gap-1">
+                              <Label htmlFor="nt-date" className="text-xs">{nextType === "promise" ? "Promised date" : "Follow-up date"}</Label>
+                              <Input id="nt-date" type="date" className="h-8 bg-white" value={fuDate} onChange={e => setFuDate(e.target.value)} />
+                            </div>
+                          </div>
+                          <div className="grid gap-1">
+                            <Label htmlFor="nt-notes" className="text-xs">Notes (optional)</Label>
+                            <Textarea id="nt-notes" rows={2} className="bg-white text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} />
+                          </div>
+                          <div className="flex justify-between">
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("none")}>
+                              <ArrowLeft className="h-3.5 w-3.5" /> Back
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="h-7 px-3 text-xs"
+                              disabled={
+                                !resolveAs ||
+                                !fuDate ||
+                                (nextType === "promise" && (!fuAmount || Number(fuAmount) <= 0)) ||
+                                createNext.isPending
+                              }
+                              onClick={() =>
+                                createNext.mutate({
+                                  taskId: task.id,
+                                  resolvePromise: resolveAs ?? undefined,
+                                  promiseId: task.promise!.id,
+                                  nextType,
+                                  amount: fuAmount ? Number(fuAmount) : undefined,
+                                  date: new Date(`${fuDate}T12:00:00`).getTime(),
+                                  notes: fuNotes || undefined,
+                                })
+                              }
+                            >
+                              Close & create next
+                            </Button>
+                          </div>
                         </div>
                       )}
                       {(fuMode as string) === "reschedule-promise" && (
@@ -494,6 +626,108 @@ export default function TaskDetailDialog({
                             <div className="text-xs text-muted-foreground">Hand this over to the Account Manager (or another team member).</div>
                           </div>
                         </button>
+                        <button
+                          type="button"
+                          className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-violet-50 hover:border-violet-300 transition-colors"
+                          onClick={() => {
+                            setResolveAs(null);
+                            setNextType("follow-up");
+                            setFuAmount("");
+                            setFuDate("");
+                            setFuMode("next-task");
+                          }}
+                        >
+                          <CheckCircle2 className="h-4 w-4 text-violet-600 mt-0.5 shrink-0" />
+                          <div>
+                            <div className="text-sm font-medium">Done — schedule next step</div>
+                            <div className="text-xs text-muted-foreground">Call finished — pick the next Promise to Pay or Follow-up from the open invoices; this task is closed.</div>
+                          </div>
+                        </button>
+                      </div>
+                    )}
+                    {fuMode === "next-task" && (
+                      <div className="grid gap-2">
+                        <div className="text-xs font-medium text-muted-foreground">Next step for this group</div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant={nextType === "promise" ? "default" : "outline"}
+                            className="h-7 px-2 text-xs gap-1"
+                            onClick={() => setNextType("promise")}
+                          >
+                            <HandCoins className="h-3.5 w-3.5" /> Promise to Pay
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={nextType === "follow-up" ? "default" : "outline"}
+                            className="h-7 px-2 text-xs gap-1"
+                            onClick={() => setNextType("follow-up")}
+                          >
+                            <CalendarClock className="h-3.5 w-3.5" /> Pending Follow-up
+                          </Button>
+                        </div>
+                        {openInv && openInv.invoices.length > 0 && (
+                          <div className="rounded-md border bg-white max-h-36 overflow-y-auto">
+                            <div className="text-[11px] font-medium text-muted-foreground px-2 pt-1.5">Open invoices — click to prefill date/amount</div>
+                            {openInv.invoices.slice(0, 20).map(inv => (
+                              <button
+                                key={inv.id}
+                                type="button"
+                                className="flex w-full items-center justify-between px-2 py-1 text-xs hover:bg-muted/60"
+                                onClick={() => {
+                                  if (inv.dueDate) setFuDate(new Date(inv.dueDate).toISOString().slice(0, 10));
+                                  setFuAmount(String(inv.amount.toFixed(2)));
+                                }}
+                              >
+                                <span className="font-mono">{inv.invoiceNumber}</span>
+                                <span className={inv.overdue ? "text-red-600" : "text-muted-foreground"}>{fmtDate(inv.dueDate)}</span>
+                                <span className="font-mono font-medium">€{inv.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {openInv && openInv.invoices.length === 0 && (
+                          <div className="text-xs text-muted-foreground">No open invoices for this group.</div>
+                        )}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="grid gap-1">
+                            <Label htmlFor="fu-nt-amount" className="text-xs">{nextType === "promise" ? "Promised amount (EUR)" : "Expected amount (optional)"}</Label>
+                            <Input id="fu-nt-amount" type="number" min="0" step="0.01" className="h-8 bg-white" value={fuAmount} onChange={e => setFuAmount(e.target.value)} placeholder="0.00" />
+                          </div>
+                          <div className="grid gap-1">
+                            <Label htmlFor="fu-nt-date" className="text-xs">{nextType === "promise" ? "Promised date" : "Follow-up date"}</Label>
+                            <Input id="fu-nt-date" type="date" className="h-8 bg-white" value={fuDate} onChange={e => setFuDate(e.target.value)} />
+                          </div>
+                        </div>
+                        <div className="grid gap-1">
+                          <Label htmlFor="fu-nt-notes" className="text-xs">Notes (optional)</Label>
+                          <Textarea id="fu-nt-notes" rows={2} className="bg-white text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} />
+                        </div>
+                        <div className="flex justify-between">
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("none")}>
+                            <ArrowLeft className="h-3.5 w-3.5" /> Back
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="h-7 px-3 text-xs"
+                            disabled={
+                              !fuDate ||
+                              (nextType === "promise" && (!fuAmount || Number(fuAmount) <= 0)) ||
+                              createNext.isPending
+                            }
+                            onClick={() =>
+                              createNext.mutate({
+                                taskId: task.id,
+                                nextType,
+                                amount: fuAmount ? Number(fuAmount) : undefined,
+                                date: new Date(`${fuDate}T12:00:00`).getTime(),
+                                notes: fuNotes || undefined,
+                              })
+                            }
+                          >
+                            Close & create next
+                          </Button>
+                        </div>
                       </div>
                     )}
                     {fuMode === "reschedule" && (

@@ -2,6 +2,18 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import * as db from "./db";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 /**
  * Follow-up rescheduling: tasks carry a rescheduleCount that increments every
  * time the due date is actually moved (mirrors tasks.reschedule / upsertFollowUpTask logic).
@@ -18,8 +30,8 @@ describe("task rescheduling", () => {
   const day = 24 * 60 * 60 * 1000;
 
   it("increments rescheduleCount when the due date moves", async () => {
-    const customers = await db.listCustomers();
-    if (customers.length === 0) return; // empty DB — nothing to verify
+    const __fxc = await getFixtureCustomer();
+    const customers = [__fxc];
     const due1 = Date.now() + 2 * day;
     const taskId = await db.createTask({
       customerId: customers[0].id,
@@ -47,8 +59,8 @@ describe("task rescheduling", () => {
   });
 
   it("defaults rescheduleCount to 0 on new tasks", async () => {
-    const customers = await db.listCustomers();
-    if (customers.length === 0) return;
+    const __fxc = await getFixtureCustomer();
+    const customers = [__fxc];
     const taskId = await db.createTask({
       customerId: customers[0].id,
       type: "Manual",

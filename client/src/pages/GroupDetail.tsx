@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
+import CollectionNotesBox from "@/components/CollectionNotesBox";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
 import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
@@ -9,6 +10,7 @@ import { ActivityLog } from "@/components/ActivityLog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -604,9 +606,23 @@ export default function GroupDetail() {
             <Card>
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Open Balance</div>
-                <div className="text-xl font-bold font-mono">{fmtEur(data.totals.openBalance)}</div>
+                <div className="text-xl font-bold font-mono">{fmtEur((data.totals as any).netOpenBalance ?? data.totals.openBalance)}</div>
+                {((data.totals as any).unallocatedPayments ?? 0) > 0.005 && (
+                  <div
+                    className="text-[11px] font-mono mt-0.5 text-emerald-600"
+                    title="Open invoices minus payments on account that are not yet allocated"
+                  >
+                    {fmtEur(data.totals.openBalance)} inv − {fmtEur((data.totals as any).unallocatedPayments)} on acct
+                  </div>
+                )}
                 <div className="text-[11px] text-muted-foreground mt-0.5">
                   {fmtByCurrency(data.totals.openByCurrency, { skipEurOnly: true })}
+                </div>
+                <div
+                  className="text-[11px] font-mono mt-0.5 text-blue-600"
+                  title="Open invoices falling due within the next calendar month"
+                >
+                  Due next month: {fmtEur((data.totals as any).dueNextMonth ?? 0)}
                 </div>
               </CardContent>
             </Card>
@@ -693,6 +709,9 @@ export default function GroupDetail() {
             </Card>
           </div>
 
+          {/* Always-visible collection notes: call preferences & customer particularities */}
+          <CollectionNotesBox group={group} />
+
           {/* Aging for current scope */}
           <Card>
             <CardHeader className="pb-2">
@@ -772,7 +791,7 @@ export default function GroupDetail() {
           {/* Invoices for current scope */}
           <Card>
             <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">Invoices ({scopeLabel})</CardTitle>
+              <CardTitle className="text-base">Transactions ({scopeLabel})</CardTitle>
               <div className="flex items-center gap-2">
               <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
               <div className="flex items-center rounded-md border p-0.5">
@@ -851,12 +870,15 @@ export default function GroupDetail() {
                   </p>
                 </>
               ) : (
+              <>
+              <UnallocatedTransfersTable rows={(data as any).openTransfers ?? []} />
               <div className="max-h-[480px] overflow-auto">
                 <InvoicesTable
                   rows={filteredInvoices as any}
                   onDisputeChanged={() => utils.customers.groupDetail.invalidate()}
                 />
               </div>
+              </>
               )}
             </CardContent>
           </Card>

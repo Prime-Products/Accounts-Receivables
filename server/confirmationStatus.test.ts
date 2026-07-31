@@ -4,6 +4,18 @@ import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
 import { appRouter } from "./routers";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
 function createAuthContext(): TrpcContext {
@@ -510,9 +522,7 @@ describe("Confirmation Status Tracking", () => {
       const caller = appRouter.createCaller(ctx);
 
       // Use a real customer so the promise can attach to it
-      const customers = await db.listCustomers();
-      expect(customers.length).toBeGreaterThan(0);
-      const cust = customers[0];
+      const cust = await getFixtureCustomer();
       const groupName = (cust.customerGroup ?? "").trim() || cust.name;
       const promisedDate = Date.now() + 10 * 24 * 60 * 60 * 1000;
       const amount = 1234.56;
@@ -547,9 +557,7 @@ describe("Confirmation Status Tracking", () => {
       const ctx = createAuthContext();
       const caller = appRouter.createCaller(ctx);
 
-      const customers = await db.listCustomers();
-      expect(customers.length).toBeGreaterThan(0);
-      const cust = customers[0];
+      const cust = await getFixtureCustomer();
       const groupName = (cust.customerGroup ?? "").trim() || cust.name;
       const marker = `(Follow-up: ${groupName})`;
       const followUpDate = Date.now() + 5 * 24 * 60 * 60 * 1000;
@@ -640,15 +648,14 @@ describe("Confirmation Status Tracking", () => {
       }
     });
 
-    it("reschedules an existing open promise instead of creating a duplicate", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-
-      // Use a real customer so group promise resolution works
-      const customers = await db.listCustomers();
-      const cust = customers[0];
-      expect(cust).toBeTruthy();
-      const groupName = (cust.customerGroup ?? "").trim() || cust.name;
+   it("reschedules an existing open promise instead of creating a duplicate", async () => {
+     const ctx = createAuthContext();
+     const caller = appRouter.createCaller(ctx);
+      // Dedicated fixture: the shared one carries status changes from earlier tests
+      const fx = await createTestCustomer();
+      const cust = { id: fx.id, name: fx.name, customerGroup: fx.group };
+     expect(cust).toBeTruthy();
+     const groupName = (cust.customerGroup ?? "").trim() || cust.name;
 
       const day = 24 * 60 * 60 * 1000;
       const firstDate = Date.now() + 5 * day;
@@ -696,18 +703,18 @@ describe("Confirmation Status Tracking", () => {
       expect(linked?.dueDate).toBe(secondDate);
 
       // Cleanup: cancel test promise + complete test task, reset confirmation row
-      await db.updatePromise(open1!.id, { status: "Broken", notes: "test cleanup" });
-      if (linked) {
-        await db.updateTask(linked.id, { status: "Completed", completionNotes: "test cleanup", completedAt: Date.now() });
-      }
-    });
+     await db.updatePromise(open1!.id, { status: "Broken", notes: "test cleanup" });
+     if (linked) {
+       await db.updateTask(linked.id, { status: "Completed", completionNotes: "test cleanup", completedAt: Date.now() });
+     }
+      await cleanupTestCustomer(fx);
+   });
 
-    it("cancels the follow-up task when status changes away from Pending Follow-up", async () => {
+   it("cancels the follow-up task when status changes away from Pending Follow-up", async () => {
       const ctx = createAuthContext();
       const caller = appRouter.createCaller(ctx);
 
-      const customers = await db.listCustomers();
-      const cust = customers[0];
+      const cust = await getFixtureCustomer();
       expect(cust).toBeTruthy();
       const groupName = (cust.customerGroup ?? "").trim() || cust.name;
       const marker = `(Follow-up: ${groupName})`;
@@ -739,8 +746,7 @@ describe("Confirmation Status Tracking", () => {
       const ctx = createAuthContext();
       const caller = appRouter.createCaller(ctx);
 
-      const customers = await db.listCustomers();
-      const cust = customers[0];
+      const cust = await getFixtureCustomer();
       expect(cust).toBeTruthy();
       const groupName = (cust.customerGroup ?? "").trim() || cust.name;
 
@@ -796,8 +802,7 @@ describe("Confirmation Status Tracking", () => {
       const ctx = createAuthContext();
       const caller = appRouter.createCaller(ctx);
 
-      const customers = await db.listCustomers();
-      const cust = customers[0];
+      const cust = await getFixtureCustomer();
       expect(cust).toBeTruthy();
       const groupName = (cust.customerGroup ?? "").trim() || cust.name;
 
@@ -845,8 +850,7 @@ describe("Confirmation Status Tracking", () => {
       const ctx = createAuthContext();
       const caller = appRouter.createCaller(ctx);
 
-      const customers = await db.listCustomers();
-      const cust = customers[0];
+      const cust = await getFixtureCustomer();
       expect(cust).toBeTruthy();
       const groupName = (cust.customerGroup ?? "").trim() || cust.name;
 

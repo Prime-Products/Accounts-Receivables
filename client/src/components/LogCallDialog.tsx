@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, FileText, Gavel, HandCoins, Lightbulb, Mail, Phone, Plus, User } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, FileText, Gavel, HandCoins, Info, Lightbulb, Mail, Phone, Plus, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -69,6 +69,8 @@ export default function LogCallDialog({
   const { data: openFollowUp } = trpc.calls.getOpenFollowUpTask.useQuery({ group }, { enabled: open });
   // Payment contacts across all companies of the group
   const { data: groupContacts } = trpc.paymentContacts.listByGroup.useQuery({ group }, { enabled: open });
+  // Collection notes (call preferences & particularities) — shown as a reminder before logging the call
+  const { data: collectionProfile } = trpc.customers.getCollectionProfile.useQuery({ group }, { enabled: open });
   const selectedContact =
     selectedContactId && selectedContactId !== "other" && selectedContactId !== "add-new"
       ? groupContacts?.find(c => String(c.id) === selectedContactId)
@@ -163,10 +165,6 @@ export default function LogCallDialog({
       return;
     }
     if (confirmationStatus === "Confirmed") {
-      if (!confirmationAmount || Number(confirmationAmount) <= 0) {
-        toast.error("Please enter the confirmed amount");
-        return;
-      }
       if (!promisedDate) {
         toast.error("Please select the promised payment date");
         return;
@@ -243,6 +241,19 @@ export default function LogCallDialog({
           </div>
         ) : (
         <div className="space-y-3">
+          {collectionProfile?.notes?.trim() ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-2 flex items-start gap-2">
+              <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                  Collection Notes
+                </div>
+                <div className="text-xs text-amber-900 dark:text-amber-100 whitespace-pre-wrap break-words">
+                  {collectionProfile.notes.trim()}
+                </div>
+              </div>
+            </div>
+          ) : null}
           {companies && companies.length > 1 && (
             <div className="space-y-1.5">
               <Label>Company (optional)</Label>
@@ -407,7 +418,7 @@ export default function LogCallDialog({
                   </RadioGroup>
                 </div>
               )}
-              <Label>Promised amount (EUR)</Label>
+              <Label>Promised amount (EUR) — optional</Label>
               <Input
                 type="number"
                 value={confirmationAmount}

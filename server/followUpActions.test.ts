@@ -3,6 +3,18 @@ import { appRouter } from "./routers";
 import * as db from "./db";
 import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 function makeCaller() {
   return appRouter.createCaller({
     user: { id: 1, openId: "test", name: "Test User", email: "t@t.t", role: "admin" as const },
@@ -18,11 +30,48 @@ afterAll(async () => {
 });
 
 describe("follow-up task actions", () => {
+  it("logCall accepts Promise to Pay without an amount (date still mandatory)", async () => {
+    const caller = makeCaller();
+    const cust = await getFixtureCustomer();
+    expect(cust).toBeTruthy();
+    const group = (cust!.customerGroup ?? "").trim() || cust!.name;
+
+    // Missing date must still be rejected
+    await expect(
+      caller.calls.logCall({ group, outcome: "Reached", confirmationStatus: "Confirmed" }),
+    ).rejects.toThrow(/promised payment date/i);
+
+    // No amount + a date → promise and check task are created
+    const promisedDate = Date.now() + 3 * 24 * 3600 * 1000;
+    const res = await caller.calls.logCall({
+      group,
+      outcome: "Reached",
+      confirmationStatus: "Confirmed",
+      promisedDate,
+      notes: "no-amount promise test",
+    });
+    expect(res.success).toBe(true);
+
+    const conf = await db.getGroupConfirmationStatus(group);
+    expect(conf?.status).toBe("Confirmed");
+    expect(Number(conf?.amount)).toBe(0);
+
+    // A promise record with amount 0 exists and a linked check task was created
+    const promises = await db.listPromises();
+    const open = promises
+      .filter(p => p.status === "Pending" && Number(p.amount) === 0)
+      .sort((a, b) => b.id - a.id);
+    expect(open.length).toBeGreaterThan(0);
+    const tasksAfter = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+    const ptpTask = tasksAfter.find(t => t.description?.includes(`(Promise #${open[0].id})`));
+    expect(ptpTask).toBeTruthy();
+    expect(ptpTask?.title).toContain("Promise to Pay");
+  });
+
   it("converts a follow-up task to a Promise to Pay (new task, status change, old task cancelled)", async () => {
     const caller = makeCaller();
     // Pick a real group with customers
-    const customers = await db.listCustomers();
-    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const cust = await getFixtureCustomer();
     expect(cust).toBeTruthy();
     const group = (cust!.customerGroup ?? "").trim() || cust!.name;
 
@@ -66,8 +115,7 @@ describe("follow-up task actions", () => {
 
   it("rejects converting a non-follow-up task", async () => {
     const caller = makeCaller();
-    const customers = await db.listCustomers();
-    const cust = customers[0];
+    const cust = await getFixtureCustomer();
     const taskId = await db.createTask({
       customerId: cust.id,
       type: "Manual",
@@ -88,8 +136,7 @@ describe("follow-up task actions", () => {
 
   it("escalates a follow-up task to a chosen team member", async () => {
     const caller = makeCaller();
-    const customers = await db.listCustomers();
-    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const cust = await getFixtureCustomer();
     const group = (cust!.customerGroup ?? "").trim() || cust!.name;
 
     await caller.calls.updateConfirmationStatus({
@@ -120,8 +167,7 @@ describe("follow-up task actions", () => {
 
   it("reschedules an open promise from its check task (new date/amount, badge in sync)", async () => {
     const caller = makeCaller();
-    const customers = await db.listCustomers();
-    const cust = customers.find(c => (c.customerGroup ?? "").trim());
+    const cust = await getFixtureCustomer();
     const group = (cust!.customerGroup ?? "").trim() || cust!.name;
 
     // Create a promise via a confirmed call
@@ -135,10 +181,7 @@ describe("follow-up task actions", () => {
     const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
     const promises = await db.listPromises({ status: "Pending" });
     const promise = promises
-      .filter(p => {
-        const c = customers.find(cc => cc.id === p.customerId);
-        return c && (((c.customerGroup ?? "").trim() || c.name) === group);
-      })
+      .filter(p => p.customerId === cust.id)
       .sort((a, b) => b.id - a.id)[0];
     expect(promise).toBeTruthy();
     const ptpTask = openTasks.find(t => t.description?.includes(`(Promise #${promise.id})`));
@@ -169,5 +212,114 @@ describe("follow-up task actions", () => {
     const conf = await db.getGroupConfirmationStatus(group);
     expect(conf?.status).toBe("Confirmed");
     expect(Number(conf?.amount)).toBe(750);
+  });
+
+  it("rolls a promise task into the next follow-up (createNextTask): promise resolved, old task cancelled, new follow-up created", async () => {
+    const caller = makeCaller();
+    const cust = await getFixtureCustomer();
+    const group = (cust!.customerGroup ?? "").trim() || cust!.name;
+
+    // Create a promise via a confirmed call
+    await caller.calls.updateConfirmationStatus({
+      group,
+      status: "Confirmed",
+      amount: 900,
+      followUpDate: Date.now() + 2 * 24 * 3600 * 1000,
+    });
+    const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+    const promises = await db.listPromises({ status: "Pending" });
+    const promise = promises
+      .filter(p => p.customerId === cust.id)
+      .sort((a, b) => b.id - a.id)[0];
+    expect(promise).toBeTruthy();
+    const ptpTask = openTasks.find(t => t.description?.includes(`(Promise #${promise.id})`));
+    expect(ptpTask).toBeTruthy();
+
+    // Roll: promise Kept → next step is a Pending Follow-up
+    const nextDate = Date.now() + 12 * 24 * 3600 * 1000;
+    const res = await caller.tasks.createNextTask({
+      taskId: ptpTask!.id,
+      resolvePromise: "Kept",
+      promiseId: promise.id,
+      nextType: "follow-up",
+      amount: 300,
+      date: nextDate,
+      notes: "next cycle (test)",
+    });
+    expect(res.success).toBe(true);
+    expect(res.newTaskId).toBeGreaterThan(0);
+
+    // Old promise resolved and old task cancelled
+    expect((await db.getPromise(promise.id))?.status).toBe("Kept");
+    expect((await db.getTask(ptpTask!.id))?.status).toBe("Cancelled");
+
+    // New follow-up task exists, badge is Pending Follow-up
+    const newTask = await db.getTask(res.newTaskId!);
+    expect(newTask?.status).toBe("Pending");
+    expect(newTask?.description).toContain(`(Follow-up: ${group})`);
+    const conf = await db.getGroupConfirmationStatus(group);
+    expect(conf?.status).toBe("Pending Follow-up");
+  });
+
+  it("rolls a follow-up task into the next promise (createNextTask): old task cancelled, new promise + check task created", async () => {
+    const caller = makeCaller();
+    const cust = await getFixtureCustomer();
+    const group = (cust!.customerGroup ?? "").trim() || cust!.name;
+
+    await caller.calls.updateConfirmationStatus({
+      group,
+      status: "Pending Follow-up",
+      followUpDate: Date.now() + 2 * 24 * 3600 * 1000,
+    });
+    const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+    const fuTask = openTasks.find(t => t.description?.includes(`(Follow-up: ${group})`));
+    expect(fuTask).toBeTruthy();
+
+    const nextDate = Date.now() + 9 * 24 * 3600 * 1000;
+    const res = await caller.tasks.createNextTask({
+      taskId: fuTask!.id,
+      nextType: "promise",
+      amount: 2500,
+      date: nextDate,
+    });
+    expect(res.success).toBe(true);
+    expect(res.newPromiseId).toBeGreaterThan(0);
+
+    // Old follow-up task cancelled
+    expect((await db.getTask(fuTask!.id))?.status).toBe("Cancelled");
+
+    // New promise + check task, badge Confirmed with the amount
+    const tasksAfter = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+    expect(tasksAfter.find(t => t.description?.includes(`(Promise #${res.newPromiseId})`))).toBeTruthy();
+    const conf = await db.getGroupConfirmationStatus(group);
+    expect(conf?.status).toBe("Confirmed");
+    expect(Number(conf?.amount)).toBe(2500);
+  });
+
+  it("groupOpenInvoices returns the task group's open invoices sorted by due date", async () => {
+    const caller = makeCaller();
+    const customers = await db.listCustomers();
+    const invoices = await db.listInvoices();
+    // find a group that has at least one open invoice
+    const withOpen = customers.find(c =>
+      invoices.some(i => i.customerId === c.id && i.status !== "Paid" && i.status !== "Cancelled")
+    );
+    expect(withOpen).toBeTruthy();
+    const group = (withOpen!.customerGroup ?? "").trim() || withOpen!.name;
+    const taskId = await db.createTask({
+      customerId: withOpen!.id,
+      type: "Manual",
+      title: "Invoice picker test",
+      description: `(Follow-up: ${group})`,
+      dueDate: Date.now() + 24 * 3600 * 1000,
+      status: "Pending",
+      assignedTo: 1,
+    });
+    const res = await caller.tasks.groupOpenInvoices({ taskId: Number(taskId) });
+    expect(res.group).toBe(group);
+    expect(res.invoices.length).toBeGreaterThan(0);
+    for (let i = 1; i < res.invoices.length; i++) {
+      expect((res.invoices[i].dueDate ?? 0) >= (res.invoices[i - 1].dueDate ?? 0)).toBe(true);
+    }
   });
 });

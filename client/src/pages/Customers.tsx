@@ -82,7 +82,9 @@ const EditableForecastCell = memo(function EditableForecastCell({ group, value }
 
 /**
  * Clickable confirmation badge. "Promise to Pay" / "Pending Follow-up" badges with a
- * linked auto-created task navigate to that task; other badges open the Log Call dialog.
+ * linked auto-created task open that task — never the Log Call dialog (logging a call
+ * happens when resolving the task as Kept / Not paid). Statuses without a task
+ * (Not Contacted / Broken / Kept) open the Log Call dialog to start a new cycle.
  */
 const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
   group,
@@ -112,6 +114,23 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
   );
   const hasLinkedTask = taskId != null && (status === "Confirmed" || status === "Pending Follow-up");
   const isOverdue = !!taskOverdue && (status === "Confirmed" || status === "Pending Follow-up");
+  // Task-backed statuses must always open the task; a missing open task means the
+  // status is stale (e.g. the task was cancelled) → offer to reset it instead of
+  // silently opening the Log Call dialog.
+  const isTaskBacked = status === "Confirmed" || status === "Pending Follow-up";
+  const utils = trpc.useUtils();
+  const resetStale = trpc.calls.resetStaleConfirmation.useMutation({
+    onSuccess: r => {
+      toast.success(
+        r.reset
+          ? "Status reset to Not Contacted — the linked task was no longer open."
+          : "Status refreshed."
+      );
+      utils.customers.groups.invalidate();
+      utils.customers.groupDetail.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
   return (
     <>
       <button
@@ -126,11 +145,18 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
             ? "Overdue task — the target date has passed and the linked task is still open. Click to open it."
             : hasLinkedTask
               ? "Click to open the linked follow-up task"
-              : "Click to log a call and change the confirmation status"
+              : isTaskBacked
+                ? "The linked task is no longer open — click to reset this stale status"
+                : "Click to log a call and change the confirmation status"
         }
         onClick={() => {
           if (hasLinkedTask) {
             setTaskOpen(true);
+            return;
+          }
+          if (isTaskBacked) {
+            // Stale badge (task cancelled/closed elsewhere) — sync the status.
+            if (!resetStale.isPending) resetStale.mutate({ group });
             return;
           }
           setLoadMembers(true);
