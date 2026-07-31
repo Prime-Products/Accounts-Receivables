@@ -1286,3 +1286,4 @@
 ## Tasks list navigation (user request 31/7)
 
 - [x] Tasks page: the Group cell is a link that opens the company card (`/customers/<id>`); the row click still opens the task dialog (`server/tasksGroupLink.test.ts`)
+- [x] Invoice lists: replace the two-option scope tabs with one "Installments" toggle button (click filters, click again clears) — Invoices, Customer 360 and group card (`server/installmentToggle.test.ts`)
