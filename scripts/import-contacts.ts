@@ -2,13 +2,15 @@
  * Imports the cleaned contact records produced by scripts/build_contacts_import.py
  * into the payment_contacts table.
  *
- * Idempotent: a contact is skipped when the same (customerId, email) pair already
+ * Idempotent: a contact is skipped when the same (customerId, name) pair already
  * exists, so the script can be re-run after a partial failure or a data refresh.
+ * Pass --replace to delete the previously imported rows first (used when the
+ * cleaning rules change and the whole set has to be rebuilt).
  *
- * Usage: npx tsx scripts/import-contacts.ts [--dry-run]
+ * Usage: npx tsx scripts/import-contacts.ts [--dry-run] [--replace]
  */
 import { readFileSync } from "fs";
-import { listAllPaymentContacts, addPaymentContactsBulk, listCustomers } from "../server/db";
+import { listAllPaymentContacts, addPaymentContactsBulk, listCustomers, deletePaymentContact } from "../server/db";
 
 type Record = {
   customerId: number;
@@ -22,11 +24,21 @@ type Record = {
 
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
+  const replace = process.argv.includes("--replace");
   const records: Record[] = JSON.parse(readFileSync("/tmp/contacts_import.json", "utf8"));
-  const [existing, customers] = await Promise.all([listAllPaymentContacts(), listCustomers()]);
+  let [existing, customers] = await Promise.all([listAllPaymentContacts(), listCustomers()]);
+
+  if (replace && !dryRun) {
+    // Keep contacts created by hand in the app; only clear the ERP-imported ones.
+    const manualIds = new Set([90001]);
+    const toDelete = existing.filter(c => !manualIds.has(c.id));
+    for (const c of toDelete) await deletePaymentContact(c.id);
+    console.log(JSON.stringify({ deleted: toDelete.length }));
+    existing = await listAllPaymentContacts();
+  }
 
   const validIds = new Set(customers.map(c => c.id));
-  const seen = new Set(existing.map(c => `${c.customerId}|${c.email.toLowerCase()}`));
+  const seen = new Set(existing.map(c => `${c.customerId}|${c.name.trim().toUpperCase()}`));
 
   const toInsert: { customerId: number; name: string; email: string; phone?: string; title?: string }[] = [];
   let skippedExisting = 0;
@@ -37,7 +49,7 @@ async function main() {
       skippedBadCustomer++;
       continue;
     }
-    const key = `${r.customerId}|${r.email.toLowerCase()}`;
+    const key = `${r.customerId}|${r.name.trim().toUpperCase()}`;
     if (seen.has(key)) {
       skippedExisting++;
       continue;

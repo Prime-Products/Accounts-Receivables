@@ -1225,4 +1225,6 @@
 - [x] By-branch view sums outstanding instead of invoice face value
 - [x] Import contacts from Contactsall.xlsx: name, position, email, phone, linked to the right customer/group
 - [x] Contacts page: group filter and department/position filter for the imported data
+- [x] Re-import contacts: keep every distinct person, not one row per shared company mailbox
+- [x] Prefer person-specific email over generic mailbox when a row has several addresses
 - [x] Rename "Customers" nav item + page title to "Collections" (route /customers unchanged, Groups stays the default sub-view)

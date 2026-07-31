@@ -41,6 +41,58 @@ def full_name(r):
     nm = re.sub(r'\s+', ' ', f"{fn} {sn}".strip())
     return re.sub(r'^[\-\s&,\.]+', '', nm).strip()[:255]
 
+# Generic mailbox local parts. A row that only carries one of these is a shared
+# department inbox, not the person's own address, so it must never win over a
+# real personal address on the same row.
+GENERIC_LOCALS = {
+    'info', 'mail', 'email', 'office', 'admin', 'contact', 'general', 'reception',
+    'purchasing', 'purchase', 'purch', 'pu', 'procurement', 'buying', 'supply',
+    'supplies', 'spares', 'stores', 'technical', 'tech', 'te', 'engineering',
+    'accounts', 'accounting', 'account', 'ac', 'finance', 'payables', 'invoice',
+    'invoices', 'ap', 'crew', 'crewing', 'marine', 'operations', 'ops', 'chartering',
+    'hsqe', 'hsq', 'safety', 'quality', 'vetting', 'sales', 'service', 'support',
+    'shipping', 'logistics', 'secretariat', 'management',
+}
+
+def transliterate(s):
+    """Rough Greek -> Latin mapping so Greek names can be compared to Latin email local parts."""
+    table = str.maketrans({
+        'Α': 'A', 'Β': 'V', 'Γ': 'G', 'Δ': 'D', 'Ε': 'E', 'Ζ': 'Z', 'Η': 'I', 'Θ': 'T',
+        'Ι': 'I', 'Κ': 'K', 'Λ': 'L', 'Μ': 'M', 'Ν': 'N', 'Ξ': 'X', 'Ο': 'O', 'Π': 'P',
+        'Ρ': 'R', 'Σ': 'S', 'Τ': 'T', 'Υ': 'Y', 'Φ': 'F', 'Χ': 'C', 'Ψ': 'P', 'Ω': 'O',
+        'Ά': 'A', 'Έ': 'E', 'Ή': 'I', 'Ί': 'I', 'Ό': 'O', 'Ύ': 'Y', 'Ώ': 'O', 'Ϊ': 'I', 'Ϋ': 'Y',
+    })
+    return s.upper().translate(table)
+
+def email_score(addr, person_name):
+    """Higher is better. Prefers an address that looks like it belongs to this person."""
+    local = addr.split('@', 1)[0].lower()
+    bare = re.sub(r'[^a-z]', '', local)
+    score = 0
+    if local in GENERIC_LOCALS or bare in GENERIC_LOCALS:
+        score -= 10
+    # Reward overlap with the person's name tokens (handles n.loukos, msaxena, gpapas…)
+    tokens = [t for t in re.split(r'[^A-Za-z\u0370-\u03FF]+', transliterate(person_name)) if len(t) >= 3]
+    for t in tokens:
+        tl = t.lower()
+        if tl in bare:
+            score += 5
+            break
+        # initial + surname patterns
+        if len(tl) >= 4 and tl[:4] in bare:
+            score += 3
+            break
+    return score
+
+def pick_email(addrs, person_name):
+    """Choose the best address for this person, keeping the original order as tie-break."""
+    best, best_score = addrs[0], email_score(addrs[0], person_name)
+    for a in addrs[1:]:
+        s = email_score(a, person_name)
+        if s > best_score:
+            best, best_score = a, s
+    return best
+
 # Role tokens that appear in the name field of shared mailboxes. When Dept. is
 # empty we promote the recognised token to the Position column so the row still
 # says what the mailbox is for.
@@ -82,7 +134,7 @@ def phone(r):
             return p[:20]
     return None
 
-records, seen = [], set()
+records, seen = [], {}
 stats = dict(rows=0, no_company=0, unmatched=0, flagged=0, inactive=0, no_email=0, no_name=0, dupes=0)
 for _, r in df.iterrows():
     stats['rows'] += 1
@@ -105,14 +157,36 @@ for _, r in df.iterrows():
         stats['no_name'] += 1; continue
     cid, cname, grp, tier = m
     pos, ph = position(r, nm), phone(r)
-    # One row per person: personal address (email.1) wins, generic mailbox is the fallback.
-    primary = es[0]
-    key = (cid, primary)
-    if key in seen:
-        stats['dupes'] += 1; continue
-    seen.add(key)
-    records.append(dict(customerId=cid, name=nm, email=primary, phone=ph, title=pos or None,
-                        company=cname, group=grp, tier=tier, erpCode=None if pd.isna(r['Code']) else str(r['Code']).strip()))
+    # Prefer the address that actually belongs to this person; a shared department
+    # inbox is only used when the row has nothing better.
+    primary = pick_email(es, nm)
+    # Dedup on the person, not on the mailbox: many colleagues legitimately share
+    # one generic inbox (pu@thenamaris.com etc.) and all of them must be kept.
+    # When the ERP holds several rows for one person, keep a single row using the
+    # best-scoring address and backfill any missing phone/position.
+    key = (cid, re.sub(r'\s+', ' ', nm).strip().upper())
+    score = email_score(primary, nm)
+    rec = dict(customerId=cid, name=nm, email=primary, phone=ph, title=pos or None,
+               company=cname, group=grp, tier=tier,
+               erpCode=None if pd.isna(r['Code']) else str(r['Code']).strip())
+    prev = seen.get(key)
+    if prev is not None:
+        stats['dupes'] += 1
+        prev_idx, prev_score = prev
+        old = records[prev_idx]
+        if score > prev_score:
+            rec['phone'] = rec['phone'] or old['phone']
+            rec['title'] = rec['title'] or old['title']
+            records[prev_idx] = rec
+            seen[key] = (prev_idx, score)
+        else:
+            if not old['phone'] and ph:
+                old['phone'] = ph
+            if not old['title'] and pos:
+                old['title'] = pos
+        continue
+    seen[key] = (len(records), score)
+    records.append(rec)
 
 json.dump(records, open("/tmp/contacts_import.json", "w"), ensure_ascii=False)
 print("STATS:", json.dumps(stats, indent=None))
@@ -121,5 +195,7 @@ print("distinct customers:", len({r['customerId'] for r in records}))
 print("distinct groups:", len({r['group'] for r in records}))
 print("with phone:", sum(1 for r in records if r['phone']))
 print("with position:", sum(1 for r in records if r['title']))
+print("distinct emails:", len({r['email'] for r in records}))
+print("rows on a shared mailbox:", len(records) - len({r['email'] for r in records}))
 print("\nsample:")
 for r in records[:6]: print(" ", r['group'], "|", r['name'], "|", r['title'], "|", r['email'], "|", r['phone'])

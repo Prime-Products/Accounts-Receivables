@@ -41,11 +41,27 @@ describe("imported contacts in the database", () => {
     const seen = new Set<string>();
     const dupes: string[] = [];
     for (const c of contacts) {
-      const key = `${c.customerId}|${c.email.toLowerCase()}`;
+      // Colleagues legitimately share a department inbox, so the person's name is
+      // part of the identity — only the same person twice is a real duplicate.
+      const key = `${c.customerId}|${c.name.trim().toUpperCase()}`;
       if (seen.has(key)) dupes.push(key);
       seen.add(key);
     }
     expect(dupes).toEqual([]);
+  });
+
+  it("allows several people to share one department mailbox", async () => {
+    const contacts = await listAllPaymentContacts();
+    const perEmail = new Map<string, Set<string>>();
+    for (const c of contacts) {
+      const key = c.email.toLowerCase();
+      if (!perEmail.has(key)) perEmail.set(key, new Set());
+      perEmail.get(key)!.add(c.name.trim().toUpperCase());
+    }
+    // The ERP export is full of shared inboxes (pu@…, purch@…); if this drops to
+    // zero it means the dedup collapsed distinct colleagues again.
+    const shared = [...perEmail.values()].filter(names => names.size > 1);
+    expect(shared.length).toBeGreaterThan(0);
   });
 
   it("every contact has a usable email address", async () => {
