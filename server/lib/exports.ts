@@ -149,13 +149,19 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
 
     const drawBrandHeader = () => {
       doc.fillColor("#dc2626").font(fonts.bold).fontSize(11).text("COMPANY", pageLeft, 54);
-      doc.fillColor("#111827").fontSize(20).text(groupName, pageLeft, 72, { width: pageWidth * 0.62 });
-      doc.fillColor("#6b7280").fontSize(12).text("STATEMENT OF ACCOUNT", pageLeft + pageWidth * 0.62, 55, {
-        width: pageWidth * 0.38,
+      const companyFontSize = groupName.length > 28 ? 17 : 20;
+      doc.fillColor("#111827").fontSize(companyFontSize).text(groupName, pageLeft, 72, {
+        width: pageWidth * 0.66,
+        height: 28,
+        ellipsis: true,
+        lineBreak: false,
+      });
+      doc.fillColor("#6b7280").fontSize(12).text("STATEMENT OF ACCOUNT", pageLeft + pageWidth * 0.58, 55, {
+        width: pageWidth * 0.42,
         align: "right",
       });
-      doc.fillColor("#1d4ed8").fontSize(12).text("PRIME PRODUCTS LTD", pageLeft + pageWidth * 0.62, 74, {
-        width: pageWidth * 0.38,
+      doc.fillColor("#1d4ed8").fontSize(12).text("PRIME PRODUCTS LTD", pageLeft + pageWidth * 0.58, 74, {
+        width: pageWidth * 0.42,
         align: "right",
       });
       doc.fillColor("#6b7280").font(fonts.regular).fontSize(8)
@@ -186,21 +192,26 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
       { label: "Company", width: 163, align: "left" as const },
       { label: "Currency", width: 44, align: "center" as const },
       { label: "Balance", width: 59, align: "right" as const },
-      { label: "Unpaid Documents", width: 59, align: "right" as const },
-      { label: "Overdue Documents", width: 59, align: "right" as const },
-      { label: "Upcoming Within Month", width: 59, align: "right" as const },
-      { label: "Upcoming Next Month", width: 56, align: "right" as const },
+      { label: "Unpaid\nDocuments", width: 59, align: "right" as const },
+      { label: "Overdue\nDocuments", width: 59, align: "right" as const },
+      { label: "Upcoming\nWithin Month", width: 59, align: "right" as const },
+      { label: "Upcoming\nNext Month", width: 56, align: "right" as const },
     ];
     let y = doc.y;
     doc.moveTo(pageLeft, y).lineTo(pageRight, y).strokeColor("#111827").stroke();
     y += 8;
     let x = pageLeft;
     for (const column of summaryColumns) {
-      doc.fillColor("#111827").font(fonts.bold).fontSize(8)
-        .text(column.label, x, y, { width: column.width, align: column.align });
+      doc.fillColor("#111827").font(fonts.bold).fontSize(7)
+        .text(column.label, x, y, {
+          width: column.width,
+          height: 22,
+          align: column.align,
+          lineGap: -1,
+        });
       x += column.width;
     }
-    y += 20;
+    y += 28;
     for (const [branch, total] of branchTotals) {
       x = pageLeft;
       const values = [
@@ -226,8 +237,8 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
     const detailColumns = [
       { key: "issue", label: "Doc. Date", width: 58, align: "left" as const },
       { key: "invoice", label: "Documents", width: 92, align: "left" as const },
-      { key: "amount", label: "Doc. Amount", width: 64, align: "right" as const },
-      { key: "outOrig", label: "Open Doc. Amount", width: 64, align: "right" as const },
+      { key: "amount", label: "Doc.\nAmount", width: 64, align: "right" as const },
+      { key: "outOrig", label: "Open Doc.\nAmount", width: 64, align: "right" as const },
       { key: "days", label: "Overdue", width: 50, align: "right" as const },
       { key: "vessel", label: "Vessel", width: 80, align: "left" as const },
       { key: "comments", label: "Comments", width: 91, align: "left" as const },
@@ -245,21 +256,29 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
       const headingY = doc.y;
       doc.fillColor("#111827").font(fonts.bold).fontSize(10)
         .text(branchHeading, pageLeft, headingY, { width: 110 });
-      doc.fontSize(7.5).text(branchDescription, pageLeft + 110, headingY, { width: pageWidth - 200 });
+      doc.fontSize(7.2).text(branchDescription, pageLeft + 110, headingY, {
+        width: pageWidth - 200,
+        height: 24,
+        lineGap: -1,
+      });
       doc.font(fonts.regular).fontSize(8).text(`currency: ${total.currency === "EUR" ? "€" : total.currency}`, pageRight - 90, headingY, {
         width: 90,
         align: "right",
       });
-      doc.moveDown(0.7);
-      y = doc.y;
+      y = headingY + 30;
       doc.moveTo(pageLeft, y).lineTo(pageRight, y).strokeColor("#111827").stroke();
       y += 7;
       x = pageLeft;
       for (const column of detailColumns) {
-        doc.font(fonts.bold).fontSize(7.5).text(column.label, x, y, { width: column.width, align: column.align });
+        doc.font(fonts.bold).fontSize(7).text(column.label, x, y, {
+          width: column.width - 6,
+          height: 22,
+          align: column.align,
+          lineGap: -1,
+        });
         x += column.width;
       }
-      y += 20;
+      y += 28;
       branchRows.forEach((row, rowIndex) => {
         if (y > doc.page.height - 65) {
           doc.addPage();
