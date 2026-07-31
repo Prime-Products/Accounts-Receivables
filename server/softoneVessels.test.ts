@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeSoftOneVessels, softOneVesselsQuery } from "./lib/softoneVessels";
+import {
+  buildSoftOneVesselOwnerQuery,
+  normalizeSoftOneVessels,
+  softOneVesselsQuery,
+} from "./lib/softoneVessels";
 
 describe("SoftOne vessel sync", () => {
   it("uses the supplied vessel registry fields and receivables-only owners", () => {
@@ -38,5 +42,15 @@ describe("SoftOne vessel sync", () => {
   it("rejects duplicate source identifiers", () => {
     const row = { VESSEL_ID: 1, TRDR: 2, VESSEL_NAME: "ONE" };
     expect(() => normalizeSoftOneVessels([row, row])).toThrow(/duplicate vessel id/);
+  });
+
+  it("builds a read-only, eligible single-owner lookup", () => {
+    const query = buildSoftOneVesselOwnerQuery(40022);
+    expect(query).toContain("owner.[TRDR] = 40022");
+    expect(query).toContain("owner.[SODTYPE] = 13");
+    expect(query).toContain("owner.[ISACTIVE] = 1");
+    expect(query).toContain("owner.[TRDGROUP] <> 473");
+    expect(query).not.toMatch(/\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i);
+    expect(() => buildSoftOneVesselOwnerQuery(-1)).toThrow(/invalid/i);
   });
 });
