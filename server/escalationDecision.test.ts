@@ -48,8 +48,20 @@ describe("Escalation summary & decision", () => {
     expect(typeof summary.overdueEur).toBe("number");
     expect(summary.escalationReason).toContain("⬆ Escalated");
     expect(summary.escalationReason).toContain("exhausted all options");
-    expect(Array.isArray(summary.recentActivity)).toBe(true);
+    // The panel now tells the story, so the snapshot carries timeline counters
+    // rather than a raw activity list.
+    expect(typeof summary.stats.events).toBe("number");
+    expect(typeof summary.stats.calls).toBe("number");
   });
+
+  it("escalationStory writes a narrative of the case", async () => {
+    const escTaskId = await createEscalatedTask(fx, snap);
+    const res = await makeCaller().tasks.escalationStory({ taskId: escTaskId });
+    expect(res.group).toBe(fx.group);
+    expect(typeof res.story).toBe("string");
+    expect(res.story.length).toBeGreaterThan(40);
+    expect(typeof res.eventCount).toBe("number");
+  }, 60000);
 
   it("On Hold decision flags the group and keeps the task open", async () => {
     const escTaskId = await createEscalatedTask(fx, snap);

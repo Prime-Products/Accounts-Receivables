@@ -1247,3 +1247,11 @@
 - [x] Verify the group and customer cards render a single primary badge (they do — the report came from a cached build; a hard refresh clears it)
 - [x] Keep the primary + Disputed badges on one line (status cell no longer wraps)
 - [x] Enforce a minimum width for the Status column so a stale saved column width from localStorage can never squeeze the badges
+
+## Escalation summary as an AI story (user request 31/7)
+- [x] Server: collect the full case history for an escalated task (call logs with outcomes, promises with dates/amounts/reschedules, group notes, activity log, task chain)
+- [x] Server: AI narrative procedure that reads that history and writes the story — what happened, what was tried, why it reached management
+- [x] Escalation panel: replace the KPI cards + raw activity list with the narrative
+- [x] Keep the decision actions (On Hold / Legal Review / Return to Collector) unchanged below the story
+- [x] Vitest coverage for the history collection and the narrative fallback when the LLM is unavailable
+- [x] Fix: panel no longer blanks out to an empty skeleton while the summary query loads

@@ -1,21 +1,20 @@
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
-import { fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, CornerDownLeft, Gavel, PauseCircle, TriangleAlert } from "lucide-react";
+import { ArrowLeft, CornerDownLeft, Gavel, PauseCircle, RefreshCw, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-const eur = (n: number) => `€${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-
 /**
- * Panel shown on escalated tasks ("Escalated: …"): an auto-generated snapshot of
- * the group so management can decide without digging, plus the three decision
- * actions — On Hold / Stop Services, Legal Review, Return to Collector.
+ * Panel shown on escalated tasks ("Escalated: …").
+ *
+ * Management does not want KPI tiles here — they want the STORY: an AI narrative
+ * that reads the whole case history (calls, promises, notes, tasks, payments) and
+ * explains what happened and why it reached their desk. Below the story sit the
+ * three decisions — On Hold / Stop Services, Legal Review, Return to Collector.
  */
 export default function EscalationPanel({
   taskId,
@@ -28,6 +27,16 @@ export default function EscalationPanel({
 }) {
   const utils = trpc.useUtils();
   const { data: summary, isLoading } = trpc.tasks.escalationSummary.useQuery({ taskId });
+  const {
+    data: storyData,
+    isLoading: storyLoading,
+    isFetching: storyFetching,
+  } = trpc.tasks.escalationStory.useQuery(
+    { taskId },
+    // The narrative costs an LLM call, so keep it warm while the dialog is open
+    // instead of regenerating on every focus change.
+    { staleTime: 10 * 60 * 1000, refetchOnWindowFocus: false }
+  );
   const [mode, setMode] = useState<"none" | "On Hold" | "Legal Review" | "Return to Collector">("none");
   const [note, setNote] = useState("");
   const [returnTo, setReturnTo] = useState<number | null>(null);
@@ -51,71 +60,65 @@ export default function EscalationPanel({
     onError: e => toast.error(e.message),
   });
 
-  if (isLoading) {
-    return (
-      <div className="rounded-md border p-3 space-y-2">
-        <Skeleton className="h-4 w-1/3" />
-        <Skeleton className="h-16" />
-      </div>
-    );
-  }
-  if (!summary) return null;
-
   return (
     <div className="rounded-md border border-orange-200 bg-orange-50/50 p-3 space-y-3">
       <div className="text-sm font-medium flex items-center gap-1.5 text-orange-900">
-        <TriangleAlert className="h-4 w-4" /> Escalation summary — {summary.group}
+        <TriangleAlert className="h-4 w-4" />
+        {summary ? `Escalation summary — ${summary.group}` : "Escalation summary"}
       </div>
 
-      {summary.escalationReason && (
+      {isLoading && !summary && <Skeleton className="h-6 w-2/3" />}
+
+      {summary?.escalationReason && (
         <div className="text-xs text-orange-900 bg-white rounded-md border border-orange-200 p-2">
           {summary.escalationReason}
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-2 text-sm">
-        <div className="rounded-md bg-white border p-2">
-          <div className="text-[11px] text-muted-foreground">Open balance</div>
-          <div className="font-mono font-semibold">{eur(summary.openBalanceEur)}</div>
-        </div>
-        <div className="rounded-md bg-white border p-2">
-          <div className="text-[11px] text-muted-foreground">Overdue</div>
-          <div className="font-mono font-semibold text-red-600">{eur(summary.overdueEur)}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {summary.overdueCount} invoice{summary.overdueCount === 1 ? "" : "s"}
-            {summary.oldestOverdueDays > 0 ? ` · oldest ${summary.oldestOverdueDays}d` : ""}
+      {/* The story: what happened, in the collector's own trail of work. */}
+      <div className="rounded-md bg-white border p-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+            What happened
           </div>
+          <button
+            type="button"
+            className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors disabled:opacity-50"
+            disabled={storyFetching}
+            onClick={() => utils.tasks.escalationStory.invalidate({ taskId })}
+            title="Regenerate the story from the latest history"
+          >
+            <RefreshCw className={`h-3 w-3 ${storyFetching ? "animate-spin" : ""}`} /> Refresh
+          </button>
         </div>
-        <div className="rounded-md bg-white border p-2 col-span-2">
-          <div className="text-[11px] text-muted-foreground mb-1">Promise history</div>
-          <div className="flex flex-wrap gap-1.5">
-            <Badge variant="outline" className="bg-muted/40">{summary.promisesTotal} total</Badge>
-            <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-200">{summary.promisesKept} kept</Badge>
-            <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200">{summary.promisesBroken} broken</Badge>
-            {summary.totalReschedules > 0 && (
-              <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
-                {summary.totalReschedules} reschedule{summary.totalReschedules === 1 ? "" : "s"}
-              </Badge>
-            )}
+        {storyLoading ? (
+          <div className="space-y-1.5">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-11/12" />
+            <Skeleton className="h-3 w-4/5" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-3/5" />
           </div>
-        </div>
+        ) : storyData?.story ? (
+          <div className="space-y-2 text-[13px] leading-relaxed text-foreground">
+            {storyData.story
+              .split(/\n{2,}/)
+              .map(p => p.trim())
+              .filter(Boolean)
+              .map((p, idx) => (
+                <p key={idx}>{p}</p>
+              ))}
+            <div className="text-[11px] text-muted-foreground pt-0.5">
+              Based on {storyData.eventCount} recorded event{storyData.eventCount === 1 ? "" : "s"}
+              {storyData.generated ? "" : " · written from the case record"}
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">No history recorded for this case yet.</div>
+        )}
       </div>
 
-      {summary.recentActivity.length > 0 && (
-        <div className="rounded-md bg-white border p-2">
-          <div className="text-[11px] text-muted-foreground mb-1">Recent activity</div>
-          <div className="max-h-28 overflow-y-auto space-y-1">
-            {summary.recentActivity.map(a => (
-              <div key={a.id} className="text-xs flex items-start gap-2">
-                <span className="text-muted-foreground shrink-0 w-16">{fmtDate(new Date(a.createdAt).getTime())}</span>
-                <span className="truncate" title={a.description ?? undefined}>{a.title}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {summary.decision && (
+      {summary?.decision && (
         <div className="text-xs font-medium text-orange-900 bg-white rounded-md border border-orange-200 p-2">
           {summary.decision}
         </div>

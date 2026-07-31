@@ -45,6 +45,17 @@ import { generateMonthlyForecast } from "../lib/smartForecast";
 import { runTaskEngine } from "../lib/taskEngine";
 import * as softone from "../lib/softone";
 import { invokeLLM } from "../_core/llm";
+import {
+  buildTimeline,
+  eventsFromActivity,
+  eventsFromNotes,
+  eventsFromPromises,
+  eventsFromReceipts,
+  eventsFromTasks,
+  fallbackStory,
+  shortDate,
+  timelineStats,
+} from "../lib/escalationHistory";
 
 
 async function audit(ctx: { user: { id: number; name: string | null } }, action: string, entityType: string, entityId?: string | number, details?: string) {
@@ -3235,11 +3246,18 @@ export const tasksRouter = router({
       const memberIds = new Set(members.map(m => m.id));
       const now = Date.now();
 
-      const [allInvoices, allPromises, activity] = await Promise.all([
-        db.listInvoices(),
-        db.listPromises(),
-        db.listActivityLog(group, 8).catch(() => []),
-      ]);
+      const [allInvoices, allPromises, activity, notes, allTasks, allReceipts, teamMembers, profile, confirmation] =
+        await Promise.all([
+          db.listInvoices(),
+          db.listPromises(),
+          db.listActivityLog(group, 60).catch(() => []),
+          db.listGroupNotes(group).catch(() => []),
+          db.listTasks({}).catch(() => []),
+          db.listReceipts().catch(() => []),
+          db.listTeamMembers(true).catch(() => []),
+          db.getGroupCollectionProfile(group).catch(() => null),
+          db.getGroupConfirmationStatus(group).catch(() => null),
+        ]);
       const invs = allInvoices.filter(i => memberIds.has(i.customerId) && isOpenInvoice(i));
       let openBalanceEur = 0;
       let overdueEur = 0;
@@ -3267,6 +3285,23 @@ export const tasksRouter = router({
       // Management decision already recorded on this task (if any).
       const decisionLine = (task.description ?? "").split("\n").filter(l => l.startsWith("⚖")).pop() ?? null;
 
+      // --- The story ---------------------------------------------------------
+      // Management asked for a narrative, not tiles: assemble every trace of work
+      // on this group into one chronological timeline and let the writer tell it.
+      const memberNames = new Map(members.map(m => [m.id, m.name]));
+      const memberNameOf = (id: number) => memberNames.get(id) ?? null;
+      const userNames = new Map(teamMembers.map(m => [m.id, m.name]));
+      const groupTasks = allTasks.filter(t => t.customerId != null && memberIds.has(t.customerId));
+      const groupReceipts = allReceipts.filter(r => memberIds.has(r.customerId));
+      const timeline = buildTimeline([
+        eventsFromActivity(activity, id => (id != null ? userNames.get(id) ?? null : null)),
+        eventsFromPromises(proms, memberNameOf),
+        eventsFromTasks(groupTasks),
+        eventsFromReceipts(groupReceipts.slice(-20)),
+        eventsFromNotes(notes),
+      ]);
+      const stats = timelineStats(timeline);
+
       return {
         group,
         openBalanceEur: Math.round(openBalanceEur * 100) / 100,
@@ -3279,14 +3314,170 @@ export const tasksRouter = router({
         totalReschedules,
         escalationReason: reasonLine,
         decision: decisionLine,
-        recentActivity: activity.map(a => ({
-          id: a.id,
-          title: a.title,
-          description: a.description,
-          activityType: a.activityType,
-          createdAt: a.createdAt,
+        /** Counters the narrative is built on (kept for tests and tooltips). */
+        stats,
+        /** Collector particularities, when recorded — context for the decision. */
+        collectionNotes: profile?.notes ? profile.notes.slice(0, 600) : null,
+        confirmationStatus: confirmation?.status ?? null,
+      };
+    }),
+  /**
+   * The escalation story: an AI-written narrative of the whole case — what was
+   * tried, what the customer answered, which promises broke, and why it landed on
+   * management's desk. This is what the escalation panel shows instead of tiles.
+   */
+  escalationStory: protectedProcedure
+    .input(z.object({ taskId: z.number() }))
+    .query(async ({ input }) => {
+      const task = await db.getTask(input.taskId);
+      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
+      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
+      let group = followUpMatch?.[1] ?? null;
+      const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
+      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
+      if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found for this task" });
+
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === group);
+      const memberIds = new Set(members.map(m => m.id));
+      const now = Date.now();
+
+      const [allInvoices, allPromises, activity, notes, allTasks, allReceipts, teamMembers, profile, confirmation, comments] =
+        await Promise.all([
+          db.listInvoices(),
+          db.listPromises(),
+          db.listActivityLog(group, 60).catch(() => []),
+          db.listGroupNotes(group).catch(() => []),
+          db.listTasks({}).catch(() => []),
+          db.listReceipts().catch(() => []),
+          db.listTeamMembers(true).catch(() => []),
+          db.getGroupCollectionProfile(group).catch(() => null),
+          db.getGroupConfirmationStatus(group).catch(() => null),
+          db.listTaskComments(input.taskId).catch(() => []),
+        ]);
+
+      const invs = allInvoices.filter(i => memberIds.has(i.customerId) && isOpenInvoice(i));
+      let openBalanceEur = 0;
+      let overdueEur = 0;
+      let overdueCount = 0;
+      let oldestOverdueDays = 0;
+      for (const i of invs) {
+        const outEur = toEur(outstanding(i), i.currency ?? "EUR");
+        openBalanceEur += outEur;
+        if (i.dueDate != null && i.dueDate < now) {
+          overdueEur += outEur;
+          overdueCount += 1;
+          const days = Math.floor((now - i.dueDate) / 86400000);
+          if (days > oldestOverdueDays) oldestOverdueDays = days;
+        }
+      }
+      const proms = allPromises.filter(p => memberIds.has(p.customerId));
+      const memberNames = new Map(members.map(m => [m.id, m.name]));
+      const userNames = new Map(teamMembers.map(m => [m.id, m.name]));
+      const groupTasks = allTasks.filter(t => t.customerId != null && memberIds.has(t.customerId));
+      const groupReceipts = allReceipts.filter(r => memberIds.has(r.customerId));
+      const timeline = buildTimeline([
+        eventsFromActivity(activity, id => (id != null ? userNames.get(id) ?? null : null)),
+        eventsFromPromises(proms, id => memberNames.get(id) ?? null),
+        eventsFromTasks(groupTasks),
+        eventsFromReceipts(groupReceipts.slice(-20)),
+        eventsFromNotes(notes),
+      ]);
+      const stats = timelineStats(timeline);
+      const reasonLine = (task.description ?? "").split("\n").find(l => l.startsWith("⬆")) ?? null;
+
+      // The biggest overdue invoices — the story should name what is actually stuck.
+      const topOverdue = invs
+        .filter(i => i.dueDate != null && i.dueDate < now)
+        .sort((a, b) => toEur(outstanding(b), b.currency ?? "EUR") - toEur(outstanding(a), a.currency ?? "EUR"))
+        .slice(0, 5)
+        .map(i => ({
+          invoice: i.invoiceNumber,
+          company: memberNames.get(i.customerId) ?? null,
+          outstandingEur: Math.round(toEur(outstanding(i), i.currency ?? "EUR")),
+          daysOverdue: Math.floor((now - Number(i.dueDate)) / 86400000),
+        }));
+
+      const facts = {
+        group,
+        today: shortDate(now),
+        openBalanceEur: Math.round(openBalanceEur),
+        overdueEur: Math.round(overdueEur),
+        overdueCount,
+        oldestOverdueDays,
+        promises: {
+          total: proms.length,
+          kept: proms.filter(p => p.status === "Kept").length,
+          broken: proms.filter(p => p.status === "Broken").length,
+          pending: proms.filter(p => p.status === "Pending").length,
+          reschedules: proms.reduce((s, p) => s + (((p as any).rescheduleCount as number) ?? 0), 0),
+        },
+        currentCollectorStance: confirmation?.status ?? null,
+        escalationLine: reasonLine,
+        escalatedTaskTitle: task.title,
+        collectionNotes: profile?.notes ? profile.notes.slice(0, 600) : null,
+        topOverdueInvoices: topOverdue,
+        activityCounters: stats,
+        internalComments: comments.slice(-5).map(c => ({ by: c.authorName, body: c.body.slice(0, 300) })),
+        timeline: timeline.map(e => ({
+          date: shortDate(e.at),
+          kind: e.kind,
+          what: e.what,
+          detail: e.detail ? e.detail.slice(0, 300) : null,
+          by: e.who ?? null,
         })),
       };
+
+      const escalatedByName = reasonLine?.match(/by (.+?) on /)?.[1] ?? null;
+      const fallback = () =>
+        fallbackStory({
+          group,
+          overdueEur,
+          overdueCount,
+          oldestOverdueDays,
+          promisesTotal: proms.length,
+          promisesBroken: proms.filter(p => p.status === "Broken").length,
+          stats,
+          escalatedBy: escalatedByName,
+        });
+
+      try {
+        const response = await invokeLLM({
+          model: "gemini-2.5-flash",
+          messages: [
+            {
+              role: "system",
+              content: `Είσαι έμπειρος credit manager. Διάβασε το ΙΣΤΟΡΙΚΟ της υπόθεσης (timeline με κλήσεις, υποσχέσεις, σημειώσεις, tasks, πληρωμές) και γράψε στα ΕΛΛΗΝΙΚΑ την ΙΣΤΟΡΙΑ του τι έγινε, για έναν διευθυντή που βλέπει την υπόθεση πρώτη φορά.
+
+Γράψε ΑΦΗΓΗΜΑΤΙΚΑ σε 2 σύντομες παραγράφους (σύνολο 110-150 λέξεις). ΟΧΙ bullets, ΟΧΙ τίτλους, ΟΧΙ πίνακες, ΟΧΙ επανάληψη αριθμοδεικτών σαν λίστα.
+
+Παράγραφος 1 — Τι συνέβη: ξεκίνα από πότε άρχισε το πρόβλημα και πώς εξελίχθηκε χρονολογικά. Ανάφερε συγκεκριμένα γεγονότα με ημερομηνίες: πόσες φορές τηλεφωνήσαμε και τι απαντούσαν, ποιες υποσχέσεις δόθηκαν (ποσό και ημερομηνία) και τι απέγιναν, αν μετατοπίστηκαν, αν μπήκαν πληρωμές. Χρησιμοποίησε τα ονόματα των ανθρώπων/εταιρειών όπου υπάρχουν.
+
+Παράγραφος 2 — Γιατί έφτασε εδώ και τι διακυβεύεται: τι εμπόδισε την είσπραξη, ποιο είναι το ανοιχτό/καθυστερημένο ποσό και πόσο παλιό, ποια είναι τα μεγαλύτερα τιμολόγια που κολλάνε, και ποιο είναι το κρίσιμο ερώτημα που πρέπει να απαντήσει η διοίκηση τώρα. Κλείσε με μία καθαρή πρόταση για την ενέργεια που προτείνεται (π.χ. «Προτείνεται …»), χωρίς να αναφερθείς στον εαυτό σου ή στον ρόλο σου.
+
+Κανόνες: Γράψε μόνο ό,τι στηρίζεται στα δεδομένα — αν λείπει κάτι, προσπέρασέ το σιωπηλά (μη γράφεις «δεν υπάρχουν στοιχεία»). ΠΟΣΑ: γράψε τα ΠΑΝΤΑ με ΚΟΜΜΑ ως διαχωριστικό χιλιάδων και χωρίς δεκαδικά, όπως €89,715 και €9,000 — ΠΟΤΕ με τελεία (λάθος: €89.715, €9.000). Ημερομηνίες σε μορφή 06/08/2026. ΜΗΝ γράψεις το όνομα του ομίλου — φαίνεται ήδη στον τίτλο· ξεκίνα με το γεγονός, όχι με το όνομα (τα ονόματα των εταιρειών-μελών επιτρέπονται όταν ξεχωρίζει ποια χρωστά). Η αφήγηση απευθύνεται σε αυτόν που παρέλαβε την κλιμάκωση, άρα ΜΗΝ προτείνεις να επικοινωνήσει με τον παραλήπτη της κλιμάκωσης — πρότεινε ενέργεια προς τον πελάτη (π.χ. διακοπή υπηρεσιών, νομικές ενέργειες, διακανονισμός, στοχευμένη διεκδίκηση συγκεκριμένων τιμολογίων). Μην αναφέρεις ότι διάβασες JSON ή timeline.`,
+            },
+            { role: "user", content: JSON.stringify(facts) },
+          ],
+        });
+        const raw = response.choices?.[0]?.message?.content;
+        const story =
+          typeof raw === "string"
+            ? raw
+            : Array.isArray(raw)
+              ? raw.map((c: any) => (c?.type === "text" ? c.text : "")).join("")
+              : "";
+        return {
+          group,
+          story: story.trim() || fallback(),
+          generated: Boolean(story.trim()),
+          eventCount: stats.events,
+          generatedAt: Date.now(),
+        };
+      } catch {
+        // The panel must always tell the story — never fall back to raw tiles.
+        return { group, story: fallback(), generated: false, eventCount: stats.events, generatedAt: Date.now() };
+      }
     }),
   /**
    * Management decision on an escalated task:
