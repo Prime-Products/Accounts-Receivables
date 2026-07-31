@@ -1261,3 +1261,4 @@
 - [x] Remove the "Days Ovd" column from the transactions table — the days already appear on the Overdue badge
 - [x] Rename "Collections" to "Group List" in the sidebar, page title and back links
 - [x] Remove the "Doc. Date" column from the invoices table — Due Date is the date that drives collection
+- [x] Group invoices by vessel — "By vessel" view on the Invoices page and in the group card transactions, with drill-down and "No vessel" bucket

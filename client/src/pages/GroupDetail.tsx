@@ -335,7 +335,9 @@ export default function GroupDetail() {
   const [branch, setBranch] = useState<string>("all");
   const [agingFilter, setAgingFilter] = useState<AgingBucket>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [invoiceView, setInvoiceView] = useState<"list" | "byBranch">("list");
+  const [invoiceView, setInvoiceView] = useState<"list" | "byBranch" | "byVessel">("list");
+  /** When set from the By vessel view, the list shows only this vessel's invoices ("none" = no vessel). */
+  const [vesselDrill, setVesselDrill] = useState<string>("all");
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
   // The transactions list is a collection worklist, so settled invoices are hidden
   // by default; the toggle brings them back for reconciliation/history checks.
@@ -418,6 +420,10 @@ export default function GroupDetail() {
       if (hideSettled(inv as any, showPaid, statusFilter)) return false;
       if (!matchesStatusFilter(inv as any, statusFilter)) return false;
       if (installmentFilter === "installments" && !(inv as any).isContractInstallment) return false;
+      if (vesselDrill !== "all") {
+        const vid = ((inv as any).vesselId ?? null) as number | null;
+        if (vesselDrill === "none" ? vid != null : String(vid ?? "") !== vesselDrill) return false;
+      }
       if (agingFilter !== "all") {
         if (inv.status === "Paid") return false;
         if (Number(inv.amount) - Number(inv.paidAmount) <= 0) return false;
@@ -425,13 +431,21 @@ export default function GroupDetail() {
       }
       return true;
     });
-  }, [data?.invoices, agingFilter, statusFilter, installmentFilter, showPaid]);
+  }, [data?.invoices, agingFilter, statusFilter, installmentFilter, showPaid, vesselDrill]);
 
   /** How many settled invoices are currently being hidden (for the toggle label). */
   const paidHiddenCount = useMemo(() => {
     if (!data?.invoices) return 0;
     return countSettled(data.invoices as any);
   }, [data?.invoices]);
+
+  /** Human label for the active vessel drill-down chip. */
+  const vesselDrillLabel = useMemo(() => {
+    if (vesselDrill === "all") return "";
+    if (vesselDrill === "none") return "No vessel";
+    const hit = (data?.invoices ?? []).find(i => String((i as any).vesselId ?? "") === vesselDrill);
+    return ((hit as any)?.vesselName as string | undefined) ?? "Vessel";
+  }, [vesselDrill, data?.invoices]);
 
   /** Totals of the currently filtered invoice list: EUR + per-currency (like Invoices page). */
   const filteredTotals = useMemo(() => {
@@ -792,6 +806,18 @@ export default function GroupDetail() {
                   </button>
                 </Badge>
               )}
+              {vesselDrill !== "all" && (
+                <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30 max-w-64">
+                  <span className="truncate">{vesselDrillLabel}</span>
+                  <button
+                    className="ml-0.5 text-muted-foreground hover:text-foreground"
+                    title="Clear vessel filter"
+                    onClick={() => setVesselDrill("all")}
+                  >
+                    ×
+                  </button>
+                </Badge>
+              )}
               <span>
                 Outstanding total: <span className="font-mono font-semibold">{fmtEur(filteredTotals.eurTotal)}</span>
               </span>
@@ -845,11 +871,89 @@ export default function GroupDetail() {
                 >
                   By branch
                 </Button>
+                <Button
+                  size="sm"
+                  variant={invoiceView === "byVessel" ? "secondary" : "ghost"}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setInvoiceView("byVessel")}
+                >
+                  By vessel
+                </Button>
               </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              {invoiceView === "byBranch" ? (
+              {invoiceView === "byVessel" ? (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Vessel</TableHead>
+                        <TableHead className="text-right">Invoices</TableHead>
+                        <TableHead className="text-right">Outstanding (EUR)</TableHead>
+                        <TableHead className="text-right">% of total</TableHead>
+                        <TableHead className="text-right"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(() => {
+                        // Outstanding per vessel, converted to EUR the same way as the
+                        // By branch view. Invoices without a vessel roll up into a
+                        // single "No vessel" row so the totals still reconcile.
+                        const byVessel = new Map<string, { label: string; count: number; totalEur: number }>();
+                        for (const i of filteredInvoices) {
+                          const raw = Number(i.amount) - Number(i.paidAmount);
+                          if (raw <= 0.005) continue;
+                          const ratio = Number(i.amount) > 0 ? Number((i as any).amountEur ?? i.amount) / Number(i.amount) : 1;
+                          const vid = ((i as any).vesselId ?? null) as number | null;
+                          const key = vid != null ? String(vid) : "none";
+                          const label = (((i as any).vesselName as string | null) ?? "No vessel") || "No vessel";
+                          const cur = byVessel.get(key) ?? { label, count: 0, totalEur: 0 };
+                          cur.count += 1;
+                          cur.totalEur += raw * ratio;
+                          byVessel.set(key, cur);
+                        }
+                        const grand = Array.from(byVessel.values()).reduce((s, v) => s + v.totalEur, 0);
+                        const rows = Array.from(byVessel.entries()).sort((a, b) => {
+                          if (a[0] === "none") return 1;
+                          if (b[0] === "none") return -1;
+                          return b[1].totalEur - a[1].totalEur;
+                        });
+                        if (rows.length === 0) {
+                          return (
+                            <TableRow>
+                              <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">
+                                No outstanding invoices in the current scope.
+                              </TableCell>
+                            </TableRow>
+                          );
+                        }
+                        return rows.map(([key, v]) => (
+                          <TableRow
+                            key={key}
+                            className="cursor-pointer"
+                            onClick={() => {
+                              setVesselDrill(vesselDrill === key ? "all" : key);
+                              setInvoiceView("list");
+                            }}
+                          >
+                            <TableCell className={key === "none" ? "text-muted-foreground" : "font-medium"}>{v.label}</TableCell>
+                            <TableCell className="text-right font-mono">{v.count}</TableCell>
+                            <TableCell className="text-right font-mono font-semibold">{fmtEur(v.totalEur)}</TableCell>
+                            <TableCell className="text-right font-mono text-sm text-muted-foreground">
+                              {grand > 0 ? `${((v.totalEur / grand) * 100).toFixed(1)}%` : "—"}
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-muted-foreground">View invoices →</TableCell>
+                          </TableRow>
+                        ));
+                      })()}
+                    </TableBody>
+                  </Table>
+                  <p className="px-4 py-2 text-[11px] text-muted-foreground">
+                    Open invoices in the current scope, grouped per vessel (non-EUR converted to EUR). Click a vessel to see its invoices.
+                  </p>
+                </>
+              ) : invoiceView === "byBranch" ? (
                 <>
                   <Table>
                     <TableHeader>

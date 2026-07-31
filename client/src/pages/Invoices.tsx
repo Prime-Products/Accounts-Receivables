@@ -14,7 +14,7 @@ import { matchesStatusFilter } from "@/lib/invoiceFilters";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { ChevronRight, FileDown, FileText, HandCoins, Users } from "lucide-react";
+import { ChevronRight, FileDown, FileText, HandCoins, Ship, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -49,6 +49,11 @@ export default function Invoices() {
   const [groupView, setGroupView] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("view") === "group";
+  });
+  /** Aggregate by vessel instead of listing invoices. Mutually exclusive with the group view. */
+  const [vesselView, setVesselView] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("view") === "vessel";
   });
   /** Drill-down: when set, the invoice list shows only this group's invoices (within the active filters). */
   const [groupDrill, setGroupDrill] = useState<string | null>(() => {
@@ -112,7 +117,11 @@ export default function Invoices() {
     return invoices.filter(i => {
       if (!matchesStatusFilter(i, statusFilter)) return false;
       if (branchFilter !== "all" && i.company !== branchFilter) return false;
-      if (vesselFilter !== "all" && String((i as any).vesselId ?? "") !== vesselFilter) return false;
+      if (vesselFilter === "none") {
+        if ((i as any).vesselId != null) return false;
+      } else if (vesselFilter !== "all" && String((i as any).vesselId ?? "") !== vesselFilter) {
+        return false;
+      }
       if (contractFilter === "installments" && !(i as any).isContractInstallment) return false;
       if (overdueOnly && contractFilter === "installments" && i.daysOverdue <= 0) return false;
       if (groupDrill && ((i as any).customerGroup ?? i.customerName) !== groupDrill) return false;
@@ -169,6 +178,39 @@ export default function Invoices() {
       g.byCur[cur] = (g.byCur[cur] ?? 0) + (Number(i.amount) - Number(i.paidAmount));
     }
     return Array.from(map.values()).sort((a, b) => b.outstanding - a.outstanding);
+  }, [filtered]);
+
+  /**
+   * Per-vessel aggregation of the currently filtered invoices. Invoices without a
+   * vessel are collected under a single "No vessel" row (id null) so the totals of
+   * this view always match the list totals.
+   */
+  const byVessel = useMemo(() => {
+    const map = new Map<
+      string,
+      { key: string; vesselId: number | null; vessel: string; outstanding: number; count: number; byCur: Record<string, number> }
+    >();
+    for (const i of filtered) {
+      if (i.status === "Paid") continue;
+      const vid = ((i as any).vesselId ?? null) as number | null;
+      const vname = ((i as any).vesselName ?? null) as string | null;
+      const key = vid != null ? String(vid) : "none";
+      let v = map.get(key);
+      if (!v) {
+        v = { key, vesselId: vid, vessel: vname ?? "No vessel", outstanding: 0, count: 0, byCur: {} };
+        map.set(key, v);
+      }
+      v.outstanding += i.outstanding;
+      v.count += 1;
+      const cur = (i.currency ?? "EUR").toUpperCase();
+      v.byCur[cur] = (v.byCur[cur] ?? 0) + (Number(i.amount) - Number(i.paidAmount));
+    }
+    // Real vessels first (by exposure), "No vessel" always last.
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.vesselId == null) return 1;
+      if (b.vesselId == null) return -1;
+      return b.outstanding - a.outstanding;
+    });
   }, [filtered]);
 
   return (
@@ -360,6 +402,7 @@ export default function Invoices() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All vessels</SelectItem>
+              <SelectItem value="none">No vessel</SelectItem>
               {vesselOptions.map(v => (
                 <SelectItem key={v.id} value={String(v.id)}>
                   {v.name}
@@ -405,9 +448,23 @@ export default function Invoices() {
             variant={groupView ? "default" : "outline"}
             size="sm"
             className="ml-auto gap-1.5 h-7"
-            onClick={() => setGroupView(v => !v)}
+            onClick={() => {
+              setGroupView(v => !v);
+              setVesselView(false);
+            }}
           >
             <Users className="h-3.5 w-3.5" /> By group
+          </Button>
+          <Button
+            variant={vesselView ? "default" : "outline"}
+            size="sm"
+            className="gap-1.5 h-7"
+            onClick={() => {
+              setVesselView(v => !v);
+              setGroupView(false);
+            }}
+          >
+            <Ship className="h-3.5 w-3.5" /> By vessel
           </Button>
         </div>
       )}
@@ -422,6 +479,69 @@ export default function Invoices() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="p-10 text-center text-muted-foreground">No invoices match the current filters.</div>
+          ) : vesselView ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">#</TableHead>
+                  <TableHead>Vessel</TableHead>
+                  <TableHead className="text-right">Invoices</TableHead>
+                  <TableHead className="text-right">Outstanding</TableHead>
+                  <TableHead className="text-right">% of total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow className="bg-muted/40 font-semibold">
+                  <TableCell />
+                  <TableCell>TOTAL — {byVessel.length} vessel(s)</TableCell>
+                  <TableCell className="text-right font-mono">
+                    <button
+                      className="hover:underline underline-offset-2 text-primary"
+                      title="View all these invoices"
+                      onClick={() => setVesselView(false)}
+                    >
+                      {byVessel.reduce((s, v) => s + v.count, 0)}
+                    </button>
+                  </TableCell>
+                  <TableCell className="text-right font-mono">{fmtEur(byVessel.reduce((s, v) => s + v.outstanding, 0))}</TableCell>
+                  <TableCell className="text-right font-mono">100%</TableCell>
+                </TableRow>
+                {byVessel.map((v, idx) => (
+                  <TableRow key={v.key}>
+                    <TableCell className="font-mono text-muted-foreground">{idx + 1}</TableCell>
+                    <TableCell>
+                      {v.vesselId != null ? (
+                        <Link href={`/vessels/${v.vesselId}`} className="font-medium hover:underline inline-flex items-center gap-1">
+                          {v.vessel}
+                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                        </Link>
+                      ) : (
+                        <span className="font-medium text-muted-foreground">{v.vessel}</span>
+                      )}
+                      {fmtByCurrency(v.byCur, { skipEurOnly: true }) && (
+                        <div className="text-[11px] text-muted-foreground font-mono">{fmtByCurrency(v.byCur)}</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      <button
+                        className="hover:underline underline-offset-2 text-primary"
+                        title={`View the ${v.count} invoice(s) of ${v.vessel}`}
+                        onClick={() => {
+                          setVesselFilter(v.vesselId != null ? String(v.vesselId) : "none");
+                          setVesselView(false);
+                        }}
+                      >
+                        {v.count}
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-right font-mono font-semibold">{fmtEur(v.outstanding)}</TableCell>
+                    <TableCell className="text-right font-mono text-muted-foreground">
+                      {filteredTotals.eurTotal > 0 ? `${((v.outstanding / filteredTotals.eurTotal) * 100).toFixed(1)}%` : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           ) : groupView ? (
             <Table>
               <TableHeader>
@@ -484,7 +604,7 @@ export default function Invoices() {
           ) : (
             <InvoicesTable rows={visibleRows as any} />
           )}
-          {!isLoading && filtered.length > visibleCount && (
+          {!isLoading && !groupView && !vesselView && filtered.length > visibleCount && (
             <div className="flex items-center justify-center gap-3 py-4 border-t">
               <span className="text-sm text-muted-foreground">
                 Showing {visibleCount.toLocaleString()} of {filtered.length.toLocaleString()} invoices
