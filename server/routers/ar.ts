@@ -2167,9 +2167,24 @@ export const invoicesRouter = router({
       const byId = new Map(customers.map(c => [c.id, c]));
       const vessels = await db.listVessels();
       const vesselById = new Map(vessels.map(v => [v.id, v]));
+      const vesselAllocations = await db.listInvoiceVesselAllocations();
+      const allocationsByInvoice = new Map<number, typeof vesselAllocations>();
+      for (const allocation of vesselAllocations) {
+        const rows = allocationsByInvoice.get(allocation.invoiceId) ?? [];
+        rows.push(allocation);
+        allocationsByInvoice.set(allocation.invoiceId, rows);
+      }
       const now = Date.now();
       // Trimmed payload: only the fields the UI consumes (5k+ rows, every byte counts)
-      return invoices.map(i => ({
+      return invoices.map(i => {
+        const allocations = allocationsByInvoice.get(i.id) ?? [];
+        const linkedVesselIds = allocations.length > 0
+          ? allocations.map(allocation => allocation.vesselId)
+          : i.vesselId ? [i.vesselId] : [];
+        const linkedVesselNames = linkedVesselIds
+          .map(id => vesselById.get(id)?.name)
+          .filter((name): name is string => Boolean(name));
+        return ({
         id: i.id,
         customerId: i.customerId,
         invoiceNumber: i.invoiceNumber,
@@ -2181,15 +2196,18 @@ export const invoicesRouter = router({
         status: i.status,
         issueDate: i.issueDate,
         dueDate: i.dueDate,
-        vesselId: i.vesselId,
+        vesselId: linkedVesselIds[0] ?? null,
+        vesselIds: linkedVesselIds,
+        vesselNames: linkedVesselNames,
         isContractInstallment: !!i.isContractInstallment,
         customerName: byId.get(i.customerId)?.name ?? "—",
         customerTier: byId.get(i.customerId)?.tier ?? "New",
         customerGroup: (byId.get(i.customerId)?.customerGroup ?? "").trim() || (byId.get(i.customerId)?.name ?? "—"),
-        vesselName: i.vesselId ? (vesselById.get(i.vesselId)?.name ?? null) : null,
+        vesselName: linkedVesselNames.join(", ") || null,
         outstanding: outstanding(i),
         daysOverdue: isOpenInvoice(i) ? daysOverdue(i.dueDate, now) : 0,
-      }));
+        });
+      });
     }),
   aging: protectedProcedure.query(async () => {
     const invoices = await db.listInvoices();
@@ -2342,6 +2360,13 @@ export const vesselsRouter = router({
       db.listInvoices(),
       db.listCustomers(),
     ]);
+    const vesselAllocations = await db.listInvoiceVesselAllocations();
+    const allocationsByInvoice = new Map<number, typeof vesselAllocations>();
+    for (const allocation of vesselAllocations) {
+      const rows = allocationsByInvoice.get(allocation.invoiceId) ?? [];
+      rows.push(allocation);
+      allocationsByInvoice.set(allocation.invoiceId, rows);
+    }
     const custById = new Map(customers.map(c => [c.id, c]));
     const now = Date.now();
     type Agg = {
@@ -2356,26 +2381,32 @@ export const vesselsRouter = router({
     };
     const aggByVessel = new Map<number, Agg>();
     for (const inv of allInvoices) {
-      if (!inv.vesselId) continue;
-      let agg = aggByVessel.get(inv.vesselId);
-      if (!agg) {
-        agg = { invoiceCount: 0, openBalance: 0, overdueAmount: 0, overdueCount: 0, totalInvoiced: 0, totalPaid: 0, maxDaysOverdue: 0, customerIds: new Set() };
-        aggByVessel.set(inv.vesselId, agg);
-      }
-      agg.invoiceCount += 1;
-      agg.customerIds.add(inv.customerId);
-      const eurAmount = inv.amountEur != null ? Number(inv.amountEur) : Number(inv.amount);
-      const paidFraction = Number(inv.amount) > 0 ? Math.min(1, Math.max(0, Number(inv.paidAmount) / Number(inv.amount))) : 0;
-      agg.totalInvoiced += eurAmount;
-      agg.totalPaid += eurAmount * paidFraction;
-      if (isOpenInvoice(inv)) {
-        const out = outstanding(inv);
-        agg.openBalance += out;
-        const dOver = daysOverdue(inv.dueDate, now);
-        if (dOver > 0) {
-          agg.overdueAmount += out;
-          agg.overdueCount += 1;
-          if (dOver > agg.maxDaysOverdue) agg.maxDaysOverdue = dOver;
+      const allocations = allocationsByInvoice.get(inv.id) ?? [];
+      const allocationTotal = allocations.reduce((sum, row) => sum + Number(row.amount), 0);
+      const targets = allocations.length > 0 && allocationTotal > 0
+        ? allocations.map(row => ({ vesselId: row.vesselId, share: Number(row.amount) / allocationTotal }))
+        : inv.vesselId ? [{ vesselId: inv.vesselId, share: 1 }] : [];
+      for (const target of targets) {
+        let agg = aggByVessel.get(target.vesselId);
+        if (!agg) {
+          agg = { invoiceCount: 0, openBalance: 0, overdueAmount: 0, overdueCount: 0, totalInvoiced: 0, totalPaid: 0, maxDaysOverdue: 0, customerIds: new Set() };
+          aggByVessel.set(target.vesselId, agg);
+        }
+        agg.invoiceCount += 1;
+        agg.customerIds.add(inv.customerId);
+        const eurAmount = inv.amountEur != null ? Number(inv.amountEur) : Number(inv.amount);
+        const paidFraction = Number(inv.amount) > 0 ? Math.min(1, Math.max(0, Number(inv.paidAmount) / Number(inv.amount))) : 0;
+        agg.totalInvoiced += eurAmount * target.share;
+        agg.totalPaid += eurAmount * paidFraction * target.share;
+        if (isOpenInvoice(inv)) {
+          const out = outstanding(inv) * target.share;
+          agg.openBalance += out;
+          const dOver = daysOverdue(inv.dueDate, now);
+          if (dOver > 0) {
+            agg.overdueAmount += out;
+            agg.overdueCount += 1;
+            if (dOver > agg.maxDaysOverdue) agg.maxDaysOverdue = dOver;
+          }
         }
       }
     }
@@ -2407,9 +2438,19 @@ export const vesselsRouter = router({
     const vessel = await db.getVesselById(input.id);
     if (!vessel) throw new TRPCError({ code: "NOT_FOUND", message: "Vessel not found" });
     const [allInvoices, customers] = await Promise.all([db.listInvoices(), db.listCustomers()]);
+    const vesselAllocations = await db.listInvoiceVesselAllocations();
+    const allocationsByInvoice = new Map<number, typeof vesselAllocations>();
+    for (const allocation of vesselAllocations) {
+      const allocations = allocationsByInvoice.get(allocation.invoiceId) ?? [];
+      allocations.push(allocation);
+      allocationsByInvoice.set(allocation.invoiceId, allocations);
+    }
     const custById = new Map(customers.map(c => [c.id, c]));
     const now = Date.now();
-    const rows = allInvoices.filter(i => i.vesselId === input.id);
+    const rows = allInvoices.filter(i =>
+      (allocationsByInvoice.get(i.id) ?? []).some(allocation => allocation.vesselId === input.id)
+      || (!(allocationsByInvoice.get(i.id)?.length) && i.vesselId === input.id),
+    );
     const invoiceRows = rows.map(i => ({
       id: i.id,
       customerId: i.customerId,
@@ -2422,7 +2463,7 @@ export const vesselsRouter = router({
       status: i.status,
       issueDate: i.issueDate,
       dueDate: i.dueDate,
-      vesselId: i.vesselId,
+      vesselId: input.id,
       customerName: custById.get(i.customerId)?.name ?? "—",
       customerTier: custById.get(i.customerId)?.tier ?? "New",
       customerGroup: (custById.get(i.customerId)?.customerGroup ?? "").trim() || (custById.get(i.customerId)?.name ?? "—"),
@@ -2432,12 +2473,18 @@ export const vesselsRouter = router({
     }));
     let openBalance = 0, overdueAmount = 0, overdueCount = 0, totalInvoiced = 0, totalPaid = 0, maxDays = 0;
     for (const i of rows) {
+      const allocations = allocationsByInvoice.get(i.id) ?? [];
+      const allocationTotal = allocations.reduce((sum, row) => sum + Number(row.amount), 0);
+      const vesselAllocation = allocations.find(row => row.vesselId === input.id);
+      const share = vesselAllocation && allocationTotal > 0
+        ? Number(vesselAllocation.amount) / allocationTotal
+        : 1;
       const eurAmount = i.amountEur != null ? Number(i.amountEur) : Number(i.amount);
       const paidFraction = Number(i.amount) > 0 ? Math.min(1, Math.max(0, Number(i.paidAmount) / Number(i.amount))) : 0;
-      totalInvoiced += eurAmount;
-      totalPaid += eurAmount * paidFraction;
+      totalInvoiced += eurAmount * share;
+      totalPaid += eurAmount * paidFraction * share;
       if (isOpenInvoice(i)) {
-        const out = outstanding(i);
+        const out = outstanding(i) * share;
         openBalance += out;
         const d = daysOverdue(i.dueDate, now);
         if (d > 0) { overdueAmount += out; overdueCount += 1; if (d > maxDays) maxDays = d; }

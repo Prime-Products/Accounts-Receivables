@@ -13,6 +13,7 @@ const SOFTONE_INVOICE_PAGE_SIZE = 100;
 const MAX_SOFTONE_INVOICE_PAGES = 500;
 const SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE = 250;
 const SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE = 250;
+const SOFTONE_INSTALLMENT_LOOKUP_BATCH_SIZE = 250;
 type SourceRow = Record<string, unknown>;
 
 const softOneInvoiceVesselSelect =
@@ -231,6 +232,29 @@ WHERE customer.[TRDR] IN (${softoneIds.join(", ")})
   AND customer.[ISACTIVE] = 1
   AND customer.[TRDGROUP] IS NOT NULL
   AND customer.[TRDGROUP] <> 473`;
+}
+
+export function buildSoftOneInvoiceInstallmentLookupQuery(findocs: string[]) {
+  if (
+    findocs.length === 0 ||
+    findocs.length > SOFTONE_INSTALLMENT_LOOKUP_BATCH_SIZE ||
+    findocs.some(value => !/^\d+$/.test(value))
+  ) {
+    throw new Error("Invalid SoftOne installment lookup identifiers.");
+  }
+  return `SELECT
+  CAST(installment.[CCCINSTALMENTS] AS bigint) AS [INSTALLMENT_ID],
+  CAST(installment.[CCCPRJC] AS bigint) AS [CONTRACT_ID],
+  CAST(installment.[FINDOC] AS bigint) AS [FINDOC],
+  CAST(installment.[TRDR] AS bigint) AS [TRDR],
+  CAST(installment.[CCCCUSTSHIP] AS bigint) AS [VESSEL_ID],
+  CAST(installment.[VALUE] AS float) AS [ALLOCATION_AMOUNT]
+FROM [dbo].[CCCINSTALMENTS] AS installment
+INNER JOIN [dbo].[CCCPRJC] AS contract
+  ON contract.[CCCPRJC] = installment.[CCCPRJC]
+WHERE contract.[ACTIVE247] = 1
+  AND installment.[FINDOC] IN (${findocs.join(", ")})
+ORDER BY installment.[FINDOC], installment.[CCCINSTALMENTS]`;
 }
 
 function identity(row: SourceRow, field: string) {
@@ -482,12 +506,68 @@ async function loadSoftOneOpenInvoices(
 ) {
   const rows = await querySoftOneOpenInvoiceSource(pool, setStage);
   const maps = await queryMaps(pool, rows, setStage);
-  return normalizeSoftOneOpenInvoiceRows(
+  const records = normalizeSoftOneOpenInvoiceRows(
     rows,
     maps.documents,
     maps.companies,
     maps.currencies,
   );
+  if (process.env.SOFTONE_SQL_CONTRACT_INSTALLMENT_SYNC_ENABLED !== "true") {
+    return records;
+  }
+  const findocs = Array.from(
+    new Set(records.map(record => String(record.softoneId).split(":", 1)[0])),
+  );
+  const installmentRows: SourceRow[] = [];
+  for (
+    let index = 0;
+    index < findocs.length;
+    index += SOFTONE_INSTALLMENT_LOOKUP_BATCH_SIZE
+  ) {
+    const batch = findocs.slice(index, index + SOFTONE_INSTALLMENT_LOOKUP_BATCH_SIZE);
+    setStage(`query contract installment lookup batch ${Math.floor(index / SOFTONE_INSTALLMENT_LOOKUP_BATCH_SIZE) + 1}`);
+    const result = await pool
+      .request()
+      .query<SourceRow>(buildSoftOneInvoiceInstallmentLookupQuery(batch));
+    installmentRows.push(...result.recordset);
+  }
+  const allocationsByInvoiceCustomer = new Map<string, SoftOneInvoiceUpsert["vesselAllocations"]>();
+  const installmentIds = new Set<string>();
+  for (const row of installmentRows) {
+    const installmentId = identity(row, "INSTALLMENT_ID");
+    if (installmentIds.has(installmentId)) {
+      throw new Error(`SoftOne returned duplicate installment id ${installmentId}.`);
+    }
+    installmentIds.add(installmentId);
+    const findoc = identity(row, "FINDOC");
+    const trdr = identity(row, "TRDR");
+    const vesselId = numberValue(row, "VESSEL_ID");
+    const amount = Math.round(numberValue(row, "ALLOCATION_AMOUNT") * 100) / 100;
+    if (!Number.isSafeInteger(vesselId) || vesselId <= 0 || amount < 0) {
+      throw new Error(`SoftOne installment ${installmentId} has invalid vessel or amount.`);
+    }
+    const key = `${findoc}:${trdr}`;
+    const allocations = allocationsByInvoiceCustomer.get(key) ?? [];
+    allocations.push({
+      softoneInstallmentId: installmentId,
+      contractSoftoneId: identity(row, "CONTRACT_ID"),
+      vesselId,
+      amount: amount.toFixed(2),
+    });
+    allocationsByInvoiceCustomer.set(key, allocations);
+  }
+  return records.map(record => {
+    const findoc = String(record.softoneId).split(":", 1)[0];
+    const vesselAllocations = allocationsByInvoiceCustomer.get(
+      `${findoc}:${record.customerSoftoneId}`,
+    ) ?? [];
+    return {
+      ...record,
+      isContractInstallment: vesselAllocations.length > 0,
+      vesselId: vesselAllocations[0]?.vesselId ?? record.vesselId ?? null,
+      vesselAllocations,
+    };
+  });
 }
 
 async function ensureInvoiceCustomers(

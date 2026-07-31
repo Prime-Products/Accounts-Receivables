@@ -139,6 +139,28 @@ export const invoices = mysqlTable("invoices", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/** SoftOne installment allocations allow one invoice to concern multiple vessels. */
+export const invoiceVesselAllocations = mysqlTable(
+  "invoice_vessel_allocations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    invoiceId: int("invoiceId").notNull(),
+    vesselId: int("vesselId").notNull(),
+    amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+    softoneInstallmentId: varchar("softoneInstallmentId", { length: 64 }).notNull().unique(),
+    contractSoftoneId: varchar("contractSoftoneId", { length: 64 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  t => [
+    index("idx_iva_invoiceId").on(t.invoiceId),
+    index("idx_iva_vesselId").on(t.vesselId),
+  ],
+);
+
+export type InvoiceVesselAllocation = typeof invoiceVesselAllocations.$inferSelect;
+export type InsertInvoiceVesselAllocation = typeof invoiceVesselAllocations.$inferInsert;
+
 export const receiptMethods = ["Bank Transfer", "Cash", "Cheque", "Card"] as const;
 
 export const receipts = mysqlTable("receipts", {

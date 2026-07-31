@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateSoftOneOpenInvoiceParts,
   buildSoftOneInvoiceCustomerLookupQuery,
+  buildSoftOneInvoiceInstallmentLookupQuery,
   buildSoftOneOpenInvoiceDocumentsQuery,
   buildSoftOneOpenInvoiceFinancialsQuery,
   normalizeSoftOneCurrencyName,
@@ -228,6 +229,19 @@ describe("SoftOne open invoice sync", () => {
     expect(query).not.toMatch(/\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i);
     expect(() =>
       buildSoftOneOpenInvoiceDocumentsQuery(["1403582); DROP TABLE FINDOC"]),
+    ).toThrow(/invalid.*identifiers/i);
+  });
+
+  it("builds a read-only active installment allocation lookup", () => {
+    const query = buildSoftOneInvoiceInstallmentLookupQuery(["1403582", "1422083"]);
+    expect(query).toContain("[dbo].[CCCINSTALMENTS]");
+    expect(query).toContain("contract.[ACTIVE247] = 1");
+    expect(query).toContain("installment.[FINDOC] IN (1403582, 1422083)");
+    expect(query).toContain("installment.[CCCCUSTSHIP]");
+    expect(query).toContain("installment.[VALUE]");
+    expect(query).not.toMatch(/\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i);
+    expect(() =>
+      buildSoftOneInvoiceInstallmentLookupQuery(["1403582); DROP TABLE FINDOC"]),
     ).toThrow(/invalid.*identifiers/i);
   });
 });
