@@ -3716,6 +3716,9 @@ export const reportsRouter = router({
         ].filter(Boolean);
         spec = {
           title: `Statement of Account — Group ${input.group}${scopeParts.length ? ` (${scopeParts.join(", ")})` : ""}`,
+          kind: "soa",
+          companyName: input.group,
+          paymentTermsDays: members[0]?.paymentTermsDays ?? 30,
           columns: [
             { header: "Company", key: "company", width: 32 },
             { header: "Invoice", key: "invoice", width: 18 },
@@ -3768,6 +3771,9 @@ export const reportsRouter = router({
         const open = invoices.filter(isOpenInvoice);
         spec = {
           title: `Statement of Account — ${customer.name}`,
+          kind: "soa",
+          companyName: customer.name,
+          paymentTermsDays: customer.paymentTermsDays,
           columns: [
             { header: "Invoice", key: "invoice", width: 18 },
             { header: "Prime Branch", key: "branch", width: 30 },
