@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSoftOneEntityTypesQuery,
   buildSoftOneCustomerFinancialsQuery,
   buildSoftOneCustomersQuery,
   buildSoftOneCustomerGroupNamesQuery,
@@ -116,6 +117,12 @@ describe("SoftOne read-only SQL sync", () => {
     );
     expect(buildSoftOneCustomerFinancialsQuery(["101", "102"])).toContain(
       "CAST(source.[LBAL] AS float)",
+    );
+    expect(buildSoftOneEntityTypesQuery(["101", "202"])).toContain(
+      "entity.[TRDR] IN (101, 202)",
+    );
+    expect(buildSoftOneEntityTypesQuery(["101"])).toContain(
+      "entity.[SODTYPE]",
     );
     expect(() =>
       buildSoftOneCustomerNamesQuery(["1); DROP TABLE TRDR"]),

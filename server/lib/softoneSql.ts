@@ -141,6 +141,23 @@ FROM [dbo].[TRDR] AS customer
 WHERE customer.[TRDR] IN (${numericIdentifiers(softoneIds)})`;
 }
 
+export function buildSoftOneEntityTypesQuery(softoneIds: string[]) {
+  return `SELECT
+  CAST(entity.[TRDR] AS bigint) AS [TRDR],
+  CAST(entity.[SODTYPE] AS int) AS [SODTYPE],
+  CAST(entity.[TRDGROUP] AS bigint) AS [TRDGROUP]
+FROM [dbo].[TRDR] AS entity
+WHERE entity.[COMPANY] = 1
+  AND entity.[TRDR] IN (${numericIdentifiers(softoneIds)})`;
+}
+
+export async function querySoftOneEntityTypes(softoneIds: string[]) {
+  return queryNamesWithRecycledPools(
+    softoneIds,
+    buildSoftOneEntityTypesQuery,
+  );
+}
+
 export function buildSoftOneCustomerGroupNamesQuery(groupIds: string[]) {
   return `SELECT
   CAST(customer_group.[TRDGROUP] AS bigint) AS [TRDGROUP],

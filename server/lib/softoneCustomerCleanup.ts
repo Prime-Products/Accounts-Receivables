@@ -14,6 +14,34 @@ export type SoftOneCustomerSyncEvidence = {
   loggedCustomers: number;
 };
 
+export type SoftOneEntityClassification = {
+  TRDR?: unknown;
+  SODTYPE?: unknown;
+  TRDGROUP?: unknown;
+};
+
+export function selectConfirmedIneligibleCustomers(
+  customers: (SoftOneCleanupCustomer & { softoneId: string })[],
+  classifications: SoftOneEntityClassification[],
+) {
+  const byId = new Map(
+    classifications.map(row => [
+      String(row.TRDR ?? "").trim(),
+      {
+        type: Number(row.SODTYPE),
+        group: Number(row.TRDGROUP),
+      },
+    ]),
+  );
+  return customers.filter(customer => {
+    const classification = byId.get(customer.softoneId);
+    return (
+      classification?.type === 12 ||
+      (classification?.type === 13 && classification.group === 473)
+    );
+  });
+}
+
 export function validateSoftOneCustomerSyncEvidence(
   evidence: SoftOneCustomerSyncEvidence,
 ) {

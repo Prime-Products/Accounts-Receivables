@@ -3,11 +3,13 @@ import mysql, { type RowDataPacket } from "mysql2/promise";
 import {
   cleanupPreviewLimit,
   findStaleSoftOneCustomers,
+  selectConfirmedIneligibleCustomers,
   selectCleanupPreviewRows,
   type SoftOneCleanupCustomer,
   validateSoftOneCustomerSyncEvidence,
 } from "../server/lib/softoneCustomerCleanup";
 import { withSoftOneSyncLock } from "../server/lib/softoneSyncLock";
+import { querySoftOneEntityTypes } from "../server/lib/softoneSql";
 
 const REQUIRED_CONFIRMATION = "true";
 
@@ -121,9 +123,16 @@ async function runCleanup(apply: boolean) {
        WHERE softoneId IS NOT NULL
        ${apply ? "FOR UPDATE" : ""}`,
     );
-    const invalidCustomers = findStaleSoftOneCustomers(
+    const staleCustomers = findStaleSoftOneCustomers(
       allCustomers,
       evidence.syncedAt,
+    );
+    const classifications = await querySoftOneEntityTypes(
+      staleCustomers.map(customer => customer.softoneId),
+    );
+    const invalidCustomers = selectConfirmedIneligibleCustomers(
+      staleCustomers,
+      classifications,
     );
     if (invalidCustomers.length === 0) {
       if (apply) await connection.rollback();
@@ -162,6 +171,10 @@ async function runCleanup(apply: boolean) {
       console.log(
         `Validated latest successful customer sync: ${evidence.synchronizedCustomers} ` +
           `customer(s) at ${evidence.syncedAt.toISOString()}.`,
+      );
+      console.log(
+        `SoftOne confirmed ${invalidCustomers.length} of ${staleCustomers.length} stale ` +
+          `record(s) as supplier type 12 or internal customer group 473.`,
       );
       for (const customer of previewRows) {
         console.log(
