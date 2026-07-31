@@ -23,11 +23,13 @@ import {
   InsertForecastEntry,
   InsertGroupConfirmationStatus,
   InsertInvoice,
+  InsertInvoiceVesselAllocation,
   InsertPaymentContact,
   InsertReceipt,
   InsertTask,
   InsertUser,
   invoices,
+  invoiceVesselAllocations,
   paymentBehavior,
   paymentContacts,
   promisesToPay,
@@ -359,10 +361,17 @@ export async function updateInvoice(id: number, data: Partial<InsertInvoice>) {
 export type SoftOneInvoiceUpsert = Omit<InsertInvoice, "customerId"> & {
   customerSoftoneId: string;
   vesselId?: number | null;
+  vesselAllocations?: Array<{
+    softoneInstallmentId: string;
+    contractSoftoneId: string;
+    vesselId: number;
+    amount: string;
+  }>;
 };
 
 export async function upsertSoftOneInvoices(records: SoftOneInvoiceUpsert[]) {
   const database = await requireDb();
+  const syncVesselAllocations = records.some(record => record.vesselAllocations !== undefined);
   const customerRows = await database
     .select({ id: customers.id, softoneId: customers.softoneId })
     .from(customers);
@@ -384,7 +393,22 @@ export async function upsertSoftOneInvoices(records: SoftOneInvoiceUpsert[]) {
     );
   }
 
-  const values = records.map(({ customerSoftoneId, ...record }) => ({
+  const vesselRows = await database.select({ id: vessels.id }).from(vessels);
+  const vesselIds = new Set(vesselRows.map(row => row.id));
+  const missingVessels = Array.from(
+    new Set(
+      records.flatMap(record => record.vesselAllocations ?? [])
+        .map(allocation => allocation.vesselId)
+        .filter(vesselId => !vesselIds.has(vesselId)),
+    ),
+  );
+  if (missingVessels.length > 0) {
+    throw new Error(
+      `SoftOne installment invoices reference ${missingVessels.length} vessels that are not synchronized.`,
+    );
+  }
+
+  const values = records.map(({ customerSoftoneId, vesselAllocations: _allocations, ...record }) => ({
     ...record,
     customerId: customerIdBySoftOneId.get(customerSoftoneId)!,
   }));
@@ -406,10 +430,40 @@ export async function upsertSoftOneInvoices(records: SoftOneInvoiceUpsert[]) {
             amount: sql`VALUES(${invoices.amount})`,
             paidAmount: sql`VALUES(${invoices.paidAmount})`,
             status: sql`VALUES(${invoices.status})`,
+            ...(syncVesselAllocations
+              ? { isContractInstallment: sql`VALUES(${invoices.isContractInstallment})` }
+              : {}),
             vesselId: sql`VALUES(${invoices.vesselId})`,
             softoneId: sql`VALUES(${invoices.softoneId})`,
           },
         });
+    }
+    const softoneIds = records.map(record => record.softoneId).filter((value): value is string => Boolean(value));
+    if (syncVesselAllocations && softoneIds.length > 0) {
+      const invoiceRows: Array<{ id: number; softoneId: string | null }> = [];
+      for (let index = 0; index < softoneIds.length; index += batchSize) {
+        invoiceRows.push(...await tx
+          .select({ id: invoices.id, softoneId: invoices.softoneId })
+          .from(invoices)
+          .where(inArray(invoices.softoneId, softoneIds.slice(index, index + batchSize))));
+      }
+      const invoiceIdBySoftoneId = new Map(
+        invoiceRows.filter(row => row.softoneId).map(row => [row.softoneId!, row.id]),
+      );
+      const affectedInvoiceIds = invoiceRows.map(row => row.id);
+      for (let index = 0; index < affectedInvoiceIds.length; index += batchSize) {
+        await tx.delete(invoiceVesselAllocations).where(
+          inArray(invoiceVesselAllocations.invoiceId, affectedInvoiceIds.slice(index, index + batchSize)),
+        );
+      }
+      const allocations: InsertInvoiceVesselAllocation[] = records.flatMap(record => {
+        const invoiceId = record.softoneId ? invoiceIdBySoftoneId.get(record.softoneId) : undefined;
+        if (!invoiceId) return [];
+        return (record.vesselAllocations ?? []).map(allocation => ({ ...allocation, invoiceId }));
+      });
+      for (let index = 0; index < allocations.length; index += batchSize) {
+        await tx.insert(invoiceVesselAllocations).values(allocations.slice(index, index + batchSize));
+      }
     }
   });
   invalidateCache("invoices:");
@@ -1252,8 +1306,18 @@ export async function upsertSoftOneVessels(records: SoftOneVesselUpsert[]) {
           },
         });
     }
+
   });
   return { synced: values.length };
+}
+
+export async function listInvoiceVesselAllocations(invoiceIds?: number[]) {
+  const database = await requireDb();
+  if (invoiceIds && invoiceIds.length === 0) return [];
+  const query = database.select().from(invoiceVesselAllocations);
+  return invoiceIds
+    ? query.where(inArray(invoiceVesselAllocations.invoiceId, invoiceIds))
+    : query;
 }
 
 export async function createVessel(data: InsertVessel) {
@@ -1270,6 +1334,7 @@ export async function updateVessel(id: number, data: Partial<InsertVessel>) {
 export async function deleteVessel(id: number) {
   const db = await requireDb();
   // Detach from invoices first, then delete the vessel.
+  await db.delete(invoiceVesselAllocations).where(eq(invoiceVesselAllocations.vesselId, id));
   await db.update(invoices).set({ vesselId: null }).where(eq(invoices.vesselId, id));
   await db.delete(vessels).where(eq(vessels.id, id));
   invalidateCache("invoices:");
