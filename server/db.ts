@@ -358,6 +358,7 @@ export async function updateInvoice(id: number, data: Partial<InsertInvoice>) {
 
 export type SoftOneInvoiceUpsert = Omit<InsertInvoice, "customerId"> & {
   customerSoftoneId: string;
+  vesselId?: number | null;
 };
 
 export async function upsertSoftOneInvoices(records: SoftOneInvoiceUpsert[]) {
@@ -405,6 +406,7 @@ export async function upsertSoftOneInvoices(records: SoftOneInvoiceUpsert[]) {
             amount: sql`VALUES(${invoices.amount})`,
             paidAmount: sql`VALUES(${invoices.paidAmount})`,
             status: sql`VALUES(${invoices.status})`,
+            vesselId: sql`VALUES(${invoices.vesselId})`,
             softoneId: sql`VALUES(${invoices.softoneId})`,
           },
         });
@@ -1182,6 +1184,76 @@ export async function listGroupConfirmationStatuses() {
 export async function listVessels() {
   const db = await requireDb();
   return db.select().from(vessels).orderBy(vessels.name);
+}
+
+export type SoftOneVesselUpsert = {
+  id: number;
+  customerSoftoneId: string;
+  name: string;
+  imo: string | null;
+  vesselType: string | null;
+};
+
+/**
+ * Upsert the read-only SoftOne vessel registry. CCCCUSTSHIP is used as the
+ * vessel primary key, which also lets invoice rows link directly and avoids a
+ * second source-id column/migration. Existing non-SoftOne ids are protected.
+ */
+export async function upsertSoftOneVessels(records: SoftOneVesselUpsert[]) {
+  if (records.length === 0) return { synced: 0 };
+  const database = await requireDb();
+  const [customerRows, existingVessels] = await Promise.all([
+    database.select({ id: customers.id, softoneId: customers.softoneId }).from(customers),
+    database.select().from(vessels),
+  ]);
+  const customerIdBySoftOneId = new Map(
+    customerRows.filter(row => row.softoneId).map(row => [row.softoneId!, row.id]),
+  );
+  const existingById = new Map(existingVessels.map(vessel => [vessel.id, vessel]));
+  const missingOwners = new Set<string>();
+  const values: InsertVessel[] = records.map(record => {
+    const customerId = customerIdBySoftOneId.get(record.customerSoftoneId) ?? null;
+    if (!customerId) missingOwners.add(record.customerSoftoneId);
+    const marker = `SoftOne CCCCUSTSHIP:${record.id}`;
+    const existing = existingById.get(record.id);
+    if (existing && existing.notes !== marker) {
+      throw new Error(
+        `Vessel id ${record.id} already belongs to a non-SoftOne record (${existing.name}).`,
+      );
+    }
+    return {
+      id: record.id,
+      customerId,
+      name: record.name,
+      imo: record.imo,
+      vesselType: record.vesselType,
+      flag: existing?.flag ?? null,
+      notes: marker,
+    };
+  });
+  if (missingOwners.size > 0) {
+    throw new Error(
+      `SoftOne vessels reference ${missingOwners.size} customers that are not synchronized.`,
+    );
+  }
+  const batchSize = 250;
+  await database.transaction(async tx => {
+    for (let index = 0; index < values.length; index += batchSize) {
+      await tx
+        .insert(vessels)
+        .values(values.slice(index, index + batchSize))
+        .onDuplicateKeyUpdate({
+          set: {
+            customerId: sql`VALUES(${vessels.customerId})`,
+            name: sql`VALUES(${vessels.name})`,
+            imo: sql`VALUES(${vessels.imo})`,
+            vesselType: sql`VALUES(${vessels.vesselType})`,
+            notes: sql`VALUES(${vessels.notes})`,
+          },
+        });
+    }
+  });
+  return { synced: values.length };
 }
 
 export async function createVessel(data: InsertVessel) {

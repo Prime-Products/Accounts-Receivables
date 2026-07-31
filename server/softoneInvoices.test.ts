@@ -17,6 +17,7 @@ const row = {
   SOFTONE_ID: "1403582",
   TRDR: 10036,
   COMPANY: 1,
+  VESSEL_ID: 8123,
   SOCURRENCY: 999,
   ISSUE_DATE: 20260717,
   DUE_DATE: 20260831,
@@ -42,6 +43,7 @@ describe("SoftOne open invoice sync", () => {
       amount: "100.00",
       paidAmount: "14.40",
       status: "Partially Paid",
+      vesselId: 8123,
     });
     expect(new Date(invoice.dueDate).toISOString().slice(0, 10)).toBe("2026-08-31");
   });

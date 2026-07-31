@@ -15,6 +15,11 @@ const SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE = 250;
 const SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE = 250;
 type SourceRow = Record<string, unknown>;
 
+const softOneInvoiceVesselSelect =
+  process.env.SOFTONE_SQL_VESSEL_SYNC_ENABLED === "true"
+    ? "CAST(FIN.[CCCCUSTSHIP] AS bigint)"
+    : "CAST(NULL AS bigint)";
+
 function eligibleReceivablesCustomer(alias: string, trdrExpression: string) {
   return `EXISTS (
       SELECT 1
@@ -52,6 +57,7 @@ SELECT
   CAST(FP.[FINDOC] AS bigint) AS [FINDOC],
   CAST(FP.[TRDR] AS bigint) AS [TRDR],
   CAST(FIN.[COMPANY] AS int) AS [COMPANY],
+  ${softOneInvoiceVesselSelect} AS [VESSEL_ID],
   CAST(FIN.[SOCURRENCY] AS int) AS [SOCURRENCY],
   CAST(CONVERT(char(8), FP.[TRNDATE], 112) AS int) AS [ISSUE_DATE],
   CAST(CONVERT(char(8), FP.[FINALDATE], 112) AS int) AS [DUE_DATE],
@@ -256,6 +262,7 @@ export function aggregateSoftOneOpenInvoiceParts(rows: SourceRow[]) {
         FINDOC: row.FINDOC,
         TRDR: row.TRDR,
         COMPANY: row.COMPANY,
+        VESSEL_ID: row.VESSEL_ID,
         SOCURRENCY: row.SOCURRENCY,
         ISSUE_DATE: row.ISSUE_DATE,
         DUE_DATE: dueDate,
@@ -268,6 +275,9 @@ export function aggregateSoftOneOpenInvoiceParts(rows: SourceRow[]) {
       if (identity(existing, field) !== identity(row, field)) {
         throw new Error(`SoftOne FINDOC ${findoc} has inconsistent ${field}.`);
       }
+    }
+    if (String(existing.VESSEL_ID ?? "") !== String(row.VESSEL_ID ?? "")) {
+      throw new Error(`SoftOne FINDOC ${findoc} has inconsistent VESSEL_ID.`);
     }
     existing.DUE_DATE = Math.max(numberValue(existing, "DUE_DATE"), dueDate);
     existing.ORIGINAL_AMOUNT =
@@ -383,6 +393,7 @@ export function normalizeSoftOneOpenInvoiceRows(
       // Persist only the settlement state so SoftOne-sourced invoices follow
       // the exact same filters and badge behavior as the application UI.
       status: paidAmount > 0.005 ? "Partially Paid" : "Open",
+      vesselId: Number(row.VESSEL_ID) > 0 ? Number(row.VESSEL_ID) : null,
       softoneId,
     } satisfies SoftOneInvoiceUpsert;
   });

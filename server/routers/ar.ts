@@ -45,6 +45,7 @@ import { generateMonthlyForecast } from "../lib/smartForecast";
 import { runTaskEngine } from "../lib/taskEngine";
 import * as softoneSql from "../lib/softoneSql";
 import * as softoneInvoices from "../lib/softoneInvoices";
+import * as softoneVessels from "../lib/softoneVessels";
 import { isSoftOneSyncRunning, withSoftOneSyncLock } from "../lib/softoneSyncLock";
 import { invokeLLM } from "../_core/llm";
 
@@ -4208,6 +4209,7 @@ export const adminRouter = router({
     const configured = softoneSql.isSoftOneSqlConfigured();
     const customersEnabled = process.env.SOFTONE_SQL_SYNC_ENABLED === "true";
     const invoicesEnabled = process.env.SOFTONE_SQL_INVOICE_SYNC_ENABLED === "true";
+    const vesselsEnabled = process.env.SOFTONE_SQL_VESSEL_SYNC_ENABLED === "true";
     const logs = await db.listSyncLogs(30);
     const running = await isSoftOneSyncRunning().catch(() => false);
     return {
@@ -4215,6 +4217,7 @@ export const adminRouter = router({
       enabled: customersEnabled && invoicesEnabled,
       customersEnabled,
       invoicesEnabled,
+      vesselsEnabled,
       running,
       mode: "read-only-sql" as const,
       logs,
@@ -4274,8 +4277,11 @@ export const adminRouter = router({
     try {
       const execution = await withSoftOneSyncLock(async () => {
         const customers = await softoneSql.syncSoftOneCustomers();
+        const vessels = process.env.SOFTONE_SQL_VESSEL_SYNC_ENABLED === "true"
+          ? await softoneVessels.syncSoftOneVessels()
+          : { synced: 0 };
         const invoices = await softoneInvoices.syncSoftOneOpenInvoices();
-        return { customers: customers.synced, invoices: invoices.synced };
+        return { customers: customers.synced, vessels: vessels.synced, invoices: invoices.synced };
       });
 
       if (!execution.acquired) {
@@ -4290,7 +4296,7 @@ export const adminRouter = router({
         "SoftOne SQL Manual Sync",
         "sync",
         undefined,
-        `${execution.result.customers} customers, ${execution.result.invoices} invoices`,
+        `${execution.result.customers} customers, ${execution.result.vessels} vessels, ${execution.result.invoices} invoices`,
       );
       return execution.result;
     } catch (error) {
