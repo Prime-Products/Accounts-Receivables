@@ -117,7 +117,6 @@ export function InvoicesTable({
       ...(showCustomer ? { customerName: 170 } : {}),
       vesselName: 100,
       company: 100,
-      issueDate: 100,
       dueDate: 100,
       status: 175,
       amount: 110,
@@ -207,7 +206,6 @@ export function InvoicesTable({
             {showCustomer && <SortableHead label="Customer" k="customerName" />}
             <SortableHead label="Vessel" k="vesselName" />
             <SortableHead label="Branch" k="company" />
-            <SortableHead label="Doc. Date" k="issueDate" />
             <SortableHead label="Due Date" k="dueDate" />
             <SortableHead label="Status" k="status" />
             <SortableHead label="Amount" k="amount" align="right" />
@@ -264,7 +262,6 @@ export function InvoicesTable({
                   {branchShort(i.company)}
                 </Badge>
               </TableCell>
-              <TableCell className="text-xs whitespace-nowrap">{fmtDate(i.issueDate)}</TableCell>
               <TableCell className="text-xs whitespace-nowrap">{fmtDate(i.dueDate)}</TableCell>
               <TableCell>
                 {/* flex-nowrap: the primary badge and Disputed stay on one line
