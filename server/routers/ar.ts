@@ -32,6 +32,13 @@ import {
   toEur,
 } from "../lib/arLogic";
 import { buildExcel, buildPdf, TableSpec } from "../lib/exports";
+import {
+  DEFAULT_TEMPLATES,
+  EDITABLE_TEMPLATES,
+  mergeTemplates,
+  renderTemplate,
+  TEMPLATE_PLACEHOLDERS,
+} from "../lib/emailTemplates";
 import { buildGroupStatement } from "../lib/statement";
 import { buildStatementPdf } from "../lib/statementPdf";
 import { generateMonthlyForecast } from "../lib/smartForecast";
@@ -4198,6 +4205,63 @@ export const adminRouter = router({
       throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
     }
   }),
+
+  /**
+   * Editable email templates (Settings → Email Templates). Returns the effective
+   * text per template (stored override or built-in default) plus the placeholder
+   * reference so the editor can document what can be inserted.
+   */
+  emailTemplates: protectedProcedure.query(async () => {
+    const stored = await db.listEmailTemplates();
+    return { templates: mergeTemplates(stored), placeholders: TEMPLATE_PLACEHOLDERS };
+  }),
+
+  /** Save a customised subject/body for one template type. */
+  saveEmailTemplate: protectedProcedure
+    .input(
+      z.object({
+        templateType: z.enum(EDITABLE_TEMPLATES),
+        subject: z.string().min(1).max(500),
+        body: z.string().min(1).max(20000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const role = await getAppRole(ctx.user.id);
+      requireRole(role, ["Administrator", "Management", "Accounting", "Credit Controller"]);
+      await db.upsertEmailTemplate({
+        templateType: input.templateType,
+        subject: input.subject,
+        body: input.body,
+        updatedBy: ctx.user.id,
+      });
+      await audit(ctx, "Update Email Template", "settings", input.templateType, input.subject);
+      return { success: true };
+    }),
+
+  /** Drop the override so the built-in default text applies again. */
+  resetEmailTemplate: protectedProcedure
+    .input(z.object({ templateType: z.enum(EDITABLE_TEMPLATES) }))
+    .mutation(async ({ ctx, input }) => {
+      const role = await getAppRole(ctx.user.id);
+      requireRole(role, ["Administrator", "Management", "Accounting", "Credit Controller"]);
+      await db.deleteEmailTemplate(input.templateType);
+      await audit(ctx, "Reset Email Template", "settings", input.templateType, "Restored default text");
+      return { success: true, ...DEFAULT_TEMPLATES[input.templateType] };
+    }),
+
+  /**
+   * Preview a draft template with example values, so the user can see how the
+   * placeholders resolve without opening the Send Email dialog.
+   */
+  previewEmailTemplate: protectedProcedure
+    .input(z.object({ subject: z.string().max(500), body: z.string().max(20000) }))
+    .query(async ({ ctx, input }) => {
+      const vars: Record<string, string> = {};
+      for (const p of TEMPLATE_PLACEHOLDERS) vars[p.key] = p.example;
+      vars.sender = ctx.user.name ?? "Your name";
+      vars.date = new Date().toLocaleDateString("en-GB");
+      return { subject: renderTemplate(input.subject, vars), body: renderTemplate(input.body, vars) };
+    }),
 });
 
 export const callsRouter = router({
@@ -4267,9 +4331,9 @@ export const callsRouter = router({
   emailPrefill: protectedProcedure
     .input(z.object({
       customerId: z.number(),
-      template: z.enum(["SOA", "Payment Reminder", "Overdue Notice"]),
+      template: z.enum(EDITABLE_TEMPLATES),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const customer = await db.getCustomer(input.customerId);
       if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
       const invoices = await db.listInvoices({ customerId: input.customerId });
@@ -4290,57 +4354,34 @@ export const callsRouter = router({
         .map(i => `  - ${i.invoiceNumber} · due ${new Date(i.dueDate).toLocaleDateString("en-GB")} · ${(i.currency && i.currency !== "EUR") ? `${i.currency} ` : "€"}${outstanding(i).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
         .join("\n");
 
-      let subject = "";
-      let body = "";
-      if (input.template === "SOA") {
-        subject = `Statement of Account — ${customer.name} — ${today}`;
-        body =
-`Dear ${customer.contactPerson || "Sir/Madam"},
-
-Please find attached your Statement of Account as of ${today}.
-
-Summary:
-  - Open invoices: ${open.length}
-  - Total outstanding: ${fmt(openTotal)}
-  - Of which overdue: ${fmt(overdueTotal)} (${overdue.length} invoice${overdue.length === 1 ? "" : "s"})
-
-Kindly review and confirm the balance, and let us know the expected payment date for the overdue items.
-
-Should you identify any discrepancy, please contact us so we can resolve it promptly.
-
-Best regards`;
-      } else if (input.template === "Payment Reminder") {
-        subject = `Payment Reminder — ${customer.name} — outstanding ${fmt(overdueTotal || openTotal)}`;
-        body =
-`Dear ${customer.contactPerson || "Sir/Madam"},
-
-This is a friendly reminder that the following invoices are currently outstanding:
-
-${topOverdue || "  (see attached statement)"}
-
-Total overdue: ${fmt(overdueTotal)}.
-
-Please arrange payment at your earliest convenience, or let us know the expected payment date. If payment has already been made, kindly disregard this message and share the remittance details.
-
-Best regards`;
-      } else {
-        subject = `Overdue Notice — ${customer.name} — ${fmt(overdueTotal)} overdue`;
-        body =
-`Dear ${customer.contactPerson || "Sir/Madam"},
-
-Despite our previous reminders, the following invoices remain unpaid${oldestDays > 0 ? ` (oldest ${oldestDays} days overdue)` : ""}:
-
-${topOverdue || "  (see attached statement)"}
-
-Total overdue: ${fmt(overdueTotal)}.
-
-We kindly ask you to settle the above amount immediately. If payment is not received, we may have to review the terms of our cooperation, including placing the account on hold.
-
-If there is any issue preventing payment, please contact us directly so we can find a solution together.
-
-Best regards`;
-      }
-      return { subject, body, openTotal, overdueTotal, openCount: open.length, overdueCount: overdue.length };
+      // Stored override (Settings → Email Templates) wins over the built-in default.
+      const stored = await db.getEmailTemplate(input.template).catch(() => null);
+      const tpl = {
+        subject: stored?.subject ?? DEFAULT_TEMPLATES[input.template].subject,
+        body: stored?.body ?? DEFAULT_TEMPLATES[input.template].body,
+      };
+      const vars = {
+        customer: customer.name,
+        contact: customer.contactPerson || "Sir/Madam",
+        group: (customer.customerGroup ?? "").trim() || customer.name,
+        balance: fmt(openTotal),
+        overdue: fmt(overdueTotal),
+        openCount: open.length,
+        overdueCount: overdue.length,
+        oldestDays,
+        invoiceList: topOverdue || "  (see attached statement)",
+        date: today,
+        sender: ctx.user.name ?? "",
+      };
+      return {
+        subject: renderTemplate(tpl.subject, vars),
+        body: renderTemplate(tpl.body, vars),
+        openTotal,
+        overdueTotal,
+        openCount: open.length,
+        overdueCount: overdue.length,
+        isCustom: !!stored,
+      };
     }),
   sendGroupEmail: protectedProcedure
     .input(

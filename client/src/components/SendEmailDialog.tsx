@@ -20,23 +20,19 @@ interface SendEmailDialogProps {
   onOpenChange?: (open: boolean) => void;
 }
 
-const emailTemplates = {
-  "Friendly Reminder": {
-    subject: "Payment Reminder - Invoice Outstanding",
-    body: "Dear Valued Customer,\n\nWe hope this message finds you well. We noticed that you have an outstanding invoice with us.\n\nPlease arrange payment at your earliest convenience. If you have already processed this payment, please disregard this message.\n\nShould you have any questions, please don't hesitate to contact us.\n\nBest regards",
-  },
-  "Final Notice": {
-    subject: "Final Notice - Urgent Payment Required",
-    body: "Dear Valued Customer,\n\nThis is a final notice regarding your overdue invoice. Immediate payment is required to avoid further action.\n\nPlease remit payment immediately. If payment has already been made, please provide proof of payment.\n\nFor urgent matters, please contact our accounting department directly.\n\nBest regards",
-  },
-  Statement: {
-    subject: "Your Account Statement",
-    body: "Dear Valued Customer,\n\nPlease find attached your account statement for your review.\n\nIf you have any questions regarding the items listed, please contact us promptly.\n\nThank you for your business.\n\nBest regards",
-  },
-};
-
-/** Templates whose subject/body are generated server-side from live figures. */
-const smartTemplates = ["SOA", "Payment Reminder", "Overdue Notice"] as const;
+/**
+ * All templates are rendered server-side from the (editable) text stored in
+ * Settings → Email Templates, with {{placeholders}} filled from live figures.
+ * Only "Custom" is left entirely to the user.
+ */
+const smartTemplates = [
+  "SOA",
+  "Payment Reminder",
+  "Overdue Notice",
+  "Friendly Reminder",
+  "Final Notice",
+  "Statement",
+] as const;
 type SmartTemplate = (typeof smartTemplates)[number];
 
 export default function SendEmailDialog({ companies, defaultCustomerId, groupName, open: externalOpen, onOpenChange }: SendEmailDialogProps) {
@@ -132,10 +128,6 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
       // Server prefill will arrive via the query; clear stale content meanwhile.
       setSubject("");
       setBody("");
-    } else if (template !== "Custom") {
-      const t = emailTemplates[template as keyof typeof emailTemplates];
-      setSubject(t.subject);
-      setBody(t.body);
     }
   };
 
@@ -354,6 +346,11 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
             </Select>
             {isSmart && prefillLoading && (
               <div className="text-xs text-muted-foreground">Preparing content from live figures…</div>
+            )}
+            {isSmart && !prefillLoading && (
+              <div className="text-xs text-muted-foreground">
+                Wording comes from Settings → Email Templates; figures are filled in automatically.
+              </div>
             )}
             {isSmart && prefill && (
               <div className="text-xs text-muted-foreground">

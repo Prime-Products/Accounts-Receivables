@@ -440,6 +440,21 @@ export const activityLog = mysqlTable("activity_log", {
 });
 
 export type UserProfile = typeof userProfiles.$inferSelect;
+
+/**
+ * Editable email templates used by the Send Email dialog. One row per template
+ * type; the body/subject may contain {{placeholders}} that are substituted with
+ * live customer figures when the dialog is opened.
+ */
+export const emailTemplates = mysqlTable("email_templates", {
+  id: int("id").autoincrement().primaryKey(),
+  templateType: mysqlEnum("templateType", emailTemplateTypes).notNull().unique(),
+  subject: varchar("subject", { length: 500 }).notNull(),
+  body: text("body").notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = typeof customers.$inferInsert;
 export type Invoice = typeof invoices.$inferSelect;

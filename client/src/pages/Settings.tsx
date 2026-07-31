@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import EmailTemplatesCard from "@/components/EmailTemplatesCard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -202,6 +203,9 @@ export default function Settings() {
 
       {/* FX Rates */}
       <FxRatesCard />
+
+      {/* Email templates */}
+      <EmailTemplatesCard />
 
       {/* Users */}
       {canViewUsers && (

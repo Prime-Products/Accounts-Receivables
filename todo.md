@@ -1215,3 +1215,9 @@
 - [x] SOA PDF continuous flow: company statements follow each other with separators, page break only when content doesn't fit
 - [x] SOA PDF kickers: company pages "COMPANY" (not "COMPANY STATEMENT"), cover page "GROUP" (not "GROUP CONSOLIDATED SUMMARY")
 - [x] SOA: single-company groups get the same summary cover section as multi-company groups
+- [x] Email templates table in DB (subject/body per template type, editable)
+- [x] tRPC procedures: list/update/reset/preview email templates (admin)
+- [x] emailPrefill renders stored templates with placeholder substitution
+- [x] Settings → Email Templates editor UI with placeholder reference, live preview and reset
+- [x] SendEmailDialog uses the stored templates for all 6 template types (Custom left free-form)
+- [x] Rename "Customers" nav item + page title to "Collections" (route /customers unchanged, Groups stays the default sub-view)

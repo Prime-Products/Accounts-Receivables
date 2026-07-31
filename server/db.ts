@@ -9,6 +9,8 @@ import {
   contracts,
   customers,
   emailHistory,
+  emailTemplates,
+  emailTemplateTypes,
   forecastEntries,
   groupConfirmationStatus,
   groupNotes,
@@ -647,6 +649,37 @@ export async function setSetting(key: string, value: string, updatedBy?: number)
     .insert(appSettings)
     .values({ key, value, updatedBy })
     .onDuplicateKeyUpdate({ set: { value, updatedBy } });
+}
+
+// ---------- Email templates (editable subject/body per template type) ----------
+export async function listEmailTemplates() {
+  const db = await requireDb();
+  return db.select().from(emailTemplates);
+}
+
+export async function getEmailTemplate(templateType: (typeof emailTemplateTypes)[number]) {
+  const db = await requireDb();
+  const rows = await db.select().from(emailTemplates).where(eq(emailTemplates.templateType, templateType)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertEmailTemplate(data: {
+  templateType: (typeof emailTemplateTypes)[number];
+  subject: string;
+  body: string;
+  updatedBy?: number;
+}) {
+  const db = await requireDb();
+  await db
+    .insert(emailTemplates)
+    .values(data)
+    .onDuplicateKeyUpdate({ set: { subject: data.subject, body: data.body, updatedBy: data.updatedBy } });
+}
+
+/** Drop the stored override so the built-in default text applies again. */
+export async function deleteEmailTemplate(templateType: (typeof emailTemplateTypes)[number]) {
+  const db = await requireDb();
+  await db.delete(emailTemplates).where(eq(emailTemplates.templateType, templateType));
 }
 
 export async function listPromises(customerId?: number) {
