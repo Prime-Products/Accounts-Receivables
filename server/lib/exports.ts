@@ -197,13 +197,13 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
     doc.fillColor("#6b7280").font(fonts.bold).fontSize(12).text("TOTAL AMOUNTS");
     doc.moveDown(0.5);
     const summaryColumns = [
-      { label: "Company", width: 163, align: "left" as const },
-      { label: "Currency", width: 44, align: "center" as const },
-      { label: "Balance", width: 59, align: "right" as const },
-      { label: "Unpaid\nDocuments", width: 59, align: "right" as const },
-      { label: "Overdue\nDocuments", width: 59, align: "right" as const },
-      { label: "Upcoming\nWithin Month", width: 59, align: "right" as const },
-      { label: "Upcoming\nNext Month", width: 56, align: "right" as const },
+      { label: "Company", width: 190, align: "left" as const },
+      { label: "Currency", width: 39, align: "center" as const },
+      { label: "Balance", width: 54, align: "right" as const },
+      { label: "Unpaid\nDocuments", width: 54, align: "right" as const },
+      { label: "Overdue\nDocuments", width: 54, align: "right" as const },
+      { label: "Upcoming\nWithin Month", width: 54, align: "right" as const },
+      { label: "Upcoming\nNext Month", width: 54, align: "right" as const },
     ];
     let y = doc.y;
     doc.moveTo(pageLeft, y).lineTo(pageRight, y).strokeColor(BRAND_BLUE).stroke();
@@ -237,7 +237,12 @@ function buildSoaPdf(spec: TableSpec): Promise<Buffer> {
           .text(value, x, y, { width: column.width, align: column.align });
         x += column.width;
       });
-      y += 20;
+      doc.font(fonts.bold).fontSize(8);
+      const companyHeight = doc.heightOfString(branch, {
+        width: summaryColumns[0].width,
+        lineGap: -1,
+      });
+      y += Math.max(22, companyHeight + 8);
       doc.moveTo(pageLeft, y - 5).lineTo(pageRight, y - 5).strokeColor("#d1d5db").lineWidth(0.5).stroke();
     }
     doc.y = y + 20;
