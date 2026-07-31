@@ -36,3 +36,19 @@ export function hideSettled(inv: SettleableInvoice, showPaid: boolean, statusFil
 export function countSettled(list: SettleableInvoice[]): number {
   return list.filter(isSettledInvoice).length;
 }
+
+/**
+ * Status filter for the invoice lists.
+ *
+ * "Overdue" is not a stored status — it is derived from the due date and can
+ * coexist with Open / Partially Paid / Disputed. Selecting it therefore filters
+ * on `daysOverdue`, while every other value matches the stored status.
+ */
+export function matchesStatusFilter(
+  inv: { status: string; daysOverdue?: number },
+  statusFilter: string,
+): boolean {
+  if (statusFilter === "all") return true;
+  if (statusFilter === "Overdue") return (inv.daysOverdue ?? 0) > 0;
+  return inv.status === statusFilter;
+}

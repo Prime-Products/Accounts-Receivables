@@ -1233,4 +1233,9 @@
 - [x] Import contacts of companies that have no current AR balance (customers exist only when they owe money)
 - [x] Keep directory-only companies (no invoices) out of the Collections groups and companies views
 - [x] Update test fixtures so suites asserting on customers.groups create a ledger invoice
+- [x] Separate derived Overdue from stored invoice status (Open/Partially Paid can also be overdue)
+- [x] Migrate stored "Overdue" invoices back to Open / Partially Paid based on paidAmount
+- [x] Stop the taskEngine sweep from writing status = Overdue
+- [x] Show Overdue as a derived badge next to the settlement status in all invoice tables
+- [x] Keep status filters working with a separate Overdue filter
 - [x] Rename "Customers" nav item + page title to "Collections" (route /customers unchanged, Groups stays the default sub-view)

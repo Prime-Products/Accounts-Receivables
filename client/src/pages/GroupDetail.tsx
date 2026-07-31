@@ -11,7 +11,7 @@ import { ActivityLog } from "@/components/ActivityLog";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
-import { hideSettled, countSettled } from "@/lib/invoiceFilters";
+import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -417,7 +417,7 @@ export default function GroupDetail() {
     const now = Date.now();
     return data.invoices.filter(inv => {
       if (hideSettled(inv as any, showPaid, statusFilter)) return false;
-      if (statusFilter !== "all" && inv.status !== statusFilter) return false;
+      if (!matchesStatusFilter(inv as any, statusFilter)) return false;
       if (installmentFilter === "installments" && !(inv as any).isContractInstallment) return false;
       if (agingFilter !== "all") {
         if (inv.status === "Paid") return false;

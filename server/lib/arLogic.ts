@@ -234,13 +234,35 @@ export function buildForecast(
   return result;
 }
 
-/** Derive invoice status after allocations. */
-export function deriveInvoiceStatus(amount: number, paidAmount: number, dueDate: number, now: number, current: string): string {
+/**
+ * Derive the *settlement* status of an invoice after allocations.
+ *
+ * "Overdue" is deliberately not a value here. Being overdue is a time-derived
+ * property (due date passed while something is still outstanding), orthogonal to
+ * how much has been paid and to the Disputed workflow flag. Keeping it in the
+ * same column made the two mutually exclusive: an overdue invoice lost its
+ * Open / Partially Paid information, and an invoice the sweep had not reached yet
+ * still displayed as Open days past its due date. Use `isOverdue` / `daysOverdue`.
+ *
+ * `dueDate` / `now` stay in the signature so every caller keeps working and the
+ * rule stays discoverable from this one place.
+ */
+export function deriveInvoiceStatus(
+  amount: number,
+  paidAmount: number,
+  _dueDate: number,
+  _now: number,
+  current: string,
+): string {
   if (current === "Disputed") return "Disputed";
   if (paidAmount >= amount - 0.005) return "Paid";
   if (paidAmount > 0.005) return "Partially Paid";
-  if (now > dueDate) return "Overdue";
   return "Open";
+}
+
+/** True when the invoice still owes money and its due date has passed. */
+export function isOverdue(inv: InvoiceLike, now: number): boolean {
+  return isOpenInvoice(inv) && now > inv.dueDate;
 }
 
 // ---------- Customer payment behavior profiling & smart forecast ----------

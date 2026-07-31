@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { matchesStatusFilter } from "@/lib/invoiceFilters";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
@@ -109,7 +110,7 @@ export default function Invoices() {
   const filtered = useMemo(() => {
     if (!invoices) return [];
     return invoices.filter(i => {
-      if (statusFilter !== "all" && i.status !== statusFilter) return false;
+      if (!matchesStatusFilter(i, statusFilter)) return false;
       if (branchFilter !== "all" && i.company !== branchFilter) return false;
       if (vesselFilter !== "all" && String((i as any).vesselId ?? "") !== vesselFilter) return false;
       if (contractFilter === "installments" && !(i as any).isContractInstallment) return false;

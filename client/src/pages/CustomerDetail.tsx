@@ -7,7 +7,7 @@ import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
-import { hideSettled, countSettled } from "@/lib/invoiceFilters";
+import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
@@ -78,7 +78,7 @@ export default function CustomerDetail() {
   const now = Date.now();
   const visibleInvoices = invoices.filter(i => {
     if (hideSettled(i as any, showPaid, statusFilter)) return false;
-    if (statusFilter !== "all" && i.status !== statusFilter) return false;
+    if (!matchesStatusFilter(i as any, statusFilter)) return false;
     if (installmentFilter === "installments" && !(i as any).isContractInstallment) return false;
     return true;
   });
