@@ -15,6 +15,7 @@ import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveGroupStatus, normalizeStoredStatus } from "../lib/statusWorkflow";
 import {
+  confirmationStatusLabel,
   followUpMarker,
   hasAnyFollowUpMarker,
   hasFollowUpMarker,
@@ -867,6 +868,26 @@ export const customersRouter = router({
     }
     const day90 = 90 * 24 * 60 * 60 * 1000;
     const teamById = new Map((await db.listTeamMembers(true)).map(m => [m.id, m]));
+    // Who last touched each confirmation status — shown in the list so a stale
+    // review is visible without opening the card. Team members are matched by
+    // their linked user account; unmatched updaters fall back to the user table.
+    const teamByUserId = new Map(
+      Array.from(teamById.values())
+        .filter(m => (m as any).userId != null)
+        .map(m => [(m as any).userId as number, m])
+    );
+    const userNameById = new Map(
+      (await db.listUsers().catch(() => [] as any[])).map((u: any) => [u.id as number, (u.name ?? u.email ?? null) as string | null])
+    );
+    const reviewerName = (userId: number | null | undefined): string | null => {
+      if (userId == null) return null;
+      const member = teamByUserId.get(userId);
+      if (member) return member.name;
+      return userNameById.get(userId) ?? null;
+    };
+    // Contact activity per group: last call, who made it, how many attempts went
+    // unanswered. This is what makes "who has been called" answerable from the list.
+    const callSummary = await db.callSummaryByGroup().catch(() => new Map());
     const managerByGroup = new Map<string, { id: number; name: string } | null>();
     const collectorByGroup = new Map<string, { id: number; name: string } | null>();
     const groups = new Map<
@@ -1031,6 +1052,14 @@ export const customersRouter = router({
           confirmationCarriedOver: conf.carriedOver,
           confirmationTaskId,
           confirmationTaskOverdue,
+          /** When this status was last set, and by whom (review freshness). */
+          confirmationUpdatedAt: confirmation?.updatedAt ? new Date(confirmation.updatedAt).getTime() : null,
+          confirmationUpdatedBy: reviewerName(confirmation?.updatedBy ?? null),
+          /** Contact activity — last logged call, its author, and attempt counts. */
+          lastCallAt: callSummary.get(g.group)?.lastCallAt ? new Date(callSummary.get(g.group)!.lastCallAt).getTime() : null,
+          lastCallBy: reviewerName(callSummary.get(g.group)?.lastCallBy ?? null),
+          callCount: callSummary.get(g.group)?.calls ?? 0,
+          noAnswerCount: callSummary.get(g.group)?.noAnswer ?? 0,
           accountManager: managerByGroup.get(g.group) ?? null,
           collector: collectorByGroup.get(g.group) ?? null,
           // Earliest open promise date — shown under the "Promise to Pay" badge.
@@ -5083,6 +5112,12 @@ export const callsRouter = router({
       const parts: string[] = [];
       if (input.contactName) parts.push(`Contact: ${input.contactName}`);
       if (input.notes) parts.push(input.notes);
+      // A no-answer call is a contact attempt: it changes no status and creates no
+      // task, so the log line is the only trace. Spell that out, otherwise the
+      // entry is indistinguishable from a conversation that simply went nowhere.
+      if (input.outcome === "No Answer" && !input.confirmationStatus) {
+        parts.push("Contact attempt — no one answered; status unchanged");
+      }
       await db.addActivityLog({
         groupName: input.group,
         customerId: input.customerId,
@@ -5326,6 +5361,99 @@ export const callsRouter = router({
       }
       await audit(ctx, "Update Confirmation Status", "confirmation", input.group, `Status: ${input.status}`);
       return { success: true };
+    }),
+  /**
+   * Lightweight status review — the "no task" path.
+   *
+   * Collections review does not always need a follow-up task: a collector may just
+   * want to record "spoke to them, nothing pending" or "not paying, escalate later"
+   * straight from the list. This procedure sets the status, stamps who reviewed it
+   * and when, writes an activity-log line for the audit trail, and — crucially —
+   * never creates a task.
+   *
+   * Statuses that only make sense with a live task (`Confirmed` = promise to pay,
+   * `Pending Follow-up`, `Escalated`) are rejected here on purpose: those still go
+   * through Log Call / the task flow so the promise and its check task stay in sync.
+   */
+  reviewStatus: protectedProcedure
+    .input(
+      z.object({
+        group: z.string().min(1).max(255),
+        status: z.enum(["Not Contacted", "Broken", "Kept"]),
+        notes: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const previous = await db.getGroupConfirmationStatus(input.group);
+      await db.upsertGroupConfirmationStatus(input.group, {
+        status: input.status,
+        // None of the review statuses carries a promised figure or a target date.
+        amount: "0.00",
+        followUpDate: null,
+        notes: input.notes,
+        updatedBy: ctx.user.id,
+      });
+      // Reuse the shared sweeper so a review cannot leave an orphaned follow-up
+      // task or open promise behind (e.g. reviewing a "Pending Follow-up" group
+      // down to "Broken" must cancel its call task).
+      await cleanupStatusArtifacts(ctx, {
+        group: input.group,
+        previousStatus: previous?.status ?? null,
+        newStatus: input.status,
+      });
+      const label = confirmationStatusLabel(input.status);
+      await db.addActivityLog({
+        groupName: input.group,
+        activityType: "status_change",
+        title: `Status reviewed — ${label}`,
+        description: `${ctx.user.name ?? "User"} set the status to ${label} without creating a task.${input.notes ? ` Notes: ${input.notes}` : ""}`,
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      }).catch(() => {});
+      await audit(ctx, "Update Confirmation Status", "confirmation", input.group, `Reviewed → ${input.status} (no task)`);
+      return { success: true, status: input.status };
+    }),
+  /**
+   * Same review, applied to several groups at once — the daily sweep where a
+   * collector clears a batch of accounts that need no action.
+   */
+  reviewStatusBulk: protectedProcedure
+    .input(
+      z.object({
+        groups: z.array(z.string().min(1).max(255)).min(1).max(200),
+        status: z.enum(["Not Contacted", "Broken", "Kept"]),
+        notes: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const label = confirmationStatusLabel(input.status);
+      let updated = 0;
+      for (const group of Array.from(new Set(input.groups))) {
+        const previous = await db.getGroupConfirmationStatus(group);
+        await db.upsertGroupConfirmationStatus(group, {
+          status: input.status,
+          amount: "0.00",
+          followUpDate: null,
+          notes: input.notes,
+          updatedBy: ctx.user.id,
+        });
+        await cleanupStatusArtifacts(ctx, {
+          group,
+          previousStatus: previous?.status ?? null,
+          newStatus: input.status,
+        });
+        await db.addActivityLog({
+          groupName: group,
+          activityType: "status_change",
+          title: `Status reviewed — ${label}`,
+          description: `${ctx.user.name ?? "User"} set the status to ${label} in a bulk review.${input.notes ? ` Notes: ${input.notes}` : ""}`,
+          createdBy: ctx.user.id,
+          createdAt: new Date(),
+        }).catch(() => {});
+        updated++;
+      }
+      await audit(ctx, "Update Confirmation Status", "confirmation", input.groups.join(", ").slice(0, 200), `Bulk review → ${input.status} (${updated} group(s), no tasks)`);
+      return { success: true, updated };
     }),
 });
 

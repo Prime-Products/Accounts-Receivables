@@ -1500,3 +1500,18 @@ master record. Same company, two screens. Unify them.
 - [ ] Log Call must force an explicit next step so a call cannot end with "nothing to do" silently (76 of 86 called groups have no status row)
 - [ ] Per-user call tracking: who called whom, outcome, and whether a next step exists
 - [ ] Vitest coverage for group names with parentheses across the whole call→task→status flow
+
+## Review statuses without creating tasks (user request 1/8)
+- [x] Inline status editing on the Collections Desk: change a group's communication status straight from the row, no dialog, no task
+- [x] Quick "no next step needed" statuses so a review can be recorded without a follow-up task (calls.reviewStatus — Kept / Broken / Not Contacted only)
+- [x] Show when the status was last reviewed and by whom, so stale statuses are visible at a glance
+- [ ] Bulk status review: select several groups and set the same status in one action
+- [ ] Filter/sort by "status not reviewed recently" so the daily review list is obvious
+- [x] Vitest: server/statusReviewNoTask.test.ts pins that the review path never creates a task or promise
+
+## Track who spoke to which customer (user request 1/8)
+- [x] "No Answer" is a real outcome: records a contact attempt, leaves the status alone, creates no task
+- [x] Groups payload exposes lastCallAt / lastCallBy / callCount / noAnswerCount
+- [x] "Last Contact" column on the Collections Desk: who called, when, and unanswered attempts
+- [x] Filter the desk by "not called in X days" / never called / unanswered / called today
+- [x] Vitest: server/contactTracking.test.ts (17 tests) covers the no-answer path, aggregation and desk column
