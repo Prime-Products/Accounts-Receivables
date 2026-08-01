@@ -20,6 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import GlobalSearch from "@/components/GlobalSearch";
+import AssistantWidget from "@/components/AssistantWidget";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
@@ -291,6 +292,7 @@ function DashboardLayoutContent({
           <GlobalSearch />
         </div>
         <main className="flex-1 p-4">{children}</main>
+        <AssistantWidget />
       </SidebarInset>
     </>
   );

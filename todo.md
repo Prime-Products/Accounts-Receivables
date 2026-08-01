@@ -1373,3 +1373,12 @@
 - [x] Address Book record card restyled: sky accent title icons, each block in its own panel, loading state, sky-700 relationship links
 - [x] Address Book vessels tab: "Open AR card" action opens the financial vessel dialog so the two vessel views are connected instead of duplicated
 - [x] Vitest guard for the Address Book visual contract and the vessel AR link (server/addressBookStyling.test.ts, 12 tests)
+
+## Floating AI assistant (user request 1/8)
+- [x] "Ask AR Pro" launcher bottom-right on every screen (mounted once in DashboardLayout), Ctrl/Cmd+J toggle
+- [x] Resizable chat panel with thread and size persisted in localStorage, markdown answers, suggested question chips, clear-thread action
+- [x] Assistant knowledge base (server/lib/assistantKnowledge.ts): navigation map of every screen plus business rules (group key, aging buckets, statuses, forecast, DSO, promises) and answering style
+- [x] Assistant live-data layer (server/lib/assistantFacts.ts): portfolio snapshot (AR balance, overdue, aging, DSO, month target vs collected, workload, status counts, top 10 overdue groups) plus per-group/vessel/contact facts resolved from the question text
+- [x] Assistant backend (server/routers/assistant.ts): protected intro + ask procedures, history trimmed to 8 turns, gemini-2.5-flash, questions audit-logged, read-only by design
+- [x] Accent-insensitive Greek/Latin name matching with legal-form suffix stripping so "ναυτιλιακη αφοι κατσαρη" resolves "ΝΑΥΤΙΛΙΑΚΗ ΑΦΟΙ ΚΑΤΣΑΡΗ Α.Ε."
+- [x] Vitest coverage for the assistant (server/assistant.test.ts, 25 tests): snapshot totals reconcile, top-debtor ordering, group facts consistency, unknown-entity handling, router surface, widget wiring
