@@ -150,7 +150,9 @@ export default function LogCallDialog({
   };
 
   const handleSubmit = () => {
-    if (!confirmationStatus) {
+    // "No Answer" means nobody spoke to us: there is no customer response to give,
+    // so the call is recorded as a contact attempt and the status is left alone.
+    if (outcome === "Reached" && !confirmationStatus) {
       toast.error("Select a response");
       return;
     }
@@ -158,7 +160,8 @@ export default function LogCallDialog({
     const logData: any = {
       group,
       outcome,
-      confirmationStatus: confirmationStatus || "Not Contacted",
+      // On a no-answer attempt we deliberately send no status change.
+      confirmationStatus: outcome === "No Answer" ? undefined : confirmationStatus || "Not Contacted",
       notes: notes.trim() || undefined,
     };
 
@@ -169,12 +172,12 @@ export default function LogCallDialog({
       logData.contactName = contactName;
     }
 
-    if (confirmationStatus === "Confirmed") {
+    if (outcome === "Reached" && confirmationStatus === "Confirmed") {
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.promisedDate = promisedDate ? new Date(promisedDate).getTime() : undefined;
       logData.promiseMode = promiseMode;
       if (assigneeId) logData.assigneeId = assigneeId;
-    } else if (confirmationStatus === "Pending Follow-up") {
+    } else if (outcome === "Reached" && confirmationStatus === "Pending Follow-up") {
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.followUpDate = followUpDate ? new Date(followUpDate).getTime() : undefined;
       if (assigneeId) logData.assigneeId = assigneeId;
@@ -330,10 +333,16 @@ export default function LogCallDialog({
 
           {/* Customer response sits next to Outcome — it drives the panel below */}
           <div className="space-y-1">
-            <Label className="text-xs font-semibold">Customer Response *</Label>
-            <Select value={confirmationStatus} onValueChange={(v) => setConfirmationStatus(v as (typeof CONFIRMATION_STATUSES)[number])}>
+            <Label className="text-xs font-semibold">
+              Customer Response {outcome === "Reached" ? "*" : <span className="font-normal text-muted-foreground">— n/a</span>}
+            </Label>
+            <Select
+              value={confirmationStatus}
+              onValueChange={(v) => setConfirmationStatus(v as (typeof CONFIRMATION_STATUSES)[number])}
+              disabled={outcome === "No Answer"}
+            >
               <SelectTrigger className="w-full h-9">
-                <SelectValue placeholder="Select response…" />
+                <SelectValue placeholder={outcome === "No Answer" ? "No one answered" : "Select response…"} />
               </SelectTrigger>
               <SelectContent>
                 {CONFIRMATION_STATUSES.map(status => (
@@ -345,6 +354,22 @@ export default function LogCallDialog({
             </Select>
           </div>
           </div>
+
+          {/*
+            No-answer attempts are the most common call result and used to vanish
+            from tracking entirely. Now they are recorded as an attempt: the status
+            is untouched, no task is created, but the attempt is counted and shown
+            on the group so repeated silence becomes visible.
+          */}
+          {outcome === "No Answer" && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-900/40 dark:border-slate-700 px-3 py-2 flex items-start gap-2">
+              <Info className="h-4 w-4 text-slate-500 mt-0.5 shrink-0" />
+              <p className="text-xs text-slate-700 dark:text-slate-200">
+                Recorded as a <strong>contact attempt</strong>. The confirmation status stays as it is and no task is
+                created — the attempt still shows in the group history and in the contact log.
+              </p>
+            </div>
+          )}
 
           {/* Confirmed - show amount field */}
           {confirmationStatus === "Confirmed" && (

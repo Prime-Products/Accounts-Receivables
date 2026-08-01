@@ -3,6 +3,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,7 +26,7 @@ import {
   PROMISE_NO_AMOUNT_LABEL,
 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ExternalLink, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
@@ -28,6 +36,66 @@ import TaskDetailDialog from "@/components/TaskDetailDialog";
 import { matchesAllTokens } from "@shared/textMatch";
 
 type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "collected" | "remaining" | "overdueCount";
+
+/**
+ * Statuses a collector can set straight from the list, because none of them
+ * implies pending work. Statuses that need a live task (Promise to Pay, Pending
+ * Follow-up, Escalated) are deliberately absent — those go through Log Call so
+ * the promise and its check task are created together.
+ */
+const REVIEW_STATUSES = [
+  { value: "Kept" as const, label: "Paid — Promise Kept", hint: "Money arrived, nothing pending" },
+  { value: "Broken" as const, label: "Broken", hint: "Not paying / no commitment given" },
+  { value: "Not Contacted" as const, label: "Not Contacted", hint: "Clear the status and start over" },
+];
+
+/** Age of the last logged call, in whole days. */
+function daysSince(ts: number): number {
+  return Math.floor((Date.now() - ts) / 86400000);
+}
+
+/**
+ * Contact recency for a group: when it was last called, by whom, and how many of
+ * the logged calls went unanswered. Colour follows staleness so a desk scan shows
+ * neglected accounts: never called → amber, over 14 days → amber, otherwise plain.
+ */
+const LastContactCell = memo(function LastContactCell({
+  at,
+  by,
+  calls,
+  noAnswer,
+}: {
+  at: number | null;
+  by: string | null;
+  calls: number;
+  noAnswer: number;
+}) {
+  if (!at) {
+    return (
+      <span className="text-[11px] italic text-amber-600" title="No call has ever been logged for this group">
+        never called
+      </span>
+    );
+  }
+  const age = daysSince(at);
+  const stale = age > 14;
+  return (
+    <div className="min-w-0">
+      <div
+        className={`text-xs truncate ${stale ? "text-amber-600 font-medium" : ""}`}
+        title={`Last call ${new Date(at).toLocaleString("en-GB")}${by ? ` by ${by}` : ""} · ${calls} call(s) logged${noAnswer > 0 ? `, ${noAnswer} unanswered` : ""}`}
+      >
+        {age === 0 ? "today" : age === 1 ? "yesterday" : `${age}d ago`}
+      </div>
+      {by && <div className="text-[11px] text-muted-foreground truncate">{by}</div>}
+      {noAnswer > 0 && (
+        <div className="text-[11px] text-muted-foreground">
+          {noAnswer} unanswered
+        </div>
+      )}
+    </div>
+  );
+});
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
 
 /** Click-to-edit forecast cell. Saving corrects the month's forecast (expected + initial baseline). */
@@ -100,11 +168,15 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
   status,
   taskId,
   taskOverdue,
+  updatedAt,
+  updatedBy,
 }: {
   group: string;
   status: string;
   taskId?: number | null;
   taskOverdue?: boolean;
+  updatedAt?: number | null;
+  updatedBy?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
@@ -141,42 +213,107 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
     },
     onError: e => toast.error(e.message),
   });
+  // Quick review — set a status straight from the row without creating any task.
+  const review = trpc.calls.reviewStatus.useMutation({
+    onSuccess: r => {
+      toast.success(`Status set to ${confirmationStatusLabels[r.status] ?? r.status} — no task created.`);
+      utils.customers.groups.invalidate();
+      utils.customers.groupDetail.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+  const reviewedLabel = updatedAt
+    ? `Last reviewed ${new Date(updatedAt).toLocaleDateString("en-GB")}${updatedBy ? ` by ${updatedBy}` : ""}`
+    : "Never reviewed";
   return (
     <>
-      <button
-        type="button"
-        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border cursor-pointer transition-transform hover:shadow-sm active:scale-[0.97] ${
-          isOverdue
-            ? "bg-red-100 text-red-700 border-red-300"
-            : confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
-        }`}
-        title={
-          isOverdue
-            ? "Overdue task — the target date has passed and the linked task is still open. Click to open it."
-            : hasLinkedTask
-              ? "Click to open the linked follow-up task"
-              : isTaskBacked
-                ? "The linked task is no longer open — click to reset this stale status"
-                : "Click to log a call and change the confirmation status"
-        }
-        onClick={() => {
-          if (hasLinkedTask) {
-            setTaskOpen(true);
-            return;
+      {/*
+        The badge keeps its primary click (open the linked task, or start a call),
+        and gains a caret that opens a review menu. The menu is the "no task" path:
+        record what the account's state is without generating follow-up work.
+      */}
+      <div className="inline-flex items-stretch">
+        <button
+          type="button"
+          className={`inline-flex items-center gap-1 pl-2 pr-1.5 py-1 rounded-l border border-r-0 text-xs font-medium cursor-pointer transition-transform hover:shadow-sm active:scale-[0.97] ${
+            isOverdue
+              ? "bg-red-100 text-red-700 border-red-300"
+              : confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
+          }`}
+          title={
+            isOverdue
+              ? `Overdue task — the target date has passed and the linked task is still open. Click to open it. ${reviewedLabel}.`
+              : hasLinkedTask
+                ? `Click to open the linked follow-up task. ${reviewedLabel}.`
+                : isTaskBacked
+                  ? `The linked task is no longer open — click to reset this stale status. ${reviewedLabel}.`
+                  : `Click to log a call. ${reviewedLabel}.`
           }
-          if (isTaskBacked) {
-            // Stale badge (task cancelled/closed elsewhere) — sync the status.
-            if (!resetStale.isPending) resetStale.mutate({ group });
-            return;
-          }
-          setLoadMembers(true);
-          setOpen(true);
-        }}
-      >
-        {isOverdue && <AlertTriangle className="h-3 w-3 text-red-600" />}
-        {confirmationStatusLabels[status] ?? status}
-        {hasLinkedTask ? <ExternalLink className="h-3 w-3 opacity-40" /> : <Phone className="h-3 w-3 opacity-40" />}
-      </button>
+          onClick={() => {
+            if (hasLinkedTask) {
+              setTaskOpen(true);
+              return;
+            }
+            if (isTaskBacked) {
+              // Stale badge (task cancelled/closed elsewhere) — sync the status.
+              if (!resetStale.isPending) resetStale.mutate({ group });
+              return;
+            }
+            setLoadMembers(true);
+            setOpen(true);
+          }}
+        >
+          {isOverdue && <AlertTriangle className="h-3 w-3 text-red-600" />}
+          {confirmationStatusLabels[status] ?? status}
+          {hasLinkedTask ? <ExternalLink className="h-3 w-3 opacity-40" /> : <Phone className="h-3 w-3 opacity-40" />}
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={`inline-flex items-center px-1 rounded-r border text-xs cursor-pointer transition-transform hover:shadow-sm active:scale-[0.97] ${
+                isOverdue
+                  ? "bg-red-100 text-red-700 border-red-300"
+                  : confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
+              }`}
+              title="Set the status directly, without creating a task"
+              onClick={e => e.stopPropagation()}
+            >
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+              Set status without a task
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {REVIEW_STATUSES.map(s => (
+              <DropdownMenuItem
+                key={s.value}
+                disabled={review.isPending || status === s.value}
+                onClick={() => review.mutate({ group, status: s.value })}
+              >
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-xs font-medium">{s.label}</span>
+                  <span className="text-[11px] text-muted-foreground">{s.hint}</span>
+                </span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                setLoadMembers(true);
+                setOpen(true);
+              }}
+            >
+              <Phone className="h-3.5 w-3.5" />
+              <span className="text-xs">Log a call instead…</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <div className="px-2 py-1.5 text-[11px] text-muted-foreground">{reviewedLabel}</div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       {taskOpen && <TaskDetailDialog taskId={taskId ?? null} open={taskOpen} onOpenChange={setTaskOpen} />}
       {open && (
         <LogCallDialog
@@ -238,6 +375,7 @@ function PlainHead({ label, col, cols, className }: { label?: string; col: strin
 const GROUP_COL_DEFAULTS: Record<string, number> = {
   group: 240,
   confirmation: 150,
+  lastContact: 150,
   promised: 100,
   open: 120,
   overdue: 120,
@@ -274,6 +412,11 @@ export default function Customers() {
     return p && ["problematic", "critical", "on-hold", "legal", "normal"].includes(p) ? p : "all";
   });
   const [ratingFilter, setRatingFilter] = useState<string>("all");
+  /**
+   * Contact recency filter: "all" | "never" | "unanswered" | "called-today" |
+   * a number of days meaning "not called in N days".
+   */
+  const [contactFilter, setContactFilter] = useState<string>("all");
   const [confirmationFilter, setConfirmationFilter] = useState<string>(() => {
     const p = new URLSearchParams(window.location.search).get("conf");
     return p && ["not-contacted", "confirmed", "pending", "broken", "escalated"].includes(p) ? p : "all";
@@ -400,7 +543,23 @@ export default function Customers() {
         collectorFilter === "all" ||
         (collectorFilter === "unassigned" && !gCollector) ||
         (collectorFilter !== "unassigned" && collectorFilter !== "all" && gCollector?.id === Number(collectorFilter));
-      return matchesSearch && matchesStatus && matchesRating && matchesConfirmation && matchesManager && matchesCollector;
+      const lastCallAt = (g as any).lastCallAt as number | null;
+      const noAnswerCount = ((g as any).noAnswerCount as number | undefined) ?? 0;
+      const ageDays = lastCallAt == null ? null : Math.floor((Date.now() - lastCallAt) / 86400000);
+      const matchesContact =
+        contactFilter === "all" ||
+        (contactFilter === "never" && lastCallAt == null) ||
+        (contactFilter === "unanswered" && noAnswerCount > 0) ||
+        (contactFilter === "called-today" && ageDays === 0) ||
+        // "Not called in N days" deliberately includes never-called groups: they are
+        // the most overdue for a call, not an edge case to hide.
+        (!Number.isNaN(Number(contactFilter)) &&
+          contactFilter !== "all" &&
+          !["never", "unanswered", "called-today"].includes(contactFilter) &&
+          (ageDays == null || ageDays >= Number(contactFilter)));
+      return (
+        matchesSearch && matchesStatus && matchesRating && matchesConfirmation && matchesManager && matchesCollector && matchesContact
+      );
     });
     if (groupSort.key) {
       const getVal = (g: (typeof rows)[number]): number => {
@@ -431,7 +590,7 @@ export default function Customers() {
       });
     }
     return rows;
-  }, [groups, search, statusFilter, ratingFilter, confirmationFilter, managerFilter, collectorFilter, groupSort]);
+  }, [groups, search, statusFilter, ratingFilter, confirmationFilter, managerFilter, collectorFilter, contactFilter, groupSort]);
 
   const groupTotals = useMemo(
     () =>
@@ -628,6 +787,24 @@ export default function Customers() {
                 <SelectItem value="escalated">Escalated</SelectItem>
               </SelectContent>
             </Select>
+            {/*
+              Contact recency: the practical entry point for a day's calling —
+              "show me who nobody has called", rather than reading the whole list.
+            */}
+            <Select value={contactFilter} onValueChange={setContactFilter}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Contact" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any contact</SelectItem>
+                <SelectItem value="never">Never called</SelectItem>
+                <SelectItem value="7">Not called in 7 days</SelectItem>
+                <SelectItem value="14">Not called in 14 days</SelectItem>
+                <SelectItem value="30">Not called in 30 days</SelectItem>
+                <SelectItem value="unanswered">Has unanswered attempts</SelectItem>
+                <SelectItem value="called-today">Called today</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={managerFilter} onValueChange={setManagerFilter}>
               <SelectTrigger className="w-44">
                 <SelectValue placeholder="Manager" />
@@ -761,6 +938,7 @@ export default function Customers() {
                   <TableRow>
                     <PlainHead label="Group" col="group" cols={groupCols} />
                     <PlainHead label="Confirmation" col="confirmation" cols={groupCols} />
+                    <PlainHead label="Last Contact" col="lastContact" cols={groupCols} />
                     <PlainHead label="Promised" col="promised" cols={groupCols} className="text-right" />
                     <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} col="open" cols={groupCols} />
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} col="overdue" cols={groupCols} />
@@ -773,6 +951,7 @@ export default function Customers() {
                 <TableBody>
                   <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
                     <TableCell>TOTAL ({filteredGroups.length} groups)</TableCell>
+                    <TableCell></TableCell>
                     <TableCell></TableCell>
                     <TableCell></TableCell>
                     <TableCell className="text-right font-mono">{fmtEur(groupTotals.open)}</TableCell>
@@ -829,6 +1008,8 @@ export default function Customers() {
                         <ConfirmationBadgeButton
                           group={g.group}
                           status={g.confirmationStatus}
+                          updatedAt={(g as any).confirmationUpdatedAt ?? null}
+                          updatedBy={(g as any).confirmationUpdatedBy ?? null}
                           taskId={(g as any).confirmationTaskId}
                           taskOverdue={(g as any).confirmationTaskOverdue}
                         />
@@ -843,6 +1024,20 @@ export default function Customers() {
                             Follow-up: {fmtDate(g.confirmationFollowUpDate)}
                           </div>
                         )}
+                      </TableCell>
+                      {/*
+                        Contact tracking: the whole point of logging calls is being able
+                        to answer "who spoke to this customer, and when". Unanswered
+                        attempts are called out separately, since a run of them means the
+                        account is not really being reached at all.
+                      */}
+                      <TableCell className="overflow-hidden">
+                        <LastContactCell
+                          at={(g as any).lastCallAt ?? null}
+                          by={(g as any).lastCallBy ?? null}
+                          calls={(g as any).callCount ?? 0}
+                          noAnswer={(g as any).noAnswerCount ?? 0}
+                        />
                       </TableCell>
                       {/*
                         A promise / follow-up may legitimately carry no amount ("I'll pay",

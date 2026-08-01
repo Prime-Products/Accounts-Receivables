@@ -67,3 +67,21 @@ export function hasAnyFollowUpMarker(description: string | null | undefined): bo
 export function hasPromiseMarker(description: string | null | undefined, promiseId: number): boolean {
   return parsePromiseId(description) === promiseId;
 }
+
+/**
+ * Human-readable confirmation status, matching the labels the UI shows.
+ * Kept next to the marker helpers so audit lines, activity logs and task titles
+ * all speak the same language as the badge the user is looking at.
+ */
+const CONFIRMATION_STATUS_LABELS: Record<string, string> = {
+  "Not Contacted": "Not Contacted",
+  Confirmed: "Promise to Pay",
+  "Pending Follow-up": "Pending Follow-up",
+  Broken: "Broken",
+  Kept: "Paid — Promise Kept",
+  Escalated: "Escalated",
+};
+
+export function confirmationStatusLabel(status: string): string {
+  return CONFIRMATION_STATUS_LABELS[status] ?? status;
+}

@@ -1066,6 +1066,47 @@ export async function getActivityLog(id: number) {
   const db = await requireDb();
   return db.select().from(activityLog).where(eq(activityLog.id, id)).limit(1);
 }
+/**
+ * Per-group call summary in a single query: when the group was last called, by
+ * whom, and how many calls were logged. Used by the Collections Desk so contact
+ * activity is visible without opening each card. `No Answer` attempts are counted
+ * separately, because a run of unanswered calls is itself the signal.
+ */
+export async function callSummaryByGroup() {
+  const db = await requireDb();
+  const rows = await db
+    .select({
+      groupName: activityLog.groupName,
+      title: activityLog.title,
+      createdAt: activityLog.createdAt,
+      createdBy: activityLog.createdBy,
+    })
+    .from(activityLog)
+    .where(eq(activityLog.activityType, "call"))
+    .orderBy(desc(activityLog.createdAt));
+  const out = new Map<
+    string,
+    { lastCallAt: Date; lastCallBy: number | null; calls: number; noAnswer: number }
+  >();
+  for (const r of rows) {
+    const key = r.groupName;
+    const entry = out.get(key);
+    const isNoAnswer = (r.title ?? "").includes("No Answer");
+    if (!entry) {
+      // Rows arrive newest first, so the first row per group is the latest call.
+      out.set(key, {
+        lastCallAt: r.createdAt,
+        lastCallBy: r.createdBy ?? null,
+        calls: 1,
+        noAnswer: isNoAnswer ? 1 : 0,
+      });
+    } else {
+      entry.calls++;
+      if (isNoAnswer) entry.noAnswer++;
+    }
+  }
+  return out;
+}
 
 // ---------- Group Confirmation Status ----------
 export async function getGroupConfirmationStatus(groupName: string) {
