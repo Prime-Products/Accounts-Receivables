@@ -3995,8 +3995,17 @@ export const forecastRouter = router({
       allGroupNames.add(key);
     }
     const overdueEomByGroup = new Map<string, number>();
+    // Portfolio-wide projection: everything still open whose due date falls on
+    // or before the last day of the current month will be overdue by then.
+    // Includes what is already overdue today, so it is always >= totalOverdue.
+    let overdueEomTotal = 0;
+    let overdueEomCount = 0;
     for (const inv of invoices) {
       if (!isOpenInvoice(inv)) continue;
+      if (inv.dueDate <= eomTs) {
+        overdueEomTotal += outstanding(inv);
+        overdueEomCount++;
+      }
       const gKey = groupOfCustomerId.get(inv.customerId);
       if (!gKey) continue;
       if (inv.dueDate <= eomTs) {
@@ -4023,6 +4032,11 @@ export const forecastRouter = router({
       collected: collectedThisMonth,
       totalOverdue: aging.totalOverdue,
       overdueCount: Object.values(aging.buckets).reduce((s, b) => s + b.count, 0),
+      // Overdue projected at end of the current month (today's overdue plus
+      // invoices falling due within the rest of the month).
+      overdueEom: overdueEomTotal,
+      overdueEomCount,
+      overdueEomDate: eomTs,
       arBalance,
       dso,
       aging,

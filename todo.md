@@ -1387,3 +1387,13 @@
 - [x] Log Call dialog fits on screen without scrolling: two-column layout, fixed header/footer so Save/Cancel are always visible
 - [x] Bug: selecting Pending Follow-up / Promise to Pay grows the form and pushes the Log Call button out of view — fixed with flex column + pinned footer, verified in all response states
 - [x] Deep links for the call flow: `?logCall=1` opens the dialog, `?response=` preselects the customer response and skips the active-communication pre-step
+
+## Dashboard — overdue end of month (user request 2/8)
+- [x] Show "Overdue end of month" inside the Outstanding Overdue KPI card, computed as all open invoices due on or before the last day of the current month
+
+## Assistant panel robustness (user report: cannot continue after a reply)
+- [x] Focus returns to the composer automatically after each answer (and after an error), so the next question can be typed without clicking
+- [x] Composer footer raised above the message area (`relative z-10`, `shrink-0`) so long markdown output can never overlay the input or send button
+- [x] Long markdown output contained: tables/pre scroll horizontally inside the bubble instead of stretching the panel
+- [x] Resize listeners mounted for the panel lifetime and `userSelect` always cleared on unmount, so a missed mouseup can no longer leave the panel unclickable
+- [ ] Awaiting user detail on the exact freeze trigger (long answer with table / after resizing / after an error toast) before further changes

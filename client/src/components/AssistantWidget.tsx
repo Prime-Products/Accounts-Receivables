@@ -5,8 +5,8 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { Bot, Loader2, Send, Sparkles, Trash2, X, Minimize2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Streamdown } from "streamdown";
 import { toast } from "sonner";
+import { Streamdown } from "streamdown";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -46,17 +46,22 @@ export default function AssistantWidget() {
   });
   const scrollRef = useRef<HTMLDivElement>(null);
   const resizing = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const intro = trpc.assistant.intro.useQuery(undefined, { enabled: open, staleTime: 60 * 60 * 1000 });
 
   const ask = trpc.assistant.ask.useMutation({
     onSuccess: res => {
       setMessages(prev => [...prev, { role: "assistant", content: res.answer }]);
+      // Hand focus straight back to the composer so the next question can be typed
+      // immediately after an answer lands.
+      requestAnimationFrame(() => inputRef.current?.focus());
     },
     onError: err => {
       toast.error(err.message || "Ο βοηθός δεν είναι διαθέσιμος τώρα");
       // Drop the optimistic user turn so the thread does not end on a dead question
       setMessages(prev => (prev[prev.length - 1]?.role === "user" ? prev.slice(0, -1) : prev));
+      requestAnimationFrame(() => inputRef.current?.focus());
     },
   });
 
@@ -86,8 +91,12 @@ export default function AssistantWidget() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Resize listeners stay mounted for the panel's lifetime: attaching them only
+  // when a drag starts left the previous implementation dependent on a re-render,
+  // and a missed mouseup could leave `userSelect: none` on the body — which makes
+  // the whole panel feel dead (no typing, no clicks).
   useEffect(() => {
-    if (!resizing.current) return;
+    if (!open) return;
     const onMove = (e: MouseEvent) => {
       const start = resizing.current;
       if (!start) return;
@@ -97,6 +106,7 @@ export default function AssistantWidget() {
       setSize({ w, h });
     };
     const onUp = () => {
+      if (!resizing.current) return;
       resizing.current = null;
       try {
         localStorage.setItem(SIZE_KEY, JSON.stringify(size));
@@ -110,8 +120,15 @@ export default function AssistantWidget() {
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      resizing.current = null;
+      document.body.style.userSelect = "";
     };
-  }, [size]);
+  }, [open, size]);
+
+  // Focus the composer whenever the panel opens.
+  useEffect(() => {
+    if (open) requestAnimationFrame(() => inputRef.current?.focus());
+  }, [open]);
 
   const send = (text: string) => {
     const question = text.trim();
@@ -184,7 +201,7 @@ export default function AssistantWidget() {
         </div>
       </div>
 
-      <ScrollArea ref={scrollRef} className="flex-1 px-3 py-3">
+      <ScrollArea ref={scrollRef} className="relative z-0 flex-1 px-3 py-3">
         {messages.length === 0 ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
@@ -216,7 +233,7 @@ export default function AssistantWidget() {
                   )}
                 >
                   {m.role === "assistant" ? (
-                    <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-table:my-2 prose-td:px-2 prose-th:px-2 prose-ul:my-1.5">
+                    <div className="prose prose-sm max-w-none break-words prose-p:my-1.5 prose-table:my-2 prose-td:px-2 prose-th:px-2 prose-ul:my-1.5 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
                       <Streamdown>{m.content}</Streamdown>
                     </div>
                   ) : (
@@ -235,9 +252,10 @@ export default function AssistantWidget() {
         )}
       </ScrollArea>
 
-      <div className="border-t bg-muted/30 p-2">
+      <div className="relative z-10 shrink-0 border-t bg-muted/30 p-2">
         <div className="flex items-end gap-2">
           <Textarea
+            ref={inputRef}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {

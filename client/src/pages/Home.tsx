@@ -33,6 +33,12 @@ import {
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
+/** "31 Aug" — the last day of the month the projection refers to. */
+function monthEndLabel(ts: number | undefined): string {
+  if (!ts) return "month end";
+  return new Date(ts).toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
 export default function Home() {
   const { data, isLoading } = trpc.forecast.dashboard.useQuery();
   const [, navigate] = useLocation();
@@ -114,6 +120,17 @@ export default function Home() {
               <p className="text-[11px] text-muted-foreground font-mono mt-1 truncate" title={fmtByCurrency((data.aging as any).totalByCurrency)}>
                 {fmtByCurrency((data.aging as any).totalByCurrency)}
               </p>
+            )}
+            {(data as any).overdueEom !== undefined && (
+              <div className="mt-2.5 pt-2.5 border-t">
+                <div className="text-[11px] font-medium text-muted-foreground">Overdue end of month</div>
+                <div className="text-lg font-bold font-mono text-red-600 leading-tight">
+                  {fmtEur((data as any).overdueEom)}
+                </div>
+                <p className="text-[11px] text-muted-foreground/80">
+                  {(data as any).overdueEomCount} invoice(s) due by {monthEndLabel((data as any).overdueEomDate)}
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>
