@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { VesselDetailDialog } from "@/components/VesselDetailDialog";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import { matchesAllTokens } from "@shared/textMatch";
 import { ArrowDown, ArrowUp, ArrowUpDown, Ship } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -25,7 +26,10 @@ const COL_DEFAULTS: Record<string, number> = {
 
 export default function Vessels() {
   const { data: vessels, isLoading } = trpc.vessels.listWithStats.useQuery();
-  const [search, setSearch] = useState("");
+  // A ?q= param lets the global search hand off to this list already filtered.
+  const [search, setSearch] = useState(() =>
+    typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("q") ?? ""),
+  );
   const [sortKey, setSortKey] = useState<SortKey>("openBalance");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [dialogVesselId, setDialogVesselId] = useState<number | null>(() => {
@@ -53,15 +57,9 @@ export default function Vessels() {
 
   const filtered = useMemo(() => {
     if (!vessels) return [];
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     const rows = q
-      ? vessels.filter(v =>
-          v.name.toLowerCase().includes(q) ||
-          (v.imo ?? "").toLowerCase().includes(q) ||
-          (v.ownerGroup ?? "").toLowerCase().includes(q) ||
-          (v.vesselType ?? "").toLowerCase().includes(q) ||
-          (v.flag ?? "").toLowerCase().includes(q),
-        )
+      ? vessels.filter(v => matchesAllTokens(q, [v.name, v.imo, v.ownerGroup, v.vesselType, v.flag]))
       : vessels;
     const dir = sortDir === "asc" ? 1 : -1;
     return [...rows].sort((a, b) => {

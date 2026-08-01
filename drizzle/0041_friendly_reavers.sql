@@ -1,0 +1,1 @@
+ALTER TABLE `payment_contacts` ADD `contactType` enum('Person','Department') DEFAULT 'Person' NOT NULL;

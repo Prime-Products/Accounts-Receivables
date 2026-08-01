@@ -20,6 +20,7 @@ import {
 } from "@/components/AddressBookFilters";
 import { ColumnPicker, ExportMenu } from "@/components/AddressBookToolbar";
 import { DataQualityPanel } from "@/components/DataQualityPanel";
+import { GiftReviewPanel } from "@/components/GiftReviewPanel";
 import { ImportContactsDialog } from "@/components/ImportContactsDialog";
 import { MergeContactsDialog, type MergeCandidate } from "@/components/MergeContactsDialog";
 import { CustomFieldsManager } from "@/components/CustomFieldsManager";
@@ -31,12 +32,14 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
+import { matchesAllTokens } from "@shared/textMatch";
 import {
   Archive,
   ArchiveRestore,
   BookUser,
   Building2,
   Contact,
+  Gift,
   Mail,
   Merge,
   Phone,
@@ -80,6 +83,10 @@ type ViewConfig = {
   search?: string;
   group?: string;
   extra?: string;
+  /** Contacts tab: Person / Department / all. */
+  contactType?: "all" | "Person" | "Department";
+  /** Contacts tab: on the gift list or not. */
+  gift?: "all" | "gift" | "nogift";
   filters?: FieldFilter[];
   sort?: SortState;
   hidden?: string[];
@@ -93,10 +100,17 @@ export default function AddressBook() {
     const t = new URLSearchParams(window.location.search).get("tab");
     return TABS.some(x => x.value === t) ? (t as Entity) : "group";
   });
-  const [search, setSearch] = useState("");
+  // A ?q= param lets the global search hand off to this list already filtered.
+  const [search, setSearch] = useState(
+    () => new URLSearchParams(window.location.search).get("q") ?? "",
+  );
   const [groupFilter, setGroupFilter] = useState("all");
   /** Second filter: position for contacts, vessel type for vessels, tier for companies. */
   const [extraFilter, setExtraFilter] = useState("all");
+  /** Contacts tab only: Person / Department / all. */
+  const [typeFilter, setTypeFilter] = useState<"all" | "Person" | "Department">("all");
+  /** Contacts tab only: gift recipients / not on the list / all. */
+  const [giftFilter, setGiftFilter] = useState<"all" | "gift" | "nogift">("all");
   /** Column-level conditions, usable on custom fields too. */
   const [fieldFilters, setFieldFilters] = useState<FieldFilter[]>([]);
   const [sort, setSort] = useState<SortState>({ key: null, dir: "asc" });
@@ -138,6 +152,16 @@ export default function AddressBook() {
     onSuccess: () => {
       toast.success("Contact restored");
       refreshContacts();
+    },
+    onError: e => toast.error(e.message),
+  });
+  // Bulk retype: fastest way to tidy the directory once departments are spotted.
+  const setTypeBulk = trpc.addressBook.setContactTypeBulk.useMutation({
+    onSuccess: r => {
+      toast.success(`${r.updated} contact${r.updated === 1 ? "" : "s"} updated`);
+      setSelectedIds([]);
+      refreshContacts();
+      utils.paymentContacts.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -363,12 +387,68 @@ export default function AddressBook() {
         label: "Name",
         width: 220,
         value: r => r.name,
-        render: r => (
-          <span className="inline-flex items-center gap-1.5 max-w-full font-medium text-sky-700">
-            <Contact className="h-3.5 w-3.5 shrink-0 opacity-70" />
-            <span className="truncate">{r.name}</span>
-          </span>
-        ),
+        render: r => {
+          // A department (shared mailbox) must be recognisable at a glance so a
+          // collector never writes "Dear Maria" to accounts@.
+          const dept = r.contactType === "Department";
+          return (
+            <span
+              className={`inline-flex items-center gap-1.5 max-w-full font-medium ${
+                dept ? "text-violet-700" : "text-sky-700"
+              }`}
+            >
+              {dept ? (
+                <Building2 className="h-3.5 w-3.5 shrink-0 opacity-80" />
+              ) : (
+                <Contact className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              )}
+              <span className="truncate">{r.name}</span>
+            </span>
+          );
+        },
+      },
+      {
+        key: "contactType",
+        label: "Type",
+        width: 120,
+        value: r => r.contactType ?? "Person",
+        render: r =>
+          r.contactType === "Department" ? (
+            <Badge className="bg-violet-100 text-violet-700 hover:bg-violet-100 border-violet-200" variant="outline">
+              Department
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-muted-foreground">
+              Person
+            </Badge>
+          ),
+      },
+      {
+        key: "gift",
+        label: "Gift",
+        width: 150,
+        // Sorting/exporting by the tier name keeps the column meaningful outside the UI.
+        value: r => (r.giftTier ? `${r.giftTier}${r.giftYear ? ` ${r.giftYear}` : ""}` : ""),
+        render: r =>
+          r.giftTier ? (
+            <Badge
+              variant="outline"
+              className="bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-50 gap-1"
+              title={
+                (r.giftHistory ?? []).length > 1
+                  ? `Gift history: ${(r.giftHistory ?? [])
+                      .map((g: { year: number; tier: string }) => `${g.year} ${g.tier}`)
+                      .join(", ")}`
+                  : `On the ${r.giftYear ?? ""} gift list`
+              }
+            >
+              <Gift className="h-3 w-3 shrink-0" />
+              <span className="truncate">{r.giftTier}</span>
+              {r.giftYear ? <span className="opacity-60">{r.giftYear}</span> : null}
+            </Badge>
+          ) : (
+            <span className="text-muted-foreground text-xs">—</span>
+          ),
       },
       { key: "title", label: "Position", width: 170, value: r => r.title },
       {
@@ -441,6 +521,7 @@ export default function AddressBook() {
                       email: r.email,
                       phone: r.phone,
                       title: r.title,
+                      contactType: r.contactType ?? "Person",
                       companyName: r.companyName,
                       groupName: r.group,
                     });
@@ -525,30 +606,43 @@ export default function AddressBook() {
     entity === "contact" ? "All positions" : entity === "vessel" ? "All types" : entity === "customer" ? "All tiers" : "";
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     const base = (rows as any[]).filter(r => {
       const g = entity === "vessel" ? r.ownerGroup : r.group;
       if (groupFilter !== "all" && g !== groupFilter) return false;
+      if (entity === "contact" && typeFilter !== "all" && (r.contactType ?? "Person") !== typeFilter) return false;
+      if (entity === "contact" && giftFilter !== "all") {
+        const onList = Boolean(r.giftTier);
+        if (giftFilter === "gift" && !onList) return false;
+        if (giftFilter === "nogift" && onList) return false;
+      }
       if (extraFilter !== "all") {
         if (entity === "contact" && !(r.title ?? "").toLowerCase().startsWith(extraFilter.toLowerCase())) return false;
         if (entity === "vessel" && r.vesselType !== extraFilter) return false;
         if (entity === "customer" && r.tier !== extraFilter) return false;
       }
       if (!q) return true;
-      // Search every visible column, including custom fields.
-      return columns.some(c => {
+      // Search every visible column (custom fields included) plus the row's
+      // hidden related-entity text — people, vessels, company and group — so a
+      // vessel name finds its contacts and a person's name finds their company.
+      // Accents and word order are handled by matchesAllTokens.
+      const haystack: (string | null | undefined)[] = [r.searchText ?? null];
+      for (const c of columns) {
         const v = c.value(r);
-        return v !== null && v !== undefined && String(v).toLowerCase().includes(q);
-      });
+        if (v !== null && v !== undefined) haystack.push(String(v));
+      }
+      return matchesAllTokens(q, haystack);
     });
     // Column conditions run against all columns, so a hidden custom field can still filter.
     return applyFieldFilters(base, fieldFilters, allColumns);
-  }, [rows, search, groupFilter, extraFilter, entity, columns, fieldFilters, allColumns]);
+  }, [rows, search, groupFilter, extraFilter, typeFilter, giftFilter, entity, columns, fieldFilters, allColumns]);
 
   const currentConfig: ViewConfig = {
     search,
     group: groupFilter,
     extra: extraFilter,
+    contactType: typeFilter,
+    gift: giftFilter,
     filters: fieldFilters,
     sort,
     hidden,
@@ -561,6 +655,8 @@ export default function AddressBook() {
     setSearch(c.search ?? "");
     setGroupFilter(c.group ?? "all");
     setExtraFilter(c.extra ?? "all");
+    setTypeFilter(c.contactType ?? "all");
+    setGiftFilter(c.gift ?? "all");
     setFieldFilters(c.filters ?? []);
     setSort(c.sort ?? { key: null, dir: "asc" });
     if (c.hidden || c.order) applyLayout({ hidden: c.hidden ?? [], order: c.order ?? [] });
@@ -579,6 +675,7 @@ export default function AddressBook() {
     setActiveViewId(null);
     setShowArchived(false);
     setSelectedIds([]);
+    setTypeFilter("all");
   };
 
   const tabCount = (t: Entity) => counts?.[t];
@@ -593,6 +690,7 @@ export default function AddressBook() {
     setSort({ key: null, dir: "asc" });
     setActiveViewId(null);
     setSelectedIds([]);
+    setTypeFilter("all");
   };
 
   return (
@@ -668,7 +766,7 @@ export default function AddressBook() {
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               className="pl-9 pr-8"
-              placeholder="Search this list…"
+              placeholder="Search names, vessels, companies, groups…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -695,6 +793,30 @@ export default function AddressBook() {
               ))}
             </SelectContent>
           </Select>
+          {entity === "contact" && (
+            <Select value={typeFilter} onValueChange={v => setTypeFilter(v as typeof typeFilter)}>
+              <SelectTrigger className="w-[170px]">
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">People &amp; departments</SelectItem>
+                <SelectItem value="Person">People only</SelectItem>
+                <SelectItem value="Department">Departments only</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          {entity === "contact" && (
+            <Select value={giftFilter} onValueChange={v => setGiftFilter(v as typeof giftFilter)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Gift list" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Gift list: everyone</SelectItem>
+                <SelectItem value="gift">On the gift list</SelectItem>
+                <SelectItem value="nogift">Not on the gift list</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           {extraLabel && (
             <Select value={extraFilter} onValueChange={setExtraFilter}>
               <SelectTrigger className="w-[180px]">
@@ -714,6 +836,7 @@ export default function AddressBook() {
         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
           {entity === "contact" && <ImportContactsDialog onImported={refreshContacts} />}
           <DataQualityPanel />
+          {entity === "contact" && <GiftReviewPanel />}
           <CustomFieldsManager entity={entity} />
           <div className="ml-auto flex items-center gap-2">
             <ColumnPicker allColumns={allColumns} hidden={hidden} order={order} onChange={applyLayout} />
@@ -778,6 +901,7 @@ export default function AddressBook() {
                     email: c.email,
                     phone: c.phone,
                     title: c.title,
+                    contactType: c.contactType ?? "Person",
                     customerId: c.customerId,
                     companyName: c.companyName,
                     group: c.group,
@@ -786,6 +910,24 @@ export default function AddressBook() {
             }
           >
             <Merge className="h-3.5 w-3.5" /> Merge selected
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 text-xs"
+            disabled={setTypeBulk.isPending}
+            onClick={() => setTypeBulk.mutate({ ids: selectedIds, contactType: "Department" })}
+          >
+            <Building2 className="h-3.5 w-3.5" /> Mark as department
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 text-xs"
+            disabled={setTypeBulk.isPending}
+            onClick={() => setTypeBulk.mutate({ ids: selectedIds, contactType: "Person" })}
+          >
+            <Contact className="h-3.5 w-3.5" /> Mark as person
           </Button>
           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds([])}>
             Clear selection

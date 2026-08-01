@@ -57,7 +57,10 @@ describe("Address Book visual language", () => {
     for (const icon of ["Users", "Building2", "Ship", "Contact"]) {
       expect(page).toContain(`<${icon} className="h-3.5 w-3.5 shrink-0 opacity-70" />`);
     }
-    expect(page.match(/font-medium text-sky-700/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+    // Groups, companies and vessels carry the sky accent inline; the contacts
+    // name cell switches between sky (person) and violet (department).
+    expect(page.match(/font-medium text-sky-700/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(page).toContain('dept ? "text-violet-700" : "text-sky-700"');
   });
 });
 

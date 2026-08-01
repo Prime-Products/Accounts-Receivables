@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { monthRange } from "./lib/arLogic";
 import {
   activityLog,
   appSettings,
@@ -55,6 +56,8 @@ import {
   InsertCreditNoteAllocation,
 } from "../drizzle/schema";
 import { teamMembers, InsertTeamMember } from "../drizzle/schema";
+import { contactGifts, giftImportReview, type GiftTier } from "../drizzle/schema";
+import { queryTokens } from "../shared/textMatch";
 import {
   customFieldDefs,
   customFieldValues,
@@ -1141,6 +1144,116 @@ export async function updatePaymentContact(id: number, updates: Partial<InsertPa
   return db.update(paymentContacts).set(updates).where(eq(paymentContacts.id, id));
 }
 
+/**
+ * Set the Person/Department type on many contacts in one statement. Returns how
+ * many ids matched an existing row.
+ */
+/**
+ * Gift records, optionally narrowed to one year. Kept as a plain list so the
+ * caller can index it by contact; the table is small (a few hundred rows).
+ */
+export async function listContactGifts(year?: number) {
+  const db = await requireDb();
+  if (year === undefined) return db.select().from(contactGifts);
+  return db.select().from(contactGifts).where(eq(contactGifts.year, year));
+}
+
+/** Add a contact to a year's gift list, or change the tier if already there. */
+export async function upsertContactGift(input: {
+  contactId: number;
+  year: number;
+  tier: GiftTier;
+  region?: string | null;
+  sourceName?: string | null;
+  sourceGroup?: string | null;
+  notes?: string | null;
+}) {
+  const db = await requireDb();
+  const existing = await db
+    .select({ id: contactGifts.id })
+    .from(contactGifts)
+    .where(and(eq(contactGifts.contactId, input.contactId), eq(contactGifts.year, input.year)))
+    .limit(1);
+  if (existing.length > 0) {
+    await db
+      .update(contactGifts)
+      .set({
+        tier: input.tier,
+        ...(input.region !== undefined ? { region: input.region } : {}),
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      })
+      .where(eq(contactGifts.id, existing[0].id));
+    return existing[0].id;
+  }
+  await db.insert(contactGifts).values({
+    contactId: input.contactId,
+    year: input.year,
+    tier: input.tier,
+    region: input.region ?? null,
+    sourceName: input.sourceName ?? null,
+    sourceGroup: input.sourceGroup ?? null,
+    notes: input.notes ?? null,
+  });
+  return input.contactId;
+}
+
+/** Remove a contact from a year's gift list. */
+export async function deleteContactGift(contactId: number, year: number) {
+  const db = await requireDb();
+  await db.delete(contactGifts).where(and(eq(contactGifts.contactId, contactId), eq(contactGifts.year, year)));
+  return { ok: true } as const;
+}
+
+/** Gift-list rows awaiting a human decision, newest year first. */
+export async function listGiftReview(status?: "pending" | "resolved" | "dismissed") {
+  const db = await requireDb();
+  const q = db.select().from(giftImportReview);
+  if (!status) return q.orderBy(desc(giftImportReview.year), giftImportReview.sourceName);
+  return q.where(eq(giftImportReview.status, status)).orderBy(desc(giftImportReview.year), giftImportReview.sourceName);
+}
+
+export async function getGiftReviewRow(id: number) {
+  const db = await requireDb();
+  return db.select().from(giftImportReview).where(eq(giftImportReview.id, id)).limit(1);
+}
+
+/** Mark a review row resolved against a chosen contact, or dismissed. */
+export async function setGiftReviewStatus(
+  id: number,
+  status: "pending" | "resolved" | "dismissed",
+  resolvedContactId?: number | null,
+) {
+  const db = await requireDb();
+  await db
+    .update(giftImportReview)
+    .set({ status, resolvedContactId: resolvedContactId ?? null })
+    .where(eq(giftImportReview.id, id));
+  return { ok: true } as const;
+}
+
+/** Dismiss many review rows at once (used by "dismiss all namesakes"). */
+export async function dismissGiftReviewBulk(ids: number[]) {
+  if (ids.length === 0) return 0;
+  const db = await requireDb();
+  await db.update(giftImportReview).set({ status: "dismissed" }).where(inArray(giftImportReview.id, ids));
+  return ids.length;
+}
+
+export async function setPaymentContactTypeBulk(ids: number[], contactType: "Person" | "Department") {
+  if (ids.length === 0) return 0;
+  const db = await requireDb();
+  const existing = await db
+    .select({ id: paymentContacts.id })
+    .from(paymentContacts)
+    .where(inArray(paymentContacts.id, ids));
+  if (existing.length === 0) return 0;
+  await db
+    .update(paymentContacts)
+    .set({ contactType })
+    .where(inArray(paymentContacts.id, existing.map(r => r.id)));
+  return existing.length;
+}
+
 export async function deletePaymentContact(id: number) {
   const db = await requireDb();
   return db.delete(paymentContacts).where(eq(paymentContacts.id, id));
@@ -1190,11 +1303,26 @@ export async function sumInvoicedInRange(start: number, end: number) {
 export async function globalSearch(query: string, limitPerType = 8) {
   const db = await requireDb();
   const q = `%${query}%`;
+  // SQL prefilters loosely on the longest word (accents and word order are then
+  // settled in TypeScript via matchesAllTokens), so a query like
+  // "Μπουκόλος Αντρέας" still reaches rows stored as "Andreas Boukolos".
+  const tokens = queryTokens(query);
+  const longest = tokens.slice().sort((a, b) => b.length - a.length)[0] ?? "";
+  const loose = `%${longest}%`;
   const [custRows, invRows, noteRows, taskRows] = await Promise.all([
     db
       .select({ id: customers.id, name: customers.name, code: customers.code, customerGroup: customers.customerGroup })
       .from(customers)
-      .where(or(like(customers.name, q), like(customers.code, q), like(customers.customerGroup, q), like(customers.vatNumber, q)))
+      .where(
+        or(
+          like(customers.name, q),
+          like(customers.code, q),
+          like(customers.customerGroup, q),
+          like(customers.vatNumber, q),
+          like(customers.name, loose),
+          like(customers.customerGroup, loose),
+        ),
+      )
       .limit(limitPerType * 3),
     db
       .select({
@@ -1208,7 +1336,7 @@ export async function globalSearch(query: string, limitPerType = 8) {
       })
       .from(invoices)
       .leftJoin(vessels, eq(invoices.vesselId, vessels.id))
-      .where(or(like(invoices.invoiceNumber, q), like(vessels.name, q)))
+      .where(or(like(invoices.invoiceNumber, q), like(vessels.name, q), like(vessels.name, loose)))
       .limit(limitPerType),
     db
       .select({ id: groupNotes.id, groupName: groupNotes.groupName, content: groupNotes.content, createdAt: groupNotes.createdAt })
@@ -1265,7 +1393,62 @@ export async function globalSearch(query: string, limitPerType = 8) {
     .where(like(invoices.invoiceNumber, q))
     .orderBy(desc(wireTransferAllocations.createdAt))
     .limit(limitPerType);
-  return { customers: custRows, invoices: invRows, notes: noteRows, tasks: taskRows, transfers: transferRows, allocations: allocationRows };
+  // Contacts and vessels: people and ships are what users search for most, so
+  // both are prefiltered loosely and then filtered precisely below.
+  const [contactRows, vesselRows] = await Promise.all([
+    db
+      .select({
+        id: paymentContacts.id,
+        name: paymentContacts.name,
+        email: paymentContacts.email,
+        phone: paymentContacts.phone,
+        title: paymentContacts.title,
+        contactType: paymentContacts.contactType,
+        customerId: paymentContacts.customerId,
+        customerName: customers.name,
+        customerGroup: customers.customerGroup,
+      })
+      .from(paymentContacts)
+      .leftJoin(customers, eq(paymentContacts.customerId, customers.id))
+      .where(
+        and(
+          eq(paymentContacts.archived, 0),
+          or(
+            like(paymentContacts.name, q),
+            like(paymentContacts.email, q),
+            like(paymentContacts.title, q),
+            like(paymentContacts.name, loose),
+            like(paymentContacts.email, loose),
+          ),
+        ),
+      )
+      .limit(limitPerType * 6),
+    db
+      .select({
+        id: vessels.id,
+        name: vessels.name,
+        imo: vessels.imo,
+        vesselType: vessels.vesselType,
+        flag: vessels.flag,
+        customerId: vessels.customerId,
+        customerName: customers.name,
+        customerGroup: customers.customerGroup,
+      })
+      .from(vessels)
+      .leftJoin(customers, eq(vessels.customerId, customers.id))
+      .where(or(like(vessels.name, q), like(vessels.imo, q), like(vessels.name, loose)))
+      .limit(limitPerType * 4),
+  ]);
+  return {
+    customers: custRows,
+    invoices: invRows,
+    notes: noteRows,
+    tasks: taskRows,
+    transfers: transferRows,
+    allocations: allocationRows,
+    contacts: contactRows,
+    vessels: vesselRows,
+  };
 }
 
 export async function listGroupConfirmationStatuses() {
@@ -1931,4 +2114,59 @@ export async function setListLayout(userId: number, listKey: string, config: str
   }
   const res = await db.insert(listLayouts).values({ userId, listKey, config });
   return Number((res as any)[0].insertId);
+}
+
+/** Historical forecast performance for a group (last N months). */
+export async function getForecastHistory(groupKey: string, limit = 6) {
+  const db = await requireDb();
+  const entries = await db
+    .select()
+    .from(forecastEntries)
+    .where(eq(forecastEntries.customerGroup, groupKey))
+    .orderBy(desc(forecastEntries.year), desc(forecastEntries.month))
+    .limit(limit);
+  
+  // Get group members
+  const members = await db.select({ id: customers.id }).from(customers).where(or(eq(customers.customerGroup, groupKey), eq(customers.name, groupKey)));
+  const groupMemberIds = members.map(m => m.id);
+
+  if (groupMemberIds.length === 0) return [];
+
+  const results = [];
+  for (const e of entries) {
+    const { start, end } = monthRange(e.year, e.month);
+    const [receiptsRows, wires] = await Promise.all([
+      db.select().from(receipts).where(
+        and(
+          inArray(receipts.customerId, groupMemberIds),
+          gte(receipts.receiptDate, start),
+          lt(receipts.receiptDate, end)
+        )
+      ),
+      db.select().from(wireTransfers).where(
+        and(
+          inArray(wireTransfers.customerId, groupMemberIds),
+          eq(wireTransfers.status, "Received")
+        )
+      )
+    ]);
+
+    const collectedWires = wires.filter(w => {
+      const ts = w.receivedDate ?? w.transferDate;
+      return ts >= start && ts < end;
+    });
+
+    const collected = receiptsRows.reduce((s, r) => s + Number(r.amount), 0) +
+                    collectedWires.reduce((s, w) => s + Number(w.amount), 0);
+
+    results.push({
+      year: e.year,
+      month: e.month,
+      aiSuggested: Number(e.aiSuggestedAmount),
+      expected: Number(e.expectedAmount),
+      collected,
+      userAdjusted: !!e.userAdjusted,
+    });
+  }
+  return results;
 }
