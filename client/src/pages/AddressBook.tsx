@@ -80,6 +80,8 @@ type ViewConfig = {
   search?: string;
   group?: string;
   extra?: string;
+  /** Contacts tab: Person / Department / all. */
+  contactType?: "all" | "Person" | "Department";
   filters?: FieldFilter[];
   sort?: SortState;
   hidden?: string[];
@@ -97,6 +99,8 @@ export default function AddressBook() {
   const [groupFilter, setGroupFilter] = useState("all");
   /** Second filter: position for contacts, vessel type for vessels, tier for companies. */
   const [extraFilter, setExtraFilter] = useState("all");
+  /** Contacts tab only: Person / Department / all. */
+  const [typeFilter, setTypeFilter] = useState<"all" | "Person" | "Department">("all");
   /** Column-level conditions, usable on custom fields too. */
   const [fieldFilters, setFieldFilters] = useState<FieldFilter[]>([]);
   const [sort, setSort] = useState<SortState>({ key: null, dir: "asc" });
@@ -138,6 +142,16 @@ export default function AddressBook() {
     onSuccess: () => {
       toast.success("Contact restored");
       refreshContacts();
+    },
+    onError: e => toast.error(e.message),
+  });
+  // Bulk retype: fastest way to tidy the directory once departments are spotted.
+  const setTypeBulk = trpc.addressBook.setContactTypeBulk.useMutation({
+    onSuccess: r => {
+      toast.success(`${r.updated} contact${r.updated === 1 ? "" : "s"} updated`);
+      setSelectedIds([]);
+      refreshContacts();
+      utils.paymentContacts.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -363,12 +377,41 @@ export default function AddressBook() {
         label: "Name",
         width: 220,
         value: r => r.name,
-        render: r => (
-          <span className="inline-flex items-center gap-1.5 max-w-full font-medium text-sky-700">
-            <Contact className="h-3.5 w-3.5 shrink-0 opacity-70" />
-            <span className="truncate">{r.name}</span>
-          </span>
-        ),
+        render: r => {
+          // A department (shared mailbox) must be recognisable at a glance so a
+          // collector never writes "Dear Maria" to accounts@.
+          const dept = r.contactType === "Department";
+          return (
+            <span
+              className={`inline-flex items-center gap-1.5 max-w-full font-medium ${
+                dept ? "text-violet-700" : "text-sky-700"
+              }`}
+            >
+              {dept ? (
+                <Building2 className="h-3.5 w-3.5 shrink-0 opacity-80" />
+              ) : (
+                <Contact className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              )}
+              <span className="truncate">{r.name}</span>
+            </span>
+          );
+        },
+      },
+      {
+        key: "contactType",
+        label: "Type",
+        width: 120,
+        value: r => r.contactType ?? "Person",
+        render: r =>
+          r.contactType === "Department" ? (
+            <Badge className="bg-violet-100 text-violet-700 hover:bg-violet-100 border-violet-200" variant="outline">
+              Department
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-muted-foreground">
+              Person
+            </Badge>
+          ),
       },
       { key: "title", label: "Position", width: 170, value: r => r.title },
       {
@@ -441,6 +484,7 @@ export default function AddressBook() {
                       email: r.email,
                       phone: r.phone,
                       title: r.title,
+                      contactType: r.contactType ?? "Person",
                       companyName: r.companyName,
                       groupName: r.group,
                     });
@@ -529,6 +573,7 @@ export default function AddressBook() {
     const base = (rows as any[]).filter(r => {
       const g = entity === "vessel" ? r.ownerGroup : r.group;
       if (groupFilter !== "all" && g !== groupFilter) return false;
+      if (entity === "contact" && typeFilter !== "all" && (r.contactType ?? "Person") !== typeFilter) return false;
       if (extraFilter !== "all") {
         if (entity === "contact" && !(r.title ?? "").toLowerCase().startsWith(extraFilter.toLowerCase())) return false;
         if (entity === "vessel" && r.vesselType !== extraFilter) return false;
@@ -543,12 +588,13 @@ export default function AddressBook() {
     });
     // Column conditions run against all columns, so a hidden custom field can still filter.
     return applyFieldFilters(base, fieldFilters, allColumns);
-  }, [rows, search, groupFilter, extraFilter, entity, columns, fieldFilters, allColumns]);
+  }, [rows, search, groupFilter, extraFilter, typeFilter, entity, columns, fieldFilters, allColumns]);
 
   const currentConfig: ViewConfig = {
     search,
     group: groupFilter,
     extra: extraFilter,
+    contactType: typeFilter,
     filters: fieldFilters,
     sort,
     hidden,
@@ -561,6 +607,7 @@ export default function AddressBook() {
     setSearch(c.search ?? "");
     setGroupFilter(c.group ?? "all");
     setExtraFilter(c.extra ?? "all");
+    setTypeFilter(c.contactType ?? "all");
     setFieldFilters(c.filters ?? []);
     setSort(c.sort ?? { key: null, dir: "asc" });
     if (c.hidden || c.order) applyLayout({ hidden: c.hidden ?? [], order: c.order ?? [] });
@@ -579,6 +626,7 @@ export default function AddressBook() {
     setActiveViewId(null);
     setShowArchived(false);
     setSelectedIds([]);
+    setTypeFilter("all");
   };
 
   const tabCount = (t: Entity) => counts?.[t];
@@ -593,6 +641,7 @@ export default function AddressBook() {
     setSort({ key: null, dir: "asc" });
     setActiveViewId(null);
     setSelectedIds([]);
+    setTypeFilter("all");
   };
 
   return (
@@ -695,6 +744,18 @@ export default function AddressBook() {
               ))}
             </SelectContent>
           </Select>
+          {entity === "contact" && (
+            <Select value={typeFilter} onValueChange={v => setTypeFilter(v as typeof typeFilter)}>
+              <SelectTrigger className="w-[170px]">
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">People &amp; departments</SelectItem>
+                <SelectItem value="Person">People only</SelectItem>
+                <SelectItem value="Department">Departments only</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           {extraLabel && (
             <Select value={extraFilter} onValueChange={setExtraFilter}>
               <SelectTrigger className="w-[180px]">
@@ -778,6 +839,7 @@ export default function AddressBook() {
                     email: c.email,
                     phone: c.phone,
                     title: c.title,
+                    contactType: c.contactType ?? "Person",
                     customerId: c.customerId,
                     companyName: c.companyName,
                     group: c.group,
@@ -786,6 +848,24 @@ export default function AddressBook() {
             }
           >
             <Merge className="h-3.5 w-3.5" /> Merge selected
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 text-xs"
+            disabled={setTypeBulk.isPending}
+            onClick={() => setTypeBulk.mutate({ ids: selectedIds, contactType: "Department" })}
+          >
+            <Building2 className="h-3.5 w-3.5" /> Mark as department
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 text-xs"
+            disabled={setTypeBulk.isPending}
+            onClick={() => setTypeBulk.mutate({ ids: selectedIds, contactType: "Person" })}
+          >
+            <Contact className="h-3.5 w-3.5" /> Mark as person
           </Button>
           <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds([])}>
             Clear selection

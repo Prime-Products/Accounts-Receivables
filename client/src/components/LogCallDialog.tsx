@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { trpc } from "@/lib/trpc";
-import { CheckCircle2, Info, Mail, Phone, Plus, User } from "lucide-react";
+import { Building2, CheckCircle2, Info, Mail, Phone, Plus, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -245,7 +245,10 @@ export default function LogCallDialog({
               <SelectContent>
                 {groupContacts?.map(c => (
                   <SelectItem key={c.id} value={String(c.id)}>
-                    {c.name} {c.title ? `(${c.title})` : ""}
+                    {(c as { contactType?: string }).contactType === "Department"
+                      ? `${c.name} · department`
+                      : c.name}
+                    {c.title ? ` (${c.title})` : ""}
                   </SelectItem>
                 ))}
                 <SelectItem value="other">Other (type a name)</SelectItem>
@@ -263,7 +266,17 @@ export default function LogCallDialog({
             {selectedContact && (
                   <div className="rounded border bg-muted/40 px-2 py-1.5 text-xs mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
                     <span className="flex items-center gap-1.5 font-medium">
-                      <User className="h-3 w-3" /> {selectedContact.name}
+                      {(selectedContact as { contactType?: string }).contactType === "Department" ? (
+                        <Building2 className="h-3 w-3 text-violet-600" />
+                      ) : (
+                        <User className="h-3 w-3" />
+                      )}{" "}
+                      {selectedContact.name}
+                      {(selectedContact as { contactType?: string }).contactType === "Department" && (
+                        <span className="rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+                          Dept
+                        </span>
+                      )}
                       {selectedContact.title && <span className="text-muted-foreground font-normal">· {selectedContact.title}</span>}
                     </span>
                     <span className="flex items-center gap-1.5">

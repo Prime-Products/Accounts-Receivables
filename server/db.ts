@@ -974,6 +974,25 @@ export async function updatePaymentContact(id: number, updates: Partial<InsertPa
   return db.update(paymentContacts).set(updates).where(eq(paymentContacts.id, id));
 }
 
+/**
+ * Set the Person/Department type on many contacts in one statement. Returns how
+ * many ids matched an existing row.
+ */
+export async function setPaymentContactTypeBulk(ids: number[], contactType: "Person" | "Department") {
+  if (ids.length === 0) return 0;
+  const db = await requireDb();
+  const existing = await db
+    .select({ id: paymentContacts.id })
+    .from(paymentContacts)
+    .where(inArray(paymentContacts.id, ids));
+  if (existing.length === 0) return 0;
+  await db
+    .update(paymentContacts)
+    .set({ contactType })
+    .where(inArray(paymentContacts.id, existing.map(r => r.id)));
+  return existing.length;
+}
+
 export async function deletePaymentContact(id: number) {
   const db = await requireDb();
   return db.delete(paymentContacts).where(eq(paymentContacts.id, id));

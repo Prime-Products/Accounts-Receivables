@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { downloadBase64 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { FileDown, Mail, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 interface SendEmailDialogProps {
@@ -63,6 +63,8 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
   const [newContactEmail, setNewContactEmail] = useState("");
   const [newContactPhone, setNewContactPhone] = useState("");
   const [newContactTitle, setNewContactTitle] = useState("");
+  /** New contacts default to Person; departments are shared mailboxes. */
+  const [newContactType, setNewContactType] = useState<"Person" | "Department">("Person");
 
   // Contacts belong to the group, not to a single legal entity, so the picker
   // lists everyone in the group and falls back to the company when the dialog is
@@ -76,6 +78,20 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
     { enabled: open && !groupName && !!customerId }
   );
   const paymentContacts = groupName ? groupContacts : companyContacts;
+
+  /**
+   * Departments first: when chasing money, the accounts mailbox is usually the
+   * right recipient, and the badge keeps it from being mistaken for a person.
+   */
+  const orderedContacts = useMemo(() => {
+    const list = paymentContacts ?? [];
+    return [...list].sort((a, b) => {
+      const at = (a as { contactType?: string }).contactType === "Department" ? 0 : 1;
+      const bt = (b as { contactType?: string }).contactType === "Department" ? 0 : 1;
+      if (at !== bt) return at - bt;
+      return a.name.localeCompare(b.name);
+    });
+  }, [paymentContacts]);
 
   const isSmart = (smartTemplates as readonly string[]).includes(templateType);
   const { data: prefill, isFetching: prefillLoading } = trpc.calls.emailPrefill.useQuery(
@@ -170,6 +186,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
       email: newContactEmail,
       phone: newContactPhone || undefined,
       title: newContactTitle || undefined,
+      contactType: newContactType,
     });
   };
 
@@ -266,8 +283,24 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
               {/* Add Contact Form */}
               {addingContact && (
                 <div className="space-y-2 p-2 bg-background rounded border">
+                  <div className="flex gap-1.5">
+                    {(["Person", "Department"] as const).map(t => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setNewContactType(t)}
+                        className={`flex-1 rounded border px-2 py-1 text-xs font-medium transition-[transform,background-color] duration-150 active:scale-[0.97] ${
+                          newContactType === t
+                            ? "border-sky-500 bg-sky-50 text-sky-800"
+                            : "text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
                   <Input
-                    placeholder="Contact name"
+                    placeholder={newContactType === "Department" ? "Department name" : "Contact name"}
                     value={newContactName}
                     onChange={e => setNewContactName(e.target.value)}
                     className="text-sm"
@@ -313,9 +346,9 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
               )}
 
               {/* Contacts List — group-wide when a group is in context */}
-              {paymentContacts && paymentContacts.length > 0 ? (
+              {orderedContacts.length > 0 ? (
                 <div className="space-y-1">
-                  {paymentContacts.map(contact => (
+                  {orderedContacts.map(contact => (
                     <button
                       key={contact.id}
                       onClick={() => handleSelectContact(contact.id)}
@@ -325,7 +358,20 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
                           : "bg-background hover:bg-muted"
                       }`}
                     >
-                      <div className="font-medium">{contact.name}</div>
+                      <div className="flex items-center gap-1.5 font-medium">
+                        <span className="truncate">{contact.name}</span>
+                        {(contact as { contactType?: string }).contactType === "Department" && (
+                          <span
+                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              selectedContactId === contact.id
+                                ? "bg-primary-foreground/20 text-primary-foreground"
+                                : "bg-violet-100 text-violet-700"
+                            }`}
+                          >
+                            Dept
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs opacity-75">{contact.email}</div>
                       {contact.title && <div className="text-xs opacity-75">{contact.title}</div>}
                     </button>

@@ -288,6 +288,13 @@
       "when": 1785563496191,
       "tag": "0040_uneven_blue_shield",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "5",
+      "when": 1785590685480,
+      "tag": "0041_friendly_reavers",
+      "breakpoints": true
     }
   ]
 }

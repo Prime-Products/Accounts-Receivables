@@ -1397,3 +1397,15 @@
 - [x] Long markdown output contained: tables/pre scroll horizontally inside the bubble instead of stretching the panel
 - [x] Resize listeners mounted for the panel lifetime and `userSelect` always cleared on unmount, so a missed mouseup can no longer leave the panel unclickable
 - [x] REMOVED at user request: the floating AI assistant is gone — widget, tRPC router, knowledge/facts libs and its test suite deleted; no launcher on any screen
+## Address Book — Person vs Department contacts (user request)
+- [x] `payment_contacts.contactType` column (`Person` | `Department`, default `Person`) in schema, migration generated and applied
+- [x] Address Book Contacts list: Type column with badge (person vs department icon), sortable and filterable
+- [x] Quick filter on the Contacts tab: People & departments / People only / Departments only (persisted in saved views)
+- [x] Contact record card shows the type and can change it via dropdown (persists immediately)
+- [x] Import wizard can map a Type column, defaulting to Person when the column is absent
+- [x] Export (Excel/CSV/PDF) includes the Type column (exports the visible columns)
+- [x] Log Call contact dropdown marks departments so the user knows it is not a person
+- [x] Bulk email flow lists departments first with a Dept badge; new inline contacts can be created as a department
+- [x] Bulk "Mark as department / Mark as person" actions on the contacts selection bar
+- [x] Data Quality panel: suggest Department for generic email prefixes (accounts@, ar@, finance@, ops@, info@, admin@, purchasing@ ...) with per-row and bulk apply — never applied silently
+- [x] Vitest coverage for type persistence, filtering, suggestion rules and import mapping (20 specs in server/contactType.test.ts)

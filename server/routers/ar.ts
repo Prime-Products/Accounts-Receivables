@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   appRoles,
   confirmationStatuses,
+  contactTypes,
   customerTiers,
   invoiceStatuses,
   receiptMethods,
@@ -5289,6 +5290,7 @@ export const paymentContactsRouter = router({
         email: z.string().email(),
         phone: z.string().max(20).optional(),
         title: z.string().max(255).optional(),
+        contactType: z.enum(contactTypes).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -5302,6 +5304,7 @@ export const paymentContactsRouter = router({
         email: input.email,
         phone: input.phone,
         title: input.title,
+        contactType: input.contactType ?? "Person",
       });
       await audit(ctx, "Add Payment Contact", "paymentContact", id, `${input.name} - ${input.email}`);
       return { id, ...input };
@@ -5315,6 +5318,7 @@ export const paymentContactsRouter = router({
         email: z.string().email().optional(),
         phone: z.string().max(20).optional(),
         title: z.string().max(255).optional(),
+        contactType: z.enum(contactTypes).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -5327,6 +5331,7 @@ export const paymentContactsRouter = router({
         ...(input.email && { email: input.email }),
         ...(input.phone !== undefined && { phone: input.phone }),
         ...(input.title !== undefined && { title: input.title }),
+        ...(input.contactType && { contactType: input.contactType }),
       };
       await db.updatePaymentContact(input.id, updates);
       await audit(ctx, "Update Payment Contact", "paymentContact", input.id, JSON.stringify(updates));

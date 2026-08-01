@@ -12,7 +12,7 @@ import { z } from "zod";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { buildExcel, buildPdf, type TableSpec } from "../lib/exports";
-import { addressBookEntities, customFieldTypes } from "../../drizzle/schema";
+import { addressBookEntities, contactTypes, customFieldTypes } from "../../drizzle/schema";
 
 const entitySchema = z.enum(addressBookEntities);
 
@@ -22,9 +22,100 @@ export const importTargets = [
   { key: "email", label: "Email", required: true },
   { key: "phone", label: "Phone", required: false },
   { key: "title", label: "Position", required: false },
+  { key: "contactType", label: "Type (Person / Department)", required: false },
   { key: "companyCode", label: "Company code (ERP)", required: false },
   { key: "companyName", label: "Company name", required: false },
 ] as const;
+
+/**
+ * Normalise a free-text type cell from a spreadsheet into one of our two values.
+ * Anything that is not clearly a department (dept/department/team/group mailbox)
+ * is treated as a person, which is also the column default.
+ */
+export function normalizeContactType(raw: string | null | undefined): (typeof contactTypes)[number] {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (!v) return "Person";
+  if (/^(department|dept|dpt|departement|τμημα|τμήμα|shared|mailbox|group mailbox|team)$/.test(v)) return "Department";
+  if (v.startsWith("dep") || v.includes("department") || v.includes("τμημ") || v.includes("τμήμ")) return "Department";
+  return "Person";
+}
+
+/**
+ * Local parts that virtually always denote a shared/departmental mailbox rather
+ * than a person. Used only to *suggest* a reclassification — never applied
+ * automatically, because a real person can sit behind info@ at a tiny company.
+ */
+const DEPARTMENT_LOCAL_PARTS = [
+  "accounts",
+  "account",
+  "accounting",
+  "accountancy",
+  "ar",
+  "ap",
+  "finance",
+  "financial",
+  "fin",
+  "billing",
+  "invoice",
+  "invoices",
+  "credit",
+  "collections",
+  "treasury",
+  "ops",
+  "operation",
+  "operations",
+  "purchase",
+  "purchasing",
+  "procurement",
+  "supply",
+  "supplies",
+  "technical",
+  "tech",
+  "crewing",
+  "crew",
+  "chartering",
+  "charter",
+  "admin",
+  "administration",
+  "office",
+  "info",
+  "information",
+  "mail",
+  "email",
+  "contact",
+  "general",
+  "sales",
+  "support",
+  "hr",
+  "payroll",
+  "legal",
+  "logistics",
+  "spares",
+  "stores",
+  "store",
+  "provisions",
+  "bunkers",
+  "management",
+  "secretariat",
+  "reception",
+];
+
+/** True when an email's local part looks like a shared department mailbox. */
+export function looksLikeDepartmentEmail(email: string): boolean {
+  const local = (email.split("@")[0] ?? "").trim().toLowerCase();
+  if (!local) return false;
+  // Split on separators so accounts.dept / ops-piraeus / ar_gr are all covered.
+  const parts = local.split(/[.\-_+]/).filter(Boolean);
+  if (parts.some(p => DEPARTMENT_LOCAL_PARTS.includes(p))) return true;
+  return DEPARTMENT_LOCAL_PARTS.includes(local);
+}
+
+/** True when a contact's own name reads like a department rather than a person. */
+export function looksLikeDepartmentName(name: string): boolean {
+  const v = (name ?? "").trim().toLowerCase();
+  if (!v) return false;
+  return /(department|dept\b|division|τμημα|τμήμα|accounts payable|accounts receivable|accounting dep)/.test(v);
+}
 
 /**
  * Read the first worksheet of an uploaded xlsx/csv. The first non-empty row is
@@ -80,7 +171,7 @@ export type ImportPlanRow = {
   contactId: number | null;
   customerId: number | null;
   companyLabel: string;
-  values: { name: string; email: string; phone?: string; title?: string };
+  values: { name: string; email: string; phone?: string; title?: string; contactType?: string };
   custom: Record<string, string>;
   changes: { field: string; from: string; to: string }[];
 };
@@ -120,6 +211,9 @@ async function planContactImport(fileBase64: string, mapping: Record<string, str
     const email = get("email").toLowerCase();
     const phone = get("phone");
     const title = get("title");
+    const typeCell = get("contactType");
+    // Only override the stored/default type when the sheet actually said something.
+    const contactType = typeCell ? normalizeContactType(typeCell) : "";
     const code = get("companyCode").toLowerCase();
     const companyName = get("companyName").toLowerCase();
 
@@ -159,6 +253,7 @@ async function planContactImport(fileBase64: string, mapping: Record<string, str
       cmp("name", existing.name, name);
       cmp("phone", existing.phone, phone);
       cmp("title", existing.title, title);
+      cmp("type", existing.contactType, contactType);
       if (cust && cust.id !== existing.customerId) {
         changes.push({
           field: "company",
@@ -174,7 +269,7 @@ async function planContactImport(fileBase64: string, mapping: Record<string, str
         contactId: existing.id,
         customerId: cust?.id ?? existing.customerId,
         companyLabel: target?.name ?? "—",
-        values: { name: name || existing.name, email: email || existing.email, phone, title },
+        values: { name: name || existing.name, email: email || existing.email, phone, title, contactType },
         custom,
         changes,
       });
@@ -189,7 +284,7 @@ async function planContactImport(fileBase64: string, mapping: Record<string, str
         contactId: null,
         customerId: null,
         companyLabel: get("companyName") || get("companyCode") || "—",
-        values: { name, email, phone, title },
+        values: { name, email, phone, title, contactType },
         custom,
         changes: [],
       });
@@ -203,7 +298,7 @@ async function planContactImport(fileBase64: string, mapping: Record<string, str
       contactId: null,
       customerId: cust.id,
       companyLabel: cust.name,
-      values: { name, email, phone, title },
+      values: { name, email, phone, title, contactType },
       custom,
       changes: [],
     });
@@ -381,6 +476,7 @@ export const addressBookRouter = router({
             title: ct.title ?? null,
             email: ct.email,
             phone: ct.phone ?? null,
+            contactType: ct.contactType ?? "Person",
             companyName: cust?.name ?? "—",
             group: cust ? groupKeyOf(cust) : "—",
             archived: ct.archived === 1,
@@ -430,6 +526,7 @@ export const addressBookRouter = router({
               id: ct.id,
               name: ct.name,
               email: ct.email,
+              contactType: ct.contactType ?? "Person",
               companyName: cust?.name ?? "—",
               group: cust ? groupKeyOf(cust) : "—",
             };
@@ -459,6 +556,7 @@ export const addressBookRouter = router({
         email: ct.email,
         phone: ct.phone ?? null,
         title: ct.title ?? null,
+        contactType: ct.contactType ?? "Person",
         customerId: ct.customerId,
         companyName: cust?.name ?? "—",
         group: cust ? groupKeyOf(cust) : "—",
@@ -501,6 +599,19 @@ export const addressBookRouter = router({
     const missingPhone = live.filter(ct => !(ct.phone ?? "").trim()).map(label);
     const orphanContacts = live.filter(ct => !custById.has(ct.customerId)).map(label);
 
+    /**
+     * Contacts currently filed as people whose email (or name) reads like a
+     * shared department mailbox. Suggestion only — the user applies it.
+     */
+    const departmentSuggestions = live
+      .filter(
+        ct =>
+          (ct.contactType ?? "Person") === "Person" &&
+          (looksLikeDepartmentEmail(ct.email) || looksLikeDepartmentName(ct.name)),
+      )
+      .map(label)
+      .sort((a, b) => a.email.localeCompare(b.email));
+
     const companiesWithoutContact = customers
       .filter(c => !live.some(ct => ct.customerId === c.id))
       .map(c => ({ id: c.id, name: c.name, code: c.code, group: groupKeyOf(c) }));
@@ -518,17 +629,40 @@ export const addressBookRouter = router({
       invalidEmails,
       missingPhone,
       orphanContacts,
+      departmentSuggestions,
       companiesWithoutContact,
       vesselsWithoutImo,
       vesselsWithoutOwner,
       totals: {
         contacts: live.length,
         archivedContacts: contacts.length - live.length,
+        people: live.filter(ct => (ct.contactType ?? "Person") === "Person").length,
+        departments: live.filter(ct => ct.contactType === "Department").length,
         customers: customers.length,
         vessels: vessels.length,
       },
     };
   }),
+
+  /** Flip a single contact between Person and Department. */
+  setContactType: protectedProcedure
+    .input(z.object({ id: z.number(), contactType: z.enum(contactTypes) }))
+    .mutation(async ({ input }) => {
+      const [existing] = await db.getPaymentContact(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+      await db.updatePaymentContact(input.id, { contactType: input.contactType });
+      return { ok: true, id: input.id, contactType: input.contactType } as const;
+    }),
+
+  /** Apply one type to many contacts at once (used by the suggestion review). */
+  setContactTypeBulk: protectedProcedure
+    .input(z.object({ ids: z.array(z.number()).min(1).max(5000), contactType: z.enum(contactTypes) }))
+    .mutation(async ({ input }) => {
+      // One statement for the whole selection — a per-row loop over hundreds of
+      // ids would mean hundreds of round trips.
+      const updated = await db.setPaymentContactTypeBulk(input.ids, input.contactType);
+      return { ok: true, updated } as const;
+    }),
 
   /** Archive a contact: it leaves the directory but keeps its history. */
   archiveContact: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
@@ -561,6 +695,7 @@ export const addressBookRouter = router({
           email: z.string().min(3).max(320),
           phone: z.string().max(20).nullable(),
           title: z.string().max(255).nullable(),
+          contactType: z.enum(contactTypes).optional(),
           customerId: z.number(),
         }),
       }),
@@ -577,6 +712,7 @@ export const addressBookRouter = router({
         email: input.fields.email,
         phone: input.fields.phone,
         title: input.fields.title,
+        ...(input.fields.contactType ? { contactType: input.fields.contactType } : {}),
         customerId: input.fields.customerId,
       });
 
@@ -660,6 +796,8 @@ export const addressBookRouter = router({
             email: row.values.email ?? "",
             phone: row.values.phone ?? null,
             title: row.values.title ?? null,
+            // Sheets without a Type column fall back to the column default.
+            contactType: (row.values.contactType as "Person" | "Department") || "Person",
           });
           created += 1;
         } else if (row.action === "update" && contactId) {
@@ -668,6 +806,7 @@ export const addressBookRouter = router({
           if (row.values.email) patch.email = row.values.email;
           if (row.values.phone !== undefined) patch.phone = row.values.phone || null;
           if (row.values.title !== undefined) patch.title = row.values.title || null;
+          if (row.values.contactType) patch.contactType = row.values.contactType;
           if (row.customerId) patch.customerId = row.customerId;
           if (Object.keys(patch).length > 0) await db.updatePaymentContact(contactId, patch as any);
           updated += 1;

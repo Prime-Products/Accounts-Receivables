@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { trpc } from "@/lib/trpc";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Building2, User } from "lucide-react";
 
 export type ContactRow = {
   id: number;
@@ -20,6 +21,8 @@ export type ContactRow = {
   email: string;
   phone: string | null;
   title: string | null;
+  /** "Person" (default) or "Department" — a shared mailbox such as accounts@. */
+  contactType?: "Person" | "Department" | null;
   companyName: string;
   groupName: string;
 };
@@ -42,6 +45,8 @@ export function ContactFormDialog({
   const [email, setEmail] = useState(contact?.email ?? "");
   const [phone, setPhone] = useState(contact?.phone ?? "");
   const [title, setTitle] = useState(contact?.title ?? "");
+  const [contactType, setContactType] = useState<"Person" | "Department">(contact?.contactType ?? "Person");
+  const isDept = contactType === "Department";
 
   const groups = useMemo(() => {
     if (!customers) return [] as { group: string; customerId: number }[];
@@ -90,6 +95,7 @@ export function ContactFormDialog({
         email: email.trim(),
         phone: phone.trim() || undefined,
         title: title.trim() || undefined,
+        contactType,
       });
       return;
     }
@@ -104,6 +110,7 @@ export function ContactFormDialog({
       email: email.trim(),
       phone: phone.trim() || undefined,
       title: title.trim() || undefined,
+      contactType,
     });
   };
 
@@ -116,6 +123,36 @@ export function ContactFormDialog({
           <DialogTitle>{contact ? "Edit Contact" : "New Contact"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
+          {/* Person vs Department decides how the entry is addressed in mailings. */}
+          <div className="space-y-1.5">
+            <Label>Type *</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  { v: "Person" as const, label: "Person", Icon: User, hint: "A named individual" },
+                  { v: "Department" as const, label: "Department", Icon: Building2, hint: "Shared mailbox, e.g. accounts@" },
+                ]
+              ).map(o => {
+                const active = contactType === o.v;
+                return (
+                  <button
+                    key={o.v}
+                    type="button"
+                    onClick={() => setContactType(o.v)}
+                    className={`flex items-start gap-2 rounded-md border p-2.5 text-left transition-[transform,background-color,border-color] duration-150 active:scale-[0.98] ${
+                      active ? "border-sky-500 bg-sky-50 ring-1 ring-sky-200" : "hover:bg-muted/60"
+                    }`}
+                  >
+                    <o.Icon className={`mt-0.5 h-4 w-4 shrink-0 ${active ? "text-sky-600" : "text-muted-foreground"}`} />
+                    <span className="min-w-0">
+                      <span className={`block text-sm font-medium ${active ? "text-sky-800" : ""}`}>{o.label}</span>
+                      <span className="block text-[11px] leading-tight text-muted-foreground">{o.hint}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           {contact ? (
             <div className="text-sm text-muted-foreground">
               Group: <span className="font-medium text-foreground">{contact.groupName}</span>
@@ -138,8 +175,12 @@ export function ContactFormDialog({
             </div>
           )}
           <div className="space-y-1.5">
-            <Label>Name *</Label>
-            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Contact name" />
+            <Label>{isDept ? "Department name *" : "Name *"}</Label>
+            <Input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder={isDept ? "e.g. Accounts Department" : "Contact name"}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Email *</Label>
@@ -147,7 +188,7 @@ export function ContactFormDialog({
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="name@company.com"
+              placeholder={isDept ? "accounts@company.com" : "name@company.com"}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -156,8 +197,12 @@ export function ContactFormDialog({
               <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+30…" />
             </div>
             <div className="space-y-1.5">
-              <Label>Position</Label>
-              <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Accounts Payable" />
+              <Label>{isDept ? "Note" : "Position"}</Label>
+              <Input
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder={isDept ? "e.g. Invoices & statements" : "e.g. Accounts Payable"}
+              />
             </div>
           </div>
         </div>

@@ -481,6 +481,12 @@ export type InsertEmailHistory = typeof emailHistory.$inferInsert & { attachment
 export type ActivityLog = typeof activityLog.$inferSelect;
 export type InsertActivityLog = typeof activityLog.$inferInsert;
 
+/**
+ * A directory entry is either a real person or a departmental / shared mailbox.
+ * Kept deliberately to two values — the team asked for no further breakdown.
+ */
+export const contactTypes = ["Person", "Department"] as const;
+export type ContactType = (typeof contactTypes)[number];
 export const paymentContacts = mysqlTable("payment_contacts", {
   id: int("id").autoincrement().primaryKey(),
   customerId: int("customerId").notNull(),
@@ -488,6 +494,12 @@ export const paymentContacts = mysqlTable("payment_contacts", {
   email: varchar("email", { length: 320 }).notNull(),
   phone: varchar("phone", { length: 20 }),
   title: varchar("title", { length: 255 }),
+  /**
+   * Whether this entry is a real person or a departmental / shared mailbox
+   * (accounts@, operations@ ...). Departments are addressed as a unit when
+   * sending email, so the directory has to tell them apart from people.
+   */
+  contactType: mysqlEnum("contactType", contactTypes).default("Person").notNull(),
   /**
    * Address Book archives contacts instead of deleting them: an archived contact
    * disappears from the directory and from mailing lists but its history and

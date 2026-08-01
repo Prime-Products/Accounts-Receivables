@@ -12,10 +12,12 @@ import { VesselDetailDialog } from "@/components/VesselDetailDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import { Building2, ExternalLink, Mail, Phone, Ship, Users } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
+import { toast } from "sonner";
 
 export type AddressBookEntity = "group" | "customer" | "vessel" | "contact";
 
@@ -49,6 +51,16 @@ export function AddressBookRecordDialog({
   const recordKey = target?.recordKey ?? "";
   /** Vessel whose financial (AR) card is open on top of this one. */
   const [arVesselId, setArVesselId] = useState<number | null>(null);
+  const utils = trpc.useUtils();
+  /** Person ↔ Department is edited straight from the card and saved immediately. */
+  const setContactType = trpc.addressBook.setContactType.useMutation({
+    onSuccess: r => {
+      toast.success(r.contactType === "Department" ? "Marked as department" : "Marked as person");
+      utils.addressBook.contacts.invalidate();
+      utils.addressBook.quality.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
 
   // The directory lists are already cached by the page, so these reads are cheap.
   const { data: groups } = trpc.addressBook.groups.useQuery(undefined, { enabled: open });
@@ -148,6 +160,23 @@ export function AddressBookRecordDialog({
             )}
             {contactRow && (
               <>
+                <FieldRow label="Type">
+                  <Select
+                    value={contactRow.contactType === "Department" ? "Department" : "Person"}
+                    disabled={setContactType.isPending}
+                    onValueChange={v =>
+                      setContactType.mutate({ id: contactRow.id, contactType: v as "Person" | "Department" })
+                    }
+                  >
+                    <SelectTrigger className="h-7 w-[190px] text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Person">Person</SelectItem>
+                      <SelectItem value="Department">Department (shared mailbox)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FieldRow>
                 <FieldRow label="Position">{contactRow.title || "—"}</FieldRow>
                 <FieldRow label="Email">
                   <a className="text-blue-600 hover:underline" href={`mailto:${contactRow.email}`}>
@@ -207,7 +236,7 @@ export function AddressBookRecordDialog({
                 title={`Contacts (${relatedContacts.length})`}
                 items={relatedContacts.map(c => ({
                   key: c.recordKey,
-                  label: c.name,
+                  label: c.contactType === "Department" ? `${c.name} · dept` : c.name,
                   onClick: () =>
                     openRecord({ entity: "contact", recordKey: c.recordKey, title: c.name, subtitle: c.companyName }),
                 }))}
