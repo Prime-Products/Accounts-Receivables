@@ -37,10 +37,14 @@ export default function LogCallLauncher({
     { enabled: open, staleTime: 0 },
   );
 
+  // `?response=` means the caller already decided to log a new call (and which
+  // response to record), so the choice pre-step is skipped.
+  const responsePreset = new URLSearchParams(window.location.search).has("response");
+
   // While loading we keep the choice dialog closed; once loaded decide:
   // no active communication → jump straight into the Log Call dialog.
-  const showChoice = open && !active.isLoading && !!active.data;
-  const goStraightToCall = open && !active.isLoading && !active.data;
+  const showChoice = open && !active.isLoading && !!active.data && !responsePreset;
+  const goStraightToCall = open && !active.isLoading && (!active.data || responsePreset);
 
   // Direct pass-through when nothing is active.
   if (goStraightToCall && !callOpen && !taskOpen) {

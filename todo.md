@@ -1382,3 +1382,8 @@
 - [x] Assistant backend (server/routers/assistant.ts): protected intro + ask procedures, history trimmed to 8 turns, gemini-2.5-flash, questions audit-logged, read-only by design
 - [x] Accent-insensitive Greek/Latin name matching with legal-form suffix stripping so "ναυτιλιακη αφοι κατσαρη" resolves "ΝΑΥΤΙΛΙΑΚΗ ΑΦΟΙ ΚΑΤΣΑΡΗ Α.Ε."
 - [x] Vitest coverage for the assistant (server/assistant.test.ts, 25 tests): snapshot totals reconcile, top-debtor ordering, group facts consistency, unknown-entity handling, router surface, widget wiring
+
+## Compact Log Call dialog (user request 1/8)
+- [x] Log Call dialog fits on screen without scrolling: two-column layout, fixed header/footer so Save/Cancel are always visible
+- [x] Bug: selecting Pending Follow-up / Promise to Pay grows the form and pushes the Log Call button out of view — fixed with flex column + pinned footer, verified in all response states
+- [x] Deep links for the call flow: `?logCall=1` opens the dialog, `?response=` preselects the customer response and skips the active-communication pre-step

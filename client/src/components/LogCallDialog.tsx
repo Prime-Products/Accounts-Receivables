@@ -46,7 +46,17 @@ export default function LogCallDialog({
   const [newContactCustomerId, setNewContactCustomerId] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<(typeof OUTCOMES)[number]>("Reached");
   const [notes, setNotes] = useState("");
-  const [confirmationStatus, setConfirmationStatus] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">("");
+  /**
+   * `?response=Pending Follow-up` (or `Confirmed` / `Broken`) preselects the
+   * customer response, so the expanded form can be linked to directly.
+   */
+  const initialResponse = () => {
+    const v = new URLSearchParams(window.location.search).get("response") ?? "";
+    return (CONFIRMATION_STATUSES as readonly string[]).includes(v)
+      ? (v as (typeof CONFIRMATION_STATUSES)[number])
+      : "";
+  };
+  const [confirmationStatus, setConfirmationStatus] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">(initialResponse);
   const [confirmationAmount, setConfirmationAmount] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [promisedDate, setPromisedDate] = useState("");
@@ -84,7 +94,7 @@ export default function LogCallDialog({
       setNewContactCustomerId(null);
       setOutcome("Reached");
       setNotes("");
-      setConfirmationStatus("");
+      setConfirmationStatus(initialResponse());
       setConfirmationAmount("");
       setFollowUpDate("");
       setPromisedDate("");
@@ -174,34 +184,43 @@ export default function LogCallDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      {/*
+        Compact layout: the dialog is a flex column with a fixed header and a
+        fixed footer, so Save/Cancel stay visible without scrolling. Only the
+        middle body can ever scroll, and the fields are laid out in two columns
+        on desktop so everything fits in one screen.
+      */}
+      <DialogContent className="sm:max-w-3xl max-h-[88vh] p-0 gap-0 flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0 border-b px-5 py-3">
           <DialogTitle className="flex items-center gap-2">
-            <Phone className="h-4 w-4" /> Log Call — {group}
+            <Phone className="h-4 w-4 text-sky-600" /> Log Call — {group}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2.5">
           {collectionProfile?.notes?.trim() ? (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-2 flex items-start gap-2">
+            <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-1.5 flex items-start gap-2">
               <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
               <div className="min-w-0">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
                   Collection Notes
                 </div>
-                <div className="text-xs text-amber-900 dark:text-amber-100 whitespace-pre-wrap break-words">
+                <div className="text-xs text-amber-900 dark:text-amber-100 whitespace-pre-wrap break-words line-clamp-3">
                   {collectionProfile.notes.trim()}
                 </div>
               </div>
             </div>
           ) : null}
-          {companies && companies.length > 1 && (
-            <div className="space-y-1.5">
-              <Label>Company (optional)</Label>
+
+          {/* Row 1: who we called — company / contact / outcome side by side */}
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            {companies && companies.length > 1 && (
+            <div className="space-y-1">
+              <Label className="text-xs">Company (optional)</Label>
               <Select
                 value={customerId ? String(customerId) : "all"}
                 onValueChange={v => setCustomerId(v && v !== "all" ? parseInt(v) : null)}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full h-9">
                   <SelectValue placeholder="All companies" />
                 </SelectTrigger>
                 <SelectContent>
@@ -214,13 +233,13 @@ export default function LogCallDialog({
                 </SelectContent>
               </Select>
             </div>
-          )}
+            )}
 
           {/* Contact person selection */}
-          <div className="space-y-1.5">
-            <Label>Contact person</Label>
+          <div className="space-y-1">
+            <Label className="text-xs">Contact person</Label>
             <Select value={selectedContactId} onValueChange={setSelectedContactId}>
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full h-9">
                 <SelectValue placeholder="Select contact…" />
               </SelectTrigger>
               <SelectContent>
@@ -238,37 +257,37 @@ export default function LogCallDialog({
                 placeholder="Contact name"
                 value={contactName}
                 onChange={e => setContactName(e.target.value)}
-                className="mt-1"
+                className="mt-1 h-9"
               />
             )}
             {selectedContact && (
-                  <div className="rounded border bg-muted/40 p-2 text-xs space-y-1 mt-1">
-                    <div className="flex items-center gap-1.5 font-medium">
+                  <div className="rounded border bg-muted/40 px-2 py-1.5 text-xs mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                    <span className="flex items-center gap-1.5 font-medium">
                       <User className="h-3 w-3" /> {selectedContact.name}
                       {selectedContact.title && <span className="text-muted-foreground font-normal">· {selectedContact.title}</span>}
-                    </div>
-                    <div className="flex items-center gap-1.5">
+                    </span>
+                    <span className="flex items-center gap-1.5">
                       <Mail className="h-3 w-3 text-muted-foreground" />
                       <a className="text-blue-600 hover:underline" href={`mailto:${selectedContact.email}`}>{selectedContact.email}</a>
-                    </div>
+                    </span>
                     {selectedContact.phone && (
-                      <div className="flex items-center gap-1.5">
+                      <span className="flex items-center gap-1.5">
                         <Phone className="h-3 w-3 text-muted-foreground" />
                         <a className="text-blue-600 hover:underline" href={`tel:${selectedContact.phone}`}>{selectedContact.phone}</a>
-                      </div>
+                      </span>
                     )}
                   </div>
             )}
             {selectedContactId === "add-new" && (
               <div className="rounded border bg-muted/30 p-2 space-y-2 mt-1">
-                <Input
-                  placeholder="Name *"
-                  value={newContactName}
-                  onChange={e => setNewContactName(e.target.value)}
-                  className="h-8 text-xs"
-                />
-                <Input className="h-8 text-xs" value={newContactTitle} onChange={e => setNewContactTitle(e.target.value)} placeholder="Title" />
                 <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    placeholder="Name *"
+                    value={newContactName}
+                    onChange={e => setNewContactName(e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                  <Input className="h-8 text-xs" value={newContactTitle} onChange={e => setNewContactTitle(e.target.value)} placeholder="Title" />
                   <Input className="h-8 text-xs" type="email" value={newContactEmail} onChange={e => setNewContactEmail(e.target.value)} placeholder="Email *" />
                   <Input className="h-8 text-xs" value={newContactPhone} onChange={e => setNewContactPhone(e.target.value)} placeholder="Phone" />
                 </div>
@@ -278,10 +297,11 @@ export default function LogCallDialog({
               </div>
             )}
           </div>
-          <div className="space-y-1.5">
-            <Label>Outcome</Label>
+
+          <div className="space-y-1">
+            <Label className="text-xs">Outcome</Label>
             <Select value={outcome} onValueChange={v => setOutcome(v as (typeof OUTCOMES)[number])}>
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -294,11 +314,11 @@ export default function LogCallDialog({
             </Select>
           </div>
 
-          {/* Confirmation Status Section */}
-          <div className="border-t pt-3 mt-3">
-            <Label className="text-sm font-semibold">Customer Response *</Label>
+          {/* Customer response sits next to Outcome — it drives the panel below */}
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Customer Response *</Label>
             <Select value={confirmationStatus} onValueChange={(v) => setConfirmationStatus(v as (typeof CONFIRMATION_STATUSES)[number])}>
-              <SelectTrigger className="w-full mt-1.5">
+              <SelectTrigger className="w-full h-9">
                 <SelectValue placeholder="Select response…" />
               </SelectTrigger>
               <SelectContent>
@@ -310,12 +330,13 @@ export default function LogCallDialog({
               </SelectContent>
             </Select>
           </div>
+          </div>
 
           {/* Confirmed - show amount field */}
           {confirmationStatus === "Confirmed" && (
-            <div className="space-y-1.5 bg-green-50 p-2 rounded">
+            <div className="space-y-2 rounded-lg border border-green-200 bg-green-50 p-2.5">
               {openPromise && (
-                <div className="rounded border border-amber-300 bg-amber-50 p-2 space-y-2">
+                <div className="rounded border border-amber-300 bg-amber-50 p-2 space-y-1.5">
                   <p className="text-xs font-medium text-amber-900">
                     Open promise exists: €{Number(openPromise.amount).toLocaleString()} due{" "}
                     {openPromise.promisedDate ? new Date(openPromise.promisedDate).toLocaleDateString("en-GB") : "—"} ({openPromise.customerName})
@@ -325,52 +346,62 @@ export default function LogCallDialog({
                       </span>
                     )}
                   </p>
-                  <RadioGroup value={promiseMode} onValueChange={v => setPromiseMode(v as "reschedule" | "new")} className="gap-1.5">
+                  <RadioGroup value={promiseMode} onValueChange={v => setPromiseMode(v as "reschedule" | "new")} className="gap-1">
                     <div className="flex items-center gap-2">
                       <RadioGroupItem value="reschedule" id="pm-reschedule" />
                       <Label htmlFor="pm-reschedule" className="text-xs font-normal cursor-pointer">
-                        Reschedule this promise to the new date/amount (customer moved the payment)
+                        Reschedule this promise (customer moved the payment)
                       </Label>
                     </div>
                     <div className="flex items-center gap-2">
                       <RadioGroupItem value="new" id="pm-new" />
                       <Label htmlFor="pm-new" className="text-xs font-normal cursor-pointer">
-                        Create a separate new promise (additional payment)
+                        Create a separate new promise
                       </Label>
                     </div>
                   </RadioGroup>
                 </div>
               )}
-              <Label>Promised amount (EUR) — optional</Label>
-              <Input
-                type="number"
-                value={confirmationAmount}
-                onChange={e => setConfirmationAmount(e.target.value)}
-                placeholder="e.g., 50000"
-                step="0.01"
-              />
-              <Label className="mt-2">Promised payment date</Label>
-              <Input
-                type="date"
-                value={promisedDate}
-                onChange={e => setPromisedDate(e.target.value)}
-              />
-              <Label className="mt-2">Assigned to</Label>
-              <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} placeholder="Unassigned" />
-              <p className="text-xs text-muted-foreground">
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Promised amount (EUR)</Label>
+                  <Input
+                    className="h-9"
+                    type="number"
+                    value={confirmationAmount}
+                    onChange={e => setConfirmationAmount(e.target.value)}
+                    placeholder="e.g., 50000"
+                    step="0.01"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Promised payment date</Label>
+                  <Input
+                    className="h-9"
+                    type="date"
+                    value={promisedDate}
+                    onChange={e => setPromisedDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Assigned to</Label>
+                  <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} placeholder="Unassigned" />
+                </div>
+              </div>
+              <p className="text-[11px] leading-snug text-muted-foreground">
                 {openPromise && promiseMode === "reschedule"
                   ? "The existing promise and its follow-up task will be moved to the new date."
                   : "A Promise-to-Pay record will be created automatically."}
-                {" "}The check task on the promised date goes to the colleague selected above.
+                {" "}The check task goes to the colleague selected above.
               </p>
             </div>
           )}
 
           {/* Pending Follow-up - show follow-up date and amount */}
           {confirmationStatus === "Pending Follow-up" && (
-            <div className="space-y-1.5 bg-blue-50 p-2 rounded">
+            <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
               {openFollowUp && (
-                <div className="rounded border border-blue-300 bg-blue-100/60 p-2 text-xs text-blue-900 space-y-0.5">
+                <div className="rounded border border-blue-300 bg-blue-100/60 px-2 py-1.5 text-xs text-blue-900 space-y-0.5">
                   <p className="font-medium">
                     Open follow-up exists — currently due {openFollowUp.dueDate ? new Date(openFollowUp.dueDate).toLocaleDateString("en-GB") : "—"}
                     {(openFollowUp.rescheduleCount ?? 0) > 0 && (
@@ -379,26 +410,36 @@ export default function LogCallDialog({
                       </span>
                     )}
                   </p>
-                  <p>Saving with a new date will move this follow-up (no duplicate is created) and count it as a reschedule.</p>
+                  <p>Saving with a new date moves this follow-up (no duplicate) and counts as a reschedule.</p>
                 </div>
               )}
-              <Label>Expected amount (EUR)</Label>
-              <Input
-                type="number"
-                value={confirmationAmount}
-                onChange={e => setConfirmationAmount(e.target.value)}
-                placeholder="e.g., 50000"
-                step="0.01"
-              />
-              <Label className="mt-2">Follow-up date</Label>
-              <Input
-                type="date"
-                value={followUpDate}
-                onChange={e => setFollowUpDate(e.target.value)}
-              />
-              <Label className="mt-2">Assigned to</Label>
-              <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} placeholder="Unassigned" />
-              <p className="text-xs text-muted-foreground">
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Expected amount (EUR)</Label>
+                  <Input
+                    className="h-9"
+                    type="number"
+                    value={confirmationAmount}
+                    onChange={e => setConfirmationAmount(e.target.value)}
+                    placeholder="e.g., 50000"
+                    step="0.01"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Follow-up date</Label>
+                  <Input
+                    className="h-9"
+                    type="date"
+                    value={followUpDate}
+                    onChange={e => setFollowUpDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Assigned to</Label>
+                  <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} placeholder="Unassigned" />
+                </div>
+              </div>
+              <p className="text-[11px] leading-snug text-muted-foreground">
                 The follow-up call task is created for the colleague selected above.
               </p>
             </div>
@@ -406,9 +447,9 @@ export default function LogCallDialog({
 
           {/* Broken - show action options */}
           {confirmationStatus === "Broken" && (
-            <div className="space-y-1.5 bg-red-50 p-2 rounded">
-              <p className="text-xs font-medium text-red-900 mb-2">Choose next action:</p>
-              <div className="grid gap-2">
+            <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-2.5">
+              <p className="text-xs font-medium text-red-900">Choose next action:</p>
+              <div className="grid gap-2 sm:grid-cols-2">
                 <button
                   type="button"
                   className="flex items-center gap-2 rounded border border-red-200 bg-white p-2 text-left text-xs hover:bg-red-50 transition-colors"
@@ -425,23 +466,24 @@ export default function LogCallDialog({
                 </button>
 
               </div>
-              <Label className="mt-2">Reason (optional)</Label>
-              <Textarea
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                placeholder="Why is the payment not confirmed?"
-                rows={2}
-              />
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <Label>Additional notes (optional)</Label>
-          <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What was discussed…" rows={3} />
+          <div className="space-y-1">
+            <Label className="text-xs">
+              {confirmationStatus === "Broken" ? "Reason / notes (optional)" : "Additional notes (optional)"}
+            </Label>
+            <Textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder={confirmationStatus === "Broken" ? "Why is the payment not confirmed?" : "What was discussed…"}
+              rows={2}
+              className="resize-y min-h-[56px]"
+            />
           </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="shrink-0 border-t bg-muted/30 px-5 py-3">
+          <Button variant="outline" className="bg-background" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
