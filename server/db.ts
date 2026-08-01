@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { monthRange } from "./lib/arLogic";
 import {
   activityLog,
   appSettings,
@@ -1702,4 +1703,59 @@ export async function setListLayout(userId: number, listKey: string, config: str
   }
   const res = await db.insert(listLayouts).values({ userId, listKey, config });
   return Number((res as any)[0].insertId);
+}
+
+/** Historical forecast performance for a group (last N months). */
+export async function getForecastHistory(groupKey: string, limit = 6) {
+  const db = await requireDb();
+  const entries = await db
+    .select()
+    .from(forecastEntries)
+    .where(eq(forecastEntries.customerGroup, groupKey))
+    .orderBy(desc(forecastEntries.year), desc(forecastEntries.month))
+    .limit(limit);
+  
+  // Get group members
+  const members = await db.select({ id: customers.id }).from(customers).where(or(eq(customers.customerGroup, groupKey), eq(customers.name, groupKey)));
+  const groupMemberIds = members.map(m => m.id);
+
+  if (groupMemberIds.length === 0) return [];
+
+  const results = [];
+  for (const e of entries) {
+    const { start, end } = monthRange(e.year, e.month);
+    const [receiptsRows, wires] = await Promise.all([
+      db.select().from(receipts).where(
+        and(
+          inArray(receipts.customerId, groupMemberIds),
+          gte(receipts.receiptDate, start),
+          lt(receipts.receiptDate, end)
+        )
+      ),
+      db.select().from(wireTransfers).where(
+        and(
+          inArray(wireTransfers.customerId, groupMemberIds),
+          eq(wireTransfers.status, "Received")
+        )
+      )
+    ]);
+
+    const collectedWires = wires.filter(w => {
+      const ts = w.receivedDate ?? w.transferDate;
+      return ts >= start && ts < end;
+    });
+
+    const collected = receiptsRows.reduce((s, r) => s + Number(r.amount), 0) + 
+                    collectedWires.reduce((s, w) => s + Number(w.amount), 0);
+
+    results.push({
+      year: e.year,
+      month: e.month,
+      aiSuggested: Number(e.aiSuggestedAmount),
+      expected: Number(e.expectedAmount),
+      collected,
+      userAdjusted: !!e.userAdjusted,
+    });
+  }
+  return results;
 }
