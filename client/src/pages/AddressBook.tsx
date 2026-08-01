@@ -20,6 +20,7 @@ import {
 } from "@/components/AddressBookFilters";
 import { ColumnPicker, ExportMenu } from "@/components/AddressBookToolbar";
 import { DataQualityPanel } from "@/components/DataQualityPanel";
+import { GiftReviewPanel } from "@/components/GiftReviewPanel";
 import { ImportContactsDialog } from "@/components/ImportContactsDialog";
 import { MergeContactsDialog, type MergeCandidate } from "@/components/MergeContactsDialog";
 import { CustomFieldsManager } from "@/components/CustomFieldsManager";
@@ -31,12 +32,14 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
+import { matchesAllTokens } from "@shared/textMatch";
 import {
   Archive,
   ArchiveRestore,
   BookUser,
   Building2,
   Contact,
+  Gift,
   Mail,
   Merge,
   Phone,
@@ -82,6 +85,8 @@ type ViewConfig = {
   extra?: string;
   /** Contacts tab: Person / Department / all. */
   contactType?: "all" | "Person" | "Department";
+  /** Contacts tab: on the gift list or not. */
+  gift?: "all" | "gift" | "nogift";
   filters?: FieldFilter[];
   sort?: SortState;
   hidden?: string[];
@@ -95,12 +100,17 @@ export default function AddressBook() {
     const t = new URLSearchParams(window.location.search).get("tab");
     return TABS.some(x => x.value === t) ? (t as Entity) : "group";
   });
-  const [search, setSearch] = useState("");
+  // A ?q= param lets the global search hand off to this list already filtered.
+  const [search, setSearch] = useState(
+    () => new URLSearchParams(window.location.search).get("q") ?? "",
+  );
   const [groupFilter, setGroupFilter] = useState("all");
   /** Second filter: position for contacts, vessel type for vessels, tier for companies. */
   const [extraFilter, setExtraFilter] = useState("all");
   /** Contacts tab only: Person / Department / all. */
   const [typeFilter, setTypeFilter] = useState<"all" | "Person" | "Department">("all");
+  /** Contacts tab only: gift recipients / not on the list / all. */
+  const [giftFilter, setGiftFilter] = useState<"all" | "gift" | "nogift">("all");
   /** Column-level conditions, usable on custom fields too. */
   const [fieldFilters, setFieldFilters] = useState<FieldFilter[]>([]);
   const [sort, setSort] = useState<SortState>({ key: null, dir: "asc" });
@@ -413,6 +423,33 @@ export default function AddressBook() {
             </Badge>
           ),
       },
+      {
+        key: "gift",
+        label: "Gift",
+        width: 150,
+        // Sorting/exporting by the tier name keeps the column meaningful outside the UI.
+        value: r => (r.giftTier ? `${r.giftTier}${r.giftYear ? ` ${r.giftYear}` : ""}` : ""),
+        render: r =>
+          r.giftTier ? (
+            <Badge
+              variant="outline"
+              className="bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-50 gap-1"
+              title={
+                (r.giftHistory ?? []).length > 1
+                  ? `Gift history: ${(r.giftHistory ?? [])
+                      .map((g: { year: number; tier: string }) => `${g.year} ${g.tier}`)
+                      .join(", ")}`
+                  : `On the ${r.giftYear ?? ""} gift list`
+              }
+            >
+              <Gift className="h-3 w-3 shrink-0" />
+              <span className="truncate">{r.giftTier}</span>
+              {r.giftYear ? <span className="opacity-60">{r.giftYear}</span> : null}
+            </Badge>
+          ) : (
+            <span className="text-muted-foreground text-xs">—</span>
+          ),
+      },
       { key: "title", label: "Position", width: 170, value: r => r.title },
       {
         key: "email",
@@ -569,32 +606,43 @@ export default function AddressBook() {
     entity === "contact" ? "All positions" : entity === "vessel" ? "All types" : entity === "customer" ? "All tiers" : "";
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     const base = (rows as any[]).filter(r => {
       const g = entity === "vessel" ? r.ownerGroup : r.group;
       if (groupFilter !== "all" && g !== groupFilter) return false;
       if (entity === "contact" && typeFilter !== "all" && (r.contactType ?? "Person") !== typeFilter) return false;
+      if (entity === "contact" && giftFilter !== "all") {
+        const onList = Boolean(r.giftTier);
+        if (giftFilter === "gift" && !onList) return false;
+        if (giftFilter === "nogift" && onList) return false;
+      }
       if (extraFilter !== "all") {
         if (entity === "contact" && !(r.title ?? "").toLowerCase().startsWith(extraFilter.toLowerCase())) return false;
         if (entity === "vessel" && r.vesselType !== extraFilter) return false;
         if (entity === "customer" && r.tier !== extraFilter) return false;
       }
       if (!q) return true;
-      // Search every visible column, including custom fields.
-      return columns.some(c => {
+      // Search every visible column (custom fields included) plus the row's
+      // hidden related-entity text — people, vessels, company and group — so a
+      // vessel name finds its contacts and a person's name finds their company.
+      // Accents and word order are handled by matchesAllTokens.
+      const haystack: (string | null | undefined)[] = [r.searchText ?? null];
+      for (const c of columns) {
         const v = c.value(r);
-        return v !== null && v !== undefined && String(v).toLowerCase().includes(q);
-      });
+        if (v !== null && v !== undefined) haystack.push(String(v));
+      }
+      return matchesAllTokens(q, haystack);
     });
     // Column conditions run against all columns, so a hidden custom field can still filter.
     return applyFieldFilters(base, fieldFilters, allColumns);
-  }, [rows, search, groupFilter, extraFilter, typeFilter, entity, columns, fieldFilters, allColumns]);
+  }, [rows, search, groupFilter, extraFilter, typeFilter, giftFilter, entity, columns, fieldFilters, allColumns]);
 
   const currentConfig: ViewConfig = {
     search,
     group: groupFilter,
     extra: extraFilter,
     contactType: typeFilter,
+    gift: giftFilter,
     filters: fieldFilters,
     sort,
     hidden,
@@ -608,6 +656,7 @@ export default function AddressBook() {
     setGroupFilter(c.group ?? "all");
     setExtraFilter(c.extra ?? "all");
     setTypeFilter(c.contactType ?? "all");
+    setGiftFilter(c.gift ?? "all");
     setFieldFilters(c.filters ?? []);
     setSort(c.sort ?? { key: null, dir: "asc" });
     if (c.hidden || c.order) applyLayout({ hidden: c.hidden ?? [], order: c.order ?? [] });
@@ -717,7 +766,7 @@ export default function AddressBook() {
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               className="pl-9 pr-8"
-              placeholder="Search this list…"
+              placeholder="Search names, vessels, companies, groups…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -756,6 +805,18 @@ export default function AddressBook() {
               </SelectContent>
             </Select>
           )}
+          {entity === "contact" && (
+            <Select value={giftFilter} onValueChange={v => setGiftFilter(v as typeof giftFilter)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Gift list" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Gift list: everyone</SelectItem>
+                <SelectItem value="gift">On the gift list</SelectItem>
+                <SelectItem value="nogift">Not on the gift list</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           {extraLabel && (
             <Select value={extraFilter} onValueChange={setExtraFilter}>
               <SelectTrigger className="w-[180px]">
@@ -775,6 +836,7 @@ export default function AddressBook() {
         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
           {entity === "contact" && <ImportContactsDialog onImported={refreshContacts} />}
           <DataQualityPanel />
+          {entity === "contact" && <GiftReviewPanel />}
           <CustomFieldsManager entity={entity} />
           <div className="ml-auto flex items-center gap-2">
             <ColumnPicker allColumns={allColumns} hidden={hidden} order={order} onChange={applyLayout} />

@@ -1409,3 +1409,39 @@
 - [x] Bulk "Mark as department / Mark as person" actions on the contacts selection bar
 - [x] Data Quality panel: suggest Department for generic email prefixes (accounts@, ar@, finance@, ops@, info@, admin@, purchasing@ ...) with per-row and bulk apply — never applied silently
 - [x] Vitest coverage for type persistence, filtering, suggestion rules and import mapping (20 specs in server/contactType.test.ts)
+
+## Search everywhere (user request)
+- [ ] Global search box also returns contacts (people) and vessels, not just groups/companies/invoices/notes/tasks
+- [ ] Accent- and case-insensitive Greek/Latin matching so "Αντρέας Μπουκόλο" / "andreas boukolos" both hit the stored spelling
+- [ ] Multi-token search: each word may match a different field (e.g. surname + company)
+- [ ] Address Book "Search this list" searches across related entities — contact name, company, group and vessel — on every tab
+- [ ] Per-list search boxes on the other lists (Collections Desk, Invoices, Vessels, Contracts) match names, vessels, companies and groups consistently
+- [ ] Vitest coverage for accent-insensitive matching, multi-token queries and cross-entity list search
+
+## Group-shared contacts must not be double counted (user note)
+- [ ] Contacts that exist on several companies of the same group are counted once per group in group/company contact counts
+- [ ] Group card and Collections Desk contact counts show distinct people, not per-company duplicates
+- [ ] Vitest coverage that a contact shared by N companies of a group counts once
+
+## Gift list 2025 (user request, file: ΤΕΛΙΚΗ ΛΙΣΤΑ ΔΩΡΩΝ 2025 - ΑΝΤΖΕΛΑ.xlsx)
+- [x] Read the workbook and normalise its rows (recipient, company/group, gift, any notes) — 468 rows parsed
+- [x] Match each gift recipient against existing contacts (accent-insensitive, rarity-weighted, company-aware); match report with exact / probable / unmatched
+- [x] Gift-recipient data model on contacts (year-aware `contact_gifts` table: tier, region, sourceName, sourceGroup)
+- [x] Import the matched rows; never silently create or overwrite contacts — 152 exact matches loaded for 2025
+- [x] Gift badge in the Address Book contacts list and on the contact record card
+- [x] Filter for gift recipients (e.g. All / Gift recipients / Not on gift list)
+- [x] Vitest coverage for the matching rules, gift flag persistence, badge and filter
+- [x] Gift tier editable from the contact record card (dropdown), plus add/remove a contact from the gift list
+- [x] Gift review screen: approve the 57 probable matches per row; list the 113 unmatched names and 22 quantity-only rows
+- [x] Export the gift match report (CSV) for offline review
+## Search across all entities (user request)
+- [x] Global search is accent-insensitive: "Αντρέας Μπουκόλο" and "Andreas Boukolos" both match
+- [x] Global search matches multiple tokens in any order (surname first or given name first)
+- [x] Global search covers contact names, vessels, companies, groups, emails and phones
+- [x] Each list's own "Search this list" box searches the row's related entities (contact, vessel, company, group)
+- [x] Vitest coverage for accent folding, token-order independence and cross-entity coverage
+
+## Group-shared contacts (user request)
+- [x] Group contact counts count unique people, not one row per member company
+- [x] Record card related-contacts list shows each person once per group
+- [ ] Contacts list still shows the same person once per company — decide whether to collapse into one row

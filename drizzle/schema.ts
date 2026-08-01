@@ -674,6 +674,83 @@ export const addressBookEntities = ["group", "customer", "vessel", "contact"] as
 export type AddressBookEntity = (typeof addressBookEntities)[number];
 
 /** Data types a user-defined field can take. */
+/**
+ * Gift tiers used on the yearly corporate gift list. The tier is expressed in
+ * the source workbook by which column a name sits in, not by a written value.
+ */
+export const giftTiers = ["Small", "Medium", "Special", "Super Special", "Whiskey"] as const;
+export type GiftTier = (typeof giftTiers)[number];
+
+/**
+ * Who receives a gift, per year. Kept as its own table rather than a flag on the
+ * contact because the list is rebuilt every year and the history matters ("did we
+ * send something last year?"), and because a contact may move company.
+ */
+export const contactGifts = mysqlTable(
+  "contact_gifts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    contactId: int("contactId").notNull(),
+    year: int("year").notNull(),
+    tier: mysqlEnum("tier", giftTiers).default("Small").notNull(),
+    /** Region column from the source list (ΑΘΗΝΑ, ΠΕΙΡΑΙΑΣ ...). */
+    region: varchar("region", { length: 120 }),
+    /** Exactly how the recipient was written on the source list, for traceability. */
+    sourceName: varchar("sourceName", { length: 255 }),
+    /** Group as written on the source list, which may differ from the ERP group. */
+    sourceGroup: varchar("sourceGroup", { length: 255 }),
+    notes: varchar("notes", { length: 500 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    contactYearIdx: unique("contact_gifts_contact_year_idx").on(table.contactId, table.year),
+    yearIdx: index("contact_gifts_year_idx").on(table.year),
+  }),
+);
+
+export type ContactGift = typeof contactGifts.$inferSelect;
+export type InsertContactGift = typeof contactGifts.$inferInsert;
+
+/** Review states for a gift-list row that could not be auto-matched with certainty. */
+export const giftReviewStatuses = ["pending", "resolved", "dismissed"] as const;
+export type GiftReviewStatus = (typeof giftReviewStatuses)[number];
+
+/**
+ * Rows from an imported gift workbook that need a human decision: the name was
+ * matched only probably, matched nothing, or was a quantity instead of a person.
+ * Resolving a row writes into contact_gifts and marks the row resolved, so the
+ * queue shrinks as it is worked through and nothing is silently guessed.
+ */
+export const giftImportReview = mysqlTable(
+  "gift_import_review",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    year: int("year").notNull(),
+    /** Recipient exactly as written on the list. */
+    sourceName: varchar("sourceName", { length: 255 }).notNull(),
+    sourceGroup: varchar("sourceGroup", { length: 255 }),
+    region: varchar("region", { length: 120 }),
+    tier: mysqlEnum("tier", giftTiers).default("Small").notNull(),
+    comment: varchar("comment", { length: 500 }),
+    /** Matcher verdict: probable | weak | unmatched | count_request. */
+    matchKind: varchar("matchKind", { length: 32 }).notNull(),
+    /** Suggested contacts as JSON, best first: [{id,name,email,company,group,score}]. */
+    candidates: text("candidates"),
+    status: mysqlEnum("status", giftReviewStatuses).default("pending").notNull(),
+    /** Contact chosen by the reviewer, once resolved. */
+    resolvedContactId: int("resolvedContactId"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    yearStatusIdx: index("gift_review_year_status_idx").on(table.year, table.status),
+  }),
+);
+
+export type GiftImportReview = typeof giftImportReview.$inferSelect;
+export type InsertGiftImportReview = typeof giftImportReview.$inferInsert;
+
 export const customFieldTypes = ["text", "longtext", "number", "date", "select", "checkbox", "email", "phone", "url"] as const;
 export type CustomFieldType = (typeof customFieldTypes)[number];
 
