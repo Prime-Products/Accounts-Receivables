@@ -8,8 +8,17 @@ import { toast } from "sonner";
 /**
  * Comment thread on a task — internal collaboration between colleagues.
  * Renders existing comments (author + relative date) and a composer.
+ *
+ * `hideHeading` drops the internal "Comments" title for callers that already
+ * render their own section heading above the thread (escalated task dialog).
  */
-export default function TaskCommentsThread({ taskId }: { taskId: number }) {
+export default function TaskCommentsThread({
+  taskId,
+  hideHeading = false,
+}: {
+  taskId: number;
+  hideHeading?: boolean;
+}) {
   const utils = trpc.useUtils();
   const { data: comments, isLoading } = trpc.tasks.comments.useQuery({ taskId });
   const [body, setBody] = useState("");
@@ -29,12 +38,14 @@ export default function TaskCommentsThread({ taskId }: { taskId: number }) {
 
   return (
     <div className="rounded-md border p-3 space-y-3">
-      <div className="text-sm font-medium flex items-center gap-1.5">
-        <MessageSquare className="h-4 w-4" /> Comments
-        {comments && comments.length > 0 && (
-          <span className="text-xs text-muted-foreground font-normal">({comments.length})</span>
-        )}
-      </div>
+      {!hideHeading && (
+        <div className="text-sm font-medium flex items-center gap-1.5">
+          <MessageSquare className="h-4 w-4" /> Comments
+          {comments && comments.length > 0 && (
+            <span className="text-xs text-muted-foreground font-normal">({comments.length})</span>
+          )}
+        </div>
+      )}
       {isLoading ? (
         <div className="text-xs text-muted-foreground">Loading comments…</div>
       ) : (comments ?? []).length === 0 ? (

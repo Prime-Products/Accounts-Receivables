@@ -48,7 +48,22 @@ import {
   InsertPaymentBankDetails,
 } from "../drizzle/schema";
 import { vessels, InsertVessel } from "../drizzle/schema";
+import {
+  creditNotes,
+  creditNoteAllocations,
+  InsertCreditNote,
+  InsertCreditNoteAllocation,
+} from "../drizzle/schema";
 import { teamMembers, InsertTeamMember } from "../drizzle/schema";
+import {
+  customFieldDefs,
+  customFieldValues,
+  savedViews,
+  listLayouts,
+  type AddressBookEntity,
+  type InsertCustomFieldDef,
+  type InsertSavedView,
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -782,6 +797,12 @@ export async function updateForecastEntry(id: number, data: Partial<InsertForeca
   await db.update(forecastEntries).set(data).where(eq(forecastEntries.id, id));
 }
 
+/** Remove a single forecast entry (used when discarding an entry created on the fly). */
+export async function deleteForecastEntry(id: number) {
+  const db = await requireDb();
+  await db.delete(forecastEntries).where(eq(forecastEntries.id, id));
+}
+
 export async function listForecastMonths() {
   const db = await requireDb();
   return db
@@ -1123,6 +1144,27 @@ export async function updatePaymentContact(id: number, updates: Partial<InsertPa
 export async function deletePaymentContact(id: number) {
   const db = await requireDb();
   return db.delete(paymentContacts).where(eq(paymentContacts.id, id));
+}
+
+/**
+ * Address Book uses archive instead of delete: the row stays for history but
+ * leaves every directory list and mailing list. `mergedIntoId` is set when the
+ * contact was archived as part of a duplicate merge.
+ */
+export async function archivePaymentContact(id: number, mergedIntoId?: number) {
+  const db = await requireDb();
+  return db
+    .update(paymentContacts)
+    .set({ archived: 1, archivedAt: new Date(), ...(mergedIntoId ? { mergedIntoId } : {}) })
+    .where(eq(paymentContacts.id, id));
+}
+
+export async function restorePaymentContact(id: number) {
+  const db = await requireDb();
+  return db
+    .update(paymentContacts)
+    .set({ archived: 0, archivedAt: null, mergedIntoId: null })
+    .where(eq(paymentContacts.id, id));
 }
 
 // ---------- Aggregations ----------
@@ -1628,4 +1670,265 @@ export async function listIncomingAllocationsByCustomer(customerId: number) {
     .innerJoin(wireTransfers, eq(wireTransferAllocations.wireTransferId, wireTransfers.id))
     .where(eq(invoices.customerId, customerId))
     .orderBy(desc(wireTransferAllocations.createdAt));
+}
+
+/* ------------------------------------------------------------------ *
+ * Credit notes (πιστωτικά) — open documents not yet matched to invoices
+ * ------------------------------------------------------------------ */
+
+/** All credit notes, newest document first. */
+export async function listCreditNotes() {
+  const db = await requireDb();
+  return db.select().from(creditNotes).orderBy(desc(creditNotes.docDate));
+}
+
+/** Credit notes of one customer, newest document first. */
+export async function listCreditNotesByCustomerId(customerId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(creditNotes)
+    .where(eq(creditNotes.customerId, customerId))
+    .orderBy(desc(creditNotes.docDate));
+}
+
+/** Credit notes of several customers (a group), newest document first. */
+export async function listCreditNotesByCustomerIds(customerIds: number[]) {
+  if (customerIds.length === 0) return [];
+  const db = await requireDb();
+  return db
+    .select()
+    .from(creditNotes)
+    .where(inArray(creditNotes.customerId, customerIds))
+    .orderBy(desc(creditNotes.docDate));
+}
+
+export async function getCreditNote(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(creditNotes).where(eq(creditNotes.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createCreditNote(data: InsertCreditNote) {
+  const db = await requireDb();
+  const res = await db.insert(creditNotes).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function updateCreditNote(id: number, data: Partial<InsertCreditNote>) {
+  const db = await requireDb();
+  await db.update(creditNotes).set(data).where(eq(creditNotes.id, id));
+}
+
+export async function deleteCreditNote(id: number) {
+  const db = await requireDb();
+  await db.delete(creditNotes).where(eq(creditNotes.id, id));
+}
+
+/** Sum of manual allocations per credit note id (for "still open" computations). */
+export async function sumAllocationsByCreditNoteIds(ids: number[]) {
+  const map = new Map<number, number>();
+  if (ids.length === 0) return map;
+  const db = await requireDb();
+  const rows = await db
+    .select({
+      creditNoteId: creditNoteAllocations.creditNoteId,
+      total: sql<string>`SUM(${creditNoteAllocations.amount})`,
+    })
+    .from(creditNoteAllocations)
+    .where(inArray(creditNoteAllocations.creditNoteId, ids))
+    .groupBy(creditNoteAllocations.creditNoteId);
+  for (const r of rows) map.set(r.creditNoteId, Number(r.total ?? 0));
+  return map;
+}
+
+export async function listAllocationsByCreditNote(creditNoteId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(creditNoteAllocations)
+    .where(eq(creditNoteAllocations.creditNoteId, creditNoteId));
+}
+
+/**
+ * Allocations of a credit note joined with the invoice they were matched to, so
+ * the matching dialog can show what has already been settled without a second
+ * round of queries.
+ */
+export async function listAllocationsByCreditNoteJoined(creditNoteId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: creditNoteAllocations.id,
+      creditNoteId: creditNoteAllocations.creditNoteId,
+      invoiceId: creditNoteAllocations.invoiceId,
+      amount: creditNoteAllocations.amount,
+      createdAt: creditNoteAllocations.createdAt,
+      invoiceNumber: invoices.invoiceNumber,
+      invoiceCompany: invoices.company,
+      invoiceCurrency: invoices.currency,
+      invoiceStatus: invoices.status,
+      invoiceCustomerId: invoices.customerId,
+    })
+    .from(creditNoteAllocations)
+    .leftJoin(invoices, eq(creditNoteAllocations.invoiceId, invoices.id))
+    .where(eq(creditNoteAllocations.creditNoteId, creditNoteId));
+}
+
+/** One allocation row by id (used when removing an allocation). */
+export async function getCreditNoteAllocation(id: number) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(creditNoteAllocations)
+    .where(eq(creditNoteAllocations.id, id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createCreditNoteAllocation(data: InsertCreditNoteAllocation) {
+  const db = await requireDb();
+  const res = await db.insert(creditNoteAllocations).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function deleteCreditNoteAllocation(id: number) {
+  const db = await requireDb();
+  await db.delete(creditNoteAllocations).where(eq(creditNoteAllocations.id, id));
+}
+
+// ---------------------------------------------------------------------------
+// Address Book: custom field definitions, values, saved views, list layouts
+// ---------------------------------------------------------------------------
+
+/** All non-archived field definitions, optionally for a single entity. */
+export async function listCustomFieldDefs(entity?: AddressBookEntity) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(customFieldDefs)
+    .where(entity ? and(eq(customFieldDefs.archived, 0), eq(customFieldDefs.entity, entity)) : eq(customFieldDefs.archived, 0))
+    .orderBy(customFieldDefs.sortOrder, customFieldDefs.id);
+  return rows;
+}
+
+export async function getCustomFieldDef(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(customFieldDefs).where(eq(customFieldDefs.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createCustomFieldDef(data: InsertCustomFieldDef) {
+  const db = await requireDb();
+  const res = await db.insert(customFieldDefs).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function updateCustomFieldDef(id: number, data: Partial<InsertCustomFieldDef>) {
+  const db = await requireDb();
+  await db.update(customFieldDefs).set(data).where(eq(customFieldDefs.id, id));
+}
+
+/** Soft delete: values are kept so the field can be restored. */
+export async function archiveCustomFieldDef(id: number) {
+  const db = await requireDb();
+  await db.update(customFieldDefs).set({ archived: 1 }).where(eq(customFieldDefs.id, id));
+}
+
+/** All custom values for one entity type, keyed by `recordKey` then `fieldId`. */
+export async function listCustomFieldValues(entity: AddressBookEntity, recordKeys?: string[]) {
+  const db = await requireDb();
+  const where =
+    recordKeys && recordKeys.length > 0
+      ? and(eq(customFieldValues.entity, entity), inArray(customFieldValues.recordKey, recordKeys))
+      : eq(customFieldValues.entity, entity);
+  return db.select().from(customFieldValues).where(where);
+}
+
+/**
+ * Upsert one custom-field value. An empty string clears the value so the record
+ * shows the field as blank rather than keeping a stale entry.
+ */
+export async function setCustomFieldValue(args: {
+  fieldId: number;
+  entity: AddressBookEntity;
+  recordKey: string;
+  value: string | null;
+  updatedBy?: number | null;
+}) {
+  const db = await requireDb();
+  const existing = await db
+    .select()
+    .from(customFieldValues)
+    .where(and(eq(customFieldValues.fieldId, args.fieldId), eq(customFieldValues.recordKey, args.recordKey)))
+    .limit(1);
+  if (existing[0]) {
+    await db
+      .update(customFieldValues)
+      .set({ value: args.value, updatedBy: args.updatedBy ?? null })
+      .where(eq(customFieldValues.id, existing[0].id));
+    return existing[0].id;
+  }
+  const res = await db.insert(customFieldValues).values({
+    fieldId: args.fieldId,
+    entity: args.entity,
+    recordKey: args.recordKey,
+    value: args.value,
+    updatedBy: args.updatedBy ?? null,
+  });
+  return Number((res as any)[0].insertId);
+}
+
+/** Saved views visible to a user: their own plus every shared one. */
+export async function listSavedViews(entity: AddressBookEntity, userId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(savedViews)
+    .where(and(eq(savedViews.entity, entity), or(eq(savedViews.shared, 1), eq(savedViews.ownerId, userId))))
+    .orderBy(savedViews.name);
+}
+
+export async function getSavedView(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(savedViews).where(eq(savedViews.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createSavedView(data: InsertSavedView) {
+  const db = await requireDb();
+  const res = await db.insert(savedViews).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function updateSavedView(id: number, data: Partial<InsertSavedView>) {
+  const db = await requireDb();
+  await db.update(savedViews).set(data).where(eq(savedViews.id, id));
+}
+
+export async function deleteSavedView(id: number) {
+  const db = await requireDb();
+  await db.delete(savedViews).where(eq(savedViews.id, id));
+}
+
+/** Per-user column visibility/order for one list. */
+export async function getListLayout(userId: number, listKey: string) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(listLayouts)
+    .where(and(eq(listLayouts.userId, userId), eq(listLayouts.listKey, listKey)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function setListLayout(userId: number, listKey: string, config: string) {
+  const db = await requireDb();
+  const existing = await getListLayout(userId, listKey);
+  if (existing) {
+    await db.update(listLayouts).set({ config }).where(eq(listLayouts.id, existing.id));
+    return existing.id;
+  }
+  const res = await db.insert(listLayouts).values({ userId, listKey, config });
+  return Number((res as any)[0].insertId);
 }

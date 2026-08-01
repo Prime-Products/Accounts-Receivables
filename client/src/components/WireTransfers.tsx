@@ -9,8 +9,9 @@ import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtCur, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Building2, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDialog";
 
@@ -46,6 +47,19 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
   const { data: incoming = [] } = trpc.customers.listIncomingAllocations.useQuery({ customerId });
 
   const [open, setOpen] = useState(false);
+  /**
+   * Money received from the client is what matters here; the derived
+   * intercompany (inter-office) transfers stay hidden behind a toggle.
+   */
+  const [showInternal, setShowInternal] = useState(false);
+  const internalCount = useMemo(
+    () => (transfers as any[]).filter((t: any) => t.isInternal).length,
+    [transfers]
+  );
+  const visibleTransfers = useMemo(
+    () => (transfers as any[]).filter((t: any) => showInternal || !t.isInternal),
+    [transfers, showInternal]
+  );
   const [form, setForm] = useState({
     amount: "",
     currency: "EUR",
@@ -129,7 +143,31 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold">Wire Transfers</h3>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <div className="flex items-center gap-2">
+          {internalCount > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setShowInternal(v => !v)}
+              aria-pressed={showInternal}
+              title={
+                showInternal
+                  ? "Hide the intercompany transfers between our own offices"
+                  : "Also show the intercompany transfers between our own offices"
+              }
+              className={cn(
+                "gap-2",
+                showInternal
+                  ? "border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                  : "text-muted-foreground"
+              )}
+            >
+              <Building2 className="w-4 h-4" />
+              Internal ({internalCount})
+            </Button>
+          )}
+          <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button size="sm" className="gap-2">
               <Plus className="w-4 h-4" />
@@ -238,7 +276,8 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
 
       {isLoading ? (
@@ -247,10 +286,14 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
             <p className="text-sm text-muted-foreground">Loading...</p>
           </CardContent>
         </Card>
-      ) : transfers.length === 0 ? (
+      ) : visibleTransfers.length === 0 ? (
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">No wire transfers recorded yet</p>
+            <p className="text-sm text-muted-foreground">
+              {internalCount > 0 && !showInternal
+                ? "No client transfers recorded yet — use the Internal button to see the intercompany ones."
+                : "No wire transfers recorded yet"}
+            </p>
           </CardContent>
         </Card>
       ) : (
@@ -278,12 +321,24 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {transfers.map((t) => (
-                  <TableRow key={t.id}>
+                {visibleTransfers.map((t: any) => (
+                  <TableRow key={t.id} className={t.isInternal ? "bg-violet-50/40" : undefined}>
                     <TableCell>{fmtDate(Number(t.transferDate))}</TableCell>
-                    <TableCell className="text-sm">{(t as any).branch || "-"}</TableCell>
+                    <TableCell className="text-sm">
+                      {t.isInternal ? (
+                        <span className="inline-flex items-center gap-1 text-violet-700" title={`${t.fromBranch ?? "Our office"} → ${t.toBranch ?? "-"}`}>
+                          <Building2 className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{t.toBranch ?? "Internal"}</span>
+                        </span>
+                      ) : (
+                        t.branch || "-"
+                      )}
+                    </TableCell>
                     <TableCell>{fmtCur(t.amount, t.currency)}</TableCell>
                     <TableCell>
+                      {t.isInternal ? (
+                        <span className="text-sm text-muted-foreground">{t.status}</span>
+                      ) : (
                       <Select
                         value={t.status}
                         onValueChange={(v) => handleStatusChange(t.id, v as "Pending" | "Received")}
@@ -296,6 +351,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                           <SelectItem value="Received">Received</SelectItem>
                         </SelectContent>
                       </Select>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm overflow-hidden">
                       <span className="block truncate">{t.referenceNumber || "-"}</span>
@@ -305,7 +361,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        {t.status === "Received" && (
+                        {!t.isInternal && t.status === "Received" && (
                           <AllocateWireTransferDialog
                             transfer={{
                               id: t.id,
@@ -316,6 +372,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                             }}
                           />
                         )}
+                        {!t.isInternal && (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -324,6 +381,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

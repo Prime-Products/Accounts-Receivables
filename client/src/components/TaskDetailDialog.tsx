@@ -190,6 +190,18 @@ export default function TaskDetailDialog({
     onError: e => toast.error(e.message),
   });
   const isTaskOpen = task ? task.status === "Pending" || task.status === "In Progress" : false;
+  /** Escalated tasks get a slimmer layout: comments on top, no promise controls. */
+  const isEscalated = task ? task.title.startsWith("Escalated: ") : false;
+  /**
+   * The "⬆ Escalated to …" line is already shown by the escalation panel, so it is
+   * stripped from the description here to avoid printing it twice.
+   */
+  const descriptionText = (() => {
+    const d = task?.description ?? "";
+    if (!d) return "";
+    const kept = isEscalated ? d.split("\n").filter(l => !l.trim().startsWith("⬆")) : d.split("\n");
+    return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  })();
   const { data: openInv } = trpc.tasks.groupOpenInvoices.useQuery(
     { taskId: task?.id ?? 0 },
     { enabled: open && !!task && isTaskOpen && fuMode === "next-task" }
@@ -216,21 +228,32 @@ export default function TaskDetailDialog({
               <DialogTitle className="pr-6">{task.title}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className={taskTypeColors[task.type] ?? ""}>{task.type}</Badge>
-                <Badge variant="outline" className={taskStatusColors[task.status] ?? ""}>{task.status}</Badge>
-               {task.promise && (
-                 <Badge variant="outline" className={promiseStatusColors[task.promise.status] ?? ""}>
-                    Promise {task.promise.status}
-                 </Badge>
-               )}
-                {((task as any).rescheduleCount ?? 0) > 0 && (
-                  <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
-                    Rescheduled ×{(task as any).rescheduleCount}
+              {/* Escalated tasks keep a single "Escalated" pill; regular tasks show
+                  the full type/status/promise badge row. */}
+              {isEscalated ? (
+                <div>
+                  <Badge variant="outline" className={taskStatusColors["Escalated"]}>
+                    Escalated
                   </Badge>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className={taskTypeColors[task.type] ?? ""}>{task.type}</Badge>
+                  <Badge variant="outline" className={taskStatusColors[task.status] ?? ""}>{task.status}</Badge>
+                 {task.promise && (
+                   <Badge variant="outline" className={promiseStatusColors[task.promise.status] ?? ""}>
+                      Promise {task.promise.status}
+                   </Badge>
+                 )}
+                  {((task as any).rescheduleCount ?? 0) > 0 && (
+                    <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
+                      Rescheduled ×{(task as any).rescheduleCount}
+                    </Badge>
+                  )}
+                </div>
+              )}
+
+              <div className={isEscalated ? "grid grid-cols-1 gap-3 text-sm" : "grid grid-cols-2 gap-3 text-sm"}>
                 <div>
                   <div className="text-xs text-muted-foreground">Group</div>
                   <Link
@@ -241,6 +264,15 @@ export default function TaskDetailDialog({
                     {(task as any).groupName ?? task.customerName}
                   </Link>
                 </div>
+                {isEscalated && (
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Assigned</div>
+                    <TeamMemberSelect
+                      value={task.assigneeId ?? null}
+                      onChange={id => assignTask.mutate({ id: task.id, assigneeId: id })}
+                    />
+                  </div>
+                )}
                 <div>
                   <div className="text-xs text-muted-foreground">Due date</div>
                   {editingDue && (task.status === "Pending" || task.status === "In Progress") ? (
@@ -282,14 +314,16 @@ export default function TaskDetailDialog({
                     </div>
                   )}
                 </div>
-                <div className="col-span-2">
-                  <div className="text-xs text-muted-foreground mb-1">Assigned to</div>
-                  <TeamMemberSelect
-                    value={task.assigneeId ?? null}
-                    onChange={id => assignTask.mutate({ id: task.id, assigneeId: id })}
-                  />
-                </div>
-                <div className="col-span-2">
+                {!isEscalated && (
+                  <div className="col-span-2">
+                    <div className="text-xs text-muted-foreground mb-1">Assigned to</div>
+                    <TeamMemberSelect
+                      value={task.assigneeId ?? null}
+                      onChange={id => assignTask.mutate({ id: task.id, assigneeId: id })}
+                    />
+                  </div>
+                )}
+                <div className={isEscalated ? "" : "col-span-2"}>
                   <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
                     <Eye className="h-3 w-3" /> Watchers
                   </div>
@@ -355,13 +389,14 @@ export default function TaskDetailDialog({
                     </div>
                   )}
                 </div>
-                {task.invoiceNumber && (
+                {task.invoiceNumber && !isEscalated && (
                   <div>
                     <div className="text-xs text-muted-foreground">Invoice</div>
                     <div className="font-mono">{task.invoiceNumber}</div>
                   </div>
                 )}
                 {(() => {
+                  if (isEscalated) return null;
                   const m = task.description?.match(/Contact: ([^.·]+)[.·]/);
                   return m ? (
                     <div>
@@ -377,9 +412,9 @@ export default function TaskDetailDialog({
                   </div>
                 )}
               </div>
-              {task.description && (
+              {descriptionText && !isEscalated && (
                 <div className="text-sm text-muted-foreground bg-muted/40 rounded-md p-3 whitespace-pre-wrap">
-                  {task.description}
+                  {descriptionText}
                 </div>
               )}
               {task.completionNotes && (
@@ -389,11 +424,18 @@ export default function TaskDetailDialog({
                 </div>
               )}
 
-              {task.title.startsWith("Escalated: ") && (
-                <EscalationPanel
-                  taskId={task.id}
-                  taskOpen={task.status === "Pending" || task.status === "In Progress"}
-                />
+              {/* Escalated layout: the conversation, then the decision. */}
+              {isEscalated && (
+                <>
+                  <div className="space-y-2">
+                    <div className="text-base font-semibold">Comments</div>
+                    <TaskCommentsThread taskId={task.id} hideHeading />
+                  </div>
+                  <EscalationPanel
+                    taskId={task.id}
+                    taskOpen={task.status === "Pending" || task.status === "In Progress"}
+                  />
+                </>
               )}
 
               {(task as any).attachedInvoices && (task as any).attachedInvoices.length > 0 && (
@@ -422,7 +464,7 @@ export default function TaskDetailDialog({
                 </div>
               )}
 
-              {task.promise && (
+              {task.promise && !isEscalated && (
                 <div className="rounded-md border p-3 space-y-2">
                   <div className="text-sm font-medium flex items-center gap-1.5">
                     <HandCoins className="h-4 w-4" /> Promise-to-Pay
@@ -605,7 +647,7 @@ export default function TaskDetailDialog({
                      {fuMode === "escalate" && !task.description?.includes("(Follow-up: ") && (
                        <div className="grid gap-2">
                          <div className="grid gap-1">
-                           <Label className="text-xs">Escalate to (defaults to the group's Account Manager)</Label>
+                           <Label className="text-xs">Escalate to (optional — defaults to the group's Account Manager)</Label>
                            <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
                          </div>
                          <div className="grid gap-1">
@@ -862,7 +904,7 @@ export default function TaskDetailDialog({
                     {fuMode === "escalate" && (
                       <div className="grid gap-2">
                         <div className="grid gap-1">
-                          <Label className="text-xs">Escalate to (defaults to the group's Account Manager)</Label>
+                          <Label className="text-xs">Escalate to (optional — defaults to the group's Account Manager)</Label>
                           <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
                         </div>
                         <div className="grid gap-1">
@@ -949,7 +991,7 @@ export default function TaskDetailDialog({
                 </div>
               )}
 
-              <TaskCommentsThread taskId={task.id} />
+              {!isEscalated && <TaskCommentsThread taskId={task.id} />}
             </div>
           </>
         )}

@@ -8,7 +8,6 @@ import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
-import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Eye, EyeOff, FileDown, HandCoins, Layers, Plus } from "lucide-react";
+import { ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, HandCoins, Layers, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -51,6 +50,10 @@ export default function CustomerDetail() {
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
+  // Credit-note toggle: when on, the transactions list shows only credit notes.
+  const [creditOnly, setCreditOnly] = useState(false);
+  // Payments toggle: when on, the transactions list shows only wire transfers.
+  const [paymentsOnly, setPaymentsOnly] = useState(false);
   // Settled invoices are hidden by default (same rule as the group card).
   const [showPaid, setShowPaid] = useState(false);
 
@@ -77,17 +80,31 @@ export default function CustomerDetail() {
   const agingAny = aging as any;
   const now = Date.now();
   const visibleInvoices = invoices.filter(i => {
+    if (creditOnly || paymentsOnly) return false;
     if (hideSettled(i as any, showPaid, statusFilter)) return false;
     if (!matchesStatusFilter(i as any, statusFilter)) return false;
     if (installmentFilter === "installments" && !(i as any).isContractInstallment) return false;
     return true;
   });
   const paidHiddenCount = countSettled(invoices as any);
+  // Credit notes are part of the same list; the installment/status filters apply
+  // to invoices only, so they are hidden while those filters are narrowing down.
+  const allCreditNotes = ((data as any).openCreditNotes ?? []) as any[];
+  const visibleCreditNotes =
+    paymentsOnly || installmentFilter === "installments" || (statusFilter !== "all" && !creditOnly)
+      ? []
+      : allCreditNotes;
+  // Payments (wire transfers with an unallocated remainder) live in the same list.
+  const allTransfers = ((data as any).openTransfers ?? []) as any[];
+  const visibleTransfers =
+    creditOnly || installmentFilter === "installments" || (statusFilter !== "all" && !paymentsOnly)
+      ? []
+      : allTransfers;
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <Button variant="ghost" size="sm" className="gap-1 -ml-2" onClick={() => navigate("/customers")}>
-        <ArrowLeft className="h-4 w-4" /> Collections
+        <ArrowLeft className="h-4 w-4" /> Collections Desk
       </Button>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -211,14 +228,24 @@ export default function CustomerDetail() {
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Open Balance</div>
             <div className="text-xl font-bold font-mono">
-              {fmtEur(aging.current + aging.totalOverdue - ((data as any).unallocatedPayments ?? 0))}
+              {fmtEur(
+                aging.current +
+                  aging.totalOverdue -
+                  ((data as any).unallocatedPayments ?? 0) -
+                  ((data as any).openCreditNotesTotal ?? 0),
+              )}
             </div>
-            {((data as any).unallocatedPayments ?? 0) > 0.005 && (
+            {(((data as any).unallocatedPayments ?? 0) > 0.005 ||
+              ((data as any).openCreditNotesTotal ?? 0) > 0.005) && (
               <div
                 className="text-[11px] font-mono mt-0.5 text-emerald-600"
-                title="Open invoices minus payments on account that are not yet allocated"
+                title="Open invoices minus payments on account and credit notes that are not yet matched"
               >
-                {fmtEur(aging.current + aging.totalOverdue)} inv − {fmtEur((data as any).unallocatedPayments)} on acct
+                {fmtEur(aging.current + aging.totalOverdue)} inv
+                {((data as any).unallocatedPayments ?? 0) > 0.005 && ` − ${fmtEur((data as any).unallocatedPayments)} on acct`}
+                {((data as any).openCreditNotesTotal ?? 0) > 0.005 && (
+                  <span className="text-sky-600"> − {fmtEur((data as any).openCreditNotesTotal)} credit</span>
+                )}
               </div>
             )}
             <div className="text-[11px] text-muted-foreground mt-0.5">
@@ -339,8 +366,38 @@ export default function CustomerDetail() {
                 {statusFilter === "all"
                   ? `${visibleInvoices.length} invoice(s)${!showPaid && paidHiddenCount > 0 ? ` · ${paidHiddenCount} settled hidden` : ""}`
                   : `${visibleInvoices.length} ${statusFilter} invoice(s) · outstanding ${fmtEur(visibleInvoices.reduce((s, i) => s + Number((i as any).amountEur != null && Number(i.amount) > 0 ? ((Number(i.amount) - Number(i.paidAmount)) / Number(i.amount)) * Number((i as any).amountEur) : Number(i.amount) - Number(i.paidAmount)), 0))}`}
+                {visibleCreditNotes.length > 0 && (
+                  <span className="text-sky-700"> · {visibleCreditNotes.length} credit note(s) −{fmtEur(visibleCreditNotes.reduce((s, c) => s + Number(c.openEur ?? 0), 0))}</span>
+                )}
+                {visibleTransfers.length > 0 && (
+                  <span className="text-emerald-700"> · {visibleTransfers.length} payment(s) on account</span>
+                )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+              {allTransfers.length > 0 && (
+                <Button
+                  size="sm"
+                  variant={paymentsOnly ? "secondary" : "ghost"}
+                  className={`h-8 px-2.5 text-xs gap-1.5 border ${paymentsOnly ? "border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : ""}`}
+                  onClick={() => { setPaymentsOnly(v => !v); setCreditOnly(false); }}
+                  title={paymentsOnly ? "Show invoices again" : "Show only payments on account"}
+                >
+                  <Banknote className="h-3.5 w-3.5" />
+                  Payments ({allTransfers.length})
+                </Button>
+              )}
+              {allCreditNotes.length > 0 && (
+                <Button
+                  size="sm"
+                  variant={creditOnly ? "secondary" : "ghost"}
+                  className={`h-8 px-2.5 text-xs gap-1.5 border ${creditOnly ? "border-sky-300 bg-sky-100 text-sky-800 hover:bg-sky-100" : ""}`}
+                  onClick={() => { setCreditOnly(v => !v); setPaymentsOnly(false); }}
+                  title={creditOnly ? "Show invoices again" : "Show only credit notes"}
+                >
+                  <FileMinus2 className="h-3.5 w-3.5" />
+                  Credit notes ({allCreditNotes.length})
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant={showPaid ? "secondary" : "ghost"}
@@ -368,13 +425,15 @@ export default function CustomerDetail() {
               </div>
             </div>
             <CardContent className="p-0">
-              <UnallocatedTransfersTable rows={(data as any).openTransfers ?? []} showCustomer={false} />
-              {visibleInvoices.length === 0 ? (
+              {visibleInvoices.length === 0 && visibleCreditNotes.length === 0 && visibleTransfers.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">No invoices for this customer.</div>
               ) : (
                 <InvoicesTable
                   rows={visibleInvoices as any}
+                  creditNotes={visibleCreditNotes as any}
+                  transfers={visibleTransfers as any}
                   showCustomer={false}
+                  maxHeight="480px"
                   onDisputeChanged={() => utils.customers.get360.invalidate()}
                 />
               )}

@@ -9,7 +9,7 @@ import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Check, ChevronsUpDown, ChevronRight, ChevronDown, CornerDownRight } from "lucide-react";
+import { Check, ChevronsUpDown, ChevronRight, ChevronDown, CornerDownRight, Building2 } from "lucide-react";
 import { X } from "lucide-react";
 import {
   AlertDialog,
@@ -167,11 +167,11 @@ function CustomerCombobox({
 export default function WireTransfersPage() {
   const wtpCols = useResizableColumns("wire-transfers-page", {
     chevron: 36,
+    date: 120,
     customer: 280,
     branch: 160,
     amount: 110,
     allocated: 100,
-    date: 120,
     status: 100,
     ref: 130,
     actions: 170,
@@ -179,7 +179,12 @@ export default function WireTransfersPage() {
   const [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "Received">("All");
   const [customerFilter, setCustomerFilter] = useState("all");
   const [branchFilter, setBranchFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState<"all" | "customer" | "internal">("all");
+  /**
+   * Internal (inter-office) transfers are noise for collections work, so the
+   * list shows only the money that came from clients. The toggle brings the
+   * intercompany movements in when they are actually needed.
+   */
+  const [showInternal, setShowInternal] = useState(false);
   const [allocationFilter, setAllocationFilter] = useState<"all" | "unallocated" | "partial" | "full">("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -199,8 +204,7 @@ export default function WireTransfersPage() {
       if (statusFilter !== "All" && t.status !== statusFilter) return false;
       if (customerFilter !== "all" && t.customerId !== Number(customerFilter)) return false;
       if (branchFilter !== "all" && t.branch !== branchFilter) return false;
-      if (typeFilter === "customer" && t.isInternal) return false;
-      if (typeFilter === "internal" && !t.isInternal) return false;
+      if (!showInternal && t.isInternal) return false;
       if (allocationFilter !== "all") {
         // Allocation state only meaningful for received customer transfers
         if (t.isInternal) return false;
@@ -214,7 +218,22 @@ export default function WireTransfersPage() {
       if (dateTo && new Date(Number(t.transferDate)) > new Date(dateTo + "T23:59:59")) return false;
       return true;
     });
-  }, [allTransfers, statusFilter, customerFilter, branchFilter, typeFilter, allocationFilter, dateFrom, dateTo]);
+  }, [allTransfers, statusFilter, customerFilter, branchFilter, showInternal, allocationFilter, dateFrom, dateTo]);
+
+  /** How many intercompany transfers the toggle would reveal under the current filters. */
+  const internalCount = useMemo(
+    () =>
+      (allTransfers as any[]).filter((t: any) => {
+        if (!t.isInternal) return false;
+        if (statusFilter !== "All" && t.status !== statusFilter) return false;
+        if (customerFilter !== "all" && t.customerId !== Number(customerFilter)) return false;
+        if (branchFilter !== "all" && t.branch !== branchFilter) return false;
+        if (dateFrom && new Date(Number(t.transferDate)) < new Date(dateFrom)) return false;
+        if (dateTo && new Date(Number(t.transferDate)) > new Date(dateTo + "T23:59:59")) return false;
+        return true;
+      }).length,
+    [allTransfers, statusFilter, customerFilter, branchFilter, dateFrom, dateTo]
+  );
 
   // Calculate totals
   const totals = useMemo(() => {
@@ -330,17 +349,32 @@ export default function WireTransfersPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="type-filter">Type</Label>
-              <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as any)}>
-                <SelectTrigger id="type-filter">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All types</SelectItem>
-                  <SelectItem value="customer">Customer transfers</SelectItem>
-                  <SelectItem value="internal">Internal (inter-office)</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>Type</Label>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowInternal(v => !v)}
+                aria-pressed={showInternal}
+                title={
+                  showInternal
+                    ? "Hide the intercompany transfers between our own offices"
+                    : "Also show the intercompany transfers between our own offices"
+                }
+                className={cn(
+                  "w-full justify-start gap-2 font-normal",
+                  showInternal
+                    ? "border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                    : "text-muted-foreground"
+                )}
+              >
+                <Building2 className="h-4 w-4 shrink-0" />
+                <span className="truncate">
+                  {showInternal ? "Client + internal" : "Client transfers only"}
+                </span>
+                {!showInternal && internalCount > 0 && (
+                  <span className="ml-auto rounded bg-muted px-1.5 text-xs tabular-nums">+{internalCount}</span>
+                )}
+              </Button>
             </div>
 
             <div className="space-y-1.5">
@@ -423,11 +457,11 @@ export default function WireTransfersPage() {
                     <TableCell style={wtpCols.style("chevron")}></TableCell>
                     {(
                       [
+                        ["date", "Date"],
                         ["customer", "Customer"],
                         ["branch", "Branch"],
                         ["amount", "Amount"],
                         ["allocated", "Allocated"],
-                        ["date", "Date"],
                         ["status", "Status"],
                         ["ref", "Ref / Notes"],
                       ] as const
@@ -459,6 +493,7 @@ export default function WireTransfersPage() {
                               )
                             ) : null}
                           </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm">{fmtDate(Number(t.transferDate))}</TableCell>
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
                               {t.isInternal && (
@@ -496,7 +531,6 @@ export default function WireTransfersPage() {
                               "-"
                             )}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm">{fmtDate(Number(t.transferDate))}</TableCell>
                           <TableCell>
                             <span
                               className={`px-2 py-1 rounded text-xs font-medium ${

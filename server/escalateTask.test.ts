@@ -175,4 +175,29 @@ describe("Escalate Task", () => {
     const conf = await db.getGroupConfirmationStatus(fx.group);
     expect(conf?.status).toBe("Confirmed");
   });
+
+  it("escalates even when the group has no account manager and no assignee is picked", async () => {
+    // The fixture customer intentionally has no accountManagerId. Previously this
+    // threw BAD_REQUEST ("No account manager found for this group"), blocking the
+    // collector. Escalation must now fall back to an available team member.
+    const taskId = await db.createTask({
+      customerId: fx.id,
+      title: "Escalate without a manager",
+      description: `(Follow-up: ${fx.group})`,
+      dueDate: Date.now() + 5 * 24 * 60 * 60 * 1000,
+      status: "Pending",
+      type: "Follow-up +2",
+      assigneeId: 1,
+    } as any);
+    snap.taskId = Math.max(snap.taskId, taskId);
+
+    const res = await makeCaller().tasks.escalate({ taskId, note: "no manager on file" });
+
+    expect(res.success).toBe(true);
+    expect(res.assigneeName).toBeTruthy();
+    const newTask = await db.getTask(res.newTaskId);
+    expect(newTask?.assigneeId).toBeTruthy();
+    expect(newTask?.title).toBe("Escalated: Escalate without a manager");
+    snap.taskId = Math.max(snap.taskId, res.newTaskId);
+  });
 });

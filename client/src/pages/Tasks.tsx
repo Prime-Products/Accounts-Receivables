@@ -15,7 +15,7 @@ import { trpc } from "@/lib/trpc";
 import { CheckCircle2, FileText, ListChecks, Search, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 
 export default function Tasks() {
   const cols = useResizableColumns("tasks", {
@@ -32,6 +32,7 @@ export default function Tasks() {
   const { data: tasks, isLoading } = trpc.tasks.list.useQuery();
   const { data: teamMembers } = trpc.team.list.useQuery();
   const utils = trpc.useUtils();
+  const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("Pending");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -208,9 +209,23 @@ export default function Tasks() {
                       )}
                     </TableCell>
                     <TableCell className="font-medium overflow-hidden">
-                      <span className="block truncate" title={(t as any).groupName ?? t.customerName ?? undefined}>
-                        {(t as any).groupName ?? t.customerName ?? "—"}
-                      </span>
+                      {t.customerId ? (
+                        <button
+                          type="button"
+                          className="block w-full truncate text-left hover:text-primary hover:underline"
+                          title={`Open the card of ${t.customerName ?? (t as any).groupName ?? ""}`}
+                          onClick={e => {
+                            e.stopPropagation();
+                            navigate(`/customers/${t.customerId}`);
+                          }}
+                        >
+                          {(t as any).groupName ?? t.customerName ?? "—"}
+                        </button>
+                      ) : (
+                        <span className="block truncate" title={(t as any).groupName ?? t.customerName ?? undefined}>
+                          {(t as any).groupName ?? t.customerName ?? "—"}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm overflow-hidden">
                       <span className="block truncate" title={t.title}>
