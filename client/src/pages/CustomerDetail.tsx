@@ -104,7 +104,7 @@ export default function CustomerDetail() {
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <Button variant="ghost" size="sm" className="gap-1 -ml-2" onClick={() => navigate("/customers")}>
-        <ArrowLeft className="h-4 w-4" /> Group List
+        <ArrowLeft className="h-4 w-4" /> Groups List
       </Button>
 
       <div className="flex flex-wrap items-start justify-between gap-3">

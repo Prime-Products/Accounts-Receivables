@@ -1333,3 +1333,7 @@
 - [x] Scrolling moved into the table's own container (shadcn Table now accepts containerClassName / containerStyle) so the sticky header actually pins
 - [x] Header cells painted with an opaque background so rows do not show through
 - [x] Vitest coverage: sticky classes, container forwarding, bounded height on both cards
+
+## Naming: Groups List (user request 1/8)
+- [x] Sidebar menu entry renamed from "Group List" to "Groups List" (page title and back links on both cards follow the same wording)
+- [x] Fixed a test that broke on the 1st of a new month: the forecast test now samples the latest month with entries and cleans up any row it creates

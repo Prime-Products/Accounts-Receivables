@@ -621,6 +621,12 @@ export async function updateForecastEntry(id: number, data: Partial<InsertForeca
   await db.update(forecastEntries).set(data).where(eq(forecastEntries.id, id));
 }
 
+/** Remove a single forecast entry (used when discarding an entry created on the fly). */
+export async function deleteForecastEntry(id: number) {
+  const db = await requireDb();
+  await db.delete(forecastEntries).where(eq(forecastEntries.id, id));
+}
+
 export async function listForecastMonths() {
   const db = await requireDb();
   return db
