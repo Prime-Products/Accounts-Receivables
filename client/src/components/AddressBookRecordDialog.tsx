@@ -15,7 +15,7 @@ import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import { Building2, ExternalLink, Mail, Phone, Ship, Users } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -61,6 +61,21 @@ export function AddressBookRecordDialog({
     },
     onError: e => toast.error(e.message),
   });
+  /** Gift list membership is edited from the card too; the year comes from the row. */
+  const setGift = trpc.addressBook.setContactGift.useMutation({
+    onSuccess: () => {
+      toast.success("Gift updated");
+      utils.addressBook.contacts.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+  const removeGift = trpc.addressBook.removeContactGift.useMutation({
+    onSuccess: () => {
+      toast.success("Removed from the gift list");
+      utils.addressBook.contacts.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
 
   // The directory lists are already cached by the page, so these reads are cheap.
   const { data: groups } = trpc.addressBook.groups.useQuery(undefined, { enabled: open });
@@ -79,7 +94,22 @@ export function AddressBookRecordDialog({
 
   const relatedCompanies = groupName ? (customers ?? []).filter(c => c.group === groupName) : [];
   const relatedVessels = groupName ? (vessels ?? []).filter(v => v.ownerGroup === groupName) : [];
-  const relatedContacts = groupName ? (contacts ?? []).filter(c => c.group === groupName) : [];
+  // The same person is registered on every company of a group, so show each one
+  // once (keyed by email, or by name when there is none) instead of repeating.
+  const relatedContacts = useMemo(() => {
+    type ContactItem = NonNullable<typeof contacts>[number];
+    const out: ContactItem[] = [];
+    if (!groupName) return out;
+    const seen = new Set<string>();
+    for (const c of contacts ?? []) {
+      if (c.group !== groupName) continue;
+      const key = c.email?.trim().toLowerCase() || `n:${c.name?.trim().toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(c);
+    }
+    return out;
+  }, [contacts, groupName]);
 
   const openRecord = (next: RecordTarget) => {
     // Reuse the same dialog for the related record by swapping the target.
@@ -178,6 +208,49 @@ export function AddressBookRecordDialog({
                   </Select>
                 </FieldRow>
                 <FieldRow label="Position">{contactRow.title || "—"}</FieldRow>
+                <FieldRow label="Gift list">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select
+                      value={contactRow.giftTier ?? "none"}
+                      disabled={setGift.isPending || removeGift.isPending}
+                      onValueChange={v => {
+                        // The card always edits the current gift year: the row's own
+                        // year when already on a list, otherwise the running year.
+                        const year = contactRow.giftYear ?? new Date().getFullYear();
+                        if (v === "none") removeGift.mutate({ contactId: contactRow.id, year });
+                        else
+                          setGift.mutate({
+                            contactId: contactRow.id,
+                            year,
+                            tier: v as "Small" | "Medium" | "Special" | "Super Special" | "Whiskey",
+                          });
+                      }}
+                    >
+                      <SelectTrigger className="h-7 w-[190px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not on the gift list</SelectItem>
+                        <SelectItem value="Small">Small</SelectItem>
+                        <SelectItem value="Medium">Medium</SelectItem>
+                        <SelectItem value="Special">Special</SelectItem>
+                        <SelectItem value="Super Special">Super Special</SelectItem>
+                        <SelectItem value="Whiskey">Whiskey</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {contactRow.giftYear ? (
+                      <span className="text-xs text-muted-foreground">year {contactRow.giftYear}</span>
+                    ) : null}
+                    {(contactRow.giftHistory ?? []).length > 1 && (
+                      <span className="text-xs text-muted-foreground">
+                        history:{" "}
+                        {(contactRow.giftHistory ?? [])
+                          .map((g: { year: number; tier: string }) => `${g.year} ${g.tier}`)
+                          .join(", ")}
+                      </span>
+                    )}
+                  </div>
+                </FieldRow>
                 <FieldRow label="Email">
                   <a className="text-blue-600 hover:underline" href={`mailto:${contactRow.email}`}>
                     {contactRow.email}

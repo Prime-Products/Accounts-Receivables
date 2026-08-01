@@ -295,6 +295,20 @@
       "when": 1785590685480,
       "tag": "0041_friendly_reavers",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "5",
+      "when": 1785595325389,
+      "tag": "0042_simple_marten_broadcloak",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "5",
+      "when": 1785596277737,
+      "tag": "0043_tranquil_garia",
+      "breakpoints": true
     }
   ]
 }

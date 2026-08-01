@@ -36,7 +36,8 @@ describe("address book quality panel", () => {
     // contacts() takes an explicit archived flag and defaults to live rows.
     expect(router).toMatch(/archived: z\.boolean\(\)\.optional\(\)/);
     expect(router).toMatch(/\(ct\.archived === 1\) === wantArchived/);
-    expect(router).toMatch(/ct\.archived !== 1 &&/);
+    // Cross-entity search drops archived rows before matching.
+    expect(router).toMatch(/if \(ct\.archived === 1\) return false;/);
   });
 });
 
