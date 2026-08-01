@@ -365,11 +365,18 @@ export const addressBookRouter = router({
       db.listAllPaymentContacts(),
     ]);
     const groups = new Set(customers.map(c => groupKeyOf(c)));
+    // The contacts list collapses a person repeated across a group's companies
+    // into one row, so the badge must count people, not raw rows.
+    const people = new Set(
+      contacts
+        .filter(ct => ct.archived !== 1)
+        .map(ct => `${(ct.name ?? "").trim().toLowerCase()}|${(ct.email ?? "").trim().toLowerCase()}`),
+    );
     return {
       group: groups.size,
       customer: customers.length,
       vessel: vessels.length,
-      contact: contacts.length,
+      contact: people.size,
     };
   }),
 
@@ -560,7 +567,7 @@ export const addressBookRouter = router({
       }
       giftsByContact.forEach(list => list.sort((a: GiftEntry, b: GiftEntry) => b.year - a.year));
       const wantArchived = input?.archived === true;
-      const rows = contacts
+      const flat = contacts
         // Archived contacts are hidden by default; the archive view asks for them explicitly.
         .filter(ct => (ct.archived === 1) === wantArchived)
         .map(ct => {
@@ -594,7 +601,50 @@ export const addressBookRouter = router({
               .filter(Boolean)
               .join(" "),
           };
-        })
+        });
+      // The same person is registered on every company of a group, so the raw
+      // rows repeat them. Collapse to one row per person *within a group*: the
+      // companies they sit on travel with the row, and anything recorded on any
+      // of the duplicate rows (gift, department type) surfaces on the single row.
+      type Row = (typeof flat)[number];
+      const merged = new Map<string, Row & { companyNames: string[]; groupNames: string[]; duplicateIds: number[] }>();
+      for (const r of flat) {
+        // Name AND email together identify the person. The email alone is not
+        // enough — whole staff lists share one company mailbox (42 people on
+        // info@msccy.com.cy) — and the group alone is not enough either, since
+        // sister companies are often filed under their own group name (Irene
+        // Kofina sits on three Enesel companies under three different groups).
+        const key = `${r.name.trim().toLowerCase()}|${(r.email ?? "").trim().toLowerCase()}`;
+        const seen = merged.get(key);
+        if (!seen) {
+          merged.set(key, { ...r, companyNames: [r.companyName], groupNames: [r.group], duplicateIds: [r.id] });
+          continue;
+        }
+        if (!seen.companyNames.includes(r.companyName)) seen.companyNames.push(r.companyName);
+        if (!seen.groupNames.includes(r.group)) seen.groupNames.push(r.group);
+        seen.duplicateIds.push(r.id);
+        // Keep whichever duplicate actually carries data, so nothing is hidden
+        // by the collapse.
+        if (r.giftHistory.length > seen.giftHistory.length) {
+          seen.giftHistory = r.giftHistory;
+          seen.giftTier = r.giftTier;
+          seen.giftYear = r.giftYear;
+        }
+        if (seen.contactType !== "Department" && r.contactType === "Department") seen.contactType = "Department";
+        if (!seen.title && r.title) seen.title = r.title;
+        if (!seen.phone && r.phone) seen.phone = r.phone;
+        seen.searchText = `${seen.searchText} ${r.searchText}`;
+      }
+      const rows = Array.from(merged.values())
+        .map(r => ({
+          ...r,
+          // Exports and sorting read the joined list; the table renders the first
+          // name plus a "+n" badge from companyNames.
+          companyName: r.companyNames.join(", "),
+          companyCount: r.companyNames.length,
+          group: r.groupNames.join(", "),
+          groupCount: r.groupNames.length,
+        }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return withCustomValues("contact", rows);
     }),
