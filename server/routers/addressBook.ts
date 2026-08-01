@@ -16,6 +16,214 @@ import { addressBookEntities, customFieldTypes } from "../../drizzle/schema";
 
 const entitySchema = z.enum(addressBookEntities);
 
+/** Import target fields the user can map a sheet column onto. */
+export const importTargets = [
+  { key: "name", label: "Name", required: true },
+  { key: "email", label: "Email", required: true },
+  { key: "phone", label: "Phone", required: false },
+  { key: "title", label: "Position", required: false },
+  { key: "companyCode", label: "Company code (ERP)", required: false },
+  { key: "companyName", label: "Company name", required: false },
+] as const;
+
+/**
+ * Read the first worksheet of an uploaded xlsx/csv. The first non-empty row is
+ * treated as the header; values come back as trimmed strings so downstream
+ * matching never has to care about Excel's number/date types.
+ */
+async function parseSheet(fileBase64: string): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  const buf = Buffer.from(fileBase64.replace(/^data:[^,]+,/, ""), "base64");
+  // exceljs types expect a resizable Buffer; the runtime only needs the bytes.
+  await wb.xlsx.load(buf as unknown as Parameters<typeof wb.xlsx.load>[0]);
+  const ws = wb.worksheets[0];
+  if (!ws) return { headers: [], rows: [] };
+
+  const cellText = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    if (typeof v === "object") {
+      const o = v as { text?: string; result?: unknown; richText?: { text: string }[] };
+      if (typeof o.text === "string") return o.text.trim();
+      if (Array.isArray(o.richText)) return o.richText.map(r => r.text).join("").trim();
+      if (o.result !== undefined) return String(o.result).trim();
+      return "";
+    }
+    return String(v).trim();
+  };
+
+  let headers: string[] = [];
+  const rows: Record<string, string>[] = [];
+  ws.eachRow((row, rowNumber) => {
+    const values = (row.values as unknown[]).slice(1).map(cellText);
+    if (headers.length === 0) {
+      if (values.some(v => v !== "")) {
+        headers = values.map((v, i) => v || `Column ${i + 1}`);
+      }
+      return;
+    }
+    if (values.every(v => v === "")) return;
+    const record: Record<string, string> = { __row: String(rowNumber) };
+    headers.forEach((h, i) => {
+      record[h] = values[i] ?? "";
+    });
+    rows.push(record);
+  });
+  return { headers, rows };
+}
+
+export type ImportPlanRow = {
+  rowIndex: number;
+  action: "create" | "update" | "skip";
+  reason: string;
+  contactId: number | null;
+  customerId: number | null;
+  companyLabel: string;
+  values: { name: string; email: string; phone?: string; title?: string };
+  custom: Record<string, string>;
+  changes: { field: string; from: string; to: string }[];
+};
+
+/**
+ * Build the create/update/skip plan for a mapped contacts sheet.
+ * Matching rule: an existing contact with the same email inside the same
+ * company is an update; same email in a different company is still an update of
+ * that contact's company; no email match means create. Rows whose company
+ * cannot be resolved are skipped rather than silently attached to the wrong one.
+ */
+async function planContactImport(fileBase64: string, mapping: Record<string, string>) {
+  const { rows } = await parseSheet(fileBase64);
+  const [contacts, customers, defs] = await Promise.all([
+    db.listAllPaymentContacts(),
+    db.listCustomers(),
+    db.listCustomFieldDefs("contact"),
+  ]);
+  const custByCode = new Map(customers.map(c => [c.code.trim().toLowerCase(), c]));
+  const custByName = new Map(customers.map(c => [c.name.trim().toLowerCase(), c]));
+  const liveContacts = contacts.filter(c => c.archived !== 1);
+  const customKeys = new Set(defs.map(d => d.fieldKey));
+
+  // mapping is sheetHeader -> targetKey ("" / "ignore" means unmapped).
+  const columnFor = (target: string) =>
+    Object.entries(mapping).find(([, t]) => t === target)?.[0] ?? null;
+
+  const planRows: ImportPlanRow[] = [];
+  let rowIndex = 0;
+  for (const raw of rows) {
+    rowIndex += 1;
+    const get = (target: string) => {
+      const col = columnFor(target);
+      return col ? (raw[col] ?? "").trim() : "";
+    };
+    const name = get("name");
+    const email = get("email").toLowerCase();
+    const phone = get("phone");
+    const title = get("title");
+    const code = get("companyCode").toLowerCase();
+    const companyName = get("companyName").toLowerCase();
+
+    const custom: Record<string, string> = {};
+    for (const [header, target] of Object.entries(mapping)) {
+      if (!target.startsWith("custom:")) continue;
+      const fieldKey = target.slice("custom:".length);
+      if (!customKeys.has(fieldKey)) continue;
+      const v = (raw[header] ?? "").trim();
+      if (v) custom[fieldKey] = v;
+    }
+
+    const cust = (code && custByCode.get(code)) || (companyName && custByName.get(companyName)) || null;
+    const existing = email ? liveContacts.find(c => c.email.trim().toLowerCase() === email) : undefined;
+
+    if (!name && !email) {
+      planRows.push({
+        rowIndex,
+        action: "skip",
+        reason: "No name or email",
+        contactId: null,
+        customerId: null,
+        companyLabel: "—",
+        values: { name, email },
+        custom,
+        changes: [],
+      });
+      continue;
+    }
+
+    if (existing) {
+      const target = cust ?? customers.find(c => c.id === existing.customerId) ?? null;
+      const changes: { field: string; from: string; to: string }[] = [];
+      const cmp = (field: string, from: string | null, to: string) => {
+        if (to && (from ?? "").trim() !== to) changes.push({ field, from: from ?? "", to });
+      };
+      cmp("name", existing.name, name);
+      cmp("phone", existing.phone, phone);
+      cmp("title", existing.title, title);
+      if (cust && cust.id !== existing.customerId) {
+        changes.push({
+          field: "company",
+          from: customers.find(c => c.id === existing.customerId)?.name ?? "—",
+          to: cust.name,
+        });
+      }
+      for (const [k, v] of Object.entries(custom)) changes.push({ field: k, from: "", to: v });
+      planRows.push({
+        rowIndex,
+        action: changes.length > 0 ? "update" : "skip",
+        reason: changes.length > 0 ? "Existing contact — will be updated" : "Already up to date",
+        contactId: existing.id,
+        customerId: cust?.id ?? existing.customerId,
+        companyLabel: target?.name ?? "—",
+        values: { name: name || existing.name, email: email || existing.email, phone, title },
+        custom,
+        changes,
+      });
+      continue;
+    }
+
+    if (!cust) {
+      planRows.push({
+        rowIndex,
+        action: "skip",
+        reason: code || companyName ? "Company not found in AR Pro" : "No company code or name given",
+        contactId: null,
+        customerId: null,
+        companyLabel: get("companyName") || get("companyCode") || "—",
+        values: { name, email, phone, title },
+        custom,
+        changes: [],
+      });
+      continue;
+    }
+
+    planRows.push({
+      rowIndex,
+      action: "create",
+      reason: "New contact",
+      contactId: null,
+      customerId: cust.id,
+      companyLabel: cust.name,
+      values: { name, email, phone, title },
+      custom,
+      changes: [],
+    });
+  }
+
+  return {
+    rows: planRows,
+    summary: {
+      total: planRows.length,
+      create: planRows.filter(r => r.action === "create").length,
+      update: planRows.filter(r => r.action === "update").length,
+      skip: planRows.filter(r => r.action === "skip").length,
+    },
+    targets: [
+      ...importTargets.map(t => ({ key: t.key, label: t.label, required: t.required })),
+      ...defs.map(d => ({ key: `custom:${d.fieldKey}`, label: `${d.label} (custom)`, required: false })),
+    ],
+  };
+}
+
 /** Group name used as the record identity for group-level custom values. */
 const groupKeyOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
 
@@ -154,27 +362,33 @@ export const addressBookRouter = router({
   }),
 
   /** Directory list of contacts, with company and group attached. */
-  contacts: protectedProcedure.query(async () => {
-    const [contacts, customers] = await Promise.all([db.listAllPaymentContacts(), db.listCustomers()]);
-    const custById = new Map(customers.map(c => [c.id, c]));
-    const rows = contacts
-      .map(ct => {
-        const cust = custById.get(ct.customerId);
-        return {
-          recordKey: String(ct.id),
-          id: ct.id,
-          customerId: ct.customerId,
-          name: ct.name,
-          title: ct.title ?? null,
-          email: ct.email,
-          phone: ct.phone ?? null,
-          companyName: cust?.name ?? "—",
-          group: cust ? groupKeyOf(cust) : "—",
-        };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-    return withCustomValues("contact", rows);
-  }),
+  contacts: protectedProcedure
+    .input(z.object({ archived: z.boolean().optional() }).optional())
+    .query(async ({ input }) => {
+      const [contacts, customers] = await Promise.all([db.listAllPaymentContacts(), db.listCustomers()]);
+      const custById = new Map(customers.map(c => [c.id, c]));
+      const wantArchived = input?.archived === true;
+      const rows = contacts
+        // Archived contacts are hidden by default; the archive view asks for them explicitly.
+        .filter(ct => (ct.archived === 1) === wantArchived)
+        .map(ct => {
+          const cust = custById.get(ct.customerId);
+          return {
+            recordKey: String(ct.id),
+            id: ct.id,
+            customerId: ct.customerId,
+            name: ct.name,
+            title: ct.title ?? null,
+            email: ct.email,
+            phone: ct.phone ?? null,
+            companyName: cust?.name ?? "—",
+            group: cust ? groupKeyOf(cust) : "—",
+            archived: ct.archived === 1,
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return withCustomValues("contact", rows);
+    }),
 
   /** Cross-entity search: one query, results grouped by entity type. */
   search: protectedProcedure
@@ -204,9 +418,10 @@ export const addressBookRouter = router({
         contacts: contacts
           .filter(
             ct =>
-              ct.name.toLowerCase().includes(q) ||
+              ct.archived !== 1 &&
+              (ct.name.toLowerCase().includes(q) ||
               ct.email.toLowerCase().includes(q) ||
-              (ct.phone ?? "").toLowerCase().includes(q),
+              (ct.phone ?? "").toLowerCase().includes(q)),
           )
           .slice(0, 8)
           .map(ct => {
@@ -224,9 +439,257 @@ export const addressBookRouter = router({
 
   // ------------------------- custom fields -------------------------
 
+  /**
+   * Data quality report over the directory. Everything here is derived on the
+   * fly, so it always reflects the latest ERP sync rather than a stored score.
+   */
+  quality: protectedProcedure.query(async () => {
+    const [contacts, customers, vessels] = await Promise.all([
+      db.listAllPaymentContacts(),
+      db.listCustomers(),
+      db.listVessels(),
+    ]);
+    const live = contacts.filter(ct => ct.archived !== 1);
+    const custById = new Map(customers.map(c => [c.id, c]));
+    const label = (ct: (typeof live)[number]) => {
+      const cust = custById.get(ct.customerId);
+      return {
+        id: ct.id,
+        name: ct.name,
+        email: ct.email,
+        phone: ct.phone ?? null,
+        title: ct.title ?? null,
+        customerId: ct.customerId,
+        companyName: cust?.name ?? "—",
+        group: cust ? groupKeyOf(cust) : "—",
+      };
+    };
+
+    // Duplicate emails: same address used by more than one live contact.
+    const byEmail = new Map<string, typeof live>();
+    for (const ct of live) {
+      const key = ct.email.trim().toLowerCase();
+      if (!key) continue;
+      const bucket = byEmail.get(key);
+      if (bucket) bucket.push(ct);
+      else byEmail.set(key, [ct]);
+    }
+    const duplicateEmails = Array.from(byEmail.entries())
+      .filter(([, list]) => list.length > 1)
+      .map(([email, list]) => ({ key: email, label: email, contacts: list.map(label) }))
+      .sort((a, b) => b.contacts.length - a.contacts.length);
+
+    // Duplicate people: same name inside the same company.
+    const byPerson = new Map<string, typeof live>();
+    for (const ct of live) {
+      const key = `${ct.customerId}|${ct.name.trim().toLowerCase()}`;
+      const bucket = byPerson.get(key);
+      if (bucket) bucket.push(ct);
+      else byPerson.set(key, [ct]);
+    }
+    const duplicateNames = Array.from(byPerson.entries())
+      .filter(([, list]) => list.length > 1)
+      .map(([key, list]) => ({
+        key,
+        label: `${list[0].name} · ${custById.get(list[0].customerId)?.name ?? "—"}`,
+        contacts: list.map(label),
+      }))
+      .sort((a, b) => b.contacts.length - a.contacts.length);
+
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    const invalidEmails = live.filter(ct => !emailRe.test(ct.email.trim())).map(label);
+    const missingPhone = live.filter(ct => !(ct.phone ?? "").trim()).map(label);
+    const orphanContacts = live.filter(ct => !custById.has(ct.customerId)).map(label);
+
+    const companiesWithoutContact = customers
+      .filter(c => !live.some(ct => ct.customerId === c.id))
+      .map(c => ({ id: c.id, name: c.name, code: c.code, group: groupKeyOf(c) }));
+
+    const vesselsWithoutImo = vessels
+      .filter(v => !(v.imo ?? "").trim())
+      .map(v => ({ id: v.id, name: v.name, customerId: v.customerId ?? null }));
+    const vesselsWithoutOwner = vessels
+      .filter(v => !v.customerId)
+      .map(v => ({ id: v.id, name: v.name, imo: v.imo ?? null }));
+
+    return {
+      duplicateEmails,
+      duplicateNames,
+      invalidEmails,
+      missingPhone,
+      orphanContacts,
+      companiesWithoutContact,
+      vesselsWithoutImo,
+      vesselsWithoutOwner,
+      totals: {
+        contacts: live.length,
+        archivedContacts: contacts.length - live.length,
+        customers: customers.length,
+        vessels: vessels.length,
+      },
+    };
+  }),
+
+  /** Archive a contact: it leaves the directory but keeps its history. */
+  archiveContact: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    const [existing] = await db.getPaymentContact(input.id);
+    if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+    await db.archivePaymentContact(input.id);
+    return { ok: true } as const;
+  }),
+
+  restoreContact: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    const [existing] = await db.getPaymentContact(input.id);
+    if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+    await db.restorePaymentContact(input.id);
+    return { ok: true } as const;
+  }),
+
+  /**
+   * Merge duplicate contacts into one survivor. The chosen field values are
+   * written onto the survivor, custom-field values are carried over when the
+   * survivor has none, and the losers are archived (never deleted) with a
+   * pointer back to the survivor.
+   */
+  mergeContacts: protectedProcedure
+    .input(
+      z.object({
+        survivorId: z.number(),
+        loserIds: z.array(z.number()).min(1),
+        fields: z.object({
+          name: z.string().min(1).max(255),
+          email: z.string().min(3).max(320),
+          phone: z.string().max(20).nullable(),
+          title: z.string().max(255).nullable(),
+          customerId: z.number(),
+        }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.loserIds.includes(input.survivorId)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A contact cannot be merged into itself" });
+      }
+      const [survivor] = await db.getPaymentContact(input.survivorId);
+      if (!survivor) throw new TRPCError({ code: "NOT_FOUND", message: "Survivor contact not found" });
+
+      await db.updatePaymentContact(input.survivorId, {
+        name: input.fields.name,
+        email: input.fields.email,
+        phone: input.fields.phone,
+        title: input.fields.title,
+        customerId: input.fields.customerId,
+      });
+
+      // Carry over custom values the survivor is missing, then archive the losers.
+      const defs = await db.listCustomFieldDefs("contact");
+      if (defs.length > 0) {
+        const keys = [String(input.survivorId), ...input.loserIds.map(String)];
+        const values = await db.listCustomFieldValues("contact", keys);
+        for (const def of defs) {
+          const own = values.find(v => v.fieldId === def.id && v.recordKey === String(input.survivorId));
+          if (own && (own.value ?? "").trim() !== "") continue;
+          const donor = input.loserIds
+            .map(id => values.find(v => v.fieldId === def.id && v.recordKey === String(id)))
+            .find(v => v && (v.value ?? "").trim() !== "");
+          if (!donor) continue;
+          await db.setCustomFieldValue({
+            fieldId: def.id,
+            entity: "contact",
+            recordKey: String(input.survivorId),
+            value: donor.value ?? null,
+            updatedBy: ctx.user.id,
+          });
+        }
+      }
+
+      for (const id of input.loserIds) await db.archivePaymentContact(id, input.survivorId);
+      return { ok: true, archived: input.loserIds.length } as const;
+    }),
+
   fields: protectedProcedure
     .input(z.object({ entity: entitySchema.optional() }).optional())
     .query(async ({ input }) => db.listCustomFieldDefs(input?.entity)),
+
+  // ------------------------- Excel import -------------------------
+
+  /**
+   * Step 1 of import: read the sheet and return its headers plus a sample, so
+   * the user maps columns instead of us guessing a fixed template.
+   */
+  importInspect: protectedProcedure
+    .input(z.object({ fileBase64: z.string().min(10) }))
+    .mutation(async ({ input }) => {
+      const { headers, rows } = await parseSheet(input.fileBase64);
+      if (headers.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "No columns found in the sheet" });
+      return { headers, sample: rows.slice(0, 5), rowCount: rows.length };
+    }),
+
+  /**
+   * Step 2: turn the mapped sheet into a plan of creates / updates / skips.
+   * Nothing is written yet — the user reviews the plan first.
+   */
+  importPreview: protectedProcedure
+    .input(z.object({ fileBase64: z.string().min(10), mapping: z.record(z.string(), z.string()) }))
+    .mutation(async ({ input }) => planContactImport(input.fileBase64, input.mapping)),
+
+  /** Step 3: apply the reviewed plan. Only rows the user kept are written. */
+  importApply: protectedProcedure
+    .input(
+      z.object({
+        fileBase64: z.string().min(10),
+        mapping: z.record(z.string(), z.string()),
+        skipRowIndexes: z.array(z.number()).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const plan = await planContactImport(input.fileBase64, input.mapping);
+      const skip = new Set(input.skipRowIndexes ?? []);
+      const defs = await db.listCustomFieldDefs("contact");
+      const defByKey = new Map(defs.map(d => [d.fieldKey, d]));
+      let created = 0;
+      let updated = 0;
+
+      for (const row of plan.rows) {
+        if (row.action === "skip" || skip.has(row.rowIndex)) continue;
+        let contactId = row.contactId ?? null;
+        if (row.action === "create") {
+          if (!row.customerId) continue;
+          contactId = await db.addPaymentContact({
+            customerId: row.customerId,
+            name: row.values.name || "Unnamed",
+            email: row.values.email ?? "",
+            phone: row.values.phone ?? null,
+            title: row.values.title ?? null,
+          });
+          created += 1;
+        } else if (row.action === "update" && contactId) {
+          const patch: Record<string, string | number | null> = {};
+          if (row.values.name) patch.name = row.values.name;
+          if (row.values.email) patch.email = row.values.email;
+          if (row.values.phone !== undefined) patch.phone = row.values.phone || null;
+          if (row.values.title !== undefined) patch.title = row.values.title || null;
+          if (row.customerId) patch.customerId = row.customerId;
+          if (Object.keys(patch).length > 0) await db.updatePaymentContact(contactId, patch as any);
+          updated += 1;
+        }
+
+        // Custom-field columns are written after the core row exists.
+        if (contactId) {
+          for (const [fieldKey, value] of Object.entries(row.custom)) {
+            const def = defByKey.get(fieldKey);
+            if (!def) continue;
+            await db.setCustomFieldValue({
+              fieldId: def.id,
+              entity: "contact",
+              recordKey: String(contactId),
+              value: value || null,
+              updatedBy: ctx.user.id,
+            });
+          }
+        }
+      }
+      return { created, updated } as const;
+    }),
 
   createField: protectedProcedure
     .input(
@@ -322,22 +785,34 @@ export const addressBookRouter = router({
   /** All custom values of one record, resolved to `{ fieldKey: value }`. */
   recordFields: protectedProcedure
     .input(z.object({ entity: entitySchema, recordKey: z.string().min(1).max(255) }))
-    .query(async ({ input }) => {
-      const [defs, values] = await Promise.all([
+    .query(async ({ ctx, input }) => {
+      const [defs, values, cardLayout] = await Promise.all([
         db.listCustomFieldDefs(input.entity),
         db.listCustomFieldValues(input.entity, [input.recordKey]),
+        db.getListLayout(ctx.user.id, `address-book-card-${input.entity}`),
       ]);
+      // Fields the user chose to hide on cards stay in the data but leave the card.
+      let hiddenOnCard: string[] = [];
+      if (cardLayout) {
+        try {
+          hiddenOnCard = (JSON.parse(cardLayout.config) as { hidden?: string[] }).hidden ?? [];
+        } catch {
+          hiddenOnCard = [];
+        }
+      }
       const byField = new Map(values.map(v => [v.fieldId, v.value ?? ""]));
-      return defs.map(d => ({
-        id: d.id,
-        fieldKey: d.fieldKey,
-        label: d.label,
-        fieldType: d.fieldType,
-        options: d.options ? (JSON.parse(d.options) as string[]) : [],
-        helpText: d.helpText,
-        required: d.required === 1,
-        value: byField.get(d.id) ?? "",
-      }));
+      return defs
+        .filter(d => !hiddenOnCard.includes(d.fieldKey))
+        .map(d => ({
+          id: d.id,
+          fieldKey: d.fieldKey,
+          label: d.label,
+          fieldType: d.fieldType,
+          options: d.options ? (JSON.parse(d.options) as string[]) : [],
+          helpText: d.helpText,
+          required: d.required === 1,
+          value: byField.get(d.id) ?? "",
+        }));
     }),
 
   // ------------------------- saved views -------------------------

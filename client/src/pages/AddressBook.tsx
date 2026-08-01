@@ -12,16 +12,40 @@ import {
   type SortState,
 } from "@/components/AddressBookTable";
 import { AddressBookRecordDialog, type RecordTarget } from "@/components/AddressBookRecordDialog";
+import {
+  applyFieldFilters,
+  FieldFilterBar,
+  opNeedsValue,
+  type FieldFilter,
+} from "@/components/AddressBookFilters";
 import { ColumnPicker, ExportMenu } from "@/components/AddressBookToolbar";
+import { DataQualityPanel } from "@/components/DataQualityPanel";
+import { ImportContactsDialog } from "@/components/ImportContactsDialog";
+import { MergeContactsDialog, type MergeCandidate } from "@/components/MergeContactsDialog";
 import { CustomFieldsManager } from "@/components/CustomFieldsManager";
 import { SavedViewsBar } from "@/components/SavedViewsBar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { BookUser, Building2, Mail, Phone, Plus, Search, Ship, Users, X } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  BookUser,
+  Building2,
+  Mail,
+  Merge,
+  Phone,
+  Plus,
+  Search,
+  Ship,
+  Users,
+  X,
+} from "lucide-react";
+import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { ContactFormDialog, type ContactRow } from "@/components/ContactFormDialog";
@@ -40,6 +64,7 @@ type ViewConfig = {
   search?: string;
   group?: string;
   extra?: string;
+  filters?: FieldFilter[];
   sort?: SortState;
   hidden?: string[];
   order?: string[];
@@ -47,24 +72,59 @@ type ViewConfig = {
 
 export default function AddressBook() {
   const [, navigate] = useLocation();
-  const [entity, setEntity] = useState<Entity>("group");
+  // Tab lives in the URL (?tab=contact) so a tab can be linked, bookmarked and survives a reload.
+  const [entity, setEntity] = useState<Entity>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return TABS.some(x => x.value === t) ? (t as Entity) : "group";
+  });
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   /** Second filter: position for contacts, vessel type for vessels, tier for companies. */
   const [extraFilter, setExtraFilter] = useState("all");
+  /** Column-level conditions, usable on custom fields too. */
+  const [fieldFilters, setFieldFilters] = useState<FieldFilter[]>([]);
   const [sort, setSort] = useState<SortState>({ key: null, dir: "asc" });
   const [activeViewId, setActiveViewId] = useState<number | null>(null);
   const [target, setTarget] = useState<RecordTarget | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [contactFormOpen, setContactFormOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<ContactRow | null>(null);
+  /** Contacts tab only: show the archive instead of the live directory. */
+  const [showArchived, setShowArchived] = useState(false);
+  /** Rows ticked in the contacts list, for a manual merge. */
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [manualMerge, setManualMerge] = useState<MergeCandidate[] | null>(null);
 
   const utils = trpc.useUtils();
   const { data: counts } = trpc.addressBook.counts.useQuery();
   const groupsQ = trpc.addressBook.groups.useQuery(undefined, { enabled: entity === "group" });
   const customersQ = trpc.addressBook.customers.useQuery(undefined, { enabled: entity === "customer" });
   const vesselsQ = trpc.addressBook.vessels.useQuery(undefined, { enabled: entity === "vessel" });
-  const contactsQ = trpc.addressBook.contacts.useQuery(undefined, { enabled: entity === "contact" });
+  const contactsQ = trpc.addressBook.contacts.useQuery(
+    { archived: showArchived },
+    { enabled: entity === "contact" },
+  );
+
+  const refreshContacts = () => {
+    utils.addressBook.contacts.invalidate();
+    utils.addressBook.counts.invalidate();
+    utils.addressBook.quality.invalidate();
+  };
+
+  const archiveContact = trpc.addressBook.archiveContact.useMutation({
+    onSuccess: () => {
+      toast.success("Contact archived — you can restore it from the Archive view");
+      refreshContacts();
+    },
+    onError: e => toast.error(e.message),
+  });
+  const restoreContact = trpc.addressBook.restoreContact.useMutation({
+    onSuccess: () => {
+      toast.success("Contact restored");
+      refreshContacts();
+    },
+    onError: e => toast.error(e.message),
+  });
   const { data: fieldDefs } = trpc.addressBook.fields.useQuery({ entity });
 
   const listKey = `address-book-${entity}`;
@@ -240,6 +300,23 @@ export default function AddressBook() {
     }
     return [
       {
+        key: "select",
+        label: "",
+        width: 40,
+        sortable: false,
+        value: () => "",
+        render: r => (
+          <Checkbox
+            checked={selectedIds.includes(r.id)}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            onCheckedChange={(v: boolean | "indeterminate") =>
+              setSelectedIds(ids => (v ? [...ids, r.id] : ids.filter(id => id !== r.id)))
+            }
+            aria-label={`Select ${r.name}`}
+          />
+        ),
+      },
+      {
         key: "name",
         label: "Name",
         width: 220,
@@ -285,31 +362,61 @@ export default function AddressBook() {
       {
         key: "edit",
         label: "",
-        width: 90,
+        width: 150,
         sortable: false,
         value: () => "",
         render: r => (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={e => {
-              e.stopPropagation();
-              setEditingContact({
-                id: r.id,
-                customerId: r.customerId,
-                name: r.name,
-                email: r.email,
-                phone: r.phone,
-                title: r.title,
-                companyName: r.companyName,
-                groupName: r.group,
-              });
-              setContactFormOpen(true);
-            }}
-          >
-            Edit
-          </Button>
+          <div className="flex items-center justify-end gap-1">
+            {showArchived ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                onClick={e => {
+                  e.stopPropagation();
+                  restoreContact.mutate({ id: r.id });
+                }}
+              >
+                <ArchiveRestore className="h-3.5 w-3.5" /> Restore
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={e => {
+                    e.stopPropagation();
+                    setEditingContact({
+                      id: r.id,
+                      customerId: r.customerId,
+                      name: r.name,
+                      email: r.email,
+                      phone: r.phone,
+                      title: r.title,
+                      companyName: r.companyName,
+                      groupName: r.group,
+                    });
+                    setContactFormOpen(true);
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  title="Archive this contact (keeps its history)"
+                  onClick={e => {
+                    e.stopPropagation();
+                    archiveContact.mutate({ id: r.id });
+                  }}
+                >
+                  <Archive className="h-3.5 w-3.5" />
+                </Button>
+              </>
+            )}
+          </div>
         ),
       },
     ];
@@ -372,7 +479,7 @@ export default function AddressBook() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return (rows as any[]).filter(r => {
+    const base = (rows as any[]).filter(r => {
       const g = entity === "vessel" ? r.ownerGroup : r.group;
       if (groupFilter !== "all" && g !== groupFilter) return false;
       if (extraFilter !== "all") {
@@ -387,9 +494,19 @@ export default function AddressBook() {
         return v !== null && v !== undefined && String(v).toLowerCase().includes(q);
       });
     });
-  }, [rows, search, groupFilter, extraFilter, entity, columns]);
+    // Column conditions run against all columns, so a hidden custom field can still filter.
+    return applyFieldFilters(base, fieldFilters, allColumns);
+  }, [rows, search, groupFilter, extraFilter, entity, columns, fieldFilters, allColumns]);
 
-  const currentConfig: ViewConfig = { search, group: groupFilter, extra: extraFilter, sort, hidden, order };
+  const currentConfig: ViewConfig = {
+    search,
+    group: groupFilter,
+    extra: extraFilter,
+    filters: fieldFilters,
+    sort,
+    hidden,
+    order,
+  };
 
   const applyView = (viewId: number, config: unknown) => {
     const c = (config ?? {}) as ViewConfig;
@@ -397,17 +514,24 @@ export default function AddressBook() {
     setSearch(c.search ?? "");
     setGroupFilter(c.group ?? "all");
     setExtraFilter(c.extra ?? "all");
+    setFieldFilters(c.filters ?? []);
     setSort(c.sort ?? { key: null, dir: "asc" });
     if (c.hidden || c.order) applyLayout({ hidden: c.hidden ?? [], order: c.order ?? [] });
   };
 
   const switchTab = (next: Entity) => {
     setEntity(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", next);
+    window.history.replaceState(null, "", url.toString());
     setSearch("");
     setGroupFilter("all");
     setExtraFilter("all");
+    setFieldFilters([]);
     setSort({ key: null, dir: "asc" });
     setActiveViewId(null);
+    setShowArchived(false);
+    setSelectedIds([]);
   };
 
   const tabCount = (t: Entity) => counts?.[t];
@@ -424,15 +548,27 @@ export default function AddressBook() {
           </p>
         </div>
         {entity === "contact" && (
-          <Button
-            className="gap-2"
-            onClick={() => {
-              setEditingContact(null);
-              setContactFormOpen(true);
-            }}
-          >
-            <Plus className="h-4 w-4" /> New Contact
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={showArchived ? "default" : "outline"}
+              className="gap-2"
+              onClick={() => {
+                setShowArchived(v => !v);
+                setSelectedIds([]);
+              }}
+            >
+              <Archive className="h-4 w-4" /> {showArchived ? "Viewing archive" : "Archive"}
+            </Button>
+            <Button
+              className="gap-2"
+              onClick={() => {
+                setEditingContact(null);
+                setContactFormOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4" /> New Contact
+            </Button>
+          </div>
         )}
       </div>
 
@@ -499,6 +635,8 @@ export default function AddressBook() {
           </Select>
         )}
         <div className="ml-auto flex items-center gap-2">
+          {entity === "contact" && <ImportContactsDialog onImported={refreshContacts} />}
+          <DataQualityPanel />
           <CustomFieldsManager entity={entity} />
           <ColumnPicker allColumns={allColumns} hidden={hidden} order={order} onChange={applyLayout} />
           <ExportMenu
@@ -508,6 +646,40 @@ export default function AddressBook() {
           />
         </div>
       </div>
+
+      <FieldFilterBar columns={allColumns} filters={fieldFilters} onChange={setFieldFilters} />
+
+      {entity === "contact" && selectedIds.length > 1 && !showArchived && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          <span className="text-muted-foreground">{selectedIds.length} contacts selected</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 text-xs"
+            onClick={() =>
+              setManualMerge(
+                (contactsQ.data ?? [])
+                  .filter(c => selectedIds.includes(c.id))
+                  .map(c => ({
+                    id: c.id,
+                    name: c.name,
+                    email: c.email,
+                    phone: c.phone,
+                    title: c.title,
+                    customerId: c.customerId,
+                    companyName: c.companyName,
+                    group: c.group,
+                  })),
+              )
+            }
+          >
+            <Merge className="h-3.5 w-3.5" /> Merge selected
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds([])}>
+            Clear selection
+          </Button>
+        </div>
+      )}
 
       <SavedViewsBar
         entity={entity}
@@ -524,7 +696,10 @@ export default function AddressBook() {
         sort={sort}
         onSortChange={setSort}
         emptyMessage={
-          search || groupFilter !== "all" || extraFilter !== "all"
+          search ||
+          groupFilter !== "all" ||
+          extraFilter !== "all" ||
+          fieldFilters.some(f => (opNeedsValue(f.op) ? f.value.trim() !== "" : true))
             ? "No records match your filters"
             : "Nothing here yet"
         }
@@ -547,6 +722,18 @@ export default function AddressBook() {
       />
 
       <AddressBookRecordDialog target={target} open={dialogOpen} onOpenChange={setDialogOpen} />
+
+      {manualMerge && manualMerge.length > 1 && (
+        <MergeContactsDialog
+          candidates={manualMerge}
+          open={!!manualMerge}
+          onOpenChange={o => !o && setManualMerge(null)}
+          onMerged={() => {
+            setManualMerge(null);
+            setSelectedIds([]);
+          }}
+        />
+      )}
 
       {contactFormOpen && (
         <ContactFormDialog

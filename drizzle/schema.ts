@@ -488,6 +488,15 @@ export const paymentContacts = mysqlTable("payment_contacts", {
   email: varchar("email", { length: 320 }).notNull(),
   phone: varchar("phone", { length: 20 }),
   title: varchar("title", { length: 255 }),
+  /**
+   * Address Book archives contacts instead of deleting them: an archived contact
+   * disappears from the directory and from mailing lists but its history and
+   * custom-field values remain intact and it can be restored.
+   */
+  archived: int("archived").default(0).notNull(),
+  archivedAt: timestamp("archivedAt"),
+  /** Set when the contact was merged away; points at the surviving contact. */
+  mergedIntoId: int("mergedIntoId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

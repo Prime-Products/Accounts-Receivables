@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/lib/trpc";
-import { Archive, Plus, Settings2 } from "lucide-react";
+import { Archive, Eye, EyeOff, Plus, Settings2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -40,6 +40,10 @@ export function CustomFieldsManager({ entity }: { entity: AddressBookEntity }) {
   const [open, setOpen] = useState(false);
   const utils = trpc.useUtils();
   const { data: fields } = trpc.addressBook.fields.useQuery({ entity }, { enabled: open });
+  // Card visibility is a per-user layout, stored under its own list key.
+  const cardListKey = `address-book-card-${entity}`;
+  const { data: cardLayout } = trpc.addressBook.layout.useQuery({ listKey: cardListKey }, { enabled: open });
+  const hiddenOnCard = cardLayout?.hidden ?? [];
   const [label, setLabel] = useState("");
   const [fieldType, setFieldType] = useState<string>("text");
   const [optionsText, setOptionsText] = useState("");
@@ -52,6 +56,21 @@ export function CustomFieldsManager({ entity }: { entity: AddressBookEntity }) {
     utils.addressBook.vessels.invalidate();
     utils.addressBook.contacts.invalidate();
     utils.addressBook.recordFields.invalidate();
+  };
+
+  const saveCardLayout = trpc.addressBook.saveLayout.useMutation({
+    onSuccess: () => {
+      utils.addressBook.layout.invalidate({ listKey: cardListKey });
+      utils.addressBook.recordFields.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const toggleOnCard = (fieldKey: string) => {
+    const next = hiddenOnCard.includes(fieldKey)
+      ? hiddenOnCard.filter(k => k !== fieldKey)
+      : [...hiddenOnCard, fieldKey];
+    saveCardLayout.mutate({ listKey: cardListKey, hidden: next, order: cardLayout?.order ?? [] });
   };
 
   const createField = trpc.addressBook.createField.useMutation({
@@ -123,8 +142,22 @@ export function CustomFieldsManager({ entity }: { entity: AddressBookEntity }) {
                       <p className="text-xs text-muted-foreground">
                         {FIELD_TYPES.find(t => t.value === f.fieldType)?.label ?? f.fieldType}
                         {f.options ? ` · ${(JSON.parse(f.options) as string[]).length} values` : ""}
+                        {hiddenOnCard.includes(f.fieldKey) ? " · hidden on cards" : ""}
                       </p>
                     </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title={hiddenOnCard.includes(f.fieldKey) ? "Show on cards" : "Hide on cards"}
+                      onClick={() => toggleOnCard(f.fieldKey)}
+                    >
+                      {hiddenOnCard.includes(f.fieldKey) ? (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

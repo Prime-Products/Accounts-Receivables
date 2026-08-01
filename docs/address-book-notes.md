@@ -59,4 +59,36 @@ DB helpers added at the end of `server/db.ts`: `listCustomFieldDefs`, `getCustom
 
 Live counts observed: 3,078 groups / 3,526 companies / 184 vessels / 7,762 contacts.
 
-Still to do: vitest coverage for the address book contract, screenshots per tab, todo.md update, checkpoint + GitHub push.
+## Phase 5 (filters / card visibility / quality / archive) — built
+- `client/src/components/AddressBookFilters.tsx` — `FieldFilter{key,op,value}`, ops contains/equals/gt/lt/empty/notEmpty,
+  `applyFieldFilters(rows, filters, columns)`, `opNeedsValue(op)`, `FieldFilterBar`. Filters persist inside saved views (`config.filters`).
+- Card field visibility: per-user layout under listKey `address-book-card-<entity>`; `recordFields` filters hidden fieldKeys.
+  Toggle lives in `CustomFieldsManager`.
+- Migration 0040 applied: `payment_contacts.archived` (int default 0), `archivedAt` (timestamp), `mergedIntoId` (int).
+  DB helpers `archivePaymentContact(id, mergedIntoId?)`, `restorePaymentContact(id)` (both use `requireDb`).
+- Router additions: `quality` (duplicate emails, duplicate name-in-company, invalid emails, missing phone,
+  orphan contacts, companies without contact, vessels without IMO, vessels without owner, plus totals),
+  `archiveContact`, `restoreContact`, `mergeContacts({survivorId, loserIds, fields})` — merge copies missing
+  custom values from losers and archives them with `mergedIntoId`.
+  `contacts` now takes `{archived?: boolean}` (defaults to live only); `search` skips archived.
+- `client/src/components/DataQualityPanel.tsx` (dialog, expandable sections, Merge buttons) and
+  `client/src/components/MergeContactsDialog.tsx` (survivor radio + per-field value picking).
+- Contacts tab: checkbox select column → "Merge selected" bar, Archive button toggles the archive view,
+  per-row Archive / Restore actions.
+- Tests: `server/addressBookFilters.test.ts`.
+
+## Phase 6 (Excel import) — built
+- Router: `importInspect` (headers + 5-row sample + rowCount), `importPreview` (plan only, no writes),
+  `importApply({fileBase64, mapping, skipRowIndexes})`. Helpers `parseSheet` (exceljs, first sheet, first
+  non-empty row = header, values coerced to trimmed strings) and `planContactImport`.
+- Matching rule: existing live contact with the same email → update (only real differences are listed as
+  `changes`, otherwise "Already up to date"); no email match + resolvable company (code, then name) → create;
+  unresolvable company or empty name+email → skip with a reason.
+- `client/src/components/ImportContactsDialog.tsx` — 3 steps (file → map columns → review plan), header
+  auto-guessing by regex, custom-field targets included, per-row checkbox to exclude rows, only `.xlsx`.
+- Active tab now lives in the URL: `/address-book?tab=group|customer|vessel|contact`.
+- Tests: `server/addressBookQuality.test.ts` (19) covering quality checks, archive, merge and import contract.
+
+Verified counts in UI: Groups 3,085 / Companies 3,533 / Vessels 184 / Contacts 7,762.
+
+Still to do: full suite + checkpoint + GitHub push.

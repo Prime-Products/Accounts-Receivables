@@ -979,6 +979,27 @@ export async function deletePaymentContact(id: number) {
   return db.delete(paymentContacts).where(eq(paymentContacts.id, id));
 }
 
+/**
+ * Address Book uses archive instead of delete: the row stays for history but
+ * leaves every directory list and mailing list. `mergedIntoId` is set when the
+ * contact was archived as part of a duplicate merge.
+ */
+export async function archivePaymentContact(id: number, mergedIntoId?: number) {
+  const db = await requireDb();
+  return db
+    .update(paymentContacts)
+    .set({ archived: 1, archivedAt: new Date(), ...(mergedIntoId ? { mergedIntoId } : {}) })
+    .where(eq(paymentContacts.id, id));
+}
+
+export async function restorePaymentContact(id: number) {
+  const db = await requireDb();
+  return db
+    .update(paymentContacts)
+    .set({ archived: 0, archivedAt: null, mergedIntoId: null })
+    .where(eq(paymentContacts.id, id));
+}
+
 // ---------- Aggregations ----------
 export async function sumReceiptsInRange(start: number, end: number) {
   const db = await requireDb();

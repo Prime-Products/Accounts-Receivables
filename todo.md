@@ -1356,8 +1356,12 @@
 - [x] Filters (group + tab-specific) and saved views, personal or shared with the team
 - [x] Export the current view to Excel / PDF / CSV via the existing buildExcel / buildPdf helpers
 - [x] Vitest coverage for the Address Book router and the UI contract (15 tests)
-- [ ] Custom fields usable as list filters (currently searchable and sortable only)
-- [ ] Field visibility settings for record cards
-- [ ] Data quality panel: duplicate emails, invalid emails, contacts without group, vessels without IMO/owner
-- [ ] Merge duplicates with per-field value choice; archive instead of delete
-- [ ] Excel import with column mapping and a create/update preview
+- [x] Column filters usable on any column including custom fields (contains/is/greater/less/empty), saved with views
+- [x] Field visibility settings for record cards (show/hide per custom field, per user)
+- [x] Data quality panel: duplicate emails, duplicate name-in-company, invalid emails, missing phone, contacts without group, companies without contact, vessels without IMO/owner
+- [x] Merge duplicates with per-field value choice; losers archived with a pointer to the survivor, custom values carried over
+- [x] Archive instead of delete for contacts, with an archive view and restore
+- [x] Multi-select contact rows to merge manually
+- [x] Excel import wizard: file upload, column mapping (incl. custom fields), create/update/skip preview, per-row exclusion
+- [x] Active Address Book tab persisted in the URL (?tab=group|customer|vessel|contact)
+- [x] Vitest coverage for quality checks, archive, merge and the import contract (19 tests)
