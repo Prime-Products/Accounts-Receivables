@@ -48,7 +48,10 @@ describe("Escalation summary & decision", () => {
     expect(typeof summary.overdueEur).toBe("number");
     expect(summary.escalationReason).toContain("⬆ Escalated");
     expect(summary.escalationReason).toContain("exhausted all options");
-    expect(Array.isArray(summary.recentActivity)).toBe(true);
+    // The panel now tells the story, so the snapshot carries timeline counters
+    // rather than a raw activity list.
+    expect(typeof summary.stats.events).toBe("number");
+    expect(typeof summary.stats.calls).toBe("number");
   });
 
   it("On Hold decision flags the group and keeps the task open", async () => {

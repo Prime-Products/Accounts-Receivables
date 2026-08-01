@@ -30,6 +30,12 @@ const MAX_W = 640;
 export function useResizableColumns(
   storageKey: string,
   defaults: Record<string, number>,
+  /**
+   * Columns that must never be narrower than their default, whatever the user
+   * previously saved. Used for cells whose content cannot shrink gracefully
+   * (e.g. the status cell with a primary + Disputed badge side by side).
+   */
+  minWidths?: Record<string, number>,
 ): ResizableColumnsApi {
   const key = `col-widths:${storageKey}`;
   const [widths, setWidths] = React.useState<Record<string, number>>(() => {
@@ -113,17 +119,21 @@ export function useResizableColumns(
   }, [key]);
 
   const style = React.useCallback(
-    (col: string): React.CSSProperties => ({
-      width: widths[col],
-      minWidth: widths[col],
-      maxWidth: widths[col],
-    }),
-    [widths],
+    (col: string): React.CSSProperties => {
+      const floor = minWidths?.[col];
+      const w = floor != null ? Math.max(widths[col] ?? floor, floor) : widths[col];
+      return { width: w, minWidth: w, maxWidth: w };
+    },
+    [widths, minWidths],
   );
 
   const totalWidth = React.useMemo(
-    () => Object.values(widths).reduce((s, w) => s + w, 0),
-    [widths],
+    () =>
+      Object.entries(widths).reduce((s, [col, w]) => {
+        const floor = minWidths?.[col];
+        return s + (floor != null ? Math.max(w, floor) : w);
+      }, 0),
+    [widths, minWidths],
   );
 
   return { widths, style, startResize, reset, totalWidth, resizingCol };

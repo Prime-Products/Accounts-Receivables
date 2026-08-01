@@ -12,7 +12,6 @@ import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
-import { UnallocatedTransfersTable } from "@/components/UnallocatedTransfersTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -26,7 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowLeft, Building2, ChevronDown, Eye, EyeOff, FileDown, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { useMemo, useState } from "react";
@@ -335,9 +334,14 @@ export default function GroupDetail() {
   const [branch, setBranch] = useState<string>("all");
   const [agingFilter, setAgingFilter] = useState<AgingBucket>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [companiesOpen, setCompaniesOpen] = useState(false);
-  const [invoiceView, setInvoiceView] = useState<"list" | "byBranch">("list");
+  const [invoiceView, setInvoiceView] = useState<"list" | "byBranch" | "byVessel">("list");
+  /** When set from the By vessel view, the list shows only this vessel's invoices ("none" = no vessel). */
+  const [vesselDrill, setVesselDrill] = useState<string>("all");
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
+  // Credit-note toggle: when on, the transactions list shows only credit notes.
+  const [creditOnly, setCreditOnly] = useState(false);
+  // Payments toggle: when on, the transactions list shows only wire transfers.
+  const [paymentsOnly, setPaymentsOnly] = useState(false);
   // The transactions list is a collection worklist, so settled invoices are hidden
   // by default; the toggle brings them back for reconciliation/history checks.
   const [showPaid, setShowPaid] = useState(false);
@@ -414,11 +418,16 @@ export default function GroupDetail() {
   // Invoices matching the selected status + aging bucket — powers the list and totals row.
   const filteredInvoices = useMemo(() => {
     if (!data?.invoices) return [];
+    if (creditOnly || paymentsOnly) return [];
     const now = Date.now();
     return data.invoices.filter(inv => {
       if (hideSettled(inv as any, showPaid, statusFilter)) return false;
       if (!matchesStatusFilter(inv as any, statusFilter)) return false;
       if (installmentFilter === "installments" && !(inv as any).isContractInstallment) return false;
+      if (vesselDrill !== "all") {
+        const vid = ((inv as any).vesselId ?? null) as number | null;
+        if (vesselDrill === "none" ? vid != null : String(vid ?? "") !== vesselDrill) return false;
+      }
       if (agingFilter !== "all") {
         if (inv.status === "Paid") return false;
         if (Number(inv.amount) - Number(inv.paidAmount) <= 0) return false;
@@ -426,13 +435,55 @@ export default function GroupDetail() {
       }
       return true;
     });
-  }, [data?.invoices, agingFilter, statusFilter, installmentFilter, showPaid]);
+  }, [data?.invoices, agingFilter, statusFilter, installmentFilter, showPaid, vesselDrill, creditOnly, paymentsOnly]);
+
+  /**
+   * Credit notes shown inside the transactions list. They follow the vessel
+   * drill-down (a credit note can concern a vessel) but not the invoice-only
+   * filters (status, aging bucket, installments), which would otherwise hide them
+   * silently.
+   */
+  const allCreditNotes = ((data as any)?.openCreditNotes ?? []) as any[];
+  const visibleCreditNotes = useMemo(() => {
+    if (allCreditNotes.length === 0) return [];
+    if (paymentsOnly) return [];
+    if (!creditOnly && (installmentFilter === "installments" || statusFilter !== "all" || agingFilter !== "all")) return [];
+    if (vesselDrill !== "all") {
+      return allCreditNotes.filter(c => {
+        const name = c.vesselName ?? null;
+        if (vesselDrill === "none") return name == null;
+        return String(c.vesselId ?? "") === vesselDrill;
+      });
+    }
+    return allCreditNotes;
+  }, [allCreditNotes, creditOnly, paymentsOnly, installmentFilter, statusFilter, agingFilter, vesselDrill]);
+
+  /**
+   * Payments (wire transfers with an unallocated remainder) shown inside the same
+   * transactions list. A payment has no vessel or aging bucket, so the
+   * invoice-only filters hide them rather than showing a misleading subset.
+   */
+  const allTransfers = ((data as any)?.openTransfers ?? []) as any[];
+  const visibleTransfers = useMemo(() => {
+    if (allTransfers.length === 0) return [];
+    if (creditOnly) return [];
+    if (!paymentsOnly && (installmentFilter === "installments" || statusFilter !== "all" || agingFilter !== "all" || vesselDrill !== "all")) return [];
+    return allTransfers;
+  }, [allTransfers, creditOnly, paymentsOnly, installmentFilter, statusFilter, agingFilter, vesselDrill]);
 
   /** How many settled invoices are currently being hidden (for the toggle label). */
   const paidHiddenCount = useMemo(() => {
     if (!data?.invoices) return 0;
     return countSettled(data.invoices as any);
   }, [data?.invoices]);
+
+  /** Human label for the active vessel drill-down chip. */
+  const vesselDrillLabel = useMemo(() => {
+    if (vesselDrill === "all") return "";
+    if (vesselDrill === "none") return "No vessel";
+    const hit = (data?.invoices ?? []).find(i => String((i as any).vesselId ?? "") === vesselDrill);
+    return ((hit as any)?.vesselName as string | undefined) ?? "Vessel";
+  }, [vesselDrill, data?.invoices]);
 
   /** Totals of the currently filtered invoice list: EUR + per-currency (like Invoices page). */
   const filteredTotals = useMemo(() => {
@@ -493,7 +544,7 @@ export default function GroupDetail() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" className="gap-1" onClick={() => navigate("/customers")}>
-            <ArrowLeft className="h-4 w-4" /> Collections
+            <ArrowLeft className="h-4 w-4" /> Collections Desk
           </Button>
           <div>
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
@@ -623,12 +674,18 @@ export default function GroupDetail() {
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Open Balance</div>
                 <div className="text-xl font-bold font-mono">{fmtEur((data.totals as any).netOpenBalance ?? data.totals.openBalance)}</div>
-                {((data.totals as any).unallocatedPayments ?? 0) > 0.005 && (
+                {(((data.totals as any).unallocatedPayments ?? 0) > 0.005 ||
+                  ((data.totals as any).openCreditNotes ?? 0) > 0.005) && (
                   <div
                     className="text-[11px] font-mono mt-0.5 text-emerald-600"
-                    title="Open invoices minus payments on account that are not yet allocated"
+                    title="Open invoices minus payments on account and credit notes that are not yet matched"
                   >
-                    {fmtEur(data.totals.openBalance)} inv − {fmtEur((data.totals as any).unallocatedPayments)} on acct
+                    {fmtEur(data.totals.openBalance)} inv
+                    {((data.totals as any).unallocatedPayments ?? 0) > 0.005 &&
+                      ` − ${fmtEur((data.totals as any).unallocatedPayments)} on acct`}
+                    {((data.totals as any).openCreditNotes ?? 0) > 0.005 && (
+                      <span className="text-sky-600"> − {fmtEur((data.totals as any).openCreditNotes)} credit</span>
+                    )}
                   </div>
                 )}
                 <div className="text-[11px] text-muted-foreground mt-0.5">
@@ -793,6 +850,18 @@ export default function GroupDetail() {
                   </button>
                 </Badge>
               )}
+              {vesselDrill !== "all" && (
+                <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30 max-w-64">
+                  <span className="truncate">{vesselDrillLabel}</span>
+                  <button
+                    className="ml-0.5 text-muted-foreground hover:text-foreground"
+                    title="Clear vessel filter"
+                    onClick={() => setVesselDrill("all")}
+                  >
+                    ×
+                  </button>
+                </Badge>
+              )}
               <span>
                 Outstanding total: <span className="font-mono font-semibold">{fmtEur(filteredTotals.eurTotal)}</span>
               </span>
@@ -829,6 +898,30 @@ export default function GroupDetail() {
                 {showPaid ? "Hide paid" : `Show paid${paidHiddenCount > 0 ? ` (${paidHiddenCount})` : ""}`}
               </Button>
               <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
+              {allTransfers.length > 0 && (
+                <Button
+                  size="sm"
+                  variant={paymentsOnly ? "secondary" : "ghost"}
+                  className={`h-7 px-2.5 text-xs gap-1.5 border ${paymentsOnly ? "border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : ""}`}
+                  onClick={() => { setPaymentsOnly(v => !v); setCreditOnly(false); }}
+                  title={paymentsOnly ? "Show invoices again" : "Show only payments on account"}
+                >
+                  <Banknote className="h-3.5 w-3.5" />
+                  Payments ({allTransfers.length})
+                </Button>
+              )}
+              {allCreditNotes.length > 0 && (
+                <Button
+                  size="sm"
+                  variant={creditOnly ? "secondary" : "ghost"}
+                  className={`h-7 px-2.5 text-xs gap-1.5 border ${creditOnly ? "border-sky-300 bg-sky-100 text-sky-800 hover:bg-sky-100" : ""}`}
+                  onClick={() => { setCreditOnly(v => !v); setPaymentsOnly(false); }}
+                  title={creditOnly ? "Show invoices again" : "Show only credit notes"}
+                >
+                  <FileMinus2 className="h-3.5 w-3.5" />
+                  Credit notes ({allCreditNotes.length})
+                </Button>
+              )}
               <div className="flex items-center rounded-md border p-0.5">
                 <Button
                   size="sm"
@@ -846,11 +939,89 @@ export default function GroupDetail() {
                 >
                   By branch
                 </Button>
+                <Button
+                  size="sm"
+                  variant={invoiceView === "byVessel" ? "secondary" : "ghost"}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setInvoiceView("byVessel")}
+                >
+                  By vessel
+                </Button>
               </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              {invoiceView === "byBranch" ? (
+              {invoiceView === "byVessel" ? (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Vessel</TableHead>
+                        <TableHead className="text-right">Invoices</TableHead>
+                        <TableHead className="text-right">Outstanding (EUR)</TableHead>
+                        <TableHead className="text-right">% of total</TableHead>
+                        <TableHead className="text-right"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(() => {
+                        // Outstanding per vessel, converted to EUR the same way as the
+                        // By branch view. Invoices without a vessel roll up into a
+                        // single "No vessel" row so the totals still reconcile.
+                        const byVessel = new Map<string, { label: string; count: number; totalEur: number }>();
+                        for (const i of filteredInvoices) {
+                          const raw = Number(i.amount) - Number(i.paidAmount);
+                          if (raw <= 0.005) continue;
+                          const ratio = Number(i.amount) > 0 ? Number((i as any).amountEur ?? i.amount) / Number(i.amount) : 1;
+                          const vid = ((i as any).vesselId ?? null) as number | null;
+                          const key = vid != null ? String(vid) : "none";
+                          const label = (((i as any).vesselName as string | null) ?? "No vessel") || "No vessel";
+                          const cur = byVessel.get(key) ?? { label, count: 0, totalEur: 0 };
+                          cur.count += 1;
+                          cur.totalEur += raw * ratio;
+                          byVessel.set(key, cur);
+                        }
+                        const grand = Array.from(byVessel.values()).reduce((s, v) => s + v.totalEur, 0);
+                        const rows = Array.from(byVessel.entries()).sort((a, b) => {
+                          if (a[0] === "none") return 1;
+                          if (b[0] === "none") return -1;
+                          return b[1].totalEur - a[1].totalEur;
+                        });
+                        if (rows.length === 0) {
+                          return (
+                            <TableRow>
+                              <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">
+                                No outstanding invoices in the current scope.
+                              </TableCell>
+                            </TableRow>
+                          );
+                        }
+                        return rows.map(([key, v]) => (
+                          <TableRow
+                            key={key}
+                            className="cursor-pointer"
+                            onClick={() => {
+                              setVesselDrill(vesselDrill === key ? "all" : key);
+                              setInvoiceView("list");
+                            }}
+                          >
+                            <TableCell className={key === "none" ? "text-muted-foreground" : "font-medium"}>{v.label}</TableCell>
+                            <TableCell className="text-right font-mono">{v.count}</TableCell>
+                            <TableCell className="text-right font-mono font-semibold">{fmtEur(v.totalEur)}</TableCell>
+                            <TableCell className="text-right font-mono text-sm text-muted-foreground">
+                              {grand > 0 ? `${((v.totalEur / grand) * 100).toFixed(1)}%` : "—"}
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-muted-foreground">View invoices →</TableCell>
+                          </TableRow>
+                        ));
+                      })()}
+                    </TableBody>
+                  </Table>
+                  <p className="px-4 py-2 text-[11px] text-muted-foreground">
+                    Open invoices in the current scope, grouped per vessel (non-EUR converted to EUR). Click a vessel to see its invoices.
+                  </p>
+                </>
+              ) : invoiceView === "byBranch" ? (
                 <>
                   <Table>
                     <TableHeader>
@@ -911,101 +1082,18 @@ export default function GroupDetail() {
                 </>
               ) : (
               <>
-              <UnallocatedTransfersTable rows={(data as any).openTransfers ?? []} />
-              <div className="max-h-[480px] overflow-auto">
-                <InvoicesTable
-                  rows={filteredInvoices as any}
-                  onDisputeChanged={() => utils.customers.groupDetail.invalidate()}
-                />
-              </div>
+              {/* The table scrolls inside its own container so the column header
+                  stays pinned while the collector scans the list. */}
+              <InvoicesTable
+                rows={filteredInvoices as any}
+                creditNotes={visibleCreditNotes as any}
+                transfers={visibleTransfers as any}
+                maxHeight="480px"
+                onDisputeChanged={() => utils.customers.groupDetail.invalidate()}
+              />
               </>
               )}
             </CardContent>
-          </Card>
-
-          {/* Member companies (folded by default) */}
-          <Card>
-            <CardHeader
-              className="pb-2 cursor-pointer select-none"
-              onClick={() => setCompaniesOpen(o => !o)}
-              role="button"
-              aria-expanded={companiesOpen}
-            >
-              <CardTitle className="text-base flex items-center gap-2">
-                <Building2 className="h-4 w-4" /> Companies of the group
-                <span className="text-xs font-normal text-muted-foreground">({data.companies.length})</span>
-                {branch !== "all" && (
-                  <Badge variant="outline" className={branchColors[branchShort(branch)] ?? ""}>
-                    {branchShort(branch)} only
-                  </Badge>
-                )}
-                <ChevronDown
-                  className={`ml-auto h-4 w-4 text-muted-foreground transition-transform duration-200 ${companiesOpen ? "rotate-180" : ""}`}
-                />
-              </CardTitle>
-            </CardHeader>
-            {companiesOpen && (
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Company</TableHead>
-                    <TableHead className="text-right">Behavior</TableHead>
-                    <TableHead className="text-right">Open Balance</TableHead>
-                    <TableHead className="text-right">Overdue</TableHead>
-                    <TableHead className="text-right">Open Inv.</TableHead>
-                    <TableHead className="text-right">Card</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.companies.map(c => (
-                    <TableRow
-                      key={c.id}
-                      className={`cursor-pointer ${String(c.id) === companyId ? "bg-primary/5" : ""}`}
-                      onClick={() => setCompanyId(String(c.id) === companyId ? "all" : String(c.id))}
-                    >
-                      <TableCell className="font-medium">{c.name}</TableCell>
-                      <TableCell className="text-right">
-                        {c.medianDaysLate !== null ? (
-                          <span
-                            className={`font-mono text-xs ${
-                              Number(c.medianDaysLate) > 30 ? "text-red-600" : Number(c.medianDaysLate) > 7 ? "text-amber-600" : "text-emerald-700"
-                            }`}
-                            title={`Last year: median ${c.medianDaysLate}d / avg ${c.avgDaysLate}d late (${c.historyPayments} payments)`}
-                          >
-                            med {c.medianDaysLate}d
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">{fmtEur(c.openBalance)}</TableCell>
-                      <TableCell className={`text-right font-mono ${c.overdueBalance > 0 ? "text-red-600" : ""}`}>
-                        {fmtEur(c.overdueBalance)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">{c.invoiceCount}</TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs"
-                          onClick={e => {
-                            e.stopPropagation();
-                            navigate(`/customers/${c.id}`);
-                          }}
-                        >
-                          Customer 360 →
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              <p className="px-4 py-2 text-[11px] text-muted-foreground">
-                Click a company row to scope all data above to that company; click again to return to the whole group.
-              </p>
-            </CardContent>
-            )}
           </Card>
 
           {/* Unified Activity Log */}

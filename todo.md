@@ -1242,3 +1242,143 @@
 - [x] Disputed is the ONLY secondary badge, shown next to the primary Open/Overdue badge
 - [x] Status dropdown edits the settlement status only; Overdue stays derived and non-selectable
 - [x] Rename "Customers" nav item + page title to "Collections" (route /customers unchanged, Groups stays the default sub-view)
+
+## Bug: two status badges stacked in the group/customer card (user report 31/7)
+- [x] Verify the group and customer cards render a single primary badge (they do — the report came from a cached build; a hard refresh clears it)
+- [x] Keep the primary + Disputed badges on one line (status cell no longer wraps)
+- [x] Enforce a minimum width for the Status column so a stale saved column width from localStorage can never squeeze the badges
+
+## Escalation summary as an AI story (user request 31/7)
+- [x] Server: collect the full case history for an escalated task (call logs with outcomes, promises with dates/amounts/reschedules, group notes, activity log, task chain)
+- [x] Server: AI narrative procedure that reads that history and writes the story — what happened, what was tried, why it reached management
+- [x] Escalation panel: replace the KPI cards + raw activity list with the narrative
+- [x] Keep the decision actions (On Hold / Legal Review / Return to Collector) unchanged below the story
+- [x] Vitest coverage for the history collection and the narrative fallback when the LLM is unavailable
+- [x] Fix: panel no longer blanks out to an empty skeleton while the summary query loads
+
+## Group card cleanup (user request 31/7)
+- [x] Remove the "Companies of the group" collapsible card — the "All companies (group)" selector at the top already scopes the data
+- [x] Remove the "Days Ovd" column from the transactions table — the days already appear on the Overdue badge
+- [x] Rename "Collections" to "Group List" in the sidebar, page title and back links
+- [x] Remove the "Doc. Date" column from the invoices table — Due Date is the date that drives collection
+- [x] Group invoices by vessel — "By vessel" view on the Invoices page and in the group card transactions, with drill-down and "No vessel" bucket
+- [x] Escalation no longer requires an account manager on the company — falls back to a senior team member so the collector can always escalate
+- [x] Escalation story is too long — scoped to the escalated task's own history window (one paragraph, 45-70 words, no group-wide balances or recommendations)
+- [x] Invoices page: when "Installments only" is active, the aging cards show the aging of the installments (scoped buckets, per-currency, "installment(s)" wording and a scope label)
+- [x] Removed the AI summary ("What happened") from the escalated task panel — only the escalation reason and the three decisions remain
+- [x] Escalated task dialog: removed the Promise-to-Pay block (amount / promised date / Kept / Broken), removed the duplicated "Escalated to … on …" line from the description, and moved the comments thread to the top
+- [~] Import live data from hub.primeproducts.gr into the local database — CANCELLED by the user; no import performed, sandbox DB untouched
+- [x] Simplify the escalated-task dialog layout: title + Escalated badge, then plain label/value rows (Group, Assigned, Due Date, Watchers), then Comments, then Decision buttons, keeping the existing colours and style
+- [x] Escalation panel rewritten as a plain "Decision" section with three inline outline buttons (On Hold / Legal Review / Return); no orange card, no summary card
+- [x] TaskCommentsThread accepts hideHeading so the dialog can own the "Comments" section heading
+
+## Open credit notes (PRIMELTD_OPENCNs.xlsx, user request 31/7)
+- [x] Schema: credit_notes table (branch, customer, doc number, doc date, currency, original amount, open amount, amountEur, vessel, contract no, days)
+- [x] Import the open credit notes (incl. the 7 UAE rows the Excel grand total skips), matched to existing customers by company name — 238 of 306 rows imported; the 68 rows of 37 companies missing from the customer list were left out by user decision (`--create-missing` flag exists but is off)
+- [x] Schema: `credit_notes` + `credit_note_allocations` tables (drizzle migration 0038, applied)
+- [x] Backend: `listOpenCreditNotes` in the AR router; `customers.get360` returns `openCreditNotes` / `openCreditNotesTotal`, `customers.groupDetail` returns `openCreditNotes` and `totals.openCreditNotes` / `openCreditNotesCount`, and `netOpenBalance` subtracts them
+- [x] Transactions view (group card + Customer 360): `OpenCreditNotesTable` above the invoice list — date, credit note number, company, branch, vessel, contract, negative amounts
+- [x] Open Balance card shows "inv − on acct − credit" breakdown on both the customer and group card
+- [x] No automatic matching to invoices — open amount comes from the ERP, manual allocations are subtracted, fully matched credit notes disappear from the list
+- [x] Vitest: `server/creditNotes.test.ts` (visibility, EUR conversion, group netting, partial/full matching)
+- [x] Vitest coverage for the credit-note visibility, FX conversion, balance netting and manual matching (server/creditNotes.test.ts)
+
+## Tasks list navigation (user request 31/7)
+
+- [x] Tasks page: the Group cell is a link that opens the company card (`/customers/<id>`); the row click still opens the task dialog (`server/tasksGroupLink.test.ts`)
+- [x] Invoice lists: replace the two-option scope tabs with one "Installments" toggle button (click filters, click again clears) — Invoices, Customer 360 and group card (`server/installmentToggle.test.ts`)
+
+## Credit notes inside the transactions list (user request 31/7)
+
+- [x] Merge open credit notes into the single transactions table (no separate block), ordered together with invoices by issue date (`InvoicesTable` `creditNotes` prop + `CreditNoteRow`)
+- [x] "Credit notes (n)" toggle button in the transactions toolbar — click shows only credit notes, click again clears (customer + group card)
+- [x] Credit-note rows: negative amounts, sky-tinted row, doc number with icon, issue date in the date column, Match action
+- [x] Backend: `allocateCreditNote` / `removeCreditNoteAllocation` / `listCreditNoteAllocations` with group, currency, invoice-outstanding and over-allocation guards
+- [x] Allocation dialog `AllocateCreditNoteDialog`: group open invoices, search, Max fill, remaining credit, existing matches with undo
+- [x] Vitest `server/creditNoteAllocation.test.ts` (partial match → Partially Paid, undo reverts to Open, full match hides the credit note, over-allocation rejected)
+
+## Internal transfers: cleanup + toggle (user request 31/7)
+
+- [x] Delete the vitest leftover wire transfers (45 orphan rows whose customer no longer exists, incl. the repeated "Our office → Prime Products LTD €3,000" internal rows) and the 2 orphan test invoices — 8 real transfers left (5 client + 3 internal)
+- [x] Wire Transfers page: by default show only client transfers; a toggle reveals the intercompany (internal) ones
+- [x] Same toggle on the Wire Transfers tab of the customer and group card
+- [x] Vitest coverage: internal transfers excluded unless requested, and cleanup left no orphan rows
+- [x] Fix the allocation vitest teardown so derived inter-office transfers are deleted with their source transfer (no new orphan rows)
+- [x] Merge wire transfers (payments) as rows inside the unified transactions table, not a separate block
+- [x] Restore the issue-date column and sort invoices, credit notes and transfers together by issue date
+- [x] Toggle "Payments" to show only wire transfers in the transactions list
+- [x] Remove the Allocate action from the customer/group transactions list — allocation happens only on the Wire Transfers page
+- [x] Vitest coverage: merged transaction rows carry an issue date and sort correctly; transfers-only filter works
+- [x] Wire Transfers page: move the Date column to the first position (before Customer)
+- [x] Vitest coverage: Date column leads the wire transfers table (header, row cells, stored widths)
+
+## Log Call: assignee for the auto-created follow-up task (user request 1/8)
+- [x] Log Call dialog: "Assigned to" picker for Promise to Pay (Confirmed) and Pending Follow-up, defaulting to the current user
+- [x] `calls.logCall` accepts an `assigneeId` team-member id and passes it to the promise / follow-up task helpers
+- [x] Rescheduling an existing promise or follow-up also updates the assignee, keeping the previous owner as watcher
+- [x] New `team.myMember` procedure so pickers can default to the logged-in colleague
+- [x] Vitest coverage: task created for the chosen assignee, hand-over adds previous owner as watcher, unknown member rejected
+
+## Transactions list: unified sorting, Issue Date first, inline matching (user request 1/8)
+- [x] Sorting by any column moves invoices, credit notes and payments together (sorting by vessel no longer reorders only the amounts)
+- [x] Credit notes and payments sort as negative amounts, so a payment never ranks beside the biggest invoices
+- [x] Issue Date is the first column of the transactions table (header, all three row kinds, stored column widths)
+- [x] Match action restored on open credit-note rows
+- [x] Allocate action available inline on received payment rows (no more link to the Wire Transfers page)
+- [x] Allocating or removing an allocation refreshes the customer card and the group card as well
+- [x] Vitest coverage: unified sort helper, column order, inline Match / Allocate actions
+
+## Transactions list: sticky column header (user request 1/8)
+- [x] Column header stays visible while scrolling the transactions list on the group card and the customer card
+- [x] Scrolling moved into the table's own container (shadcn Table now accepts containerClassName / containerStyle) so the sticky header actually pins
+- [x] Header cells painted with an opaque background so rows do not show through
+- [x] Vitest coverage: sticky classes, container forwarding, bounded height on both cards
+
+## Naming: Groups List (user request 1/8)
+- [x] Sidebar menu entry renamed from "Group List" to "Groups List" (page title and back links on both cards follow the same wording)
+- [x] Fixed a test that broke on the 1st of a new month: the forecast test now samples the latest month with entries and cleans up any row it creates
+
+## Address Book (replaces Contacts) — user request 1/8
+- [x] Design proposal written (docs/address-book-proposal.md) and sent for approval
+- [x] Approved: the collections screen stays separate from the Address Book
+- [x] Rename the "Groups List" menu entry to "Collections Desk" (page title and back links follow)
+- [x] Final name chosen by user: "Collections Desk"
+- [x] Schema: custom_field_defs, custom_field_values, saved_views, list_layouts (migration 0039 applied)
+- [x] addressBook tRPC router: entity lists, cross-entity search, fields, values, views, layouts, export
+- [x] Address Book page with 4 entity tabs (Groups, Customers, Vessels, Contacts) replacing the Contacts menu entry
+- [x] Cross-entity search returning grouped results across all four types
+- [x] Sticky header + resizable columns on all four lists (same behaviour as the transactions list)
+- [x] Column visibility and order per user, per tab (persisted in list_layouts)
+- [x] Record cards with relationship blocks (group -> companies -> vessels -> contacts), each row clickable
+- [x] Editing of user-owned fields (contacts); ERP-owned fields marked read-only in the field picker
+- [x] Custom field definitions per entity type (text, number, date, select, checkbox, email, phone, url)
+- [x] Custom field values shown on cards, available as columns and included in exports
+- [x] Filters (group + tab-specific) and saved views, personal or shared with the team
+- [x] Export the current view to Excel / PDF / CSV via the existing buildExcel / buildPdf helpers
+- [x] Vitest coverage for the Address Book router and the UI contract (15 tests)
+- [x] Column filters usable on any column including custom fields (contains/is/greater/less/empty), saved with views
+- [x] Field visibility settings for record cards (show/hide per custom field, per user)
+- [x] Data quality panel: duplicate emails, duplicate name-in-company, invalid emails, missing phone, contacts without group, companies without contact, vessels without IMO/owner
+- [x] Merge duplicates with per-field value choice; losers archived with a pointer to the survivor, custom values carried over
+- [x] Archive instead of delete for contacts, with an archive view and restore
+- [x] Multi-select contact rows to merge manually
+- [x] Excel import wizard: file upload, column mapping (incl. custom fields), create/update/skip preview, per-row exclusion
+- [x] Active Address Book tab persisted in the URL (?tab=group|customer|vessel|contact)
+- [x] Vitest coverage for quality checks, archive, merge and the import contract (19 tests)
+- [x] Address Book record card enlarged: resizable dialog (persisted size, drag edges, double-click to reset), sticky header, scrollable body, full related lists instead of first 12
+- [x] Address Book: deep link a record via ?record=<key>
+- [x] Decide whether the standalone Vessels page stays now the Address Book has a Vessels tab (decision: keep it — it is the AR view with balances/overdue; the old separate Contacts page is the one that was removed)
+- [x] Restyle the Address Book to match AR Pro: page header with icon, summary strip with reset, toolbar grouped in a card panel, entity tabs as a segmented control with count pills, table inside a Card with muted sticky header and hover rows
+- [x] Address Book: primary name cells rendered as sky-700 icon links like the other AR Pro lists
+- [x] Address Book record card restyled: sky accent title icons, each block in its own panel, loading state, sky-700 relationship links
+- [x] Address Book vessels tab: "Open AR card" action opens the financial vessel dialog so the two vessel views are connected instead of duplicated
+- [x] Vitest guard for the Address Book visual contract and the vessel AR link (server/addressBookStyling.test.ts, 12 tests)
+
+## Floating AI assistant (user request 1/8)
+- [x] "Ask AR Pro" launcher bottom-right on every screen (mounted once in DashboardLayout), Ctrl/Cmd+J toggle
+- [x] Resizable chat panel with thread and size persisted in localStorage, markdown answers, suggested question chips, clear-thread action
+- [x] Assistant knowledge base (server/lib/assistantKnowledge.ts): navigation map of every screen plus business rules (group key, aging buckets, statuses, forecast, DSO, promises) and answering style
+- [x] Assistant live-data layer (server/lib/assistantFacts.ts): portfolio snapshot (AR balance, overdue, aging, DSO, month target vs collected, workload, status counts, top 10 overdue groups) plus per-group/vessel/contact facts resolved from the question text
+- [x] Assistant backend (server/routers/assistant.ts): protected intro + ask procedures, history trimmed to 8 turns, gemini-2.5-flash, questions audit-logged, read-only by design
+- [x] Accent-insensitive Greek/Latin name matching with legal-form suffix stripping so "ναυτιλιακη αφοι κατσαρη" resolves "ΝΑΥΤΙΛΙΑΚΗ ΑΦΟΙ ΚΑΤΣΑΡΗ Α.Ε."
+- [x] Vitest coverage for the assistant (server/assistant.test.ts, 25 tests): snapshot totals reconcile, top-debtor ordering, group facts consistency, unknown-entity handling, router surface, widget wiring

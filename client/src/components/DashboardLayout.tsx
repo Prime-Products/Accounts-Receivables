@@ -20,6 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import GlobalSearch from "@/components/GlobalSearch";
+import AssistantWidget from "@/components/AssistantWidget";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
@@ -47,8 +48,8 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-  { icon: Users, label: "Collections", path: "/customers" },
-  { icon: Contact, label: "Contacts", path: "/contacts" },
+  { icon: Users, label: "Collections Desk", path: "/customers" },
+  { icon: Contact, label: "Address Book", path: "/address-book" },
   { icon: FileText, label: "Invoices", path: "/invoices" },
   { icon: Ship, label: "Vessels", path: "/vessels" },
   { icon: ScrollText, label: "Contracts", path: "/contracts" },
@@ -291,6 +292,7 @@ function DashboardLayoutContent({
           <GlobalSearch />
         </div>
         <main className="flex-1 p-4">{children}</main>
+        <AssistantWidget />
       </SidebarInset>
     </>
   );

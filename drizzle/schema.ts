@@ -1,4 +1,4 @@
-import { bigint, boolean, decimal, double, index, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { bigint, boolean, decimal, double, index, int, mysqlEnum, mysqlTable, text, timestamp, unique, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -522,6 +522,15 @@ export const paymentContacts = mysqlTable("payment_contacts", {
   email: varchar("email", { length: 320 }).notNull(),
   phone: varchar("phone", { length: 20 }),
   title: varchar("title", { length: 255 }),
+  /**
+   * Address Book archives contacts instead of deleting them: an archived contact
+   * disappears from the directory and from mailing lists but its history and
+   * custom-field values remain intact and it can be restored.
+   */
+  archived: int("archived").default(0).notNull(),
+  archivedAt: timestamp("archivedAt"),
+  /** Set when the contact was merged away; points at the surviving contact. */
+  mergedIntoId: int("mergedIntoId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -680,6 +689,120 @@ export const vessels = mysqlTable(
 export type Vessel = typeof vessels.$inferSelect;
 export type InsertVessel = typeof vessels.$inferInsert;
 
+// ---------- Address Book: custom fields, saved views, column layouts ----------
+
+/** The four record types the Address Book manages. */
+export const addressBookEntities = ["group", "customer", "vessel", "contact"] as const;
+export type AddressBookEntity = (typeof addressBookEntities)[number];
+
+/** Data types a user-defined field can take. */
+export const customFieldTypes = ["text", "longtext", "number", "date", "select", "checkbox", "email", "phone", "url"] as const;
+export type CustomFieldType = (typeof customFieldTypes)[number];
+
+/**
+ * Definition of a user-added field on an Address Book entity. Values live in
+ * `custom_field_values`, so adding a field never requires a schema migration and
+ * never interferes with the ERP sync.
+ */
+export const customFieldDefs = mysqlTable(
+  "custom_field_defs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    entity: mysqlEnum("entity", addressBookEntities).notNull(),
+    /** Stable machine key, unique per entity, e.g. "base_port". */
+    fieldKey: varchar("fieldKey", { length: 64 }).notNull(),
+    /** Human label shown on cards, columns and exports. */
+    label: varchar("label", { length: 128 }).notNull(),
+    fieldType: mysqlEnum("fieldType", customFieldTypes).default("text").notNull(),
+    /** JSON array of allowed values, for fieldType = "select". */
+    options: text("options"),
+    /** Optional helper text shown under the input. */
+    helpText: varchar("helpText", { length: 255 }),
+    required: int("required").default(0).notNull(),
+    /** Display order within the "Custom fields" block on the card. */
+    sortOrder: int("sortOrder").default(0).notNull(),
+    /** Soft delete: archived definitions keep their values but disappear from the UI. */
+    archived: int("archived").default(0).notNull(),
+    createdBy: int("createdBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  t => [unique("uq_custom_field_entity_key").on(t.entity, t.fieldKey)]
+);
+
+export type CustomFieldDef = typeof customFieldDefs.$inferSelect;
+export type InsertCustomFieldDef = typeof customFieldDefs.$inferInsert;
+
+/**
+ * A single custom-field value for one record. `recordKey` is the record identity:
+ * the numeric id as text for customers/vessels/contacts, and the group name for
+ * groups (groups are derived from customers and have no id of their own).
+ */
+export const customFieldValues = mysqlTable(
+  "custom_field_values",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    fieldId: int("fieldId").notNull(),
+    entity: mysqlEnum("entity", addressBookEntities).notNull(),
+    recordKey: varchar("recordKey", { length: 255 }).notNull(),
+    value: text("value"),
+    updatedBy: int("updatedBy"),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  t => [
+    unique("uq_custom_value_field_record").on(t.fieldId, t.recordKey),
+    index("idx_custom_value_entity_record").on(t.entity, t.recordKey),
+  ]
+);
+
+export type CustomFieldValue = typeof customFieldValues.$inferSelect;
+export type InsertCustomFieldValue = typeof customFieldValues.$inferInsert;
+
+/**
+ * A named, reusable list: filters + visible columns + sort for one Address Book tab.
+ * Personal by default; `shared = 1` publishes it to the whole team.
+ */
+export const savedViews = mysqlTable(
+  "saved_views",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    entity: mysqlEnum("entity", addressBookEntities).notNull(),
+    name: varchar("name", { length: 128 }).notNull(),
+    /** JSON: { search, filters, columns, columnOrder, sortKey, sortDir }. */
+    config: text("config").notNull(),
+    shared: int("shared").default(0).notNull(),
+    ownerId: int("ownerId"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  t => [index("idx_saved_views_entity").on(t.entity)]
+);
+
+export type SavedView = typeof savedViews.$inferSelect;
+export type InsertSavedView = typeof savedViews.$inferInsert;
+
+/**
+ * Per-user column visibility and order for one Address Book tab. Column widths keep
+ * living in localStorage (they are pure presentation), this table stores the choices
+ * that must follow the user across devices.
+ */
+export const listLayouts = mysqlTable(
+  "list_layouts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").notNull(),
+    /** Table identity, e.g. "addressbook:contact". */
+    listKey: varchar("listKey", { length: 64 }).notNull(),
+    /** JSON: { hidden: string[], order: string[] }. */
+    config: text("config").notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  t => [unique("uq_list_layout_user_list").on(t.userId, t.listKey)]
+);
+
+export type ListLayout = typeof listLayouts.$inferSelect;
+export type InsertListLayout = typeof listLayouts.$inferInsert;
+
 export const requestStatuses = ["Open", "Answered", "Closed", "Cancelled"] as const;
 export type RequestStatus = (typeof requestStatuses)[number];
 
@@ -746,3 +869,61 @@ export const requestNotifications = mysqlTable(
 
 export type RequestNotification = typeof requestNotifications.$inferSelect;
 export type InsertRequestNotification = typeof requestNotifications.$inferInsert;
+/**
+ * Credit notes (πιστωτικά) that are still open, i.e. not yet matched against an
+ * invoice. They reduce the customer's outstanding balance but are NEVER matched
+ * automatically — allocation is a manual decision, like wire transfers.
+ */
+export const creditNotes = mysqlTable(
+  "credit_notes",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    customerId: int("customerId").notNull(),
+    /** Document number as issued by the ERP, e.g. "CNV-000035" or "ΠΦΠ-Γ02453". */
+    docNumber: varchar("docNumber", { length: 64 }).notNull(),
+    /** Issue date of the credit note (unix ms, UTC). */
+    docDate: bigint("docDate", { mode: "number" }).notNull(),
+    /** Our issuing branch, same values as invoice branches. */
+    branch: varchar("branch", { length: 128 }),
+    currency: varchar("currency", { length: 8 }).default("EUR").notNull(),
+    /** Original document value, stored positive. */
+    amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+    /** Still unmatched (open) part of the credit note, stored positive. */
+    openAmount: decimal("openAmount", { precision: 14, scale: 2 }).notNull(),
+    /** openAmount converted to EUR with the FX rates in app settings. */
+    openAmountEur: decimal("openAmountEur", { precision: 14, scale: 2 }),
+    /** Optional vessel the credit note concerns; FK to vessels.id. */
+    vesselId: int("vesselId"),
+    /** Contract number as printed on the ERP document (free text). */
+    contractNo: varchar("contractNo", { length: 64 }),
+    notes: text("notes"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  t => [
+    index("idx_credit_notes_customerId").on(t.customerId),
+    index("idx_credit_notes_docNumber").on(t.docNumber),
+    index("idx_credit_notes_docDate").on(t.docDate),
+    index("idx_credit_notes_branch").on(t.branch),
+  ]
+);
+export type CreditNote = typeof creditNotes.$inferSelect;
+export type InsertCreditNote = typeof creditNotes.$inferInsert;
+/** Manual allocation of a credit note against an invoice (συμψηφισμός). */
+export const creditNoteAllocations = mysqlTable(
+  "credit_note_allocations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    creditNoteId: int("creditNoteId").notNull(),
+    invoiceId: int("invoiceId").notNull(),
+    amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+    createdBy: int("createdBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  t => [
+    index("idx_cna_creditNoteId").on(t.creditNoteId),
+    index("idx_cna_invoiceId").on(t.invoiceId),
+  ]
+);
+export type CreditNoteAllocation = typeof creditNoteAllocations.$inferSelect;
+export type InsertCreditNoteAllocation = typeof creditNoteAllocations.$inferInsert;

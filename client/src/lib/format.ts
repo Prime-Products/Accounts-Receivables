@@ -70,6 +70,7 @@ export const taskStatusColors: Record<string, string> = {
   "In Progress": "bg-violet-100 text-violet-800 border-violet-200",
   Completed: "bg-emerald-100 text-emerald-800 border-emerald-200",
   Cancelled: "bg-gray-100 text-gray-600 border-gray-200",
+  Escalated: "bg-orange-100 text-orange-800 border-orange-300",
 };
 
 export const taskTypeColors: Record<string, string> = {
