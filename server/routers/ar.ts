@@ -3,12 +3,14 @@ import { z } from "zod";
 import {
   appRoles,
   confirmationStatuses,
+  contactTypes,
   customerTiers,
   invoiceStatuses,
   receiptMethods,
   taskStatuses,
   taskTypes,
 } from "../../drizzle/schema";
+import { matchScore, matchesAllTokens } from "../../shared/textMatch";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveGroupStatus, normalizeStoredStatus } from "../lib/statusWorkflow";
@@ -574,11 +576,34 @@ export const customersRouter = router({
       const [res, allCustomers] = await Promise.all([db.globalSearch(q), db.listCustomers()]);
       const custById = new Map(allCustomers.map(c => [c.id, c]));
       const groupKeyOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
-      // Distinct groups matched via customer name/group
+      // SQL prefiltered on one word only, so drop rows where not every typed word
+      // is present. Greek/Latin spellings and word order are handled by the helper.
+      const matchedCustomers = res.customers.filter(c =>
+        matchesAllTokens(q, [c.name, c.code, c.customerGroup]),
+      );
+      const matchedContacts = (res.contacts ?? [])
+        .filter(c => matchesAllTokens(q, [c.name, c.email, c.title, c.customerName, c.customerGroup]))
+        .sort(
+          (a, b) =>
+            matchScore(q, [b.name, b.email]) - matchScore(q, [a.name, a.email]) ||
+            a.name.localeCompare(b.name),
+        );
+      const matchedVessels = (res.vessels ?? [])
+        .filter(v => matchesAllTokens(q, [v.name, v.imo, v.customerName, v.customerGroup]))
+        .sort((a, b) => matchScore(q, [b.name]) - matchScore(q, [a.name]) || a.name.localeCompare(b.name));
+      // Distinct groups matched via customer name/group, plus groups reached
+      // through a matching contact or vessel, so searching a person's name also
+      // surfaces the group they belong to.
       const groups = new Map<string, number>();
-      for (const c of res.customers) {
+      for (const c of matchedCustomers) {
         const key = (c.customerGroup ?? "").trim() || c.name;
         groups.set(key, (groups.get(key) ?? 0) + 1);
+      }
+      for (const extra of [...matchedContacts, ...matchedVessels]) {
+        const cust = extra.customerId ? custById.get(extra.customerId) : undefined;
+        if (!cust) continue;
+        const key = groupKeyOf(cust);
+        if (!groups.has(key)) groups.set(key, 1);
       }
       const lower = q.toLowerCase();
       return {
@@ -586,11 +611,32 @@ export const customersRouter = router({
           .sort((a, b) => Number(b[0].toLowerCase().includes(lower)) - Number(a[0].toLowerCase().includes(lower)))
           .slice(0, 8)
           .map(([name, members]) => ({ name, members })),
-        companies: res.customers.slice(0, 8).map(c => ({
+        companies: matchedCustomers.slice(0, 8).map(c => ({
           id: c.id,
           name: c.name,
           code: c.code,
           group: (c.customerGroup ?? "").trim() || c.name,
+        })),
+        contacts: matchedContacts.slice(0, 8).map(c => ({
+          id: c.id,
+          name: c.name,
+          email: c.email,
+          phone: c.phone,
+          title: c.title,
+          contactType: c.contactType,
+          customerId: c.customerId,
+          companyName: c.customerName ?? null,
+          group: c.customerGroup?.trim() || c.customerName || null,
+        })),
+        vessels: matchedVessels.slice(0, 8).map(v => ({
+          id: v.id,
+          name: v.name,
+          imo: v.imo,
+          vesselType: v.vesselType,
+          flag: v.flag,
+          customerId: v.customerId,
+          companyName: v.customerName ?? null,
+          group: v.customerGroup?.trim() || v.customerName || null,
         })),
         invoices: res.invoices.map(i => {
           const cust = custById.get(i.customerId);
@@ -4079,8 +4125,17 @@ export const forecastRouter = router({
       allGroupNames.add(key);
     }
     const overdueEomByGroup = new Map<string, number>();
+    // Portfolio-wide projection: everything still open whose due date falls on
+    // or before the last day of the current month will be overdue by then.
+    // Includes what is already overdue today, so it is always >= totalOverdue.
+    let overdueEomTotal = 0;
+    let overdueEomCount = 0;
     for (const inv of invoices) {
       if (!isOpenInvoice(inv)) continue;
+      if (inv.dueDate <= eomTs) {
+        overdueEomTotal += outstanding(inv);
+        overdueEomCount++;
+      }
       const gKey = groupOfCustomerId.get(inv.customerId);
       if (!gKey) continue;
       if (inv.dueDate <= eomTs) {
@@ -4107,6 +4162,11 @@ export const forecastRouter = router({
       collected: collectedThisMonth,
       totalOverdue,
       overdueCount: Object.values(aging.buckets).reduce((s, b) => s + b.count, 0),
+      // Overdue projected at end of the current month (today's overdue plus
+      // invoices falling due within the rest of the month).
+      overdueEom: overdueEomTotal,
+      overdueEomCount,
+      overdueEomDate: eomTs,
       arBalance,
       dso,
       aging,
@@ -5443,6 +5503,7 @@ export const paymentContactsRouter = router({
         email: z.string().email(),
         phone: z.string().max(20).optional(),
         title: z.string().max(255).optional(),
+        contactType: z.enum(contactTypes).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -5456,6 +5517,7 @@ export const paymentContactsRouter = router({
         email: input.email,
         phone: input.phone,
         title: input.title,
+        contactType: input.contactType ?? "Person",
       });
       await audit(ctx, "Add Payment Contact", "paymentContact", id, `${input.name} - ${input.email}`);
       return { id, ...input };
@@ -5469,6 +5531,7 @@ export const paymentContactsRouter = router({
         email: z.string().email().optional(),
         phone: z.string().max(20).optional(),
         title: z.string().max(255).optional(),
+        contactType: z.enum(contactTypes).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -5481,6 +5544,7 @@ export const paymentContactsRouter = router({
         ...(input.email && { email: input.email }),
         ...(input.phone !== undefined && { phone: input.phone }),
         ...(input.title !== undefined && { title: input.title }),
+        ...(input.contactType && { contactType: input.contactType }),
       };
       await db.updatePaymentContact(input.id, updates);
       await audit(ctx, "Update Payment Contact", "paymentContact", input.id, JSON.stringify(updates));

@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, CheckCircle2, ChevronRight, Merge, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Building2, CheckCircle2, ChevronRight, Merge, ShieldCheck } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 type Section = {
   key: string;
@@ -22,9 +23,33 @@ type Section = {
 
 export function DataQualityPanel() {
   const [open, setOpen] = useState(false);
+  const utils = trpc.useUtils();
   const { data, isLoading } = trpc.addressBook.quality.useQuery(undefined, { enabled: open });
   const [mergeCandidates, setMergeCandidates] = useState<MergeCandidate[] | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  /** Suggested rows the user has un-ticked, so a bad guess is never applied. */
+  const [rejected, setRejected] = useState<number[]>([]);
+
+  const refreshAfterTypeChange = () => {
+    utils.addressBook.quality.invalidate();
+    utils.addressBook.contacts.invalidate();
+    utils.paymentContacts.invalidate();
+  };
+  const setType = trpc.addressBook.setContactType.useMutation({
+    onSuccess: () => {
+      toast.success("Marked as department");
+      refreshAfterTypeChange();
+    },
+    onError: e => toast.error(e.message),
+  });
+  const setTypeBulk = trpc.addressBook.setContactTypeBulk.useMutation({
+    onSuccess: r => {
+      toast.success(`${r.updated} contact${r.updated === 1 ? "" : "s"} marked as department`);
+      setRejected([]);
+      refreshAfterTypeChange();
+    },
+    onError: e => toast.error(e.message),
+  });
 
   const contactList = (rows: { id: number; name: string; email: string; companyName: string }[]) => (
     <ul className="divide-y text-sm">
@@ -73,6 +98,76 @@ export function DataQualityPanel() {
 
   const sections: Section[] = data
     ? [
+        {
+          key: "deptSuggest",
+          title: "Possible departments filed as people",
+          hint: "Shared mailboxes such as accounts@ or ops@ — review before applying",
+          count: data.departmentSuggestions.length,
+          render: () => {
+            const pending = data.departmentSuggestions.filter(r => !rejected.includes(r.id));
+            return (
+              <div>
+                <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs">
+                  <span className="text-muted-foreground">
+                    {pending.length} of {data.departmentSuggestions.length} selected
+                  </span>
+                  <Button
+                    size="sm"
+                    className="ml-auto h-7 gap-1 text-xs"
+                    disabled={pending.length === 0 || setTypeBulk.isPending}
+                    onClick={() =>
+                      setTypeBulk.mutate({ ids: pending.map(r => r.id), contactType: "Department" })
+                    }
+                  >
+                    <Building2 className="h-3.5 w-3.5" />
+                    {setTypeBulk.isPending ? "Applying…" : `Mark ${pending.length} as department`}
+                  </Button>
+                </div>
+                <ul className="divide-y text-sm">
+                  {data.departmentSuggestions.slice(0, 100).map(r => {
+                    const isRejected = rejected.includes(r.id);
+                    return (
+                      <li key={r.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                        <span className={`min-w-0 ${isRejected ? "opacity-50 line-through" : ""}`}>
+                          <span className="block truncate">{r.name}</span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {r.email} · {r.companyName}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            disabled={setType.isPending}
+                            onClick={() => setType.mutate({ id: r.id, contactType: "Department" })}
+                          >
+                            Department
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs"
+                            onClick={() =>
+                              setRejected(ids => (isRejected ? ids.filter(i => i !== r.id) : [...ids, r.id]))
+                            }
+                          >
+                            {isRejected ? "Undo" : "Keep person"}
+                          </Button>
+                        </span>
+                      </li>
+                    );
+                  })}
+                  {data.departmentSuggestions.length > 100 && (
+                    <li className="px-3 py-1.5 text-xs text-muted-foreground">
+                      +{data.departmentSuggestions.length - 100} more — apply this batch to see the rest
+                    </li>
+                  )}
+                </ul>
+              </div>
+            );
+          },
+        },
         {
           key: "dupEmail",
           title: "Duplicate email addresses",
@@ -179,7 +274,9 @@ export function DataQualityPanel() {
       ]
     : [];
 
-  const issueTotal = sections.reduce((sum, s) => sum + s.count, 0);
+  // Department suggestions are a housekeeping hint, not a data error, so they
+  // stay out of the issue total.
+  const issueTotal = sections.filter(s => s.key !== "deptSuggest").reduce((sum, s) => sum + s.count, 0);
 
   return (
     <>
@@ -215,6 +312,18 @@ export function DataQualityPanel() {
                     {data.totals.archivedContacts > 0 && ` ${data.totals.archivedContacts} archived.`}
                   </>
                 )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge variant="outline" className="font-mono">
+                  {data.totals.people.toLocaleString()} people
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className="border-violet-200 bg-violet-100 font-mono text-violet-700"
+                >
+                  {data.totals.departments.toLocaleString()} departments
+                </Badge>
               </div>
 
               <div className="max-h-[60vh] space-y-2 overflow-auto pr-1">

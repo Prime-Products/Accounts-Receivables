@@ -18,6 +18,8 @@ export type MergeCandidate = {
   email: string;
   phone: string | null;
   title: string | null;
+  /** "Person" (default) or "Department"; carried onto the survivor. */
+  contactType?: "Person" | "Department" | null;
   customerId: number;
   companyName: string;
   group: string;
@@ -28,6 +30,7 @@ const FIELDS = [
   { key: "email", label: "Email" },
   { key: "phone", label: "Phone" },
   { key: "title", label: "Position" },
+  { key: "contactType", label: "Type" },
   { key: "companyName", label: "Company" },
 ] as const;
 
@@ -100,6 +103,7 @@ export function MergeContactsDialog({
         email: pickedValue("email"),
         phone: pickedValue("phone") || null,
         title: pickedValue("title") || null,
+        contactType: pickedValue("contactType") === "Department" ? "Department" : "Person",
         customerId: companyFrom?.customerId ?? candidates[0].customerId,
       },
     });

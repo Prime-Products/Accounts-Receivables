@@ -39,6 +39,8 @@ export interface CustomerForecastInput {
   history?: { avgDaysLate: number; medianDaysLate: number; payments: number } | null;
   /** Group-level behavior (avg/median days late across the customer group). */
   groupBehavior?: GroupBehavior | null;
+  /** Historical forecast accuracy: how much was expected vs collected in previous months. */
+  forecastHistory?: { year: number; month: number; aiSuggested: number; expected: number; collected: number; userAdjusted: boolean }[];
 }
 
 export interface ForecastSuggestion {
@@ -70,6 +72,13 @@ async function aiSuggestBatch(inputs: CustomerForecastInput[], year: number, mon
       lastYearPayments: c.history ? c.history.payments : null,
       groupAvgDaysLate: c.groupBehavior ? c.groupBehavior.avgDaysLate : null,
       groupMedianDaysLate: c.groupBehavior ? c.groupBehavior.medianDaysLate : null,
+      forecastHistory: c.forecastHistory?.map(h => ({
+        month: `${h.year}-${String(h.month).padStart(2, "0")}`,
+        aiSuggestedEur: Math.round(h.aiSuggested),
+        userExpectedEur: Math.round(h.expected),
+        actualCollectedEur: Math.round(h.collected),
+        wasUserAdjusted: h.userAdjusted,
+      })),
     }),
   );
 
@@ -82,8 +91,11 @@ async function aiSuggestBatch(inputs: CustomerForecastInput[], year: number, mon
           "Each line is a CUSTOMER GROUP (its companies' exposures are already aggregated). You receive the amount falling due this month (EUR), the already-overdue balance (EUR), and payment-behavior statistics. " +
           "lastYearMedianDaysLate/lastYearAvgDaysLate come from real payment allocations of the last 12 months (negative = pays before due date); " +
           "groupMedianDaysLate is the behavior of the whole group — prefer these real statistics when present. " +
+          "You also receive `forecastHistory`, which shows what the AI suggested, what the human controller (user) expected, and what was actually collected in previous months. " +
+          "If `wasUserAdjusted` is true, it means the human used their experience to correct the AI. " +
+          "LEARN FROM THIS: If the user consistently adjusts the forecast up or down compared to the AI, and the actual collection matches the user's adjustment better, follow the user's pattern. " +
+          "If the group consistently pays less than both the AI and the user expect, be more conservative. " +
           "Estimate realistically how much the company will actually collect from each group during the month. " +
-          "Groups with long average delays or low collection rates typically pay only a fraction of what they owe. " +
           "Never exceed dueThisMonthEur + overdueEur for a group. Reply in JSON only.",
       },
       {
@@ -224,6 +236,7 @@ export async function generateMonthlyForecast(year: number, month: number, opts?
       : repHist
         ? { avgDaysLate: repHist.avgDaysLate, medianDaysLate: repHist.medianDaysLate, payments: repHist.payments }
         : null;
+    const forecastHistory = await db.getForecastHistory(groupKey, 3);
     inputs.push({
       groupKey,
       customerId: repId,
@@ -234,6 +247,7 @@ export async function generateMonthlyForecast(year: number, month: number, opts?
       profile,
       history,
       groupBehavior: gb,
+      forecastHistory,
     });
   }
 

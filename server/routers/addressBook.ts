@@ -12,7 +12,8 @@ import { z } from "zod";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { buildExcel, buildPdf, type TableSpec } from "../lib/exports";
-import { addressBookEntities, customFieldTypes } from "../../drizzle/schema";
+import { addressBookEntities, contactTypes, customFieldTypes, giftTiers } from "../../drizzle/schema";
+import { matchesAllTokens } from "../../shared/textMatch";
 
 const entitySchema = z.enum(addressBookEntities);
 
@@ -22,9 +23,100 @@ export const importTargets = [
   { key: "email", label: "Email", required: true },
   { key: "phone", label: "Phone", required: false },
   { key: "title", label: "Position", required: false },
+  { key: "contactType", label: "Type (Person / Department)", required: false },
   { key: "companyCode", label: "Company code (ERP)", required: false },
   { key: "companyName", label: "Company name", required: false },
 ] as const;
+
+/**
+ * Normalise a free-text type cell from a spreadsheet into one of our two values.
+ * Anything that is not clearly a department (dept/department/team/group mailbox)
+ * is treated as a person, which is also the column default.
+ */
+export function normalizeContactType(raw: string | null | undefined): (typeof contactTypes)[number] {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (!v) return "Person";
+  if (/^(department|dept|dpt|departement|τμημα|τμήμα|shared|mailbox|group mailbox|team)$/.test(v)) return "Department";
+  if (v.startsWith("dep") || v.includes("department") || v.includes("τμημ") || v.includes("τμήμ")) return "Department";
+  return "Person";
+}
+
+/**
+ * Local parts that virtually always denote a shared/departmental mailbox rather
+ * than a person. Used only to *suggest* a reclassification — never applied
+ * automatically, because a real person can sit behind info@ at a tiny company.
+ */
+const DEPARTMENT_LOCAL_PARTS = [
+  "accounts",
+  "account",
+  "accounting",
+  "accountancy",
+  "ar",
+  "ap",
+  "finance",
+  "financial",
+  "fin",
+  "billing",
+  "invoice",
+  "invoices",
+  "credit",
+  "collections",
+  "treasury",
+  "ops",
+  "operation",
+  "operations",
+  "purchase",
+  "purchasing",
+  "procurement",
+  "supply",
+  "supplies",
+  "technical",
+  "tech",
+  "crewing",
+  "crew",
+  "chartering",
+  "charter",
+  "admin",
+  "administration",
+  "office",
+  "info",
+  "information",
+  "mail",
+  "email",
+  "contact",
+  "general",
+  "sales",
+  "support",
+  "hr",
+  "payroll",
+  "legal",
+  "logistics",
+  "spares",
+  "stores",
+  "store",
+  "provisions",
+  "bunkers",
+  "management",
+  "secretariat",
+  "reception",
+];
+
+/** True when an email's local part looks like a shared department mailbox. */
+export function looksLikeDepartmentEmail(email: string): boolean {
+  const local = (email.split("@")[0] ?? "").trim().toLowerCase();
+  if (!local) return false;
+  // Split on separators so accounts.dept / ops-piraeus / ar_gr are all covered.
+  const parts = local.split(/[.\-_+]/).filter(Boolean);
+  if (parts.some(p => DEPARTMENT_LOCAL_PARTS.includes(p))) return true;
+  return DEPARTMENT_LOCAL_PARTS.includes(local);
+}
+
+/** True when a contact's own name reads like a department rather than a person. */
+export function looksLikeDepartmentName(name: string): boolean {
+  const v = (name ?? "").trim().toLowerCase();
+  if (!v) return false;
+  return /(department|dept\b|division|τμημα|τμήμα|accounts payable|accounts receivable|accounting dep)/.test(v);
+}
 
 /**
  * Read the first worksheet of an uploaded xlsx/csv. The first non-empty row is
@@ -80,7 +172,7 @@ export type ImportPlanRow = {
   contactId: number | null;
   customerId: number | null;
   companyLabel: string;
-  values: { name: string; email: string; phone?: string; title?: string };
+  values: { name: string; email: string; phone?: string; title?: string; contactType?: string };
   custom: Record<string, string>;
   changes: { field: string; from: string; to: string }[];
 };
@@ -120,6 +212,9 @@ async function planContactImport(fileBase64: string, mapping: Record<string, str
     const email = get("email").toLowerCase();
     const phone = get("phone");
     const title = get("title");
+    const typeCell = get("contactType");
+    // Only override the stored/default type when the sheet actually said something.
+    const contactType = typeCell ? normalizeContactType(typeCell) : "";
     const code = get("companyCode").toLowerCase();
     const companyName = get("companyName").toLowerCase();
 
@@ -159,6 +254,7 @@ async function planContactImport(fileBase64: string, mapping: Record<string, str
       cmp("name", existing.name, name);
       cmp("phone", existing.phone, phone);
       cmp("title", existing.title, title);
+      cmp("type", existing.contactType, contactType);
       if (cust && cust.id !== existing.customerId) {
         changes.push({
           field: "company",
@@ -174,7 +270,7 @@ async function planContactImport(fileBase64: string, mapping: Record<string, str
         contactId: existing.id,
         customerId: cust?.id ?? existing.customerId,
         companyLabel: target?.name ?? "—",
-        values: { name: name || existing.name, email: email || existing.email, phone, title },
+        values: { name: name || existing.name, email: email || existing.email, phone, title, contactType },
         custom,
         changes,
       });
@@ -189,7 +285,7 @@ async function planContactImport(fileBase64: string, mapping: Record<string, str
         contactId: null,
         customerId: null,
         companyLabel: get("companyName") || get("companyCode") || "—",
-        values: { name, email, phone, title },
+        values: { name, email, phone, title, contactType },
         custom,
         changes: [],
       });
@@ -203,7 +299,7 @@ async function planContactImport(fileBase64: string, mapping: Record<string, str
       contactId: null,
       customerId: cust.id,
       companyLabel: cust.name,
-      values: { name, email, phone, title },
+      values: { name, email, phone, title, contactType },
       custom,
       changes: [],
     });
@@ -226,6 +322,18 @@ async function planContactImport(fileBase64: string, mapping: Record<string, str
 
 /** Group name used as the record identity for group-level custom values. */
 const groupKeyOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
+
+/**
+ * Identity of a person inside a group. The same people are registered on every
+ * company of a group (Minerva's staff sit on each Minerva company), so counting
+ * raw contact rows per group inflates the number. Email is the reliable key —
+ * fall back to the name when a contact has none.
+ */
+const personKeyOf = (ct: { name: string | null; email: string | null }) => {
+  const email = (ct.email ?? "").trim().toLowerCase();
+  if (email) return `e:${email}`;
+  return `n:${(ct.name ?? "").trim().toLowerCase()}`;
+};
 
 /** Attach custom-field values to rows keyed by `recordKey`. */
 async function withCustomValues<T extends { recordKey: string }>(
@@ -277,6 +385,9 @@ export const addressBookRouter = router({
       string,
       { group: string; companies: number; contacts: number; vessels: number; emails: Set<string>; codes: string[] }
     >();
+    // Unique people per group: the same person registered on several companies
+    // of the group must count once (see personKeyOf).
+    const peopleByGroup = new Map<string, Set<string>>();
     for (const c of customers) {
       const key = groupKeyOf(c);
       let row = agg.get(key);
@@ -289,17 +400,49 @@ export const addressBookRouter = router({
       if (c.email) row.emails.add(c.email);
     }
     for (const ct of contacts) {
+      if (ct.archived === 1) continue;
       const cust = custById.get(ct.customerId);
       if (!cust) continue;
-      const row = agg.get(groupKeyOf(cust));
-      if (row) row.contacts += 1;
+      const key = groupKeyOf(cust);
+      if (!agg.has(key)) continue;
+      let people = peopleByGroup.get(key);
+      if (!people) {
+        people = new Set<string>();
+        peopleByGroup.set(key, people);
+      }
+      people.add(personKeyOf(ct));
     }
+    peopleByGroup.forEach((people, key) => {
+      const row = agg.get(key);
+      if (row) row.contacts = people.size;
+    });
     for (const v of vessels) {
       if (!v.customerId) continue;
       const cust = custById.get(v.customerId);
       if (!cust) continue;
       const row = agg.get(groupKeyOf(cust));
       if (row) row.vessels += 1;
+    }
+    // Name indexes per group, used to build each row's hidden search haystack.
+    const companyNamesByGroup = new Map<string, string[]>();
+    const contactNamesByGroup = new Map<string, string[]>();
+    const vesselNamesByGroup = new Map<string, string[]>();
+    const push = (m: Map<string, string[]>, key: string, value: string | null) => {
+      if (!value) return;
+      const list = m.get(key);
+      if (list) {
+        if (list.length < 400) list.push(value);
+      } else m.set(key, [value]);
+    };
+    for (const c of customers) push(companyNamesByGroup, groupKeyOf(c), c.name);
+    for (const ct of contacts) {
+      if (ct.archived === 1) continue;
+      const cust = custById.get(ct.customerId);
+      if (cust) push(contactNamesByGroup, groupKeyOf(cust), ct.name);
+    }
+    for (const v of vessels) {
+      const cust = v.customerId ? custById.get(v.customerId) : undefined;
+      if (cust) push(vesselNamesByGroup, groupKeyOf(cust), v.name);
     }
     const rows = Array.from(agg.values())
       .map(r => ({
@@ -310,6 +453,14 @@ export const addressBookRouter = router({
         vessels: r.vessels,
         primaryEmail: Array.from(r.emails)[0] ?? null,
         codes: r.codes.slice(0, 6).join(", "),
+        // Hidden haystack: company names, people and vessels of this group, so
+        // the list search box finds a group by anything inside it.
+        searchText: [
+          r.group,
+          ...(companyNamesByGroup.get(r.group) ?? []),
+          ...(contactNamesByGroup.get(r.group) ?? []),
+          ...(vesselNamesByGroup.get(r.group) ?? []),
+        ].join(" "),
       }))
       .sort((a, b) => a.group.localeCompare(b.group));
     return withCustomValues("group", rows);
@@ -319,7 +470,15 @@ export const addressBookRouter = router({
   customers: protectedProcedure.query(async () => {
     const [customers, contacts] = await Promise.all([db.listCustomers(), db.listAllPaymentContacts()]);
     const contactCount = new Map<number, number>();
-    for (const ct of contacts) contactCount.set(ct.customerId, (contactCount.get(ct.customerId) ?? 0) + 1);
+    const contactNames = new Map<number, string[]>();
+    for (const ct of contacts) {
+      contactCount.set(ct.customerId, (contactCount.get(ct.customerId) ?? 0) + 1);
+      if (ct.archived === 1) continue;
+      const list = contactNames.get(ct.customerId);
+      if (list) {
+        if (list.length < 200) list.push(ct.name);
+      } else contactNames.set(ct.customerId, [ct.name]);
+    }
     const rows = customers
       .map(c => ({
         recordKey: String(c.id),
@@ -334,6 +493,10 @@ export const addressBookRouter = router({
         tier: c.tier,
         paymentTermsDays: c.paymentTermsDays,
         contacts: contactCount.get(c.id) ?? 0,
+        // Hidden haystack so searching a person's name finds their company.
+        searchText: [c.name, c.code, groupKeyOf(c), c.contactPerson, ...(contactNames.get(c.id) ?? [])]
+          .filter(Boolean)
+          .join(" "),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
     return withCustomValues("customer", rows);
@@ -355,6 +518,10 @@ export const addressBookRouter = router({
           flag: v.flag ?? null,
           ownerName: owner?.name ?? null,
           ownerGroup: owner ? groupKeyOf(owner) : null,
+          // Hidden haystack so a vessel is findable by its owner or group too.
+          searchText: [v.name, v.imo, v.vesselType, v.flag, owner?.name, owner ? groupKeyOf(owner) : null]
+            .filter(Boolean)
+            .join(" "),
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -365,14 +532,40 @@ export const addressBookRouter = router({
   contacts: protectedProcedure
     .input(z.object({ archived: z.boolean().optional() }).optional())
     .query(async ({ input }) => {
-      const [contacts, customers] = await Promise.all([db.listAllPaymentContacts(), db.listCustomers()]);
+      const [contacts, customers, gifts, vessels] = await Promise.all([
+        db.listAllPaymentContacts(),
+        db.listCustomers(),
+        db.listContactGifts(),
+        db.listVessels(),
+      ]);
       const custById = new Map(customers.map(c => [c.id, c]));
+      // Vessel names per company, so a contact is findable by the ship they serve.
+      const vesselNamesByCustomer = new Map<number, string[]>();
+      for (const v of vessels) {
+        if (!v.customerId) continue;
+        const list = vesselNamesByCustomer.get(v.customerId);
+        if (list) {
+          if (list.length < 60) list.push(v.name);
+        } else vesselNamesByCustomer.set(v.customerId, [v.name]);
+      }
+      // Gift history per contact: latest year wins for the badge, but the full
+      // year list travels with the row so the record card can show history.
+      type GiftEntry = { year: number; tier: string };
+      const giftsByContact = new Map<number, GiftEntry[]>();
+      for (const g of gifts) {
+        const bucket = giftsByContact.get(g.contactId);
+        const entry: GiftEntry = { year: g.year, tier: g.tier };
+        if (bucket) bucket.push(entry);
+        else giftsByContact.set(g.contactId, [entry]);
+      }
+      giftsByContact.forEach(list => list.sort((a: GiftEntry, b: GiftEntry) => b.year - a.year));
       const wantArchived = input?.archived === true;
       const rows = contacts
         // Archived contacts are hidden by default; the archive view asks for them explicitly.
         .filter(ct => (ct.archived === 1) === wantArchived)
         .map(ct => {
           const cust = custById.get(ct.customerId);
+          const giftHistory = giftsByContact.get(ct.id) ?? [];
           return {
             recordKey: String(ct.id),
             id: ct.id,
@@ -381,9 +574,25 @@ export const addressBookRouter = router({
             title: ct.title ?? null,
             email: ct.email,
             phone: ct.phone ?? null,
+            contactType: ct.contactType ?? "Person",
             companyName: cust?.name ?? "—",
             group: cust ? groupKeyOf(cust) : "—",
             archived: ct.archived === 1,
+            giftTier: giftHistory[0]?.tier ?? null,
+            giftYear: giftHistory[0]?.year ?? null,
+            giftHistory,
+            // Hidden haystack: the person plus their company, group and vessels.
+            searchText: [
+              ct.name,
+              ct.email,
+              ct.phone,
+              ct.title,
+              cust?.name,
+              cust ? groupKeyOf(cust) : null,
+              ...(vesselNamesByCustomer.get(ct.customerId) ?? []),
+            ]
+              .filter(Boolean)
+              .join(" "),
           };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -394,7 +603,7 @@ export const addressBookRouter = router({
   search: protectedProcedure
     .input(z.object({ query: z.string().min(2).max(100) }))
     .query(async ({ input }) => {
-      const q = input.query.trim().toLowerCase();
+      const q = input.query.trim();
       const [customers, vessels, contacts] = await Promise.all([
         db.listCustomers(),
         db.listVessels(),
@@ -402,27 +611,46 @@ export const addressBookRouter = router({
       ]);
       const custById = new Map(customers.map(c => [c.id, c]));
       const groupNames = Array.from(new Set(customers.map(c => groupKeyOf(c))));
+      // Every entity is matched across its own fields *and* the names of the
+      // things it belongs to, so "minerva aegean" finds the vessel and
+      // "boukolos" finds the group he belongs to. Accents and word order are
+      // handled by matchesAllTokens.
       return {
         groups: groupNames
-          .filter(g => g.toLowerCase().includes(q))
+          .filter(g => matchesAllTokens(q, [g]))
           .slice(0, 8)
           .map(g => ({ name: g })),
         customers: customers
-          .filter(c => c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q) || (c.vatNumber ?? "").includes(q))
+          .filter(c => matchesAllTokens(q, [c.name, c.code, c.vatNumber, groupKeyOf(c)]))
           .slice(0, 8)
           .map(c => ({ id: c.id, name: c.name, code: c.code, group: groupKeyOf(c) })),
         vessels: vessels
-          .filter(v => v.name.toLowerCase().includes(q) || (v.imo ?? "").toLowerCase().includes(q))
+          .filter(v => {
+            const owner = v.customerId ? custById.get(v.customerId) : undefined;
+            return matchesAllTokens(q, [
+              v.name,
+              v.imo,
+              v.vesselType,
+              v.flag,
+              owner?.name,
+              owner ? groupKeyOf(owner) : null,
+            ]);
+          })
           .slice(0, 8)
           .map(v => ({ id: v.id, name: v.name, imo: v.imo ?? null })),
         contacts: contacts
-          .filter(
-            ct =>
-              ct.archived !== 1 &&
-              (ct.name.toLowerCase().includes(q) ||
-              ct.email.toLowerCase().includes(q) ||
-              (ct.phone ?? "").toLowerCase().includes(q)),
-          )
+          .filter(ct => {
+            if (ct.archived === 1) return false;
+            const cust = custById.get(ct.customerId);
+            return matchesAllTokens(q, [
+              ct.name,
+              ct.email,
+              ct.phone,
+              ct.title,
+              cust?.name,
+              cust ? groupKeyOf(cust) : null,
+            ]);
+          })
           .slice(0, 8)
           .map(ct => {
             const cust = custById.get(ct.customerId);
@@ -430,6 +658,7 @@ export const addressBookRouter = router({
               id: ct.id,
               name: ct.name,
               email: ct.email,
+              contactType: ct.contactType ?? "Person",
               companyName: cust?.name ?? "—",
               group: cust ? groupKeyOf(cust) : "—",
             };
@@ -459,6 +688,7 @@ export const addressBookRouter = router({
         email: ct.email,
         phone: ct.phone ?? null,
         title: ct.title ?? null,
+        contactType: ct.contactType ?? "Person",
         customerId: ct.customerId,
         companyName: cust?.name ?? "—",
         group: cust ? groupKeyOf(cust) : "—",
@@ -501,6 +731,19 @@ export const addressBookRouter = router({
     const missingPhone = live.filter(ct => !(ct.phone ?? "").trim()).map(label);
     const orphanContacts = live.filter(ct => !custById.has(ct.customerId)).map(label);
 
+    /**
+     * Contacts currently filed as people whose email (or name) reads like a
+     * shared department mailbox. Suggestion only — the user applies it.
+     */
+    const departmentSuggestions = live
+      .filter(
+        ct =>
+          (ct.contactType ?? "Person") === "Person" &&
+          (looksLikeDepartmentEmail(ct.email) || looksLikeDepartmentName(ct.name)),
+      )
+      .map(label)
+      .sort((a, b) => a.email.localeCompare(b.email));
+
     const companiesWithoutContact = customers
       .filter(c => !live.some(ct => ct.customerId === c.id))
       .map(c => ({ id: c.id, name: c.name, code: c.code, group: groupKeyOf(c) }));
@@ -518,20 +761,165 @@ export const addressBookRouter = router({
       invalidEmails,
       missingPhone,
       orphanContacts,
+      departmentSuggestions,
       companiesWithoutContact,
       vesselsWithoutImo,
       vesselsWithoutOwner,
       totals: {
         contacts: live.length,
         archivedContacts: contacts.length - live.length,
+        people: live.filter(ct => (ct.contactType ?? "Person") === "Person").length,
+        departments: live.filter(ct => ct.contactType === "Department").length,
         customers: customers.length,
         vessels: vessels.length,
       },
     };
   }),
 
+  /** Flip a single contact between Person and Department. */
+  setContactType: protectedProcedure
+    .input(z.object({ id: z.number(), contactType: z.enum(contactTypes) }))
+    .mutation(async ({ input }) => {
+      const [existing] = await db.getPaymentContact(input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+      await db.updatePaymentContact(input.id, { contactType: input.contactType });
+      return { ok: true, id: input.id, contactType: input.contactType } as const;
+    }),
+
+  /** Apply one type to many contacts at once (used by the suggestion review). */
+  setContactTypeBulk: protectedProcedure
+    .input(z.object({ ids: z.array(z.number()).min(1).max(5000), contactType: z.enum(contactTypes) }))
+    .mutation(async ({ input }) => {
+      // One statement for the whole selection — a per-row loop over hundreds of
+      // ids would mean hundreds of round trips.
+      const updated = await db.setPaymentContactTypeBulk(input.ids, input.contactType);
+      return { ok: true, updated } as const;
+    }),
+
+  /** Years that have a gift list, newest first, so the UI can offer a year picker. */
+  giftYears: protectedProcedure.query(async () => {
+    const gifts = await db.listContactGifts();
+    const years = Array.from(new Set(gifts.map(g => g.year))).sort((a, b) => b - a);
+    return { years, tiers: giftTiers } as const;
+  }),
+
+  /** Put a contact on a year's gift list, or change the tier of an existing entry. */
+  setContactGift: protectedProcedure
+    .input(
+      z.object({
+        contactId: z.number(),
+        year: z.number().int().min(2000).max(2100),
+        tier: z.enum(giftTiers),
+        region: z.string().max(120).optional(),
+        notes: z.string().max(500).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const [existing] = await db.getPaymentContact(input.contactId);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+      await db.upsertContactGift({
+        contactId: input.contactId,
+        year: input.year,
+        tier: input.tier,
+        region: input.region ?? null,
+        // A gift added from inside the app records the contact's own name as its
+        // source, so it is distinguishable from workbook-imported rows later.
+        sourceName: existing.name,
+        notes: input.notes ?? null,
+      });
+      return { ok: true, contactId: input.contactId, year: input.year, tier: input.tier } as const;
+    }),
+
+  /** Take a contact off a year's gift list. */
+  removeContactGift: protectedProcedure
+    .input(z.object({ contactId: z.number(), year: z.number().int().min(2000).max(2100) }))
+    .mutation(async ({ input }) => {
+      await db.deleteContactGift(input.contactId, input.year);
+      return { ok: true } as const;
+    }),
+
+  /**
+   * Queue of gift-list rows the importer would not guess: probable matches, likely
+   * namesakes, names absent from the directory, and cells that held a quantity.
+   */
+  giftReview: protectedProcedure
+    .input(z.object({ status: z.enum(["pending", "resolved", "dismissed"]).optional() }).optional())
+    .query(async ({ input }) => {
+      const [rows, contacts] = await Promise.all([
+        db.listGiftReview(input?.status ?? "pending"),
+        db.listAllPaymentContacts(),
+      ]);
+      const byId = new Map(contacts.map(c => [c.id, c]));
+      const items = rows.map(r => {
+        type Candidate = { id: number; name: string; email?: string | null; company?: string | null; group?: string | null; score?: number | null };
+        let candidates: Candidate[] = [];
+        if (r.candidates) {
+          try {
+            candidates = JSON.parse(r.candidates) as Candidate[];
+          } catch {
+            // A malformed blob must not take the whole queue down.
+            candidates = [];
+          }
+        }
+        return {
+          id: r.id,
+          year: r.year,
+          sourceName: r.sourceName,
+          sourceGroup: r.sourceGroup,
+          region: r.region,
+          tier: r.tier,
+          comment: r.comment,
+          matchKind: r.matchKind,
+          status: r.status,
+          resolvedContactId: r.resolvedContactId,
+          resolvedContactName: r.resolvedContactId ? (byId.get(r.resolvedContactId)?.name ?? null) : null,
+          // Candidates that were since archived or deleted are dropped, so the
+          // reviewer is never offered a contact that no longer exists.
+          candidates: candidates.filter(c => byId.has(c.id)),
+        };
+      });
+      const counts = {
+        probable: items.filter(i => i.matchKind === "probable").length,
+        weak: items.filter(i => i.matchKind === "weak").length,
+        unmatched: items.filter(i => i.matchKind === "unmatched").length,
+        countRequest: items.filter(i => i.matchKind === "count_request").length,
+        total: items.length,
+      };
+      return { items, counts };
+    }),
+
+  /** Accept a review row: the chosen contact joins that year's gift list. */
+  resolveGiftReview: protectedProcedure
+    .input(z.object({ id: z.number(), contactId: z.number() }))
+    .mutation(async ({ input }) => {
+      const [row] = await db.getGiftReviewRow(input.id);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Review row not found" });
+      const [contact] = await db.getPaymentContact(input.contactId);
+      if (!contact) throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+      await db.upsertContactGift({
+        contactId: input.contactId,
+        year: row.year,
+        tier: row.tier,
+        region: row.region,
+        sourceName: row.sourceName,
+        sourceGroup: row.sourceGroup,
+        notes: row.comment,
+      });
+      await db.setGiftReviewStatus(input.id, "resolved", input.contactId);
+      return { ok: true, contactId: input.contactId, year: row.year } as const;
+    }),
+
+  /** Set a review row aside without touching the gift list. */
+  dismissGiftReview: protectedProcedure
+    .input(z.object({ ids: z.array(z.number()).min(1).max(2000) }))
+    .mutation(async ({ input }) => {
+      const dismissed = await db.dismissGiftReviewBulk(input.ids);
+      return { ok: true, dismissed } as const;
+    }),
+
   /** Archive a contact: it leaves the directory but keeps its history. */
   archiveContact: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+
     const [existing] = await db.getPaymentContact(input.id);
     if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
     await db.archivePaymentContact(input.id);
@@ -561,6 +949,7 @@ export const addressBookRouter = router({
           email: z.string().min(3).max(320),
           phone: z.string().max(20).nullable(),
           title: z.string().max(255).nullable(),
+          contactType: z.enum(contactTypes).optional(),
           customerId: z.number(),
         }),
       }),
@@ -577,6 +966,7 @@ export const addressBookRouter = router({
         email: input.fields.email,
         phone: input.fields.phone,
         title: input.fields.title,
+        ...(input.fields.contactType ? { contactType: input.fields.contactType } : {}),
         customerId: input.fields.customerId,
       });
 
@@ -660,6 +1050,8 @@ export const addressBookRouter = router({
             email: row.values.email ?? "",
             phone: row.values.phone ?? null,
             title: row.values.title ?? null,
+            // Sheets without a Type column fall back to the column default.
+            contactType: (row.values.contactType as "Person" | "Department") || "Person",
           });
           created += 1;
         } else if (row.action === "update" && contactId) {
@@ -668,6 +1060,7 @@ export const addressBookRouter = router({
           if (row.values.email) patch.email = row.values.email;
           if (row.values.phone !== undefined) patch.phone = row.values.phone || null;
           if (row.values.title !== undefined) patch.title = row.values.title || null;
+          if (row.values.contactType) patch.contactType = row.values.contactType;
           if (row.customerId) patch.customerId = row.customerId;
           if (Object.keys(patch).length > 0) await db.updatePaymentContact(contactId, patch as any);
           updated += 1;

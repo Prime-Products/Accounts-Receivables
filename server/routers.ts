@@ -17,7 +17,6 @@ import {
   teamRouter,
 } from "./routers/ar";
 import { addressBookRouter } from "./routers/addressBook";
-import { assistantRouter } from "./routers/assistant";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -35,7 +34,6 @@ export const appRouter = router({
 
   customers: customersRouter,
   addressBook: addressBookRouter,
-  assistant: assistantRouter,
   invoices: invoicesRouter,
   vessels: vesselsRouter,
   team: teamRouter,

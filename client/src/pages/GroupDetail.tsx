@@ -109,7 +109,11 @@ function ActionsMenu({
   const [taskOpen, setTaskOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
-  const [callOpen, setCallOpen] = useState(false);
+  // `?logCall=1` opens the Log Call dialog straight away, so a call can be
+  // logged from a link (e.g. from a task reminder) without extra clicks.
+  const [callOpen, setCallOpen] = useState(
+    () => new URLSearchParams(window.location.search).get("logCall") === "1",
+  );
 
   return (
     <>
