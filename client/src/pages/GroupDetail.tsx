@@ -297,8 +297,13 @@ function GroupPromiseDialog({ companies, defaultCustomerId, open: externalOpen, 
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label>Amount (€)</Label>
-            <Input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
+            <Label>Amount (€) — optional</Label>
+            <Input
+              type="number"
+              placeholder="leave empty if not stated"
+              value={form.amount}
+              onChange={e => setForm({ ...form, amount: e.target.value })}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Promised date</Label>
@@ -311,11 +316,11 @@ function GroupPromiseDialog({ companies, defaultCustomerId, open: externalOpen, 
         </div>
         <DialogFooter>
           <Button
-            disabled={!customerId || !form.amount || !form.date || addPromise.isPending}
+            disabled={!customerId || !form.date || addPromise.isPending}
             onClick={() =>
               addPromise.mutate({
                 customerId: customerId!,
-                amount: Number(form.amount),
+                amount: form.amount ? Number(form.amount) : 0,
                 promisedDate: new Date(form.date).getTime(),
                 notes: form.notes || undefined,
               })

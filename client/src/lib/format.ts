@@ -5,6 +5,28 @@ export const fmtEur = (n: number | string) =>
 export const fmtEurFull = (n: number | string) =>
   new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR", minimumFractionDigits: 2 }).format(Number(n));
 
+/**
+ * A promise-to-pay is valid without a stated amount: customers often say "I'll pay"
+ * without committing to a figure. Rendering that as "€0" reads like a zero promise,
+ * so amount-less promises are labelled explicitly instead.
+ */
+export const PROMISE_NO_AMOUNT_LABEL = "amount not stated";
+
+/** True when a promise carries no stated amount (null, empty or zero). */
+export const isPromiseAmountStated = (n: number | string | null | undefined): boolean => {
+  if (n === null || n === undefined || n === "") return false;
+  const v = Number(n);
+  return Number.isFinite(v) && Math.abs(v) >= 0.005;
+};
+
+/** Promise amount for display: full EUR figure, or "amount not stated". */
+export const fmtPromiseAmount = (n: number | string | null | undefined): string =>
+  isPromiseAmountStated(n) ? fmtEurFull(n as number | string) : PROMISE_NO_AMOUNT_LABEL;
+
+/** Compact variant for list cells and badges. */
+export const fmtPromiseAmountShort = (n: number | string | null | undefined): string =>
+  isPromiseAmountStated(n) ? fmtEur(n as number | string) : PROMISE_NO_AMOUNT_LABEL;
+
 export const fmtDate = (ts: number) => new Date(ts).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
 /** Format an amount in an arbitrary currency (EUR, AED, SGD, USD, ...). */

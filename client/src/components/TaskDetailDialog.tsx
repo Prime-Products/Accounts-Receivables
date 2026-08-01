@@ -9,7 +9,14 @@ import NextActionDialog from "@/components/NextActionDialog";
 import EscalationPanel from "@/components/EscalationPanel";
 import { WatcherStack, watcherColor, watcherInitials } from "@/components/WatcherStack";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
+import {
+  fmtDate,
+  fmtEurFull,
+  isPromiseAmountStated,
+  PROMISE_NO_AMOUNT_LABEL,
+  taskStatusColors,
+  taskTypeColors,
+} from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, ArrowUpCircle, CalendarClock, CheckCircle2, Eye, FileText, HandCoins, Plus, ThumbsDown, ThumbsUp, User, X, XCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -472,7 +479,13 @@ export default function TaskDetailDialog({
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
                       <div className="text-xs text-muted-foreground">Amount</div>
-                      <div className="font-mono font-semibold">{fmtEurFull(task.promise.amount)}</div>
+                      {isPromiseAmountStated(task.promise.amount) ? (
+                        <div className="font-mono font-semibold">{fmtEurFull(task.promise.amount)}</div>
+                      ) : (
+                        <div className="text-xs italic text-muted-foreground" title="The customer promised to pay without naming a figure">
+                          {PROMISE_NO_AMOUNT_LABEL}
+                        </div>
+                      )}
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">Promised date</div>
@@ -562,8 +575,8 @@ export default function TaskDetailDialog({
                             {nextType === "promise" ? "New Promise to Pay — the broken promise stays on record" : "Schedule the next follow-up call"}
                           </div>
                          <div className="grid grid-cols-2 gap-2">
-                           <div className="grid gap-1">
-                             <Label htmlFor="nt-amount" className="text-xs">{nextType === "promise" ? "Promised amount (EUR)" : "Expected amount (optional)"}</Label>
+                         <div className="grid gap-1">
+                             <Label htmlFor="nt-amount" className="text-xs">{nextType === "promise" ? "Promised amount (EUR) — optional" : "Expected amount (optional)"}</Label>
                               <Input id="nt-amount" type="number" min="0" step="0.01" className="h-8 bg-white" value={fuAmount} onChange={e => setFuAmount(e.target.value)} placeholder="0.00" />
                             </div>
                             <div className="grid gap-1">
@@ -585,7 +598,6 @@ export default function TaskDetailDialog({
                               disabled={
                                 !resolveAs ||
                                 !fuDate ||
-                                (nextType === "promise" && (!fuAmount || Number(fuAmount) <= 0)) ||
                                 createNext.isPending
                               }
                               onClick={() =>
@@ -609,7 +621,7 @@ export default function TaskDetailDialog({
                         <div className="grid gap-2">
                           <div className="grid grid-cols-2 gap-2">
                             <div className="grid gap-1">
-                              <Label htmlFor="pr-re-amount" className="text-xs">New amount (EUR)</Label>
+                              <Label htmlFor="pr-re-amount" className="text-xs">New amount (EUR) — optional</Label>
                               <Input id="pr-re-amount" type="number" min="0" step="0.01" className="h-8" value={fuAmount} onChange={e => setFuAmount(e.target.value)} />
                             </div>
                             <div className="grid gap-1">
@@ -628,12 +640,12 @@ export default function TaskDetailDialog({
                            <Button
                              size="sm"
                              className="h-7 px-3 text-xs"
-                             disabled={!fuDate || !fuAmount || Number(fuAmount) <= 0 || reschedulePromise.isPending}
+                             disabled={!fuDate || reschedulePromise.isPending}
                               onClick={() =>
                                 reschedulePromise.mutate({
                                   taskId: task.id,
                                   promiseId: task.promise!.id,
-                                  amount: Number(fuAmount),
+                                  amount: fuAmount ? Number(fuAmount) : 0,
                                  promisedDate: new Date(`${fuDate}T12:00:00`).getTime(),
                                  notes: fuNotes || undefined,
                                })
@@ -824,7 +836,6 @@ export default function TaskDetailDialog({
                             className="h-7 px-3 text-xs"
                             disabled={
                               !fuDate ||
-                              (nextType === "promise" && (!fuAmount || Number(fuAmount) <= 0)) ||
                               createNext.isPending
                             }
                             onClick={() =>
@@ -867,7 +878,7 @@ export default function TaskDetailDialog({
                       <div className="grid gap-2">
                         <div className="grid grid-cols-2 gap-2">
                           <div className="grid gap-1">
-                            <Label htmlFor="fu-pr-amount" className="text-xs">Promised amount (EUR)</Label>
+                            <Label htmlFor="fu-pr-amount" className="text-xs">Promised amount (EUR) — optional</Label>
                             <Input id="fu-pr-amount" type="number" min="0" step="0.01" className="h-8 bg-white" value={fuAmount} onChange={e => setFuAmount(e.target.value)} placeholder="0.00" />
                           </div>
                           <div className="grid gap-1">
@@ -886,11 +897,11 @@ export default function TaskDetailDialog({
                           <Button
                             size="sm"
                             className="h-7 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                            disabled={!fuDate || !fuAmount || Number(fuAmount) <= 0 || convertToPromise.isPending}
+                            disabled={!fuDate || convertToPromise.isPending}
                             onClick={() =>
                               convertToPromise.mutate({
                                 taskId: task.id,
-                                amount: Number(fuAmount),
+                                amount: fuAmount ? Number(fuAmount) : 0,
                                 promisedDate: new Date(`${fuDate}T12:00:00`).getTime(),
                                 notes: fuNotes || undefined,
                               })
