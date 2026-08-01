@@ -1481,3 +1481,12 @@ master record. Same company, two screens. Unify them.
 - [x] Contacts on the Details tab deduped per person, departments marked "· dept", gift tier/history editable from the card
 - [x] Active tab addressable via `?tab=details`, synced with history.replaceState (no page re-mount)
 - [x] Tests covering the unified card routing and tab content (addressBook, styling, dedup, card-size and contactType assertions repointed at the shared panel)
+
+## Address Book visual alignment with the rest of AR Pro (user request 1/8)
+- [x] Entity switcher uses the stock segmented control (`TabsList h-10`) with plain muted mono counts, dropping the bespoke muted panel and the sky count pills
+- [x] Filters moved onto an open row (switcher + search + selects) instead of the boxed `rounded-lg border bg-card p-3` toolbar — that box was the main reason the page looked foreign
+- [x] Secondary tools collapsed into one row (Filters, Import, Data quality, Gift review, Fields, Save current view; Columns + Export right-aligned), so the page reads header → filters → tools → summary → table like Invoices
+- [x] Page header matched to the other list pages: neutral title icon (was sky-600), one-line subtitle, contacts actions kept on the title row
+- [x] Table header/rows verified as already shared via `AddressBookTable` (card wrapper, sticky muted header, hover rows, footer inside the card) — same treatment as Vessels/Invoices
+- [x] Route-level `PageFallback` renders a title + filters + table skeleton instead of the bare "Loading…" line (applies to every lazy page, not just the Address Book)
+- [x] Vitest coverage for the aligned styling contract (`addressBookStyling.test.ts` asserts the stock switcher, no boxed toolbar, row order and the skeleton shell) — 555 tests pass

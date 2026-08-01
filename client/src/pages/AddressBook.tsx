@@ -748,18 +748,19 @@ export default function AddressBook() {
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <BookUser className="h-6 w-6 text-sky-600" /> Address Book
+            <BookUser className="h-6 w-6" /> Address Book
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Groups, companies, vessels and contacts in one directory — with your own fields, saved lists and exports
+            One directory for groups, companies, vessels and contacts
           </p>
         </div>
         {entity === "contact" && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <Button
               variant={showArchived ? "default" : "outline"}
+              size="sm"
               className="gap-2"
               onClick={() => {
                 setShowArchived(v => !v);
@@ -769,6 +770,7 @@ export default function AddressBook() {
               <Archive className="h-4 w-4" /> {showArchived ? "Viewing archive" : "Archive"}
             </Button>
             <Button
+              size="sm"
               className="gap-2"
               onClick={() => {
                 setEditingContact(null);
@@ -781,131 +783,125 @@ export default function AddressBook() {
         )}
       </div>
 
-      {/* Entity switcher — segmented control, same language as the Collections Desk Groups/Companies switch */}
-      <Tabs value={entity} onValueChange={v => switchTab(v as Entity)}>
-        <TabsList className="h-auto flex-wrap gap-1 bg-muted/60 p-1">
-          {TABS.map(t => {
-            const Icon = t.icon;
-            const n = tabCount(t.value);
-            const active = entity === t.value;
-            return (
-              <TabsTrigger
-                key={t.value}
-                value={t.value}
-                className="gap-2 px-3 py-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm"
-              >
-                <Icon className={`h-4 w-4 ${active ? "text-sky-600" : "text-muted-foreground"}`} />
-                <span className="font-medium">{t.label}</span>
-                {n != null && (
-                  <span
-                    className={`rounded-full px-1.5 py-0.5 text-[11px] font-mono leading-none ${
-                      active ? "bg-sky-100 text-sky-700" : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {n.toLocaleString()}
-                  </span>
-                )}
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-      </Tabs>
-
-      {/* Toolbar — filters on the first row, tools on the second, grouped in one panel like the other list pages */}
-      <div className="rounded-lg border bg-card p-3 space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-56 sm:max-w-80">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-9 pr-8"
-              placeholder="Search names, vessels, companies, groups…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-            {search && (
-              <button
-                className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
-                onClick={() => setSearch("")}
-                title="Clear"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-          <Select value={groupFilter} onValueChange={setGroupFilter}>
-            <SelectTrigger className="w-[220px]">
-              <SelectValue placeholder="All groups" />
+      {/*
+       * Switcher + filters sit on one open row directly on the page background,
+       * exactly like the Collections Desk (Groups/Companies + search + selects).
+       * No surrounding panel: boxing the filters was what made this page look
+       * like a different application.
+       */}
+      <div className="flex flex-wrap gap-3">
+        <Tabs value={entity} onValueChange={v => switchTab(v as Entity)}>
+          <TabsList className="h-10">
+            {TABS.map(t => {
+              const Icon = t.icon;
+              const n = tabCount(t.value);
+              return (
+                <TabsTrigger key={t.value} value={t.value} className="gap-1.5">
+                  <Icon className="h-4 w-4" />
+                  {t.label}
+                  {n != null && (
+                    <span className="font-mono text-xs text-muted-foreground">{n.toLocaleString()}</span>
+                  )}
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+        </Tabs>
+        <div className="relative flex-1 min-w-52 sm:max-w-64">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            className="pl-9 pr-8"
+            placeholder="Search names, vessels, companies, groups…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          {search && (
+            <button
+              className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+              onClick={() => setSearch("")}
+              title="Clear"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <Select value={groupFilter} onValueChange={setGroupFilter}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="All groups" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            <SelectItem value="all">All groups ({groupOptions.length})</SelectItem>
+            {groupOptions.map(g => (
+              <SelectItem key={g} value={g}>
+                {g}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {entity === "contact" && (
+          <Select value={typeFilter} onValueChange={v => setTypeFilter(v as typeof typeFilter)}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">People &amp; departments</SelectItem>
+              <SelectItem value="Person">People only</SelectItem>
+              <SelectItem value="Department">Departments only</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        {entity === "contact" && (
+          <Select value={giftFilter} onValueChange={v => setGiftFilter(v as typeof giftFilter)}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Gift list" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Gift list: everyone</SelectItem>
+              <SelectItem value="gift">On the gift list</SelectItem>
+              <SelectItem value="nogift">Not on the gift list</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        {extraLabel && (
+          <Select value={extraFilter} onValueChange={setExtraFilter}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder={extraLabel} />
             </SelectTrigger>
             <SelectContent className="max-h-72">
-              <SelectItem value="all">All groups ({groupOptions.length})</SelectItem>
-              {groupOptions.map(g => (
-                <SelectItem key={g} value={g}>
-                  {g}
+              <SelectItem value="all">{extraLabel}</SelectItem>
+              {extraOptions.map(o => (
+                <SelectItem key={o} value={o}>
+                  {o}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          {entity === "contact" && (
-            <Select value={typeFilter} onValueChange={v => setTypeFilter(v as typeof typeFilter)}>
-              <SelectTrigger className="w-[170px]">
-                <SelectValue placeholder="All types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">People &amp; departments</SelectItem>
-                <SelectItem value="Person">People only</SelectItem>
-                <SelectItem value="Department">Departments only</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-          {entity === "contact" && (
-            <Select value={giftFilter} onValueChange={v => setGiftFilter(v as typeof giftFilter)}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Gift list" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Gift list: everyone</SelectItem>
-                <SelectItem value="gift">On the gift list</SelectItem>
-                <SelectItem value="nogift">Not on the gift list</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-          {extraLabel && (
-            <Select value={extraFilter} onValueChange={setExtraFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder={extraLabel} />
-              </SelectTrigger>
-              <SelectContent className="max-h-72">
-                <SelectItem value="all">{extraLabel}</SelectItem>
-                {extraOptions.map(o => (
-                  <SelectItem key={o} value={o}>
-                    {o}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-          {entity === "contact" && <ImportContactsDialog onImported={refreshContacts} />}
-          <DataQualityPanel />
-          {entity === "contact" && <GiftReviewPanel />}
-          <CustomFieldsManager entity={entity} />
-          <div className="ml-auto flex items-center gap-2">
-            <ColumnPicker allColumns={allColumns} hidden={hidden} order={order} onChange={applyLayout} />
-            <ExportMenu
-              title={`Address Book — ${TABS.find(t => t.value === entity)?.label ?? ""}`}
-              columns={columns}
-              rows={filtered}
-            />
-          </div>
-        </div>
+        )}
+      </div>
+
+      {/*
+       * One secondary tools row: column filters and saved views live here next to
+       * the other tools, so the page reads header → filters → tools → summary →
+       * table, the same rhythm as Invoices and Vessels.
+       */}
+      <div className="flex flex-wrap items-center gap-2">
         <FieldFilterBar columns={allColumns} filters={fieldFilters} onChange={setFieldFilters} />
-        <div className="border-t pt-3">
-          <SavedViewsBar
-            entity={entity}
-            activeViewId={activeViewId}
-            currentConfig={currentConfig}
-            onApply={applyView}
+        {entity === "contact" && <ImportContactsDialog onImported={refreshContacts} />}
+        <DataQualityPanel />
+        {entity === "contact" && <GiftReviewPanel />}
+        <CustomFieldsManager entity={entity} />
+        <SavedViewsBar
+          entity={entity}
+          activeViewId={activeViewId}
+          currentConfig={currentConfig}
+          onApply={applyView}
+        />
+        <div className="ml-auto flex items-center gap-2">
+          <ColumnPicker allColumns={allColumns} hidden={hidden} order={order} onChange={applyLayout} />
+          <ExportMenu
+            title={`Address Book — ${TABS.find(t => t.value === entity)?.label ?? ""}`}
+            columns={columns}
+            rows={filtered}
           />
         </div>
       </div>
