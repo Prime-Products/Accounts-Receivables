@@ -7,7 +7,8 @@ import LogCallDialog from "@/components/LogCallDialog";
 import LogCallLauncher from "@/components/LogCallLauncher";
 import SendEmailDialog from "@/components/SendEmailDialog";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
-import { ActivityLog } from "@/components/ActivityLog";
+import { CommunicationTimeline } from "@/components/CommunicationTimeline";
+import { buildTimeline } from "@/lib/timeline";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
 import { InvoicesTable } from "@/components/InvoicesTable";
@@ -254,6 +255,91 @@ function GroupConfirmationBadge({
   );
 }
 
+/** Human-readable "how long ago" for the last-contact line. */
+function relativeDays(ts: number): string {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const startOf = (t: number) => {
+    const d = new Date(t);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  };
+  const days = Math.round((startOf(Date.now()) - startOf(ts)) / dayMs);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days} days ago`;
+  const months = Math.round(days / 30);
+  return months <= 1 ? "about a month ago" : `${months} months ago`;
+}
+
+/**
+ * "When did we last speak to them?" — the first question a collector asks when
+ * opening a card, so it sits directly under the title with the note in the tooltip.
+ */
+function LastContactLine({
+  data,
+}: {
+  data: { lastCallAt?: number | null; lastCallBy?: string | null; lastCallOutcome?: string | null; lastCallNote?: string | null; callCount?: number; noAnswerCount?: number };
+}) {
+  if (!data.lastCallAt) {
+    return (
+      <p className="text-xs text-amber-600 mt-0.5">Never contacted — no call has been logged for this group</p>
+    );
+  }
+  const when = new Date(data.lastCallAt).toLocaleDateString("en-GB");
+  return (
+    <p
+      className="text-xs text-muted-foreground mt-0.5"
+      title={[
+        `${when}${data.lastCallBy ? ` — ${data.lastCallBy}` : ""}`,
+        data.lastCallOutcome ?? null,
+        data.lastCallNote ?? null,
+      ]
+        .filter(Boolean)
+        .join("\n")}
+    >
+      Last contact: {relativeDays(data.lastCallAt)}
+      {data.lastCallBy ? ` — ${data.lastCallBy}` : ""}
+      {data.callCount ? ` · ${data.callCount} call${data.callCount === 1 ? "" : "s"} logged` : ""}
+      {data.noAnswerCount ? ` · ${data.noAnswerCount} no answer` : ""}
+      {data.lastCallNote ? (
+        <span className="ml-1 italic truncate inline-block max-w-[520px] align-bottom">“{data.lastCallNote}”</span>
+      ) : null}
+    </p>
+  );
+}
+
+/**
+ * "Log call" button for the communication timeline header. Goes through
+ * LogCallLauncher so an already-active case offers to open its task instead of
+ * silently creating a parallel one.
+ */
+function TimelineLogCallButton({
+  group,
+  companies,
+  defaultCustomerId,
+}: {
+  group: string;
+  companies: { id: number; name: string }[];
+  defaultCustomerId?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setOpen(true)}>
+        <Phone className="h-3.5 w-3.5" /> Log call
+      </Button>
+      {open && (
+        <LogCallLauncher
+          group={group}
+          companies={companies}
+          defaultCustomerId={defaultCustomerId}
+          open={open}
+          onOpenChange={setOpen}
+        />
+      )}
+    </>
+  );
+}
+
 function GroupPromiseDialog({ companies, defaultCustomerId, open: externalOpen, onOpenChange }: { companies: { id: number; name: string }[]; defaultCustomerId?: number; open?: boolean; onOpenChange?: (open: boolean) => void }) {
   const utils = trpc.useUtils();
   const [internalOpen, setInternalOpen] = useState(false);
@@ -386,6 +472,27 @@ export default function GroupDetail() {
   );
   const { data, isLoading } = trpc.customers.groupDetail.useQuery(query, { enabled: !!group });
   const { data: groupForecast } = trpc.customers.groupForecast.useQuery({ group }, { enabled: !!group });
+  /**
+   * Everything that ever happened with this group, in one place. The sources are
+   * fetched at page level so both the timeline and the "Group activity" tabs
+   * below share one round trip.
+   */
+  const { data: groupActivity, isLoading: activityLoading } = trpc.customers.groupActivity.useQuery(
+    { group },
+    { enabled: !!group },
+  );
+  const { data: groupNoteRows } = trpc.customers.groupNotes.useQuery({ group }, { enabled: !!group });
+  const timelineEntries = useMemo(
+    () =>
+      buildTimeline({
+        activityLogs: data?.activityLogs as any,
+        emails: groupActivity?.emails as any,
+        tasks: groupActivity?.tasks as any,
+        receipts: groupActivity?.receipts as any,
+        notes: groupNoteRows as any,
+      }),
+    [data?.activityLogs, groupActivity, groupNoteRows],
+  );
 
   /** Bucket an overdue invoice by days overdue (same rule as the Invoices page). */
   const bucketOf = (dueDate: number, now: number): "0-30" | "31-60" | "61-90" | "91-120" | "120+" | null => {
@@ -610,6 +717,7 @@ export default function GroupDetail() {
             <p className="text-sm text-muted-foreground mt-0.5">
               Group card — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}
             </p>
+            {data && <LastContactLine data={data as any} />}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -823,6 +931,21 @@ export default function GroupDetail() {
 
           {/* Always-visible collection notes: call preferences & customer particularities */}
           <CollectionNotesBox group={group} />
+
+          {/* One chronological history: calls, notes, promises, emails, tasks, payments */}
+          <CommunicationTimeline
+            entries={timelineEntries}
+            isLoading={isLoading || activityLoading}
+            actions={
+              data && data.companies.length > 0 ? (
+                <TimelineLogCallButton
+                  group={group}
+                  companies={data.companies}
+                  defaultCustomerId={defaultActionCustomerId}
+                />
+              ) : undefined
+            }
+          />
 
           {/* Aging for current scope */}
           <Card>
@@ -1134,9 +1257,6 @@ export default function GroupDetail() {
               )}
             </CardContent>
           </Card>
-
-          {/* Unified Activity Log */}
-          {data?.activityLogs && <ActivityLog activities={data.activityLogs} />}
 
           {/* Payment history, contracts & tasks across the group (unified card) */}
           <GroupActivityTabs group={group} />

@@ -14,7 +14,12 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+    include: [
+      "server/**/*.test.ts",
+      "server/**/*.spec.ts",
+      // Pure helper modules shared by the UI (formatting, timeline building, filters).
+      "client/src/lib/**/*.test.ts",
+    ],
     fileParallelism: false,
   },
 });
