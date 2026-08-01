@@ -14,6 +14,7 @@ import { matchesStatusFilter } from "@/lib/invoiceFilters";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
+import { matchesAllTokens } from "@shared/textMatch";
 import { ChevronRight, FileDown, FileText, HandCoins, Ship, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -134,9 +135,11 @@ export default function Invoices() {
         if (b !== bucketFilter) return false;
       }
       if (search) {
-        const q = search.toLowerCase();
-        const vessel = ((i as any).vesselName ?? "").toLowerCase();
-        if (!i.invoiceNumber.toLowerCase().includes(q) && !i.customerName.toLowerCase().includes(q) && !vessel.includes(q)) return false;
+        // Accent-insensitive and order-independent: "μπουκουβαλα 1234" matches a
+        // Latin-spelled customer plus an invoice number, in either order.
+        const vessel = ((i as any).vesselName ?? "") as string;
+        const group = ((i as any).customerGroup ?? "") as string;
+        if (!matchesAllTokens(search, [i.invoiceNumber, i.customerName, vessel, group])) return false;
       }
       return true;
     });

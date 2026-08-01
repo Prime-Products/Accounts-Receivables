@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { useLocation, useSearch } from "wouter";
 import LogCallDialog from "@/components/LogCallDialog";
 import TaskDetailDialog from "@/components/TaskDetailDialog";
+import { matchesAllTokens } from "@shared/textMatch";
 
 type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "collected" | "remaining" | "overdueCount";
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
@@ -331,10 +332,9 @@ export default function Customers() {
     let rows = data.filter(c => {
       // Contacts-only companies (never invoiced) belong to the directory, not to collections.
       if ((c as { hasLedger?: boolean }).hasLedger === false) return false;
-      const matchesSearch =
-        !search ||
-        c.name.toLowerCase().includes(search.toLowerCase()) ||
-        c.code.toLowerCase().includes(search.toLowerCase());
+      // Accents, letter case and word order are handled centrally, so a Greek
+      // query also finds a Latin-spelled record (and vice versa).
+      const matchesSearch = matchesAllTokens(search, [c.name, c.code, (c as { customerGroup?: string | null }).customerGroup]);
       const matchesRating = ratingFilter === "all" || c.rating === ratingFilter;
       return matchesSearch && matchesRating;
     });
@@ -366,7 +366,7 @@ export default function Customers() {
   const filteredGroups = useMemo(() => {
     if (!groups) return [];
     let rows = groups.filter(g => {
-      const matchesSearch = !search || g.group.toLowerCase().includes(search.toLowerCase());
+      const matchesSearch = matchesAllTokens(search, [g.group]);
       const matchesStatus =
         statusFilter === "all" ||
         (statusFilter === "problematic" && g.watchStatus === "Problematic") ||
