@@ -8,13 +8,13 @@
  */
 import { CustomFieldsBlock } from "@/components/CustomFieldsBlock";
 import { ResizableDialogContent } from "@/components/ResizableDialogContent";
+import { VesselDetailDialog } from "@/components/VesselDetailDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc";
 import { Building2, ExternalLink, Mail, Phone, Ship, Users } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 
 export type AddressBookEntity = "group" | "customer" | "vessel" | "contact";
@@ -47,6 +47,8 @@ export function AddressBookRecordDialog({
   const [, navigate] = useLocation();
   const entity = target?.entity ?? "group";
   const recordKey = target?.recordKey ?? "";
+  /** Vessel whose financial (AR) card is open on top of this one. */
+  const [arVesselId, setArVesselId] = useState<number | null>(null);
 
   // The directory lists are already cached by the page, so these reads are cheap.
   const { data: groups } = trpc.addressBook.groups.useQuery(undefined, { enabled: open });
@@ -85,10 +87,10 @@ export function AddressBookRecordDialog({
       >
         <DialogHeader className="shrink-0 border-b px-6 py-4 pr-12">
           <DialogTitle className="flex items-center gap-2">
-            {entity === "group" && <Users className="h-5 w-5" />}
-            {entity === "customer" && <Building2 className="h-5 w-5" />}
-            {entity === "vessel" && <Ship className="h-5 w-5" />}
-            {entity === "contact" && <Mail className="h-5 w-5" />}
+            {entity === "group" && <Users className="h-5 w-5 text-sky-600" />}
+            {entity === "customer" && <Building2 className="h-5 w-5 text-sky-600" />}
+            {entity === "vessel" && <Ship className="h-5 w-5 text-sky-600" />}
+            {entity === "contact" && <Mail className="h-5 w-5 text-sky-600" />}
             <span className="truncate">{target?.title}</span>
           </DialogTitle>
           {target?.subtitle && <p className="text-sm text-muted-foreground">{target.subtitle}</p>}
@@ -96,8 +98,23 @@ export function AddressBookRecordDialog({
 
         <div className="min-h-0 flex-1 space-y-4 overflow-auto px-6 py-4">
           {/* --- identity (ERP owned) --- */}
-          <section className="space-y-1.5">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Details</p>
+          <section className="rounded-lg border bg-card p-4 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Details</p>
+              {vesselRow && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  onClick={() => setArVesselId(vesselRow.id)}
+                >
+                  <ExternalLink className="h-3 w-3" /> Open AR card
+                </Button>
+              )}
+            </div>
+            {!groupRow && !customerRow && !vesselRow && !contactRow && (
+              <p className="py-2 text-sm text-muted-foreground">Loading record…</p>
+            )}
             {groupRow && (
               <>
                 <FieldRow label="Companies">{groupRow.companies}</FieldRow>
@@ -153,11 +170,9 @@ export function AddressBookRecordDialog({
           </section>
 
           {/* --- relationships --- */}
-          <Separator />
-
-          <section className="flex min-h-0 flex-col space-y-2">
+          <section className="flex min-h-0 flex-col space-y-2 rounded-lg border bg-card p-4">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Related</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Related</p>
               {groupName && (
                 <Button
                   variant="ghost"
@@ -200,15 +215,22 @@ export function AddressBookRecordDialog({
             </div>
           </section>
 
-          <Separator />
-
           {/* --- user-defined fields --- */}
-          <section className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Custom fields</p>
+          <section className="space-y-2 rounded-lg border bg-card p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Custom fields</p>
             {target && <CustomFieldsBlock entity={entity} recordKey={recordKey} />}
           </section>
         </div>
       </ResizableDialogContent>
+
+      {/* Financial view of the same vessel — opened on demand from the directory card. */}
+      <VesselDetailDialog
+        vesselId={arVesselId}
+        open={arVesselId != null}
+        onOpenChange={v => {
+          if (!v) setArVesselId(null);
+        }}
+      />
     </Dialog>
   );
 }
@@ -221,8 +243,8 @@ function RelatedList({
   items: { key: string; label: string; onClick: () => void }[];
 }) {
   return (
-    <div className="rounded-md border">
-      <p className="border-b px-2.5 py-1.5 text-xs font-medium">{title}</p>
+    <div className="overflow-hidden rounded-md border">
+      <p className="border-b bg-muted/40 px-2.5 py-1.5 text-xs font-medium">{title}</p>
       <div className="max-h-64 overflow-auto py-1">
         {items.length === 0 ? (
           <p className="px-2.5 py-2 text-xs text-muted-foreground">None</p>
@@ -230,7 +252,7 @@ function RelatedList({
           items.map(i => (
             <button
               key={i.key}
-              className="block w-full truncate px-2.5 py-1 text-left text-xs hover:bg-accent"
+              className="block w-full truncate px-2.5 py-1 text-left text-xs text-sky-700 transition-colors hover:bg-accent"
               title={i.label}
               onClick={i.onClick}
             >

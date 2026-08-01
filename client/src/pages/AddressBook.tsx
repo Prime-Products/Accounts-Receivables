@@ -36,6 +36,7 @@ import {
   ArchiveRestore,
   BookUser,
   Building2,
+  Contact,
   Mail,
   Merge,
   Phone,
@@ -58,6 +59,21 @@ const TABS: { value: Entity; label: string; icon: typeof Users }[] = [
   { value: "vessel", label: "Vessels", icon: Ship },
   { value: "contact", label: "Contacts", icon: Mail },
 ];
+
+/** Human noun for the summary strip, e.g. "3 vessels shown". */
+function entityNoun(entity: Entity, n: number): string {
+  const one = n === 1;
+  switch (entity) {
+    case "group":
+      return one ? "group" : "groups";
+    case "customer":
+      return one ? "company" : "companies";
+    case "vessel":
+      return one ? "vessel" : "vessels";
+    default:
+      return one ? "contact" : "contacts";
+  }
+}
 
 /** Shape stored in a saved view. */
 type ViewConfig = {
@@ -199,7 +215,12 @@ export default function AddressBook() {
           width: 300,
           readOnly: true,
           value: r => r.group,
-          render: r => <span className="font-medium truncate block">{r.group}</span>,
+          render: r => (
+            <span className="inline-flex items-center gap-1.5 max-w-full font-medium text-sky-700">
+              <Users className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <span className="truncate">{r.group}</span>
+            </span>
+          ),
         },
         { key: "companies", label: "Companies", width: 110, align: "right", readOnly: true, value: r => r.companies },
         { key: "vessels", label: "Vessels", width: 100, align: "right", readOnly: true, value: r => r.vessels },
@@ -254,7 +275,12 @@ export default function AddressBook() {
           width: 280,
           readOnly: true,
           value: r => r.name,
-          render: r => <span className="font-medium truncate block">{r.name}</span>,
+          render: r => (
+            <span className="inline-flex items-center gap-1.5 max-w-full font-medium text-sky-700">
+              <Building2 className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <span className="truncate">{r.name}</span>
+            </span>
+          ),
         },
         { key: "code", label: "ERP code", width: 110, readOnly: true, value: r => r.code },
         { key: "group", label: "Group", width: 240, readOnly: true, value: r => r.group },
@@ -300,7 +326,12 @@ export default function AddressBook() {
           width: 240,
           readOnly: true,
           value: r => r.name,
-          render: r => <span className="font-medium truncate block">{r.name}</span>,
+          render: r => (
+            <span className="inline-flex items-center gap-1.5 max-w-full font-medium text-sky-700">
+              <Ship className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <span className="truncate">{r.name}</span>
+            </span>
+          ),
         },
         { key: "imo", label: "IMO", width: 110, readOnly: true, value: r => r.imo },
         { key: "vesselType", label: "Type", width: 150, readOnly: true, value: r => r.vesselType },
@@ -332,7 +363,12 @@ export default function AddressBook() {
         label: "Name",
         width: 220,
         value: r => r.name,
-        render: r => <span className="font-medium truncate block">{r.name}</span>,
+        render: r => (
+          <span className="inline-flex items-center gap-1.5 max-w-full font-medium text-sky-700">
+            <Contact className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            <span className="truncate">{r.name}</span>
+          </span>
+        ),
       },
       { key: "title", label: "Position", width: 170, value: r => r.title },
       {
@@ -546,13 +582,25 @@ export default function AddressBook() {
   };
 
   const tabCount = (t: Entity) => counts?.[t];
+  const hiddenCount = allColumns.filter(c => hidden.includes(c.key)).length;
+
+  /** Clear every filter/sort on the current tab without touching the saved column layout. */
+  const resetAll = () => {
+    setSearch("");
+    setGroupFilter("all");
+    setExtraFilter("all");
+    setFieldFilters([]);
+    setSort({ key: null, dir: "asc" });
+    setActiveViewId(null);
+    setSelectedIds([]);
+  };
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <BookUser className="h-6 w-6" /> Address Book
+            <BookUser className="h-6 w-6 text-sky-600" /> Address Book
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Groups, companies, vessels and contacts in one directory — with your own fields, saved lists and exports
@@ -583,85 +631,138 @@ export default function AddressBook() {
         )}
       </div>
 
+      {/* Entity switcher — segmented control, same language as the Collections Desk Groups/Companies switch */}
       <Tabs value={entity} onValueChange={v => switchTab(v as Entity)}>
-        <TabsList>
+        <TabsList className="h-auto flex-wrap gap-1 bg-muted/60 p-1">
           {TABS.map(t => {
             const Icon = t.icon;
             const n = tabCount(t.value);
+            const active = entity === t.value;
             return (
-              <TabsTrigger key={t.value} value={t.value} className="gap-1.5">
-                <Icon className="h-4 w-4" /> {t.label}
-                {n != null && <span className="text-xs text-muted-foreground">{n.toLocaleString()}</span>}
+              <TabsTrigger
+                key={t.value}
+                value={t.value}
+                className="gap-2 px-3 py-1.5 data-[state=active]:bg-background data-[state=active]:shadow-sm"
+              >
+                <Icon className={`h-4 w-4 ${active ? "text-sky-600" : "text-muted-foreground"}`} />
+                <span className="font-medium">{t.label}</span>
+                {n != null && (
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 text-[11px] font-mono leading-none ${
+                      active ? "bg-sky-100 text-sky-700" : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {n.toLocaleString()}
+                  </span>
+                )}
               </TabsTrigger>
             );
           })}
         </TabsList>
       </Tabs>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            className="pl-9 pr-8"
-            placeholder="Search this list…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          {search && (
-            <button
-              className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
-              onClick={() => setSearch("")}
-              title="Clear"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-        <Select value={groupFilter} onValueChange={setGroupFilter}>
-          <SelectTrigger className="w-[220px]">
-            <SelectValue placeholder="All groups" />
-          </SelectTrigger>
-          <SelectContent className="max-h-72">
-            <SelectItem value="all">All groups ({groupOptions.length})</SelectItem>
-            {groupOptions.map(g => (
-              <SelectItem key={g} value={g}>
-                {g}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {extraLabel && (
-          <Select value={extraFilter} onValueChange={setExtraFilter}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder={extraLabel} />
+      {/* Toolbar — filters on the first row, tools on the second, grouped in one panel like the other list pages */}
+      <div className="rounded-lg border bg-card p-3 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-56 sm:max-w-80">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-9 pr-8"
+              placeholder="Search this list…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            {search && (
+              <button
+                className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                onClick={() => setSearch("")}
+                title="Clear"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <Select value={groupFilter} onValueChange={setGroupFilter}>
+            <SelectTrigger className="w-[220px]">
+              <SelectValue placeholder="All groups" />
             </SelectTrigger>
             <SelectContent className="max-h-72">
-              <SelectItem value="all">{extraLabel}</SelectItem>
-              {extraOptions.map(o => (
-                <SelectItem key={o} value={o}>
-                  {o}
+              <SelectItem value="all">All groups ({groupOptions.length})</SelectItem>
+              {groupOptions.map(g => (
+                <SelectItem key={g} value={g}>
+                  {g}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        )}
-        <div className="ml-auto flex items-center gap-2">
+          {extraLabel && (
+            <Select value={extraFilter} onValueChange={setExtraFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder={extraLabel} />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                <SelectItem value="all">{extraLabel}</SelectItem>
+                {extraOptions.map(o => (
+                  <SelectItem key={o} value={o}>
+                    {o}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
           {entity === "contact" && <ImportContactsDialog onImported={refreshContacts} />}
           <DataQualityPanel />
           <CustomFieldsManager entity={entity} />
-          <ColumnPicker allColumns={allColumns} hidden={hidden} order={order} onChange={applyLayout} />
-          <ExportMenu
-            title={`Address Book — ${TABS.find(t => t.value === entity)?.label ?? ""}`}
-            columns={columns}
-            rows={filtered}
+          <div className="ml-auto flex items-center gap-2">
+            <ColumnPicker allColumns={allColumns} hidden={hidden} order={order} onChange={applyLayout} />
+            <ExportMenu
+              title={`Address Book — ${TABS.find(t => t.value === entity)?.label ?? ""}`}
+              columns={columns}
+              rows={filtered}
+            />
+          </div>
+        </div>
+        <FieldFilterBar columns={allColumns} filters={fieldFilters} onChange={setFieldFilters} />
+        <div className="border-t pt-3">
+          <SavedViewsBar
+            entity={entity}
+            activeViewId={activeViewId}
+            currentConfig={currentConfig}
+            onApply={applyView}
           />
         </div>
       </div>
 
-      <FieldFilterBar columns={allColumns} filters={fieldFilters} onChange={setFieldFilters} />
+      {/* Result summary strip — mirrors the Vessels / Invoices totals band */}
+      {!isLoading && (
+        <div className="rounded-lg border bg-muted/30 px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+          <span className="text-muted-foreground">
+            <span className="font-mono font-semibold text-foreground">{filtered.length.toLocaleString()}</span>{" "}
+            {entityNoun(entity, filtered.length)} shown
+          </span>
+          {tabCount(entity) != null && filtered.length !== tabCount(entity) && (
+            <span className="text-muted-foreground">of {tabCount(entity)!.toLocaleString()} in total</span>
+          )}
+          {showArchived && <span className="text-amber-600 font-medium">Archive view</span>}
+          {hiddenCount > 0 && (
+            <span className="text-muted-foreground">
+              {hiddenCount} column{hiddenCount === 1 ? "" : "s"} hidden
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={resetAll}
+            className="ml-auto text-muted-foreground hover:text-foreground underline underline-offset-2"
+          >
+            Reset filters
+          </button>
+        </div>
+      )}
 
       {entity === "contact" && selectedIds.length > 1 && !showArchived && (
-        <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+        <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm">
           <span className="text-muted-foreground">{selectedIds.length} contacts selected</span>
           <Button
             size="sm"
@@ -691,13 +792,6 @@ export default function AddressBook() {
           </Button>
         </div>
       )}
-
-      <SavedViewsBar
-        entity={entity}
-        activeViewId={activeViewId}
-        currentConfig={currentConfig}
-        onApply={applyView}
-      />
 
       <AddressBookTable
         listKey={listKey}

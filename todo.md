@@ -1367,3 +1367,9 @@
 - [x] Vitest coverage for quality checks, archive, merge and the import contract (19 tests)
 - [x] Address Book record card enlarged: resizable dialog (persisted size, drag edges, double-click to reset), sticky header, scrollable body, full related lists instead of first 12
 - [x] Address Book: deep link a record via ?record=<key>
+- [x] Decide whether the standalone Vessels page stays now the Address Book has a Vessels tab (decision: keep it — it is the AR view with balances/overdue; the old separate Contacts page is the one that was removed)
+- [x] Restyle the Address Book to match AR Pro: page header with icon, summary strip with reset, toolbar grouped in a card panel, entity tabs as a segmented control with count pills, table inside a Card with muted sticky header and hover rows
+- [x] Address Book: primary name cells rendered as sky-700 icon links like the other AR Pro lists
+- [x] Address Book record card restyled: sky accent title icons, each block in its own panel, loading state, sky-700 relationship links
+- [x] Address Book vessels tab: "Open AR card" action opens the financial vessel dialog so the two vessel views are connected instead of duplicated
+- [x] Vitest guard for the Address Book visual contract and the vessel AR link (server/addressBookStyling.test.ts, 12 tests)

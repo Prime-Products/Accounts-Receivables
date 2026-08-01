@@ -8,6 +8,7 @@
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
@@ -82,11 +83,13 @@ export function AddressBookTable<Row extends { recordKey: string }>({
 
   if (isLoading) {
     return (
-      <div className="space-y-2">
-        {[...Array(8)].map((_, i) => (
-          <Skeleton key={i} className="h-10 w-full" />
-        ))}
-      </div>
+      <Card>
+        <CardContent className="p-4 space-y-2">
+          {[...Array(8)].map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </CardContent>
+      </Card>
     );
   }
 
@@ -94,8 +97,8 @@ export function AddressBookTable<Row extends { recordKey: string }>({
     align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
 
   return (
-    <div className="space-y-2">
-      <div className="rounded-lg border">
+    <Card className="overflow-hidden">
+      <CardContent className="p-0">
         <Table
           className="table-fixed"
           style={{ width: cols.totalWidth, minWidth: "100%" }}
@@ -107,7 +110,7 @@ export function AddressBookTable<Row extends { recordKey: string }>({
               {columns.map(c => (
                 <TableHead
                   key={c.key}
-                  className={`relative bg-background ${alignClass(c.align)}`}
+                  className={`relative bg-muted/60 backdrop-blur-sm font-semibold text-foreground ${alignClass(c.align)}`}
                   style={cols.style(c.key)}
                 >
                   {c.sortable === false ? (
@@ -148,7 +151,7 @@ export function AddressBookTable<Row extends { recordKey: string }>({
               visible.map(row => (
                 <TableRow
                   key={row.recordKey}
-                  className={onRowClick ? "cursor-pointer" : undefined}
+                  className={onRowClick ? "cursor-pointer hover:bg-muted/40 transition-colors" : undefined}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                 >
                   {columns.map(c => {
@@ -164,24 +167,24 @@ export function AddressBookTable<Row extends { recordKey: string }>({
             )}
           </TableBody>
         </Table>
-      </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          Showing {visible.length.toLocaleString()} of {sorted.length.toLocaleString()} record
-          {sorted.length === 1 ? "" : "s"}
-        </p>
-        {sorted.length > visible.length && (
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setVisibleCount(v => v + 200)}>
-              Show 200 more
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setVisibleCount(sorted.length)}>
-              Show all ({sorted.length.toLocaleString()})
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/20 px-4 py-2.5">
+          <p className="text-xs text-muted-foreground">
+            Showing {visible.length.toLocaleString()} of {sorted.length.toLocaleString()} record
+            {sorted.length === 1 ? "" : "s"}
+          </p>
+          {sorted.length > visible.length && (
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setVisibleCount(v => v + 200)}>
+                Show 200 more
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setVisibleCount(sorted.length)}>
+                Show all ({sorted.length.toLocaleString()})
+              </Button>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

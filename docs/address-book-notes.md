@@ -98,3 +98,28 @@ Verified counts in UI: Groups 3,085 / Companies 3,533 / Vessels 184 / Contacts 7
 - Deep link: `/address-book?tab=<entity>&record=<recordKey>` opens a card directly.
 
 Still to do: full suite + checkpoint + GitHub push.
+
+## Vessels page vs Address Book vessels tab (user question, 1 Aug)
+Decision: keep the standalone `/vessels` page — it is the AR view (`vessels.listWithStats` in
+`server/routers/ar.ts:2578`: invoiceCount, openBalance, overdueAmount, overdueCount, maxDaysOverdue),
+while the Address Book vessels tab is the identity/directory view (imo, vesselType, flag, ownerName,
+ownerGroup + custom fields). Contacts as a separate menu entry is already gone.
+Link them instead of duplicating: the Address Book vessel card gets AR figures + a button that opens
+`VesselDetailDialog` (props: vesselId, open, onOpenChange).
+
+## Restyle plan (match AR Pro look, cf. /customers, /invoices, /vessels screenshots)
+- Page header: icon + 2xl bold title + muted subtitle (same as Vessels/Invoices).
+- Summary strip: bordered `bg-muted/30` row with counts (like the Vessels totals strip).
+- Entity tabs: segmented control styled like the Collections Desk Groups/Companies switch.
+- Toolbar: search + selects on one row, action buttons on a second row, all inside the card region.
+- Table wrapped in `<Card><CardContent className="p-0">` like every other list page.
+
+### Restyle done (1 Aug)
+- `client/src/pages/AddressBook.tsx`: sky-600 header icon; segmented TabsList (`bg-muted/60 p-1`,
+  active `bg-background shadow-sm`, count pill sky-100/sky-700); toolbar in one `rounded-lg border bg-card p-3`
+  panel (filters row / tools row / FieldFilterBar / SavedViewsBar); summary strip `bg-muted/30` with
+  "N groups shown", archive badge, hidden-column count and a Reset filters link; helpers `entityNoun`,
+  `resetAll`, `hiddenCount`; name cells now sky-700 with entity icon (Users/Building2/Ship/Contact).
+- `client/src/components/AddressBookTable.tsx`: wrapped in Card/CardContent p-0, header `bg-muted/60`
+  semibold, rows `hover:bg-muted/40 transition-colors`, footer bar `border-t bg-muted/20 px-4 py-2.5`.
+- Remaining: vessel card → AR figures + "Open AR card" button using VesselDetailDialog.
