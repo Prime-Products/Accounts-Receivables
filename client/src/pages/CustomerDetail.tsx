@@ -190,8 +190,13 @@ export default function CustomerDetail() {
               </DialogHeader>
               <div className="space-y-3">
                 <div className="space-y-1.5">
-                  <Label>Amount (€)</Label>
-                  <Input type="number" value={promiseForm.amount} onChange={e => setPromiseForm({ ...promiseForm, amount: e.target.value })} />
+                  <Label>Amount (€) — optional</Label>
+                  <Input
+                    type="number"
+                    placeholder="leave empty if not stated"
+                    value={promiseForm.amount}
+                    onChange={e => setPromiseForm({ ...promiseForm, amount: e.target.value })}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Promised date</Label>
@@ -204,11 +209,11 @@ export default function CustomerDetail() {
               </div>
               <DialogFooter>
                 <Button
-                  disabled={!promiseForm.amount || !promiseForm.date || addPromise.isPending}
+                  disabled={!promiseForm.date || addPromise.isPending}
                   onClick={() =>
                     addPromise.mutate({
                       customerId: id,
-                      amount: Number(promiseForm.amount),
+                      amount: promiseForm.amount ? Number(promiseForm.amount) : 0,
                       promisedDate: new Date(promiseForm.date).getTime(),
                       notes: promiseForm.notes || undefined,
                     })

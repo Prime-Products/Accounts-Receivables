@@ -3263,7 +3263,9 @@ export const tasksRouter = router({
     .input(
       z.object({
         taskId: z.number(),
-        amount: z.number().positive(),
+        // A promise may be made without naming a figure ("I'll pay") — 0/omitted
+        // means "amount not stated", never a zero-value promise.
+        amount: z.number().nonnegative().optional(),
         promisedDate: z.number(),
         notes: z.string().max(2000).optional(),
       })
@@ -3279,12 +3281,15 @@ export const tasksRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "This task is not a follow-up task" });
       }
       const group = followUpMatch[1];
+      // "amount not stated" promises are stored as 0 and labelled without a figure.
+      const cvAmt = input.amount && input.amount > 0 ? input.amount : 0;
+      const cvLabel = cvAmt > 0 ? `€${Number(eur(cvAmt)).toLocaleString()}` : "amount not stated";
 
       // 1. Create the promise + its check task
       const promiseId = await createGroupPromise(ctx, {
         group,
         customerId: task.customerId ?? undefined,
-        amount: input.amount,
+        amount: cvAmt,
         promisedDate: input.promisedDate,
         notes: input.notes,
       });
@@ -3293,7 +3298,7 @@ export const tasksRouter = router({
       // 2. Update the group's confirmation status to Confirmed (Promise to Pay)
       await db.upsertGroupConfirmationStatus(group, {
         status: "Confirmed",
-        amount: eur(input.amount),
+        amount: eur(cvAmt),
         followUpDate: input.promisedDate,
         notes: input.notes,
         updatedBy: ctx.user.id,
@@ -3302,14 +3307,14 @@ export const tasksRouter = router({
       // 3. Cancel the old follow-up task
       await db.updateTask(input.taskId, {
         status: "Cancelled",
-        completionNotes: `Converted to Promise to Pay #${promiseId} (€${Number(eur(input.amount)).toLocaleString()} by ${new Date(input.promisedDate).toLocaleDateString("en-GB")})`,
+        completionNotes: `Converted to Promise to Pay #${promiseId} (${cvLabel} by ${new Date(input.promisedDate).toLocaleDateString("en-GB")})`,
       });
 
       await db.addActivityLog({
         groupName: group,
         customerId: task.customerId ?? undefined,
         activityType: "status_change",
-        title: `Follow-up converted to Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
+        title: `Follow-up converted to Promise to Pay — ${cvLabel}`,
         description: `Follow-up task #${input.taskId} cancelled; promise #${promiseId} due ${new Date(input.promisedDate).toLocaleDateString("en-GB")}.`,
         createdBy: ctx.user.id,
         createdAt: new Date(),
@@ -3332,7 +3337,7 @@ export const tasksRouter = router({
         promiseId: z.number().optional(),
         // The next step
         nextType: z.enum(["promise", "follow-up"]),
-        amount: z.number().positive().optional(),
+        amount: z.number().nonnegative().optional(),
         date: z.number(),
         notes: z.string().max(2000).optional(),
       })
@@ -3342,9 +3347,6 @@ export const tasksRouter = router({
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
       if (task.status === "Completed" || task.status === "Cancelled") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can roll to a next task" });
-      }
-      if (input.nextType === "promise" && (!input.amount || input.amount <= 0)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A Promise to Pay needs an amount" });
       }
       // Resolve the group: follow-up marker, or the task's customer
       const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
@@ -3363,7 +3365,9 @@ export const tasksRouter = router({
             customerId: promise.customerId,
             activityType: "promise",
             title: `Promise marked ${input.resolvePromise}`,
-            description: `€${Number(promise.amount).toLocaleString()} promised for ${new Date(promise.promisedDate).toLocaleDateString("en-GB")}`,
+            description: `${
+              Number(promise.amount ?? 0) > 0 ? `€${Number(promise.amount).toLocaleString()}` : "Payment (amount not stated)"
+            } promised for ${new Date(promise.promisedDate).toLocaleDateString("en-GB")}`,
             createdBy: ctx.user.id,
             createdAt: new Date(),
           }).catch(() => {});
@@ -3384,18 +3388,21 @@ export const tasksRouter = router({
       // 3. Create the next step + update the group's confirmation badge
       let newPromiseId: number | null = null;
       let newTaskId: number | null = null;
+      // A next promise may carry no figure at all ("customer will pay, no amount given").
+      const nextAmt = input.amount && input.amount > 0 ? input.amount : 0;
+      const nextLabel = nextAmt > 0 ? `€${Number(eur(nextAmt)).toLocaleString()}` : "amount not stated";
       if (input.nextType === "promise") {
         newPromiseId = await createGroupPromise(ctx, {
           group,
           customerId: task.customerId ?? undefined,
-          amount: input.amount!,
+          amount: nextAmt,
           promisedDate: input.date,
           notes: input.notes,
         });
         if (!newPromiseId) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
         await db.upsertGroupConfirmationStatus(group, {
           status: "Confirmed",
-          amount: eur(input.amount!),
+          amount: eur(nextAmt),
           followUpDate: input.date,
           notes: input.notes,
           updatedBy: ctx.user.id,
@@ -3424,7 +3431,7 @@ export const tasksRouter = router({
         activityType: "status_change",
         title:
           input.nextType === "promise"
-            ? `Next step: Promise to Pay — €${Number(eur(input.amount!)).toLocaleString()} by ${new Date(input.date).toLocaleDateString("en-GB")}`
+            ? `Next step: Promise to Pay — ${nextLabel} by ${new Date(input.date).toLocaleDateString("en-GB")}`
             : `Next step: Follow-up call on ${new Date(input.date).toLocaleDateString("en-GB")}`,
         description: `Task #${input.taskId} closed${input.resolvePromise ? ` (promise ${input.resolvePromise})` : ""} and rolled into the next step.`,
         createdBy: ctx.user.id,
@@ -3478,7 +3485,8 @@ export const tasksRouter = router({
       z.object({
         taskId: z.number(),
         promiseId: z.number(),
-        amount: z.number().positive(),
+        // 0 / omitted keeps the promise's existing amount (see rescheduleGroupPromise).
+        amount: z.number().nonnegative().optional(),
         promisedDate: z.number(),
         notes: z.string().max(2000).optional(),
       })
@@ -3493,10 +3501,13 @@ export const tasksRouter = router({
       const cust = await db.getCustomer(promise.customerId);
       const group = cust ? ((cust.customerGroup ?? "").trim() || cust.name) : null;
       if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+      // No new figure entered → keep whatever the promise already carried (which may
+      // itself be "amount not stated" = 0).
+      const rsAmt = input.amount && input.amount > 0 ? input.amount : Number(promise.amount ?? 0);
       const res = await rescheduleGroupPromise(ctx, {
         group,
         promiseId: input.promiseId,
-        amount: input.amount,
+        amount: rsAmt,
         promisedDate: input.promisedDate,
         notes: input.notes,
       });
@@ -3505,7 +3516,7 @@ export const tasksRouter = router({
       const conf = await db.getGroupConfirmationStatus(group);
       if (conf && conf.status === "Confirmed") {
         await db.upsertGroupConfirmationStatus(group, {
-          amount: eur(input.amount),
+          amount: eur(rsAmt),
           followUpDate: input.promisedDate,
           updatedBy: ctx.user.id,
         });
@@ -4217,10 +4228,13 @@ export const forecastRouter = router({
     return rows.map(p => ({ ...p, customerName: byId.get(p.customerId)?.name ?? "—" }));
   }),
   addPromise: protectedProcedure
-    .input(z.object({ customerId: z.number(), invoiceId: z.number().optional(), promisedDate: z.number(), amount: z.number().positive(), notes: z.string().optional() }))
+    .input(z.object({ customerId: z.number(), invoiceId: z.number().optional(), promisedDate: z.number(), amount: z.number().nonnegative().optional(), notes: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const id = await db.createPromise({ ...input, amount: eur(input.amount), createdBy: ctx.user.id });
-      await audit(ctx, "Record Promise-to-Pay", "promiseToPay", id, `Customer #${input.customerId} promised €${eur(input.amount)} by ${new Date(input.promisedDate).toISOString().slice(0, 10)}`);
+      // 0 / omitted = "amount not stated" (the customer promised to pay without a figure).
+      const amt = input.amount && input.amount > 0 ? input.amount : 0;
+      const amtLabel = amt > 0 ? `€${Number(eur(amt)).toLocaleString()}` : "amount not stated";
+      const id = await db.createPromise({ ...input, amount: eur(amt), createdBy: ctx.user.id });
+      await audit(ctx, "Record Promise-to-Pay", "promiseToPay", id, `Customer #${input.customerId} promised ${amtLabel} by ${new Date(input.promisedDate).toISOString().slice(0, 10)}`);
       const cust = await db.getCustomer(input.customerId);
       if (cust) {
         const groupKey = cust.customerGroup || cust.name;
@@ -4230,7 +4244,7 @@ export const forecastRouter = router({
           groupName: groupKey,
           customerId: input.customerId,
           activityType: "promise",
-          title: `Promise-to-Pay: €${Number(eur(input.amount)).toLocaleString()} by ${dateStr}`,
+          title: `Promise-to-Pay: ${amtLabel} by ${dateStr}`,
           description: `${cust.name}${input.notes ? ` — ${input.notes}` : ""}`,
           createdBy: ctx.user.id,
           createdAt: new Date(),
@@ -4239,8 +4253,8 @@ export const forecastRouter = router({
         const taskId = await db.createTask({
           customerId: input.customerId,
           type: "Manual",
-          title: `Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
-          description: `Verify that ${cust.name} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${dateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
+          title: amt > 0 ? `Promise to Pay — ${amtLabel}` : `Promise to Pay — ${groupKey}`,
+          description: `Verify that ${cust.name} paid ${amt > 0 ? `the promised amount of ${amtLabel}` : "the promised payment"} due ${dateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
           dueDate: input.promisedDate,
           invoiceId: input.invoiceId,
           status: "Pending",
@@ -4280,7 +4294,9 @@ export const forecastRouter = router({
             customerId: promise.customerId,
             activityType: "promise",
             title: `Promise marked ${input.status}`,
-            description: `${cust.name} — €${Number(promise.amount).toLocaleString()}`,
+            description: `${cust.name} — ${
+              Number(promise.amount ?? 0) > 0 ? `€${Number(promise.amount).toLocaleString()}` : "amount not stated"
+            }`,
             createdBy: ctx.user.id,
             createdAt: new Date(),
           }).catch(() => {});

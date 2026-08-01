@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { downloadBase64, fmtDate, fmtEur, monthName } from "@/lib/format";
+import { downloadBase64, fmtDate, fmtEur, fmtPromiseAmountShort, isPromiseAmountStated, monthName } from "@/lib/format";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, FileDown, Info, Pencil, Plus, RotateCcw, Search, Sparkles, TrendingUp, X } from "lucide-react";
@@ -650,7 +650,13 @@ export default function Forecast() {
                      </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-52 truncate">{p.notes || "—"}</TableCell>
-                    <TableCell className="text-right font-mono">{fmtEur(Number(p.amount))}</TableCell>
+                    <TableCell
+                      className={`text-right ${
+                        isPromiseAmountStated(p.amount) ? "font-mono" : "text-[11px] italic text-muted-foreground"
+                      }`}
+                    >
+                      {fmtPromiseAmountShort(p.amount)}
+                    </TableCell>
                     <TableCell className="text-right">
                       {p.status === "Pending" && (
                         <div className="flex gap-1 justify-end">

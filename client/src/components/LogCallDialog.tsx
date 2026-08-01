@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { trpc } from "@/lib/trpc";
+import { fmtPromiseAmountShort } from "@/lib/format";
 import { Building2, CheckCircle2, Info, Mail, Phone, Plus, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -351,7 +352,7 @@ export default function LogCallDialog({
               {openPromise && (
                 <div className="rounded border border-amber-300 bg-amber-50 p-2 space-y-1.5">
                   <p className="text-xs font-medium text-amber-900">
-                    Open promise exists: €{Number(openPromise.amount).toLocaleString()} due{" "}
+                    Open promise exists: {fmtPromiseAmountShort(openPromise.amount)} due{" "}
                     {openPromise.promisedDate ? new Date(openPromise.promisedDate).toLocaleDateString("en-GB") : "—"} ({openPromise.customerName})
                     {(openPromise.rescheduleCount ?? 0) > 0 && (
                       <span className="ml-1.5 inline-flex items-center rounded bg-red-200 px-1.5 py-0.5 font-semibold text-red-900">
@@ -377,13 +378,13 @@ export default function LogCallDialog({
               )}
               <div className="grid gap-2 sm:grid-cols-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">Promised amount (EUR)</Label>
+                  <Label className="text-xs">Promised amount (EUR) — optional</Label>
                   <Input
                     className="h-9"
                     type="number"
                     value={confirmationAmount}
                     onChange={e => setConfirmationAmount(e.target.value)}
-                    placeholder="e.g., 50000"
+                    placeholder="leave empty if not stated"
                     step="0.01"
                   />
                 </div>
@@ -406,6 +407,7 @@ export default function LogCallDialog({
                   ? "The existing promise and its follow-up task will be moved to the new date."
                   : "A Promise-to-Pay record will be created automatically."}
                 {" "}The check task goes to the colleague selected above.
+                {" "}Leave the amount empty when the customer promised to pay without naming a figure — the promise is recorded as “amount not stated”.
               </p>
             </div>
           )}

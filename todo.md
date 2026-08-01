@@ -1473,8 +1473,10 @@ master record. Same company, two screens. Unify them.
 ## Promise lifecycle & amount-less promises (user request 1/8)
 - [x] A Pending promise counts as open only while a linked check task is still live; completed/cancelled/escalated tasks settle it, so the false "Open promise exists" banner is gone (DYNACOM, MINERVA, MSC, TMS, CAPITAL GAS repaired)
 - [x] Vitest coverage for the open/settled rule, incl. escalated copies and promise ids sharing a prefix
-- [ ] Promise without a stated amount shows "amount not stated" instead of €0 (Log Call banner, Collections Desk, task titles, group card, promises list)
-- [ ] Backfill task titles/notes of the existing zero-amount promises
+- [x] Promise without a stated amount shows "amount not stated" instead of €0 (Log Call banner, Collections Desk, task detail, forecast promises list)
+- [x] Amount field is optional in every promise form (Log Call, task detail next-step/convert, customer card, group card) and on the matching server procedures
+- [x] Vitest coverage for amount-less promises (server/promiseNoAmount.test.ts)
+- [x] Backfill historical promise activity-log lines that printed "— €0" (3 rows repaired; no task titles affected)
 
 ## Unified customer/group card (user request 1/8)
 - [ ] One card per company/group with two tabs: "Receivables" (balances, aging, transactions, promises, tasks, activity) and "Details" (contacts, departments, vessels, gifts, custom fields)

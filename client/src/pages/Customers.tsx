@@ -8,7 +8,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fmtEur, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
+import {
+  fmtEur,
+  ratingColors,
+  confirmationStatusColors,
+  confirmationStatusLabels,
+  fmtDate,
+  isPromiseAmountStated,
+  PROMISE_NO_AMOUNT_LABEL,
+} from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -836,8 +844,23 @@ export default function Customers() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className={`text-right font-mono ${g.confirmationAmount > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
-                        {fmtEur(g.confirmationAmount)}
+                      {/*
+                        A promise / follow-up may legitimately carry no amount ("I'll pay",
+                        no figure given). Showing €0 there reads like a zero promise, so
+                        those rows say "amount not stated" instead.
+                      */}
+                      <TableCell
+                        className={`text-right ${
+                          isPromiseAmountStated(g.confirmationAmount)
+                            ? "font-mono text-emerald-700"
+                            : "text-[11px] italic text-muted-foreground"
+                        }`}
+                      >
+                        {isPromiseAmountStated(g.confirmationAmount)
+                          ? fmtEur(g.confirmationAmount)
+                          : g.confirmationStatus === "Confirmed" || g.confirmationStatus === "Pending Follow-up"
+                            ? PROMISE_NO_AMOUNT_LABEL
+                            : "—"}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {fmtEur(g.openBalance)}
