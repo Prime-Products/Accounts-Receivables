@@ -911,6 +911,7 @@ export async function callSummaryByGroup() {
     .select({
       groupName: activityLog.groupName,
       title: activityLog.title,
+      description: activityLog.description,
       createdAt: activityLog.createdAt,
       createdBy: activityLog.createdBy,
     })
@@ -919,7 +920,14 @@ export async function callSummaryByGroup() {
     .orderBy(desc(activityLog.createdAt));
   const out = new Map<
     string,
-    { lastCallAt: Date; lastCallBy: number | null; calls: number; noAnswer: number }
+    {
+      lastCallAt: Date;
+      lastCallBy: number | null;
+      lastCallTitle: string;
+      lastCallNote: string | null;
+      calls: number;
+      noAnswer: number;
+    }
   >();
   for (const r of rows) {
     const key = r.groupName;
@@ -930,6 +938,8 @@ export async function callSummaryByGroup() {
       out.set(key, {
         lastCallAt: r.createdAt,
         lastCallBy: r.createdBy ?? null,
+        lastCallTitle: r.title ?? "",
+        lastCallNote: r.description ?? null,
         calls: 1,
         noAnswer: isNoAnswer ? 1 : 0,
       });

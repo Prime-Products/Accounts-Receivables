@@ -1058,6 +1058,9 @@ export const customersRouter = router({
           /** Contact activity — last logged call, its author, and attempt counts. */
           lastCallAt: callSummary.get(g.group)?.lastCallAt ? new Date(callSummary.get(g.group)!.lastCallAt).getTime() : null,
           lastCallBy: reviewerName(callSummary.get(g.group)?.lastCallBy ?? null),
+          /** Outcome and free-text note of the most recent call — context before dialling. */
+          lastCallOutcome: callSummary.get(g.group)?.lastCallTitle ?? null,
+          lastCallNote: callSummary.get(g.group)?.lastCallNote ?? null,
           callCount: callSummary.get(g.group)?.calls ?? 0,
           noAnswerCount: callSummary.get(g.group)?.noAnswer ?? 0,
           accountManager: managerByGroup.get(g.group) ?? null,
@@ -1074,6 +1077,166 @@ export const customersRouter = router({
    * Score = overdue amount (61-90d weighted extra, 120+ reduced) × rating multiplier
    * + broken-promise boost + low-forecast-coverage boost + stale-payment boost.
    */
+  /**
+   * Call Back schedule — the answer to "who do I phone today", derived purely
+   * from dates the app already stores. Nothing here is generated or cancelled:
+   *
+   *   - a Pending promise whose promisedDate has arrived  → "promise due"
+   *   - a status with followUpDate that has arrived       → "follow-up due"
+   *   - an overdue group never contacted at all           → "never contacted"
+   *
+   * Because the rows are read from the dates themselves, moving a date in the
+   * Log Call moves the row. There is no task to cancel and nothing goes stale.
+   */
+  callBackList: protectedProcedure.query(async () => {
+    const now = Date.now();
+    const [customers, invoices, allPromises, confirmationStatuses] = await Promise.all([
+      db.listCustomers(),
+      db.listInvoices(),
+      db.listPromises(),
+      db.listGroupConfirmationStatuses().catch(() => []),
+    ]);
+    const callSummary = await db.callSummaryByGroup().catch(() => new Map());
+    const teamMembers = await db.listTeamMembers(true).catch(() => [] as any[]);
+    const userNameById = new Map(
+      (await db.listUsers().catch(() => [] as any[])).map((u: any) => [
+        u.id as number,
+        (u.name ?? u.email ?? null) as string | null,
+      ])
+    );
+    const teamByUserId = new Map(
+      teamMembers.filter((m: any) => m.userId != null).map((m: any) => [m.userId as number, m])
+    );
+    const personName = (userId: number | null | undefined): string | null => {
+      if (userId == null) return null;
+      const member = teamByUserId.get(userId);
+      if (member) return (member as any).name as string;
+      return userNameById.get(userId) ?? null;
+    };
+
+    const groupKeyOf = (c: { customerGroup: string | null; name: string }) =>
+      (c.customerGroup ?? "").trim() || c.name;
+    const custById = new Map(customers.map(c => [c.id, c]));
+
+    // Open + overdue balance per group, so the schedule can be prioritised by money.
+    const balanceByGroup = new Map<string, { open: number; overdue: number }>();
+    for (const inv of invoices) {
+      const cust = custById.get(inv.customerId);
+      if (!cust) continue;
+      const key = groupKeyOf(cust);
+      const entry = balanceByGroup.get(key) ?? { open: 0, overdue: 0 };
+      const outstanding = Number(inv.amount) - Number(inv.paidAmount ?? 0);
+      if (outstanding <= 0) continue;
+      entry.open += outstanding;
+      if (Number(inv.dueDate) < now) entry.overdue += outstanding;
+      balanceByGroup.set(key, entry);
+    }
+
+    type Reason = "promise_due" | "follow_up_due" | "never_contacted";
+    type Row = {
+      group: string;
+      /** Company the promise belongs to, when the trigger is company-level. */
+      company: string | null;
+      customerId: number | null;
+      reason: Reason;
+      /** The date that put this row on the list. */
+      dueDate: number;
+      daysLate: number;
+      amount: number | null;
+      openBalance: number;
+      overdueBalance: number;
+      confirmationStatus: string | null;
+      promiseId: number | null;
+      lastCallAt: number | null;
+      lastCallBy: string | null;
+      lastCallOutcome: string | null;
+      lastCallNote: string | null;
+      noAnswerCount: number;
+    };
+
+    const dayMs = 24 * 60 * 60 * 1000;
+    const startOfToday = Date.UTC(
+      new Date(now).getUTCFullYear(),
+      new Date(now).getUTCMonth(),
+      new Date(now).getUTCDate()
+    );
+    const confirmationByGroup = new Map<string, any>();
+    for (const c of confirmationStatuses) confirmationByGroup.set(c.groupName, c);
+
+    const rows: Row[] = [];
+    const seen = new Set<string>();
+    const pushRow = (
+      group: string,
+      reason: Reason,
+      dueDate: number,
+      extra: Partial<Row> = {}
+    ) => {
+      // One row per group: the earliest/most urgent trigger wins so the list
+      // never shows the same customer twice.
+      if (seen.has(group)) return;
+      seen.add(group);
+      const summary = callSummary.get(group);
+      const bal = balanceByGroup.get(group) ?? { open: 0, overdue: 0 };
+      rows.push({
+        group,
+        company: null,
+        customerId: null,
+        reason,
+        dueDate,
+        daysLate: Math.max(0, Math.floor((startOfToday - dueDate) / dayMs)),
+        amount: null,
+        openBalance: bal.open,
+        overdueBalance: bal.overdue,
+        confirmationStatus: confirmationByGroup.get(group)?.status ?? null,
+        promiseId: null,
+        lastCallAt: summary?.lastCallAt ? new Date(summary.lastCallAt).getTime() : null,
+        lastCallBy: personName(summary?.lastCallBy ?? null),
+        lastCallOutcome: summary?.lastCallTitle ?? null,
+        lastCallNote: summary?.lastCallNote ?? null,
+        noAnswerCount: summary?.noAnswer ?? 0,
+        ...extra,
+      });
+    };
+
+    // 1) Promises that have come due and are still Pending — earliest first, so
+    //    the most overdue promise represents its group.
+    const pendingPromises = allPromises
+      .filter(p => p.status === "Pending" && Number(p.promisedDate) <= now)
+      .sort((a, b) => Number(a.promisedDate) - Number(b.promisedDate));
+    for (const p of pendingPromises) {
+      const cust = custById.get(p.customerId);
+      if (!cust) continue;
+      const group = groupKeyOf(cust);
+      const amount = Number(p.amount);
+      pushRow(group, "promise_due", Number(p.promisedDate), {
+        company: cust.name,
+        customerId: cust.id,
+        promiseId: p.id,
+        amount: amount > 0 ? amount : null,
+      });
+    }
+
+    // 2) Statuses whose follow-up date has arrived.
+    for (const c of confirmationStatuses) {
+      const fu = c.followUpDate == null ? null : Number(c.followUpDate);
+      if (fu == null || fu > now) continue;
+      const amount = Number(c.amount ?? 0);
+      pushRow(c.groupName, "follow_up_due", fu, { amount: amount > 0 ? amount : null });
+    }
+
+    // 3) Overdue groups nobody has called yet — the real gap in coverage.
+    for (const [group, bal] of Array.from(balanceByGroup.entries())) {
+      if (bal.overdue <= 0) continue;
+      if (callSummary.has(group)) continue;
+      const conf = confirmationByGroup.get(group);
+      if (conf && conf.status !== "Not Contacted") continue;
+      pushRow(group, "never_contacted", startOfToday);
+    }
+
+    // Oldest trigger first; ties broken by money at risk.
+    rows.sort((a, b) => a.dueDate - b.dueDate || b.overdueBalance - a.overdueBalance);
+    return rows;
+  }),
   callList: protectedProcedure.query(async () => {
     const now = Date.now();
     const today = new Date();

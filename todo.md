@@ -1507,7 +1507,39 @@ master record. Same company, two screens. Unify them.
 - [x] Show when the status was last reviewed and by whom, so stale statuses are visible at a glance
 - [ ] Bulk status review: select several groups and set the same status in one action
 - [ ] Filter/sort by "status not reviewed recently" so the daily review list is obvious
+
+## Operating model — how the team should work in the hub (user request)
+- [ ] Audit every screen as built today: purpose, who it is for, what workflow it assumes
+- [ ] Audit the data model behind collaboration: users, team members, roles, assignment, comments, watchers, notes, activity log
+- [ ] Measure real usage: which screens/objects actually carry data vs which are empty
+- [ ] Document the intended daily and weekly workflow per role (director, collector, account manager)
+- [ ] Identify the gaps between the built app and that workflow
+- [ ] Decide where internal team communication belongs (and what NOT to build)
+- [ ] Decide the fate of the GitHub-side ActivityFeed/@mentions commit (f781da7)
+- [ ] Deliver a written operating model document to Kostas for agreement before building
+
+## Call Back schedule + visible call notes (agreed 2 Aug 2026)
+- [x] Server: `customers.callBackList` builds a date-ordered schedule from promise dates, follow-up dates and never-contacted overdue groups
+- [x] Each row carries the last call note, who called, the amount and the reason it is due
+- [x] New "Call Back" page in the sidebar, grouped into Overdue / Today / Scheduled / Never contacted (collapsed)
+- [x] Log Call opens straight from a Call Back row, and the row disappears once the date moves
+- [ ] Show the full call note (expandable) instead of the 2-line clamp in ActivityLog
+- [ ] Add the activity timeline to the company card (CustomerDetail) — today it only exists on the group card
+- [ ] Make call notes searchable (global search + activity filter)
+- [ ] Vitest coverage for the call-back derivation and the note visibility
 - [x] Vitest: server/statusReviewNoTask.test.ts pins that the review path never creates a task or promise
+
+## Wipe the test promise/task data (user request 2/8: "ολα ηταν τεστ")
+- [x] Confirm the exact delete scope with Kostas before touching the database
+- [x] Delete all 284 rows from `promises_to_pay`
+- [x] Delete all 324 tasks (318 auto-generated + 6 manual — user asked for a clean slate)
+- [x] Delete the full activity log (1908 rows incl. 193 calls, 375 promise entries)
+- [x] Delete the 170 group notes
+- [x] Clear the 14 `group_confirmation_status` rows
+- [x] Clear dependent rows: group_watch_status 85, task_watchers 51, task_invoices 10, on_hold_proposals 2, group_collection_profile 1
+- [x] Verify master data untouched: customers 3620, invoices 5635, vessels 184, contacts 7762, behavior 614, forecast 721
+- [x] Verify Call Back, Collections Desk, Tasks and Forecast render on the empty data
+- [x] Re-run the full vitest suite after the cleanup (87 files, 588 tests passing)
 
 ## Track who spoke to which customer (user request 1/8)
 - [x] "No Answer" is a real outcome: records a contact attempt, leaves the status alone, creates no task
