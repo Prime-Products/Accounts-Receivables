@@ -484,8 +484,50 @@ export default function AddressBook() {
             "—"
           ),
       },
-      { key: "companyName", label: "Company", width: 240, readOnly: true, value: r => r.companyName },
-      { key: "group", label: "Group", width: 240, readOnly: true, value: r => r.group },
+      {
+        key: "companyName",
+        label: "Company",
+        width: 240,
+        readOnly: true,
+        value: r => r.companyName,
+        render: r => {
+          const companies: string[] = Array.isArray((r as { companyNames?: string[] }).companyNames)
+            ? ((r as { companyNames?: string[] }).companyNames as string[])
+            : [];
+          if (companies.length <= 1) return <span className="truncate">{r.companyName}</span>;
+          // The same person is registered on several companies of the group; the
+          // row is collapsed, so name them all on hover.
+          return (
+            <span className="inline-flex items-center gap-1.5 max-w-full" title={companies.join("\n")}>
+              <span className="truncate">{companies[0]}</span>
+              <Badge variant="outline" className="shrink-0 h-4 px-1 text-[10px] font-normal">
+                +{companies.length - 1}
+              </Badge>
+            </span>
+          );
+        },
+      },
+      {
+        key: "group",
+        label: "Group",
+        width: 240,
+        readOnly: true,
+        value: r => r.group,
+        render: r => {
+          const groups: string[] = Array.isArray((r as { groupNames?: string[] }).groupNames)
+            ? ((r as { groupNames?: string[] }).groupNames as string[])
+            : [];
+          if (groups.length <= 1) return <span className="truncate">{r.group}</span>;
+          return (
+            <span className="inline-flex items-center gap-1.5 max-w-full" title={groups.join("\n")}>
+              <span className="truncate">{groups[0]}</span>
+              <Badge variant="outline" className="shrink-0 h-4 px-1 text-[10px] font-normal">
+                +{groups.length - 1}
+              </Badge>
+            </span>
+          );
+        },
+      },
       {
         key: "edit",
         label: "",
