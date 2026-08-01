@@ -264,8 +264,13 @@ async function handOverTask(taskId: number, previousAssigneeId: number | null, n
 }
 
 /**
- * Find the most recent open (Pending) promise for any customer that belongs to a group.
- * Returns the promise row (with customer name) or null.
+ * Find the most recent genuinely open promise for any customer of a group.
+ *
+ * A promise counts as open only while it still has a live check task. Closing or
+ * escalating that task used to leave the promise row `Pending` forever, which made
+ * the Log Call dialog claim "an open promise exists" for a group the collector had
+ * already dealt with. Promises whose every linked task is Completed/Cancelled are
+ * therefore treated as settled, and the stale row is repaired in the background.
  */
 async function findOpenGroupPromise(group: string) {
   const customers = await db.listCustomers();
@@ -274,12 +279,25 @@ async function findOpenGroupPromise(group: string) {
   const memberIds = new Set(members.map(m => m.id));
   const byId = new Map(members.map(m => [m.id, m]));
   const all = await db.listPromises();
-  const open = all
+  const pending = all
     .filter(p => p.status === "Pending" && memberIds.has(p.customerId))
     .sort((a, b) => b.id - a.id);
-  if (open.length === 0) return null;
-  const p = open[0];
-  return { ...p, customerName: byId.get(p.customerId)?.name ?? "—" };
+  if (pending.length === 0) return null;
+
+  // Promises created before the check-task era have no linked task at all; those stay
+  // open on their own. Only promises that HAD a task and lost it are considered stale.
+  const allTasks = await db.listTasks().catch(() => [] as any[]);
+  const isLive = (t: { status: string }) => t.status !== "Completed" && t.status !== "Cancelled";
+
+  for (const p of pending) {
+    const linked = allTasks.filter(t => t.description?.includes(`(Promise #${p.id})`) === true);
+    if (linked.length === 0 || linked.some(isLive)) {
+      return { ...p, customerName: byId.get(p.customerId)?.name ?? "—" };
+    }
+    // Stale: the check task was closed/escalated but the promise was never settled.
+    await db.updatePromise(p.id, { status: "Broken" }).catch(() => {});
+  }
+  return null;
 }
 
 /**
@@ -3613,9 +3631,9 @@ export const tasksRouter = router({
          createdAt: new Date(),
        }).catch(() => {});
      }
-      await audit(ctx, "Escalate Task", "task", input.taskId, `Escalated to ${member.name} (new task: ${newTaskId})`);
-      return { success: true, assigneeName: member.name, newTaskId };
-    }),
+     await audit(ctx, "Escalate Task", "task", input.taskId, `Escalated to ${member.name} (new task: ${newTaskId})`);
+     return { success: true, assigneeName: member.name, newTaskId };
+   }),
   /**
    * Live snapshot shown on an escalated task so management can decide without
    * digging: balances, promise history, recent activity and the escalation reason.
