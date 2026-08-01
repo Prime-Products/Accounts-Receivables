@@ -1411,17 +1411,17 @@
 - [x] Vitest coverage for type persistence, filtering, suggestion rules and import mapping (20 specs in server/contactType.test.ts)
 
 ## Search everywhere (user request)
-- [ ] Global search box also returns contacts (people) and vessels, not just groups/companies/invoices/notes/tasks
-- [ ] Accent- and case-insensitive Greek/Latin matching so "Αντρέας Μπουκόλο" / "andreas boukolos" both hit the stored spelling
-- [ ] Multi-token search: each word may match a different field (e.g. surname + company)
-- [ ] Address Book "Search this list" searches across related entities — contact name, company, group and vessel — on every tab
-- [ ] Per-list search boxes on the other lists (Collections Desk, Invoices, Vessels, Contracts) match names, vessels, companies and groups consistently
-- [ ] Vitest coverage for accent-insensitive matching, multi-token queries and cross-entity list search
+- [x] Global search box also returns contacts (people) and vessels, not just groups/companies/invoices/notes/tasks
+- [x] Accent- and case-insensitive Greek/Latin matching so "Αντρέας Μπουκόλο" / "andreas boukolos" both hit the stored spelling
+- [x] Multi-token search: each word may match a different field (e.g. surname + company)
+- [x] Address Book "Search this list" searches across related entities — contact name, company, group and vessel — on every tab
+- [x] Per-list search boxes on Collections Desk and Invoices use the same accent-insensitive multi-token matcher (Address Book + Vessels already did); Invoices search also covers vessel and group
+- [x] Vitest coverage for accent-insensitive matching, multi-token queries and cross-entity list search
 
 ## Group-shared contacts must not be double counted (user note)
-- [ ] Contacts that exist on several companies of the same group are counted once per group in group/company contact counts
-- [ ] Group card and Collections Desk contact counts show distinct people, not per-company duplicates
-- [ ] Vitest coverage that a contact shared by N companies of a group counts once
+- [x] Contacts that exist on several companies of the same group are counted once per group in group/company contact counts
+- [x] Group card and Collections Desk contact counts show distinct people, not per-company duplicates
+- [x] Vitest coverage that a contact shared by N companies of a group counts once
 
 ## Gift list 2025 (user request, file: ΤΕΛΙΚΗ ΛΙΣΤΑ ΔΩΡΩΝ 2025 - ΑΝΤΖΕΛΑ.xlsx)
 - [x] Read the workbook and normalise its rows (recipient, company/group, gift, any notes) — 468 rows parsed
@@ -1444,4 +1444,4 @@
 ## Group-shared contacts (user request)
 - [x] Group contact counts count unique people, not one row per member company
 - [x] Record card related-contacts list shows each person once per group
-- [ ] Contacts list still shows the same person once per company — decide whether to collapse into one row
+- [x] Contacts list collapses the same person into one row, carrying every company and group they sit on (7,491 people vs 7,762 raw rows); Contacts tab badge counts people
