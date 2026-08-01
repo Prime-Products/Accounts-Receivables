@@ -12,6 +12,8 @@ const root = join(__dirname, "..");
 const page = readFileSync(join(root, "client/src/pages/AddressBook.tsx"), "utf8");
 const table = readFileSync(join(root, "client/src/components/AddressBookTable.tsx"), "utf8");
 const card = readFileSync(join(root, "client/src/components/AddressBookRecordDialog.tsx"), "utf8");
+// The card body now lives in the panel shared with the group/company card pages.
+const cardBody = readFileSync(join(root, "client/src/components/RecordDetailsPanel.tsx"), "utf8");
 
 describe("Address Book visual language", () => {
   it("wraps the list in a Card like every other AR Pro list page", () => {
@@ -70,19 +72,19 @@ describe("Address Book record card", () => {
   });
 
   it("groups each block in its own panel", () => {
-    expect(card.match(/rounded-lg border bg-card p-4/g)?.length ?? 0).toBe(3);
-    expect(card).not.toContain('from "@/components/ui/separator"');
+    expect(cardBody.match(/rounded-lg border bg-card p-4/g)?.length ?? 0).toBe(3);
+    expect(cardBody).not.toContain('from "@/components/ui/separator"');
   });
 
   it("links a vessel directory record to its financial AR card", () => {
-    expect(card).toContain('import { VesselDetailDialog } from "@/components/VesselDetailDialog"');
-    expect(card).toContain("Open AR card");
-    expect(card).toContain("setArVesselId(vesselRow.id)");
-    expect(card).toMatch(/vesselId=\{arVesselId\}/);
+    expect(cardBody).toContain('import { VesselDetailDialog } from "@/components/VesselDetailDialog"');
+    expect(cardBody).toContain("Open AR card");
+    expect(cardBody).toContain("setArVesselId(vesselRow.id)");
+    expect(cardBody).toMatch(/vesselId=\{arVesselId\}/);
   });
 
   it("tells the user while the record is still loading", () => {
-    expect(card).toContain("Loading record…");
+    expect(cardBody).toContain("Loading record…");
   });
 });
 

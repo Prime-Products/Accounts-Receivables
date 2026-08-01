@@ -149,7 +149,8 @@ describe("UI surfaces the distinction", () => {
   });
 
   it("shows the type on the contact record card", () => {
-    const card = read("client/src/components/AddressBookRecordDialog.tsx");
+    // The card body is shared by the Address Book modal and the card pages.
+    const card = read("client/src/components/RecordDetailsPanel.tsx");
     expect(card).toMatch(/FieldRow label="Type"/);
     // Editable straight from the card, saved immediately (badge-field convention).
     expect(card).toContain("trpc.addressBook.setContactType.useMutation");

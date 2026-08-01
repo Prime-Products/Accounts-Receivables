@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RecordDetailsPanel } from "@/components/RecordDetailsPanel";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
@@ -50,6 +51,13 @@ export default function CustomerDetail() {
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
+  /**
+   * The card has two halves: the receivables view and the directory record.
+   * Kept in the URL (?tab=details) so a link can land straight on either one.
+   */
+  const [cardTab, setCardTab] = useState<"receivables" | "details">(() =>
+    new URLSearchParams(window.location.search).get("tab") === "details" ? "details" : "receivables",
+  );
   // Credit-note toggle: when on, the transactions list shows only credit notes.
   const [creditOnly, setCreditOnly] = useState(false);
   // Payments toggle: when on, the transactions list shows only wire transfers.
@@ -228,6 +236,28 @@ export default function CustomerDetail() {
       </div>
 
       {/* Summary cards */}
+      <Tabs
+        value={cardTab}
+        onValueChange={v => {
+          const next = v === "details" ? "details" : "receivables";
+          setCardTab(next);
+          // Keep the address bar in step without re-mounting the page.
+          const url = new URL(window.location.href);
+          if (next === "details") url.searchParams.set("tab", "details");
+          else url.searchParams.delete("tab");
+          window.history.replaceState(null, "", url.toString());
+        }}
+      >
+        <TabsList>
+          <TabsTrigger value="receivables">Receivables</TabsTrigger>
+          <TabsTrigger value="details">Details</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="details" className="mt-4">
+          <RecordDetailsPanel entity="customer" recordKey={String(customer.id)} showCollectionsLink={false} />
+        </TabsContent>
+
+        <TabsContent value="receivables" className="mt-4 space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <Card>
           <CardContent className="pt-4">
@@ -587,6 +617,8 @@ export default function CustomerDetail() {
 
         <TabsContent value="wireTransfers">
           <WireTransfers customerId={customer.id} />
+        </TabsContent>
+      </Tabs>
         </TabsContent>
       </Tabs>
     </div>

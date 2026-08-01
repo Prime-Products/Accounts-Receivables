@@ -1422,24 +1422,20 @@
 Customers often promise to pay without naming a figure. Such a promise IS valid and
 must be recorded and tracked as a task; only the amount is unknown.
 
-- [ ] Root cause: closing/escalating a promise-check task leaves the promise row Pending forever, so the stale promise keeps firing the "Open promise exists" banner (DYNACOM 6270001, MINERVA 7260001)
-- [ ] Settle the linked promise when its check task is Completed (Kept) or Cancelled/superseded (Broken)
-- [ ] Treat a promise whose every linked task is closed as no longer open in findOpenGroupPromise
-- [ ] Never render an amount-less promise as "€0" — show "amount not stated" everywhere (Log Call banner, Collections Desk, task titles, group card)
-- [ ] Keep the promised date mandatory even when the amount is unknown
-- [ ] Backfill the missing follow-up tasks for the two existing amount-less promises
-- [ ] Add regression tests: amount-less promise creates a task, and is never displayed as €0
+- [x] Root cause: closing/escalating a promise-check task leaves the promise row Pending forever, so the stale promise keeps firing the "Open promise exists" banner (DYNACOM 6270001, MINERVA 7260001)
+- [x] Settle the linked promise when its check task is Completed (Kept) or Cancelled/superseded (Broken)
+- [x] Treat a promise whose every linked task is closed as no longer open in findOpenGroupPromise
+- [x] Never render an amount-less promise as "€0" — show "amount not stated" everywhere (Log Call banner, Collections Desk, task titles, group card)
+- [x] Keep the promised date mandatory even when the amount is unknown
+- [x] Backfill the missing follow-up tasks for the two existing amount-less promises
+- [x] Add regression tests: amount-less promise creates a task, and is never displayed as €0
 
 ## Unified customer/group card (user approved)
 
 The Collections Desk drill-in is the receivables view; the Address Book holds the
 master record. Same company, two screens. Unify them.
 
-- [ ] Single card per company/group with tabs: "Receivables" (balances, aging, promises, tasks, activity) and "Details" (contacts, departments, vessels, gifts, custom fields)
-- [ ] Opening a group from Collections Desk and from Address Book lands on the same card
-- [ ] Preserve every existing capability of both views (no feature regressions)
-- [ ] Contacts on the Details tab deduped per person, departments distinguishable, gift badges visible
-- [ ] Add tests covering the unified card routing and tab content
+(tracked in the "Unified customer/group card (user request 1/8)" section at the bottom of this file)
 - [x] Vitest coverage for accent-insensitive matching, multi-token queries and cross-entity list search
 
 ## Group-shared contacts must not be double counted (user note)
@@ -1479,6 +1475,9 @@ master record. Same company, two screens. Unify them.
 - [x] Backfill historical promise activity-log lines that printed "— €0" (3 rows repaired; no task titles affected)
 
 ## Unified customer/group card (user request 1/8)
-- [ ] One card per company/group with two tabs: "Receivables" (balances, aging, transactions, promises, tasks, activity) and "Details" (contacts, departments, vessels, gifts, custom fields)
-- [ ] Collections Desk row click and Address Book row click open the same card
-- [ ] No regressions in the existing group card and Address Book record card behaviour
+- [x] One card per company/group with two tabs: "Receivables" (balances, aging, transactions, promises, tasks, activity) and "Details" (identity, related companies/vessels/contacts, custom fields)
+- [x] Collections Desk row click and Address Book row click open the same card (group/company rows and `?record=` deep links land on `/groups/:name?tab=details` / `/customers/:id?tab=details`)
+- [x] Shared `RecordDetailsPanel` renders the Details body in both the Address Book modal (vessels/contacts) and the card pages, so the two cannot drift apart
+- [x] Contacts on the Details tab deduped per person, departments marked "· dept", gift tier/history editable from the card
+- [x] Active tab addressable via `?tab=details`, synced with history.replaceState (no page re-mount)
+- [x] Tests covering the unified card routing and tab content (addressBook, styling, dedup, card-size and contactType assertions repointed at the shared panel)

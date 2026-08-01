@@ -198,10 +198,20 @@ export default function AddressBook() {
     if (deepLinked) return;
     const key = new URLSearchParams(window.location.search).get("record");
     if (!key) return;
+    setDeepLinked(true);
+    // Groups and companies live on their own card page, so a deep link hands off
+    // there (Details tab) rather than opening the modal on top of the list.
+    if (entity === "group") {
+      navigate(`/groups/${encodeURIComponent(key)}?tab=details`);
+      return;
+    }
+    if (entity === "customer") {
+      navigate(`/customers/${key}?tab=details`);
+      return;
+    }
     setTarget({ entity, recordKey: key, title: key });
     setDialogOpen(true);
-    setDeepLinked(true);
-  }, [entity, deepLinked]);
+  }, [entity, deepLinked, navigate]);
 
   const applyLayout = (next: { hidden: string[]; order: string[] }) => {
     setHidden(next.hidden);
@@ -994,18 +1004,23 @@ export default function AddressBook() {
         }
         onRowClick={r => {
           const any = r as any;
+          // Groups and companies own a full card page (receivables + details), so
+          // the directory opens the very same card the Collections Desk opens,
+          // landing on its Details tab. Vessels and contacts have no page of
+          // their own and keep using the modal.
+          if (entity === "group") {
+            navigate(`/groups/${encodeURIComponent(any.group)}?tab=details`);
+            return;
+          }
+          if (entity === "customer") {
+            navigate(`/customers/${any.id}?tab=details`);
+            return;
+          }
           openRecord({
             entity,
             recordKey: any.recordKey,
-            title: entity === "group" ? any.group : any.name,
-            subtitle:
-              entity === "group"
-                ? `${any.companies} companies · ${any.vessels} vessels · ${any.contacts} contacts`
-                : entity === "customer"
-                  ? any.group
-                  : entity === "vessel"
-                    ? any.ownerGroup
-                    : any.companyName,
+            title: any.name,
+            subtitle: entity === "vessel" ? any.ownerGroup : any.companyName,
           });
         }}
       />

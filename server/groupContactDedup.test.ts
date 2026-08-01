@@ -10,7 +10,8 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
  */
 describe("group contact de-duplication", () => {
   const router = read("server/routers/addressBook.ts");
-  const dialog = read("client/src/components/AddressBookRecordDialog.tsx");
+  // The related lists live in the panel shared by the modal and the card pages.
+  const dialog = read("client/src/components/RecordDetailsPanel.tsx");
 
   it("defines a person identity keyed on email with a name fallback", () => {
     expect(router).toMatch(/const personKeyOf =/);
