@@ -1490,3 +1490,13 @@ master record. Same company, two screens. Unify them.
 - [x] Table header/rows verified as already shared via `AddressBookTable` (card wrapper, sticky muted header, hover rows, footer inside the card) — same treatment as Vessels/Invoices
 - [x] Route-level `PageFallback` renders a title + filters + table skeleton instead of the bare "Loading…" line (applies to every lazy page, not just the Address Book)
 - [x] Vitest coverage for the aligned styling contract (`addressBookStyling.test.ts` asserts the stock switcher, no boxed toolbar, row order and the skeleton shell) — 555 tests pass
+
+## Log Call → task → status tracking is unreliable (user request 1/8)
+- [ ] BUG: `(Follow-up: <group>)` marker parsed with non-greedy `(.+?)\)` truncates group names containing a `)` — escalation writes the status onto a phantom key (`EVALEND (TANKERS` vs `EVALEND (TANKERS)`), so the card still shows "Not Contacted"
+- [ ] Fix every marker parse to capture the full group name (greedy/anchored) and add a shared parse helper instead of 12 duplicated regexes
+- [ ] Repair the orphaned status rows already in the database (2 `Escalated` rows on truncated keys)
+- [ ] Store the group on the task (real column) so status↔task linking no longer depends on string markers
+- [ ] Every logged call must leave a status: `No Answer` currently writes no status at all (0 of 185 calls recorded as no-answer)
+- [ ] Log Call must force an explicit next step so a call cannot end with "nothing to do" silently (76 of 86 called groups have no status row)
+- [ ] Per-user call tracking: who called whom, outcome, and whether a next step exists
+- [ ] Vitest coverage for group names with parentheses across the whole call→task→status flow
