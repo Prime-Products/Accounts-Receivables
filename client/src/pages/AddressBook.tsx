@@ -152,6 +152,17 @@ export default function AddressBook() {
     return () => window.removeEventListener("address-book:open", handler);
   }, []);
 
+  // Deep link: /address-book?tab=group&record=<key> opens that card straight away.
+  const [deepLinked, setDeepLinked] = useState(false);
+  useEffect(() => {
+    if (deepLinked) return;
+    const key = new URLSearchParams(window.location.search).get("record");
+    if (!key) return;
+    setTarget({ entity, recordKey: key, title: key });
+    setDialogOpen(true);
+    setDeepLinked(true);
+  }, [entity, deepLinked]);
+
   const applyLayout = (next: { hidden: string[]; order: string[] }) => {
     setHidden(next.hidden);
     setOrder(next.order);

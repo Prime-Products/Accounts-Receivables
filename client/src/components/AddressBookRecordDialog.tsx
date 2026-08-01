@@ -7,9 +7,10 @@
  * editable details, since those are owned by AR Pro rather than the ERP.
  */
 import { CustomFieldsBlock } from "@/components/CustomFieldsBlock";
+import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc";
 import { Building2, ExternalLink, Mail, Phone, Ship, Users } from "lucide-react";
@@ -28,8 +29,8 @@ export type RecordTarget = {
 function FieldRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline gap-2 text-sm">
-      <span className="w-32 shrink-0 text-xs text-muted-foreground">{label}</span>
-      <span className="min-w-0 flex-1 truncate">{children}</span>
+      <span className="w-36 shrink-0 text-xs text-muted-foreground">{label}</span>
+      <span className="min-w-0 flex-1 break-words">{children}</span>
     </div>
   );
 }
@@ -74,8 +75,15 @@ export function AddressBookRecordDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-auto">
-        <DialogHeader>
+      <ResizableDialogContent
+        storageKey="address-book-record"
+        defaultWidth={Math.min(1100, Math.floor(window.innerWidth * 0.92))}
+        defaultHeight={Math.min(760, Math.floor(window.innerHeight * 0.88))}
+        minWidth={520}
+        minHeight={360}
+        className="flex max-h-[96vh] max-w-[98vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[98vw]"
+      >
+        <DialogHeader className="shrink-0 border-b px-6 py-4 pr-12">
           <DialogTitle className="flex items-center gap-2">
             {entity === "group" && <Users className="h-5 w-5" />}
             {entity === "customer" && <Building2 className="h-5 w-5" />}
@@ -86,7 +94,7 @@ export function AddressBookRecordDialog({
           {target?.subtitle && <p className="text-sm text-muted-foreground">{target.subtitle}</p>}
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-auto px-6 py-4">
           {/* --- identity (ERP owned) --- */}
           <section className="space-y-1.5">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Details</p>
@@ -144,10 +152,10 @@ export function AddressBookRecordDialog({
             )}
           </section>
 
+          {/* --- relationships --- */}
           <Separator />
 
-          {/* --- relationships --- */}
-          <section className="space-y-2">
+          <section className="flex min-h-0 flex-col space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Related</p>
               {groupName && (
@@ -164,7 +172,7 @@ export function AddressBookRecordDialog({
             <div className="grid gap-3 sm:grid-cols-3">
               <RelatedList
                 title={`Companies (${relatedCompanies.length})`}
-                items={relatedCompanies.slice(0, 12).map(c => ({
+                items={relatedCompanies.map(c => ({
                   key: c.recordKey,
                   label: c.name,
                   onClick: () =>
@@ -173,7 +181,7 @@ export function AddressBookRecordDialog({
               />
               <RelatedList
                 title={`Vessels (${relatedVessels.length})`}
-                items={relatedVessels.slice(0, 12).map(v => ({
+                items={relatedVessels.map(v => ({
                   key: v.recordKey,
                   label: v.name,
                   onClick: () =>
@@ -182,7 +190,7 @@ export function AddressBookRecordDialog({
               />
               <RelatedList
                 title={`Contacts (${relatedContacts.length})`}
-                items={relatedContacts.slice(0, 12).map(c => ({
+                items={relatedContacts.map(c => ({
                   key: c.recordKey,
                   label: c.name,
                   onClick: () =>
@@ -200,7 +208,7 @@ export function AddressBookRecordDialog({
             {target && <CustomFieldsBlock entity={entity} recordKey={recordKey} />}
           </section>
         </div>
-      </DialogContent>
+      </ResizableDialogContent>
     </Dialog>
   );
 }
@@ -215,7 +223,7 @@ function RelatedList({
   return (
     <div className="rounded-md border">
       <p className="border-b px-2.5 py-1.5 text-xs font-medium">{title}</p>
-      <div className="max-h-40 overflow-auto py-1">
+      <div className="max-h-64 overflow-auto py-1">
         {items.length === 0 ? (
           <p className="px-2.5 py-2 text-xs text-muted-foreground">None</p>
         ) : (

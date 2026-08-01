@@ -91,4 +91,10 @@ Live counts observed: 3,078 groups / 3,526 companies / 184 vessels / 7,762 conta
 
 Verified counts in UI: Groups 3,085 / Companies 3,533 / Vessels 184 / Contacts 7,762.
 
+## Record card sizing (user report 1 Aug: "το παράθυρο του group είναι μικρό")
+- `AddressBookRecordDialog` now uses the shared `ResizableDialogContent` (storageKey `address-book-record`,
+  default ~1100x760 capped to 92%/88% of the viewport, min 520x360). Header is a fixed bar, body scrolls,
+  related lists grew from `max-h-40` to `max-h-64` and no longer truncate to the first 12 items.
+- Deep link: `/address-book?tab=<entity>&record=<recordKey>` opens a card directly.
+
 Still to do: full suite + checkpoint + GitHub push.

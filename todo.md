@@ -1365,3 +1365,5 @@
 - [x] Excel import wizard: file upload, column mapping (incl. custom fields), create/update/skip preview, per-row exclusion
 - [x] Active Address Book tab persisted in the URL (?tab=group|customer|vessel|contact)
 - [x] Vitest coverage for quality checks, archive, merge and the import contract (19 tests)
+- [x] Address Book record card enlarged: resizable dialog (persisted size, drag edges, double-click to reset), sticky header, scrollable body, full related lists instead of first 12
+- [x] Address Book: deep link a record via ?record=<key>
