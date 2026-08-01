@@ -1062,6 +1062,18 @@ export async function listActivityLog(groupName: string, limit = 100) {
     .limit(limit);
 }
 
+/**
+ * Activity log for a group with the author's display name resolved, so the
+ * communication timeline can show "who did this" without a second round-trip.
+ */
+export async function listActivityLogWithAuthors(groupName: string, limit = 200) {
+  const rows = await listActivityLog(groupName, limit);
+  if (rows.length === 0) return [] as (typeof rows[number] & { authorName: string | null })[];
+  const users = await listUsersWithProfiles().catch(() => []);
+  const names = new Map(users.map(u => [u.id, u.name ?? null]));
+  return rows.map(r => ({ ...r, authorName: r.createdBy ? (names.get(r.createdBy) ?? null) : null }));
+}
+
 export async function getActivityLog(id: number) {
   const db = await requireDb();
   return db.select().from(activityLog).where(eq(activityLog.id, id)).limit(1);

@@ -1541,6 +1541,20 @@ master record. Same company, two screens. Unify them.
 - [x] Verify Call Back, Collections Desk, Tasks and Forecast render on the empty data
 - [x] Re-run the full vitest suite after the cleanup (87 files, 588 tests passing)
 
+## Make the communication flow visible on the card (user: "η ροή στην καρτέλα να φαίνεται εύκολα")
+- [x] Show last contact in the card header: when, by whom, outcome, note preview
+- [x] Move the communication history above the Transactions table on the group card
+- [x] Merge the two split history blocks (Activity Log + Group activity tabs) into one timeline
+- [x] Add type filters to the unified timeline (calls, notes, promises, emails, tasks, status)
+- [x] Expand long notes instead of clamping at 2 lines
+- [x] Add the same timeline to the company card (currently has none)
+- [x] Frame the card around the current month cycle (Aug 2026) with previous months collapsed
+- [x] Surface the existing `carriedOver` flag so a status set last month is visibly distinct (group header + Collections Desk badge)
+- [x] Never let a promise write into forecast_entries (forecast is run separately by the user)
+- [x] Make call notes searchable (search box inside the timeline card)
+- [x] Vitest coverage: client/src/lib/timeline.test.ts (9 tests) + server/groupLastContact.test.ts (2 tests)
+- [ ] Decide whether the old "Group activity" tabs card at the bottom of the group card stays as a data table or is dropped
+
 ## Track who spoke to which customer (user request 1/8)
 - [x] "No Answer" is a real outcome: records a contact attempt, leaves the status alone, creates no task
 - [x] Groups payload exposes lastCallAt / lastCallBy / callCount / noAnswerCount

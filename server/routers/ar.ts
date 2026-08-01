@@ -1554,7 +1554,20 @@ export const customersRouter = router({
       const openCreditNotesEur = openCreditNotes.reduce((s, c) => s + c.openEur, 0);
       // Unified: the group's account status IS the hold status (companies inherit it).
       const groupHoldStatus = watchStatus;
-      const activityLogs = await db.listActivityLog(input.group, 200).catch(() => []);
+      const activityLogs = await db.listActivityLogWithAuthors(input.group, 200).catch(() => []);
+      // Last contact attempt for the card header: when, who, outcome and the note.
+      const gCallSummary = (await db.callSummaryByGroup().catch(() => new Map())).get(input.group) ?? null;
+      /** Team member name preferred, falling back to the user account. */
+      const gCallerName = await (async (): Promise<string | null> => {
+        const uid = gCallSummary?.lastCallBy ?? null;
+        if (uid == null) return null;
+        const members = await db.listTeamMembers(true).catch(() => [] as any[]);
+        const member = members.find((m: any) => m.userId === uid);
+        if (member) return member.name as string;
+        const users = await db.listUsers().catch(() => [] as any[]);
+        const u = users.find((x: any) => x.id === uid);
+        return (u?.name ?? u?.email ?? null) as string | null;
+      })();
       // Statuses persist until a human changes them; the red badge flags an overdue linked task.
       const gConf = effectiveConfirmation(confirmation);
       const gConfStatus = gConf.status;
@@ -1628,6 +1641,12 @@ export const customersRouter = router({
         confirmationFollowUpDate: confirmation?.followUpDate ?? null,
         confirmationCarriedOver: gConf.carriedOver,
         confirmationNotes: confirmation?.notes ?? null,
+        lastCallAt: gCallSummary?.lastCallAt ? new Date(gCallSummary.lastCallAt).getTime() : null,
+        lastCallBy: gCallerName,
+        lastCallOutcome: gCallSummary?.lastCallTitle ?? null,
+        lastCallNote: gCallSummary?.lastCallNote ?? null,
+        callCount: gCallSummary?.calls ?? 0,
+        noAnswerCount: gCallSummary?.noAnswer ?? 0,
         totals: {
           openBalance: open.reduce((s, i) => s + outstanding(i), 0),
           overdueBalance: overdue.reduce((s, i) => s + outstanding(i), 0),

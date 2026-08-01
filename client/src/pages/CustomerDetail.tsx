@@ -19,11 +19,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RecordDetailsPanel } from "@/components/RecordDetailsPanel";
+import { CommunicationTimeline } from "@/components/CommunicationTimeline";
+import { buildTimeline } from "@/lib/timeline";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, HandCoins, Layers, Plus } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 
@@ -36,6 +38,27 @@ export default function CustomerDetail() {
   const { data: groupForecast } = trpc.customers.groupForecast.useQuery(
     { group: (data as any)?.groupKey ?? "" },
     { enabled: !!(data as any)?.groupKey },
+  );
+  /**
+   * Collections history lives at group level (that is how calls are logged), so
+   * the company card shows the same timeline for its group, plus this company's
+   * own tasks and payments.
+   */
+  const groupKey = ((data as any)?.groupKey ?? "") as string;
+  const { data: groupDetail, isLoading: historyLoading } = trpc.customers.groupDetail.useQuery(
+    { group: groupKey },
+    { enabled: !!groupKey },
+  );
+  const { data: groupNoteRows } = trpc.customers.groupNotes.useQuery({ group: groupKey }, { enabled: !!groupKey });
+  const timelineEntries = useMemo(
+    () =>
+      buildTimeline({
+        activityLogs: (groupDetail as any)?.activityLogs,
+        notes: groupNoteRows as any,
+        tasks: (data as any)?.tasks,
+        receipts: (data as any)?.receipts,
+      }),
+    [groupDetail, groupNoteRows, data],
   );
 
   const [promiseOpen, setPromiseOpen] = useState(false);
@@ -361,6 +384,13 @@ export default function CustomerDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Collections history for the group this company belongs to */}
+      <CommunicationTimeline
+        entries={timelineEntries}
+        isLoading={isLoading || historyLoading}
+        title={groupKey && groupKey !== customer.name ? `Communication — ${groupKey} (group)` : "Communication"}
+      />
 
       {/* Aging — same card style as the group view */}
       <Card>
