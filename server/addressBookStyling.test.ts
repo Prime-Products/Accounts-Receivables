@@ -1,8 +1,9 @@
 /**
  * Guards the Address Book presentation contract: it must follow the AR Pro visual
- * language (card-wrapped table, segmented entity switcher, single toolbar panel,
- * summary strip) and must link the vessel directory record to its AR card, since
- * the standalone Vessels page stays the financial view.
+ * language (card-wrapped table, plain segmented entity switcher, open filter and
+ * tools rows exactly like Invoices/Collections Desk, summary strip) and must link
+ * the vessel directory record to its AR card, since the standalone Vessels page
+ * stays the financial view.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -32,21 +33,40 @@ describe("Address Book visual language", () => {
     expect(table).toMatch(/border-t bg-muted\/20/);
   });
 
-  it("renders the entity switcher as a segmented control with count pills", () => {
-    expect(page).toMatch(/TabsList className="h-auto flex-wrap gap-1 bg-muted\/60 p-1"/);
-    expect(page).toContain("data-[state=active]:bg-background");
-    expect(page).toContain("bg-sky-100 text-sky-700");
+  it("uses the stock segmented switcher, like the Collections Desk toggle", () => {
+    // Default shadcn TabsList/TabsTrigger styling — no custom muted panel, no
+    // sky count pills, which is what made this page look foreign.
+    expect(page).toMatch(/<TabsList className="h-10">/);
+    expect(page).not.toContain('TabsList className="h-auto flex-wrap gap-1 bg-muted/60 p-1"');
+    expect(page).not.toContain("bg-sky-100 text-sky-700");
+    // Counts stay as plain muted mono numbers next to the label.
+    expect(page).toContain('<span className="font-mono text-xs text-muted-foreground">');
   });
 
-  it("groups search, filters and tools in one toolbar panel", () => {
-    expect(page).toMatch(/rounded-lg border bg-card p-3/);
-    // Saved views live inside the same panel rather than floating above the table.
-    const toolbarStart = page.indexOf("rounded-lg border bg-card p-3");
+  it("keeps filters and tools on open rows instead of a boxed toolbar panel", () => {
+    expect(page).not.toMatch(/rounded-lg border bg-card p-3/);
+    // Order on the page: switcher/filters row → tools row (with saved views) → table.
+    const filterRow = page.indexOf('<div className="flex flex-wrap gap-3">');
+    const fieldFilters = page.indexOf("<FieldFilterBar");
     const savedViews = page.indexOf("<SavedViewsBar");
     const tableStart = page.indexOf("<AddressBookTable");
-    expect(toolbarStart).toBeGreaterThan(-1);
-    expect(savedViews).toBeGreaterThan(toolbarStart);
+    expect(filterRow).toBeGreaterThan(-1);
+    expect(fieldFilters).toBeGreaterThan(filterRow);
+    expect(savedViews).toBeGreaterThan(fieldFilters);
     expect(savedViews).toBeLessThan(tableStart);
+  });
+
+  it("uses the same neutral page title treatment as the other list pages", () => {
+    expect(page).toMatch(/<h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">/);
+    expect(page).toContain('<BookUser className="h-6 w-6" />');
+  });
+
+  it("shows a skeleton page shell while a route chunk loads", () => {
+    const app = readFileSync(join(root, "client/src/App.tsx"), "utf8");
+    expect(app).toContain('import { Skeleton } from "@/components/ui/skeleton"');
+    // The fallback renders a shell, not a bare text line.
+    expect(app).toMatch(/aria-busy="true" aria-label="Loading page"/);
+    expect(app).not.toMatch(/text-muted-foreground text-sm">\s*Loading/);
   });
 
   it("shows a result summary strip with a reset action", () => {
