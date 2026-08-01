@@ -156,6 +156,13 @@ describe("address book UI contract", () => {
     expect(page).toContain("<AddressBookRecordDialog");
   });
 
+  it("opens the same card page as the Collections Desk for groups and companies", () => {
+    // A group/company row lands on its card page, Details tab — the very same
+    // card the Collections Desk opens, so both entry points share one screen.
+    expect(page).toMatch(/navigate\(`\/groups\/\$\{encodeURIComponent\(any\.group\)\}\?tab=details`\)/);
+    expect(page).toMatch(/navigate\(`\/customers\/\$\{any\.id\}\?tab=details`\)/);
+  });
+
   it("marks ERP-owned columns read-only so the field picker can flag them", () => {
     expect(page).toContain("readOnly: true");
   });
@@ -168,12 +175,26 @@ describe("address book UI contract", () => {
   });
 
   it("uses one card template for every entity, including relationships and custom fields", () => {
-    const dialog = read("client/src/components/AddressBookRecordDialog.tsx");
-    expect(dialog).toContain("<CustomFieldsBlock");
-    expect(dialog).toContain("relatedCompanies");
-    expect(dialog).toContain("relatedVessels");
-    expect(dialog).toContain("relatedContacts");
-    expect(dialog).toContain("Open in Collections Desk");
+    // One body, two hosts: the Address Book modal and the group/company card tab.
+    const panel = read("client/src/components/RecordDetailsPanel.tsx");
+    expect(panel).toContain("<CustomFieldsBlock");
+    expect(panel).toContain("relatedCompanies");
+    expect(panel).toContain("relatedVessels");
+    expect(panel).toContain("relatedContacts");
+    expect(panel).toContain("Open in Collections Desk");
+    expect(read("client/src/components/AddressBookRecordDialog.tsx")).toContain("<RecordDetailsPanel");
+  });
+
+  it("shows the same details panel as a Details tab on the group and company cards", () => {
+    for (const p of ["client/src/pages/GroupDetail.tsx", "client/src/pages/CustomerDetail.tsx"]) {
+      const src = read(p);
+      expect(src).toContain('import { RecordDetailsPanel } from "@/components/RecordDetailsPanel"');
+      expect(src).toContain('<TabsTrigger value="receivables">Receivables</TabsTrigger>');
+      expect(src).toContain('<TabsTrigger value="details">Details</TabsTrigger>');
+      expect(src).toContain("<RecordDetailsPanel");
+      // The tab is addressable so a link can open either half of the card.
+      expect(src).toContain('searchParams.set("tab", "details")');
+    }
   });
 
   it("keeps the list header sticky and loads the first 100 rows only", () => {

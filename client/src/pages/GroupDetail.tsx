@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RecordDetailsPanel } from "@/components/RecordDetailsPanel";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
@@ -343,6 +344,13 @@ export default function GroupDetail() {
   const [branch, setBranch] = useState<string>("all");
   const [agingFilter, setAgingFilter] = useState<AgingBucket>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  /**
+   * The card has two halves: the receivables view and the directory record.
+   * Kept in the URL (?tab=details) so a link can land straight on either one.
+   */
+  const [cardTab, setCardTab] = useState<"receivables" | "details">(() =>
+    new URLSearchParams(window.location.search).get("tab") === "details" ? "details" : "receivables",
+  );
   const [invoiceView, setInvoiceView] = useState<"list" | "byBranch" | "byVessel">("list");
   /** When set from the By vessel view, the list shows only this vessel's invoices ("none" = no vessel). */
   const [vesselDrill, setVesselDrill] = useState<string>("all");
@@ -666,6 +674,28 @@ export default function GroupDetail() {
         </div>
       </div>
 
+      <Tabs
+        value={cardTab}
+        onValueChange={v => {
+          const next = v === "details" ? "details" : "receivables";
+          setCardTab(next);
+          // Keep the address bar in step without re-mounting the page.
+          const url = new URL(window.location.href);
+          if (next === "details") url.searchParams.set("tab", "details");
+          else url.searchParams.delete("tab");
+          window.history.replaceState(null, "", url.toString());
+        }}
+      >
+        <TabsList>
+          <TabsTrigger value="receivables">Receivables</TabsTrigger>
+          <TabsTrigger value="details">Details</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="details" className="mt-4">
+          <RecordDetailsPanel entity="group" recordKey={group} showCollectionsLink={false} />
+        </TabsContent>
+
+        <TabsContent value="receivables" className="mt-4 space-y-4">
       {isLoading || !data ? (
         <div className="space-y-3">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1112,6 +1142,8 @@ export default function GroupDetail() {
           <GroupActivityTabs group={group} />
         </>
       )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
