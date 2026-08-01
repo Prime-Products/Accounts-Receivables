@@ -53,6 +53,15 @@ import {
   InsertCreditNoteAllocation,
 } from "../drizzle/schema";
 import { teamMembers, InsertTeamMember } from "../drizzle/schema";
+import {
+  customFieldDefs,
+  customFieldValues,
+  savedViews,
+  listLayouts,
+  type AddressBookEntity,
+  type InsertCustomFieldDef,
+  type InsertSavedView,
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1517,4 +1526,140 @@ export async function createCreditNoteAllocation(data: InsertCreditNoteAllocatio
 export async function deleteCreditNoteAllocation(id: number) {
   const db = await requireDb();
   await db.delete(creditNoteAllocations).where(eq(creditNoteAllocations.id, id));
+}
+
+// ---------------------------------------------------------------------------
+// Address Book: custom field definitions, values, saved views, list layouts
+// ---------------------------------------------------------------------------
+
+/** All non-archived field definitions, optionally for a single entity. */
+export async function listCustomFieldDefs(entity?: AddressBookEntity) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(customFieldDefs)
+    .where(entity ? and(eq(customFieldDefs.archived, 0), eq(customFieldDefs.entity, entity)) : eq(customFieldDefs.archived, 0))
+    .orderBy(customFieldDefs.sortOrder, customFieldDefs.id);
+  return rows;
+}
+
+export async function getCustomFieldDef(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(customFieldDefs).where(eq(customFieldDefs.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createCustomFieldDef(data: InsertCustomFieldDef) {
+  const db = await requireDb();
+  const res = await db.insert(customFieldDefs).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function updateCustomFieldDef(id: number, data: Partial<InsertCustomFieldDef>) {
+  const db = await requireDb();
+  await db.update(customFieldDefs).set(data).where(eq(customFieldDefs.id, id));
+}
+
+/** Soft delete: values are kept so the field can be restored. */
+export async function archiveCustomFieldDef(id: number) {
+  const db = await requireDb();
+  await db.update(customFieldDefs).set({ archived: 1 }).where(eq(customFieldDefs.id, id));
+}
+
+/** All custom values for one entity type, keyed by `recordKey` then `fieldId`. */
+export async function listCustomFieldValues(entity: AddressBookEntity, recordKeys?: string[]) {
+  const db = await requireDb();
+  const where =
+    recordKeys && recordKeys.length > 0
+      ? and(eq(customFieldValues.entity, entity), inArray(customFieldValues.recordKey, recordKeys))
+      : eq(customFieldValues.entity, entity);
+  return db.select().from(customFieldValues).where(where);
+}
+
+/**
+ * Upsert one custom-field value. An empty string clears the value so the record
+ * shows the field as blank rather than keeping a stale entry.
+ */
+export async function setCustomFieldValue(args: {
+  fieldId: number;
+  entity: AddressBookEntity;
+  recordKey: string;
+  value: string | null;
+  updatedBy?: number | null;
+}) {
+  const db = await requireDb();
+  const existing = await db
+    .select()
+    .from(customFieldValues)
+    .where(and(eq(customFieldValues.fieldId, args.fieldId), eq(customFieldValues.recordKey, args.recordKey)))
+    .limit(1);
+  if (existing[0]) {
+    await db
+      .update(customFieldValues)
+      .set({ value: args.value, updatedBy: args.updatedBy ?? null })
+      .where(eq(customFieldValues.id, existing[0].id));
+    return existing[0].id;
+  }
+  const res = await db.insert(customFieldValues).values({
+    fieldId: args.fieldId,
+    entity: args.entity,
+    recordKey: args.recordKey,
+    value: args.value,
+    updatedBy: args.updatedBy ?? null,
+  });
+  return Number((res as any)[0].insertId);
+}
+
+/** Saved views visible to a user: their own plus every shared one. */
+export async function listSavedViews(entity: AddressBookEntity, userId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(savedViews)
+    .where(and(eq(savedViews.entity, entity), or(eq(savedViews.shared, 1), eq(savedViews.ownerId, userId))))
+    .orderBy(savedViews.name);
+}
+
+export async function getSavedView(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(savedViews).where(eq(savedViews.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createSavedView(data: InsertSavedView) {
+  const db = await requireDb();
+  const res = await db.insert(savedViews).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function updateSavedView(id: number, data: Partial<InsertSavedView>) {
+  const db = await requireDb();
+  await db.update(savedViews).set(data).where(eq(savedViews.id, id));
+}
+
+export async function deleteSavedView(id: number) {
+  const db = await requireDb();
+  await db.delete(savedViews).where(eq(savedViews.id, id));
+}
+
+/** Per-user column visibility/order for one list. */
+export async function getListLayout(userId: number, listKey: string) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(listLayouts)
+    .where(and(eq(listLayouts.userId, userId), eq(listLayouts.listKey, listKey)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function setListLayout(userId: number, listKey: string, config: string) {
+  const db = await requireDb();
+  const existing = await getListLayout(userId, listKey);
+  if (existing) {
+    await db.update(listLayouts).set({ config }).where(eq(listLayouts.id, existing.id));
+    return existing.id;
+  }
+  const res = await db.insert(listLayouts).values({ userId, listKey, config });
+  return Number((res as any)[0].insertId);
 }

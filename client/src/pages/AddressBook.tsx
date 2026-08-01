@@ -1,0 +1,565 @@
+/**
+ * Address Book — the master directory of AR Pro.
+ *
+ * Four tabs over the same list machinery (groups, companies, vessels, contacts),
+ * a search that spans all of them, per-user column layouts, saved views and
+ * exports of exactly what is on screen. ERP-owned data stays read-only; anything
+ * the team needs on top lives in custom fields.
+ */
+import {
+  AddressBookTable,
+  type ColumnDef,
+  type SortState,
+} from "@/components/AddressBookTable";
+import { AddressBookRecordDialog, type RecordTarget } from "@/components/AddressBookRecordDialog";
+import { ColumnPicker, ExportMenu } from "@/components/AddressBookToolbar";
+import { CustomFieldsManager } from "@/components/CustomFieldsManager";
+import { SavedViewsBar } from "@/components/SavedViewsBar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { trpc } from "@/lib/trpc";
+import { BookUser, Building2, Mail, Phone, Plus, Search, Ship, Users, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "wouter";
+import { ContactFormDialog, type ContactRow } from "@/components/ContactFormDialog";
+
+type Entity = "group" | "customer" | "vessel" | "contact";
+
+const TABS: { value: Entity; label: string; icon: typeof Users }[] = [
+  { value: "group", label: "Groups", icon: Users },
+  { value: "customer", label: "Companies", icon: Building2 },
+  { value: "vessel", label: "Vessels", icon: Ship },
+  { value: "contact", label: "Contacts", icon: Mail },
+];
+
+/** Shape stored in a saved view. */
+type ViewConfig = {
+  search?: string;
+  group?: string;
+  extra?: string;
+  sort?: SortState;
+  hidden?: string[];
+  order?: string[];
+};
+
+export default function AddressBook() {
+  const [, navigate] = useLocation();
+  const [entity, setEntity] = useState<Entity>("group");
+  const [search, setSearch] = useState("");
+  const [groupFilter, setGroupFilter] = useState("all");
+  /** Second filter: position for contacts, vessel type for vessels, tier for companies. */
+  const [extraFilter, setExtraFilter] = useState("all");
+  const [sort, setSort] = useState<SortState>({ key: null, dir: "asc" });
+  const [activeViewId, setActiveViewId] = useState<number | null>(null);
+  const [target, setTarget] = useState<RecordTarget | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [contactFormOpen, setContactFormOpen] = useState(false);
+  const [editingContact, setEditingContact] = useState<ContactRow | null>(null);
+
+  const utils = trpc.useUtils();
+  const { data: counts } = trpc.addressBook.counts.useQuery();
+  const groupsQ = trpc.addressBook.groups.useQuery(undefined, { enabled: entity === "group" });
+  const customersQ = trpc.addressBook.customers.useQuery(undefined, { enabled: entity === "customer" });
+  const vesselsQ = trpc.addressBook.vessels.useQuery(undefined, { enabled: entity === "vessel" });
+  const contactsQ = trpc.addressBook.contacts.useQuery(undefined, { enabled: entity === "contact" });
+  const { data: fieldDefs } = trpc.addressBook.fields.useQuery({ entity });
+
+  const listKey = `address-book-${entity}`;
+  const { data: savedLayout } = trpc.addressBook.layout.useQuery({ listKey });
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [order, setOrder] = useState<string[]>([]);
+  const saveLayout = trpc.addressBook.saveLayout.useMutation({
+    onSuccess: () => utils.addressBook.layout.invalidate({ listKey }),
+  });
+
+  // Adopt the stored layout whenever the tab (and therefore the list key) changes.
+  useEffect(() => {
+    setHidden(savedLayout?.hidden ?? []);
+    setOrder(savedLayout?.order ?? []);
+  }, [savedLayout, listKey]);
+
+  // Let the record dialog re-open itself on a related record.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<RecordTarget>).detail;
+      setTarget(detail);
+      setDialogOpen(true);
+    };
+    window.addEventListener("address-book:open", handler);
+    return () => window.removeEventListener("address-book:open", handler);
+  }, []);
+
+  const applyLayout = (next: { hidden: string[]; order: string[] }) => {
+    setHidden(next.hidden);
+    setOrder(next.order);
+    saveLayout.mutate({ listKey, hidden: next.hidden, order: next.order });
+  };
+
+  const openRecord = (t: RecordTarget) => {
+    setTarget(t);
+    setDialogOpen(true);
+  };
+
+  /** Custom-field columns, appended to every list so new fields are instantly usable. */
+  const customColumns = useMemo<ColumnDef<any>[]>(
+    () =>
+      (fieldDefs ?? []).map(f => ({
+        key: `custom:${f.fieldKey}`,
+        label: f.label,
+        width: 160,
+        value: (row: any) => {
+          const v = row.custom?.[f.fieldKey] ?? "";
+          if (f.fieldType === "checkbox") return v === "1" ? "Yes" : "";
+          return v;
+        },
+      })),
+    [fieldDefs],
+  );
+
+  const baseColumns = useMemo<ColumnDef<any>[]>(() => {
+    if (entity === "group") {
+      return [
+        {
+          key: "group",
+          label: "Group",
+          width: 300,
+          readOnly: true,
+          value: r => r.group,
+          render: r => <span className="font-medium truncate block">{r.group}</span>,
+        },
+        { key: "companies", label: "Companies", width: 110, align: "right", readOnly: true, value: r => r.companies },
+        { key: "vessels", label: "Vessels", width: 100, align: "right", readOnly: true, value: r => r.vessels },
+        { key: "contacts", label: "Contacts", width: 100, align: "right", readOnly: true, value: r => r.contacts },
+        {
+          key: "primaryEmail",
+          label: "Primary email",
+          width: 240,
+          readOnly: true,
+          value: r => r.primaryEmail,
+          render: r =>
+            r.primaryEmail ? (
+              <a
+                className="text-blue-600 hover:underline truncate block"
+                href={`mailto:${r.primaryEmail}`}
+                onClick={e => e.stopPropagation()}
+              >
+                {r.primaryEmail}
+              </a>
+            ) : (
+              "—"
+            ),
+        },
+        { key: "codes", label: "ERP codes", width: 200, readOnly: true, value: r => r.codes },
+        {
+          key: "openDesk",
+          label: "",
+          width: 130,
+          sortable: false,
+          value: () => "",
+          render: r => (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={e => {
+                e.stopPropagation();
+                navigate(`/groups/${encodeURIComponent(r.group)}`);
+              }}
+            >
+              Collections →
+            </Button>
+          ),
+        },
+      ];
+    }
+    if (entity === "customer") {
+      return [
+        {
+          key: "name",
+          label: "Company",
+          width: 280,
+          readOnly: true,
+          value: r => r.name,
+          render: r => <span className="font-medium truncate block">{r.name}</span>,
+        },
+        { key: "code", label: "ERP code", width: 110, readOnly: true, value: r => r.code },
+        { key: "group", label: "Group", width: 240, readOnly: true, value: r => r.group },
+        { key: "vatNumber", label: "VAT number", width: 130, readOnly: true, value: r => r.vatNumber },
+        {
+          key: "email",
+          label: "Email",
+          width: 220,
+          readOnly: true,
+          value: r => r.email,
+          render: r =>
+            r.email ? (
+              <a
+                className="text-blue-600 hover:underline truncate block"
+                href={`mailto:${r.email}`}
+                onClick={e => e.stopPropagation()}
+              >
+                {r.email}
+              </a>
+            ) : (
+              "—"
+            ),
+        },
+        { key: "phone", label: "Phone", width: 150, readOnly: true, value: r => r.phone },
+        { key: "contactPerson", label: "Contact person", width: 180, readOnly: true, value: r => r.contactPerson },
+        { key: "paymentTermsDays", label: "Terms (d)", width: 100, align: "right", readOnly: true, value: r => r.paymentTermsDays },
+        {
+          key: "tier",
+          label: "Tier",
+          width: 110,
+          readOnly: true,
+          value: r => r.tier,
+          render: r => <Badge variant="outline">{r.tier}</Badge>,
+        },
+        { key: "contacts", label: "Contacts", width: 100, align: "right", readOnly: true, value: r => r.contacts },
+      ];
+    }
+    if (entity === "vessel") {
+      return [
+        {
+          key: "name",
+          label: "Vessel",
+          width: 240,
+          readOnly: true,
+          value: r => r.name,
+          render: r => <span className="font-medium truncate block">{r.name}</span>,
+        },
+        { key: "imo", label: "IMO", width: 110, readOnly: true, value: r => r.imo },
+        { key: "vesselType", label: "Type", width: 150, readOnly: true, value: r => r.vesselType },
+        { key: "flag", label: "Flag", width: 130, readOnly: true, value: r => r.flag },
+        { key: "ownerName", label: "Owner", width: 240, readOnly: true, value: r => r.ownerName },
+        { key: "ownerGroup", label: "Group", width: 240, readOnly: true, value: r => r.ownerGroup },
+      ];
+    }
+    return [
+      {
+        key: "name",
+        label: "Name",
+        width: 220,
+        value: r => r.name,
+        render: r => <span className="font-medium truncate block">{r.name}</span>,
+      },
+      { key: "title", label: "Position", width: 170, value: r => r.title },
+      {
+        key: "email",
+        label: "Email",
+        width: 260,
+        value: r => r.email,
+        render: r => (
+          <a
+            className="text-blue-600 hover:underline inline-flex items-center gap-1 max-w-full"
+            href={`mailto:${r.email}`}
+            onClick={e => e.stopPropagation()}
+          >
+            <Mail className="h-3 w-3 shrink-0" /> <span className="truncate">{r.email}</span>
+          </a>
+        ),
+      },
+      {
+        key: "phone",
+        label: "Phone",
+        width: 160,
+        value: r => r.phone,
+        render: r =>
+          r.phone ? (
+            <a
+              className="text-blue-600 hover:underline inline-flex items-center gap-1 max-w-full"
+              href={`tel:${r.phone}`}
+              onClick={e => e.stopPropagation()}
+            >
+              <Phone className="h-3 w-3 shrink-0" /> <span className="truncate">{r.phone}</span>
+            </a>
+          ) : (
+            "—"
+          ),
+      },
+      { key: "companyName", label: "Company", width: 240, readOnly: true, value: r => r.companyName },
+      { key: "group", label: "Group", width: 240, readOnly: true, value: r => r.group },
+      {
+        key: "edit",
+        label: "",
+        width: 90,
+        sortable: false,
+        value: () => "",
+        render: r => (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={e => {
+              e.stopPropagation();
+              setEditingContact({
+                id: r.id,
+                customerId: r.customerId,
+                name: r.name,
+                email: r.email,
+                phone: r.phone,
+                title: r.title,
+                companyName: r.companyName,
+                groupName: r.group,
+              });
+              setContactFormOpen(true);
+            }}
+          >
+            Edit
+          </Button>
+        ),
+      },
+    ];
+  }, [entity, navigate]);
+
+  const allColumns = useMemo(() => [...baseColumns, ...customColumns], [baseColumns, customColumns]);
+
+  /** Columns actually rendered: saved order first, hidden ones removed. */
+  const columns = useMemo(() => {
+    const ordered = [
+      ...order.map(k => allColumns.find(c => c.key === k)).filter((c): c is ColumnDef<any> => !!c),
+      ...allColumns.filter(c => !order.includes(c.key)),
+    ];
+    return ordered.filter(c => !hidden.includes(c.key));
+  }, [allColumns, order, hidden]);
+
+  const rows = useMemo(() => {
+    if (entity === "group") return groupsQ.data ?? [];
+    if (entity === "customer") return customersQ.data ?? [];
+    if (entity === "vessel") return vesselsQ.data ?? [];
+    return contactsQ.data ?? [];
+  }, [entity, groupsQ.data, customersQ.data, vesselsQ.data, contactsQ.data]);
+
+  const isLoading =
+    entity === "group"
+      ? groupsQ.isLoading
+      : entity === "customer"
+        ? customersQ.isLoading
+        : entity === "vessel"
+          ? vesselsQ.isLoading
+          : contactsQ.isLoading;
+
+  /** Options for the group filter (all tabs) and the second, tab-specific filter. */
+  const groupOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows as any[]) {
+      const g = entity === "group" ? r.group : entity === "vessel" ? r.ownerGroup : r.group;
+      if (g) set.add(g);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [rows, entity]);
+
+  const extraOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows as any[]) {
+      if (entity === "contact") {
+        const base = (r.title ?? "").split("—")[0].trim();
+        if (base) set.add(base);
+      } else if (entity === "vessel") {
+        if (r.vesselType) set.add(r.vesselType);
+      } else if (entity === "customer") {
+        if (r.tier) set.add(r.tier);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [rows, entity]);
+
+  const extraLabel =
+    entity === "contact" ? "All positions" : entity === "vessel" ? "All types" : entity === "customer" ? "All tiers" : "";
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (rows as any[]).filter(r => {
+      const g = entity === "vessel" ? r.ownerGroup : r.group;
+      if (groupFilter !== "all" && g !== groupFilter) return false;
+      if (extraFilter !== "all") {
+        if (entity === "contact" && !(r.title ?? "").toLowerCase().startsWith(extraFilter.toLowerCase())) return false;
+        if (entity === "vessel" && r.vesselType !== extraFilter) return false;
+        if (entity === "customer" && r.tier !== extraFilter) return false;
+      }
+      if (!q) return true;
+      // Search every visible column, including custom fields.
+      return columns.some(c => {
+        const v = c.value(r);
+        return v !== null && v !== undefined && String(v).toLowerCase().includes(q);
+      });
+    });
+  }, [rows, search, groupFilter, extraFilter, entity, columns]);
+
+  const currentConfig: ViewConfig = { search, group: groupFilter, extra: extraFilter, sort, hidden, order };
+
+  const applyView = (viewId: number, config: unknown) => {
+    const c = (config ?? {}) as ViewConfig;
+    setActiveViewId(viewId);
+    setSearch(c.search ?? "");
+    setGroupFilter(c.group ?? "all");
+    setExtraFilter(c.extra ?? "all");
+    setSort(c.sort ?? { key: null, dir: "asc" });
+    if (c.hidden || c.order) applyLayout({ hidden: c.hidden ?? [], order: c.order ?? [] });
+  };
+
+  const switchTab = (next: Entity) => {
+    setEntity(next);
+    setSearch("");
+    setGroupFilter("all");
+    setExtraFilter("all");
+    setSort({ key: null, dir: "asc" });
+    setActiveViewId(null);
+  };
+
+  const tabCount = (t: Entity) => counts?.[t];
+
+  return (
+    <div className="p-2 sm:p-4 space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <BookUser className="h-6 w-6" /> Address Book
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Groups, companies, vessels and contacts in one directory — with your own fields, saved lists and exports
+          </p>
+        </div>
+        {entity === "contact" && (
+          <Button
+            className="gap-2"
+            onClick={() => {
+              setEditingContact(null);
+              setContactFormOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4" /> New Contact
+          </Button>
+        )}
+      </div>
+
+      <Tabs value={entity} onValueChange={v => switchTab(v as Entity)}>
+        <TabsList>
+          {TABS.map(t => {
+            const Icon = t.icon;
+            const n = tabCount(t.value);
+            return (
+              <TabsTrigger key={t.value} value={t.value} className="gap-1.5">
+                <Icon className="h-4 w-4" /> {t.label}
+                {n != null && <span className="text-xs text-muted-foreground">{n.toLocaleString()}</span>}
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
+      </Tabs>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-80">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            className="pl-9 pr-8"
+            placeholder="Search this list…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          {search && (
+            <button
+              className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+              onClick={() => setSearch("")}
+              title="Clear"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <Select value={groupFilter} onValueChange={setGroupFilter}>
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="All groups" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            <SelectItem value="all">All groups ({groupOptions.length})</SelectItem>
+            {groupOptions.map(g => (
+              <SelectItem key={g} value={g}>
+                {g}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {extraLabel && (
+          <Select value={extraFilter} onValueChange={setExtraFilter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder={extraLabel} />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              <SelectItem value="all">{extraLabel}</SelectItem>
+              {extraOptions.map(o => (
+                <SelectItem key={o} value={o}>
+                  {o}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <CustomFieldsManager entity={entity} />
+          <ColumnPicker allColumns={allColumns} hidden={hidden} order={order} onChange={applyLayout} />
+          <ExportMenu
+            title={`Address Book — ${TABS.find(t => t.value === entity)?.label ?? ""}`}
+            columns={columns}
+            rows={filtered}
+          />
+        </div>
+      </div>
+
+      <SavedViewsBar
+        entity={entity}
+        activeViewId={activeViewId}
+        currentConfig={currentConfig}
+        onApply={applyView}
+      />
+
+      <AddressBookTable
+        listKey={listKey}
+        columns={columns}
+        rows={filtered}
+        isLoading={isLoading}
+        sort={sort}
+        onSortChange={setSort}
+        emptyMessage={
+          search || groupFilter !== "all" || extraFilter !== "all"
+            ? "No records match your filters"
+            : "Nothing here yet"
+        }
+        onRowClick={r => {
+          const any = r as any;
+          openRecord({
+            entity,
+            recordKey: any.recordKey,
+            title: entity === "group" ? any.group : any.name,
+            subtitle:
+              entity === "group"
+                ? `${any.companies} companies · ${any.vessels} vessels · ${any.contacts} contacts`
+                : entity === "customer"
+                  ? any.group
+                  : entity === "vessel"
+                    ? any.ownerGroup
+                    : any.companyName,
+          });
+        }}
+      />
+
+      <AddressBookRecordDialog target={target} open={dialogOpen} onOpenChange={setDialogOpen} />
+
+      {contactFormOpen && (
+        <ContactFormDialog
+          key={editingContact?.id ?? "new"}
+          open={contactFormOpen}
+          onOpenChange={setContactFormOpen}
+          contact={editingContact}
+          onSaved={() => {
+            utils.addressBook.contacts.invalidate();
+            utils.addressBook.counts.invalidate();
+          }}
+        />
+      )}
+    </div>
+  );
+}

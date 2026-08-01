@@ -1337,3 +1337,27 @@
 ## Naming: Groups List (user request 1/8)
 - [x] Sidebar menu entry renamed from "Group List" to "Groups List" (page title and back links on both cards follow the same wording)
 - [x] Fixed a test that broke on the 1st of a new month: the forecast test now samples the latest month with entries and cleans up any row it creates
+
+## Address Book (replaces Contacts) — user request 1/8
+- [x] Design proposal written (docs/address-book-proposal.md) and sent for approval
+- [x] Approved: the collections screen stays separate from the Address Book
+- [x] Rename the "Groups List" menu entry to "Collections Desk" (page title and back links follow)
+- [x] Final name chosen by user: "Collections Desk"
+- [x] Schema: custom_field_defs, custom_field_values, saved_views, list_layouts (migration 0039 applied)
+- [x] addressBook tRPC router: entity lists, cross-entity search, fields, values, views, layouts, export
+- [x] Address Book page with 4 entity tabs (Groups, Customers, Vessels, Contacts) replacing the Contacts menu entry
+- [x] Cross-entity search returning grouped results across all four types
+- [x] Sticky header + resizable columns on all four lists (same behaviour as the transactions list)
+- [x] Column visibility and order per user, per tab (persisted in list_layouts)
+- [x] Record cards with relationship blocks (group -> companies -> vessels -> contacts), each row clickable
+- [x] Editing of user-owned fields (contacts); ERP-owned fields marked read-only in the field picker
+- [x] Custom field definitions per entity type (text, number, date, select, checkbox, email, phone, url)
+- [x] Custom field values shown on cards, available as columns and included in exports
+- [x] Filters (group + tab-specific) and saved views, personal or shared with the team
+- [x] Export the current view to Excel / PDF / CSV via the existing buildExcel / buildPdf helpers
+- [x] Vitest coverage for the Address Book router and the UI contract (15 tests)
+- [ ] Custom fields usable as list filters (currently searchable and sortable only)
+- [ ] Field visibility settings for record cards
+- [ ] Data quality panel: duplicate emails, invalid emails, contacts without group, vessels without IMO/owner
+- [ ] Merge duplicates with per-field value choice; archive instead of delete
+- [ ] Excel import with column mapping and a create/update preview

@@ -47,8 +47,8 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-  { icon: Users, label: "Groups List", path: "/customers" },
-  { icon: Contact, label: "Contacts", path: "/contacts" },
+  { icon: Users, label: "Collections Desk", path: "/customers" },
+  { icon: Contact, label: "Address Book", path: "/address-book" },
   { icon: FileText, label: "Invoices", path: "/invoices" },
   { icon: Ship, label: "Vessels", path: "/vessels" },
   { icon: ScrollText, label: "Contracts", path: "/contracts" },

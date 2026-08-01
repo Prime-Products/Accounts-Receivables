@@ -15,7 +15,7 @@ const CustomerDetail = lazy(() => import("@/pages/CustomerDetail"));
 const GroupDetail = lazy(() => import("@/pages/GroupDetail"));
 const Invoices = lazy(() => import("./pages/Invoices"));
 const Contracts = lazy(() => import("./pages/Contracts"));
-const Contacts = lazy(() => import("./pages/Contacts"));
+const AddressBook = lazy(() => import("./pages/AddressBook"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Reports = lazy(() => import("./pages/Reports"));
 const Settings = lazy(() => import("./pages/Settings"));
@@ -45,7 +45,9 @@ function Router() {
           <Route path={"/vessels"} component={Vessels} />
           <Route path={"/vessels/:id"} component={VesselDetail} />
           <Route path={"/contracts"} component={Contracts} />
-          <Route path={"/contacts"} component={Contacts} />
+          <Route path={"/address-book"} component={AddressBook} />
+          {/* Legacy path kept so old links and bookmarks still land somewhere useful. */}
+          <Route path={"/contacts"} component={AddressBook} />
           <Route path={"/tasks"} component={Tasks} />
           <Route path={"/wire-transfers"} component={WireTransfersPage} />
           {/* Forecast page removed — everything happens on Customers now */}
