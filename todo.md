@@ -1779,5 +1779,5 @@ master record. Same company, two screens. Unify them.
 - [x] "AI summary" button in the Communication floating window (and mobile sheet), rendering the recap inside the window — collapsible, refreshable, dismissible
 - [x] Greek output: one lead line for the period, 2-4 bullets, closing `**Επόμενο βήμα:**` with a concrete action for the current month
 - [x] Vitest coverage: `server/communicationAiSummary.test.ts` (panel wiring, window filtering, empty-window short circuit, audit)
-- [ ] Same button available on the company card's Communication window
-- [ ] Tests: the procedure only reads the last 30 days and answers gracefully when nothing happened
+- [x] Same button available on the company card's Communication window (Customer 360 passes its group to the window)
+- [x] Tests: the procedure only reads the last 30 days and answers gracefully when nothing happened (no LLM call, fixed Greek line)
