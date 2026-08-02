@@ -1730,3 +1730,13 @@ master record. Same company, two screens. Unify them.
 - [x] Remove AI Summary: button + dialog on both cards, groupAiSummary procedure, its test file
 - [x] Fix "Never contacted" shown while a Promise to Pay exists: callSummaryByGroup now counts every logged call (a call whose outcome is a confirmed promise is stored as activityType "promise")
 - [x] Move the invoice status filter from the group-card scope filters into the Transactions toolbar (it filters invoices, not the card)
+## Credit notes visibility (requested 2/8)
+- [x] Credit notes and Payments buttons are ALWAYS rendered in the Transactions toolbar on the group card, even with zero rows (disabled, count 0)
+- [x] Same on the company card — button never disappears
+- [x] Turning on Credit notes / Payments clears the invoice-only filters instead of returning an empty list
+- [x] The buttons show how many rows are currently hidden by other filters and clicking them reveals them
+- [x] Invoices page: a Credit notes filter listing every open credit note across all groups, with its own total
+- [x] Tests: toolbar buttons render with zero counts; the Invoices credit-note list returns open credit notes group-wide
+## Send Email recipients (requested 2/8)
+- [x] Send Email opens with a searchable recipient list instead of a flat list of every contact (search matches name, email, title, company; list is scroll-bounded)
+- [ ] Selected recipients shown as removable chips (multi-recipient send still pending — one recipient at a time today)

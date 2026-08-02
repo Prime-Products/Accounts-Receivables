@@ -120,16 +120,37 @@ export default function CustomerDetail() {
   // Credit notes are part of the same list; the installment/status filters apply
   // to invoices only, so they are hidden while those filters are narrowing down.
   const allCreditNotes = ((data as any).openCreditNotes ?? []) as any[];
+  /** A filter that only invoices can satisfy (status, installments) is narrowing the list. */
+  const invoiceOnlyFilterActive = installmentFilter === "installments" || statusFilter !== "all";
   const visibleCreditNotes =
-    paymentsOnly || installmentFilter === "installments" || (statusFilter !== "all" && !creditOnly)
-      ? []
-      : allCreditNotes;
+    paymentsOnly || (invoiceOnlyFilterActive && !creditOnly) ? [] : allCreditNotes;
   // Payments (wire transfers with an unallocated remainder) live in the same list.
   const allTransfers = ((data as any).openTransfers ?? []) as any[];
   const visibleTransfers =
-    creditOnly || installmentFilter === "installments" || (statusFilter !== "all" && !paymentsOnly)
-      ? []
-      : allTransfers;
+    creditOnly || (invoiceOnlyFilterActive && !paymentsOnly) ? [] : allTransfers;
+
+  /**
+   * Turning on a credit-notes-only or payments-only view drops the invoice-only
+   * filters, so the toggle always reveals the rows instead of an empty table.
+   */
+  const clearInvoiceOnlyFilters = () => {
+    setStatusFilter("all");
+    setInstallmentFilter("all");
+  };
+  const toggleCreditOnly = () => {
+    setPaymentsOnly(false);
+    setCreditOnly(v => {
+      if (!v) clearInvoiceOnlyFilters();
+      return !v;
+    });
+  };
+  const togglePaymentsOnly = () => {
+    setCreditOnly(false);
+    setPaymentsOnly(v => {
+      if (!v) clearInvoiceOnlyFilters();
+      return !v;
+    });
+  };
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -457,30 +478,51 @@ export default function CustomerDetail() {
                 )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-              {allTransfers.length > 0 && (
-                <Button
-                  size="sm"
-                  variant={paymentsOnly ? "secondary" : "ghost"}
-                  className={`h-8 px-2.5 text-xs gap-1.5 border ${paymentsOnly ? "border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : ""}`}
-                  onClick={() => { setPaymentsOnly(v => !v); setCreditOnly(false); }}
-                  title={paymentsOnly ? "Show invoices again" : "Show only payments on account"}
-                >
-                  <Banknote className="h-3.5 w-3.5" />
-                  Payments ({allTransfers.length})
-                </Button>
-              )}
-              {allCreditNotes.length > 0 && (
-                <Button
-                  size="sm"
-                  variant={creditOnly ? "secondary" : "ghost"}
-                  className={`h-8 px-2.5 text-xs gap-1.5 border ${creditOnly ? "border-sky-300 bg-sky-100 text-sky-800 hover:bg-sky-100" : ""}`}
-                  onClick={() => { setCreditOnly(v => !v); setPaymentsOnly(false); }}
-                  title={creditOnly ? "Show invoices again" : "Show only credit notes"}
-                >
-                  <FileMinus2 className="h-3.5 w-3.5" />
-                  Credit notes ({allCreditNotes.length})
-                </Button>
-              )}
+              {/* Always present, like on the group card: disabled at zero, never removed. */}
+              <Button
+                size="sm"
+                variant={paymentsOnly ? "secondary" : "ghost"}
+                disabled={allTransfers.length === 0}
+                className={`h-8 px-2.5 text-xs gap-1.5 border ${paymentsOnly ? "border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : ""}`}
+                onClick={togglePaymentsOnly}
+                title={
+                  allTransfers.length === 0
+                    ? "No payments on account for this company"
+                    : paymentsOnly
+                      ? "Show invoices again"
+                      : visibleTransfers.length === 0
+                        ? "Payments are hidden by the current filters — click to show them"
+                        : "Show only payments on account"
+                }
+              >
+                <Banknote className="h-3.5 w-3.5" />
+                Payments ({allTransfers.length})
+                {allTransfers.length > 0 && !paymentsOnly && visibleTransfers.length === 0 && (
+                  <span className="text-[10px] text-muted-foreground">hidden</span>
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant={creditOnly ? "secondary" : "ghost"}
+                disabled={allCreditNotes.length === 0}
+                className={`h-8 px-2.5 text-xs gap-1.5 border ${creditOnly ? "border-sky-300 bg-sky-100 text-sky-800 hover:bg-sky-100" : ""}`}
+                onClick={toggleCreditOnly}
+                title={
+                  allCreditNotes.length === 0
+                    ? "No open credit notes for this company"
+                    : creditOnly
+                      ? "Show invoices again"
+                      : visibleCreditNotes.length === 0
+                        ? "Credit notes are hidden by the current filters — click to show them"
+                        : "Show only credit notes"
+                }
+              >
+                <FileMinus2 className="h-3.5 w-3.5" />
+                Credit notes ({allCreditNotes.length})
+                {allCreditNotes.length > 0 && !creditOnly && visibleCreditNotes.length === 0 && (
+                  <span className="text-[10px] text-muted-foreground">hidden</span>
+                )}
+              </Button>
               <Button
                 size="sm"
                 variant={showPaid ? "secondary" : "ghost"}
