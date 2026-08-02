@@ -199,7 +199,9 @@ async function createGroupPromise(
     customerId: cust.id,
     activityType: "promise",
     title: amt > 0 ? `Promise-to-Pay: ${amtLabel} by ${dateStr}` : `Promise-to-Pay by ${dateStr}`,
-    description: `${cust.name} — confirmed by phone${input.notes ? ` — ${input.notes}` : ""}`,
+    // The commitment is the group's; the company is only who happened to be on the
+    // phone, so it is phrased as the contact, never as the owner of the promise.
+    description: `${groupKey} — confirmed by phone via ${cust.name}${input.notes ? ` — ${input.notes}` : ""}`,
     createdBy: ctx.user.id,
     createdAt: new Date(),
   }).catch(() => {});
@@ -207,7 +209,7 @@ async function createGroupPromise(
     customerId: cust.id,
     type: "Manual",
     title: amt > 0 ? `Promise to Pay — ${amtLabel}` : `Promise to Pay — ${groupKey}`,
-    description: `Verify that ${cust.name} paid ${amt > 0 ? `the promised amount of ${amtLabel}` : "the promised payment"} due ${dateStr}.${input.contactName ? ` Contact: ${input.contactName}.` : ""}${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
+    description: `Verify that ${groupKey} paid ${amt > 0 ? `the promised amount of ${amtLabel}` : "the promised payment"} due ${dateStr}. Confirmed via ${cust.name}.${input.contactName ? ` Contact: ${input.contactName}.` : ""}${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
     dueDate: input.promisedDate,
     status: "Pending",
     assignedTo: ctx.user.id,
@@ -279,7 +281,7 @@ async function createPromiseRecord(
       customerId: cust.id,
       activityType: "promise",
       title: amt > 0 ? `Promise-to-Pay: ${amtLabel} by ${dateStr}` : `Promise-to-Pay by ${dateStr}`,
-      description: `${cust.name} — confirmed by phone${input.contactName ? ` (${input.contactName})` : ""}${input.notes ? ` — ${input.notes}` : ""}`,
+      description: `${groupKey} — confirmed by phone via ${cust.name}${input.contactName ? ` (${input.contactName})` : ""}${input.notes ? ` — ${input.notes}` : ""}`,
       createdBy: ctx.user.id,
       createdAt: new Date(),
     }).catch(() => {});
@@ -520,7 +522,7 @@ async function rescheduleGroupPromise(
     customerId: promise.customerId,
     activityType: "promise",
     title: `Payment rescheduled: ${rLabel} — ${oldDateStr} → ${newDateStr} (${attemptOrdinal} attempt)`,
-    description: `${cust?.name ?? "—"} moved the promised payment${input.notes ? ` — ${input.notes}` : ""}`,
+    description: `${input.group}'s open promise moved to ${newDateStr}${cust?.name ? ` — agreed via ${cust.name}` : ""}${input.notes ? ` — ${input.notes}` : ""}`,
     createdBy: ctx.user.id,
     createdAt: new Date(),
   }).catch(() => {});
@@ -531,7 +533,7 @@ async function rescheduleGroupPromise(
   if (linked) {
     await db.updateTask(linked.id, {
       title: effAmount > 0 ? `Promise to Pay — ${rLabel}` : `Promise to Pay — ${input.group}`,
-      description: `Verify that ${cust?.name ?? "the customer"} paid ${effAmount > 0 ? `the promised amount of ${rLabel}` : "the promised payment"} due ${newDateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`,
+      description: `Verify that ${input.group} paid ${effAmount > 0 ? `the promised amount of ${rLabel}` : "the promised payment"} due ${newDateStr}.${cust?.name ? ` Agreed via ${cust.name}.` : ""}${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`,
       dueDate: input.promisedDate,
     });
     if (input.assigneeId != null) {
@@ -4061,7 +4063,7 @@ export const forecastRouter = router({
           customerId: input.customerId,
           activityType: "promise",
           title: `Promise-to-Pay: ${amtLabel} by ${dateStr}`,
-          description: `${cust.name}${input.notes ? ` — ${input.notes}` : ""}`,
+          description: `${groupKey} — via ${cust.name}${input.notes ? ` — ${input.notes}` : ""}`,
           createdBy: ctx.user.id,
           createdAt: new Date(),
         }).catch(() => {});
@@ -4070,7 +4072,7 @@ export const forecastRouter = router({
           customerId: input.customerId,
           type: "Manual",
           title: amt > 0 ? `Promise to Pay — ${amtLabel}` : `Promise to Pay — ${groupKey}`,
-          description: `Verify that ${cust.name} paid ${amt > 0 ? `the promised amount of ${amtLabel}` : "the promised payment"} due ${dateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
+          description: `Verify that ${groupKey} paid ${amt > 0 ? `the promised amount of ${amtLabel}` : "the promised payment"} due ${dateStr}. Agreed via ${cust.name}.${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
           dueDate: input.promisedDate,
           invoiceId: input.invoiceId,
           status: "Pending",

@@ -1802,11 +1802,11 @@ master record. Same company, two screens. Unify them.
 Rule confirmed by Kostas: a promise (and its check task) belongs to the GROUP. Companies never
 carry their own promise or task. The REEDEREI NORD confusion came from the Log Call banner naming
 a member company, which read as "this company's promise" when it is the group's single commitment.
-- [ ] Log Call banner: drop the member-company name, say the promise belongs to the group
-- [ ] Make the reschedule wording explicit ("the group's open promise moves to the new date")
-- [ ] Promise rows created from Log Call must not be attributed to a single company in the UI
-- [ ] Verify no company-level promise/task can be created from any entry point
-- [ ] Tests for the group-level wording and attribution
+- [x] Log Call banner: drop the member-company name, say the promise belongs to the group
+- [x] Make the reschedule wording explicit ("the group's open promise moves to the new date")
+- [x] Promise rows created from Log Call must not be attributed to a single company in the UI
+- [x] Company-card promise routes through the group commitment (nothing removed from either card)
+- [x] Tests for the group-level wording and attribution
 
 ## Company-card actions record against the group (decided 3/8, corrected)
 Kostas: nothing is to be removed from either card — whether a call/promise is logged from a company

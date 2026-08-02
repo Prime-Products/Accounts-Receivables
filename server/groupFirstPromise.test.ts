@@ -48,4 +48,17 @@ describe("promises are group-level wherever they are recorded", () => {
     // The old wording named the member company and read as that company's promise.
     expect(logCall).not.toContain("Moving the open promise of");
   });
+
+  it("attributes promise activity and check tasks to the group, company as contact only", () => {
+    // Timeline line and the auto check task both lead with the group name.
+    expect(router).toContain("— confirmed by phone via ${cust.name}");
+    expect(router).toContain("Verify that ${groupKey} paid");
+    // The old text started with the member company, reading as its own promise.
+    expect(router).not.toContain("Verify that ${cust.name} paid ${amt > 0");
+  });
+
+  it("says explicitly that the group's promise moved when rescheduling", () => {
+    expect(router).toContain("'s open promise moved to ${newDateStr}");
+    expect(router).toContain("Verify that ${input.group} paid");
+  });
 });
