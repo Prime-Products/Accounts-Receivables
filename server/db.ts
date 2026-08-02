@@ -885,6 +885,12 @@ export async function listActivityLogWithAuthors(groupName: string, limit = 200)
  * whom, and how many calls were logged. Used by the Collections Desk so contact
  * activity is visible without opening each card. `No Answer` attempts are counted
  * separately, because a run of unanswered calls is itself the signal.
+ *
+ * A logged call is stored with the activity type of its *outcome* — a call that ends
+ * in a confirmed promise is written as `promise`, not `call`. Filtering on the type
+ * alone therefore lost real calls and the card claimed "Never contacted" while the
+ * same call had just set a Promise to Pay. The call log is identified by its title
+ * prefix instead, which every logCall entry carries.
  */
 export async function callSummaryByGroup() {
   const db = await requireDb();
@@ -897,7 +903,7 @@ export async function callSummaryByGroup() {
       createdBy: activityLog.createdBy,
     })
     .from(activityLog)
-    .where(eq(activityLog.activityType, "call"))
+    .where(or(eq(activityLog.activityType, "call"), like(activityLog.title, "Call %")))
     .orderBy(desc(activityLog.createdAt));
   const out = new Map<
     string,
