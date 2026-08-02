@@ -1773,3 +1773,11 @@ master record. Same company, two screens. Unify them.
 - [x] Group/company card: add removable Watchers (team members following the receivables card), stored per group
 - [x] Installments toggle: show the installment count and go disabled at zero, matching the Payments / Credit notes buttons on group, company and Invoices pages
 - [x] Log Call: contact person picker is a searchable combobox (visible typed text, matches name/title/email, keeps Other and Add new)
+
+## AI summary on the Communication window (requested 3/8)
+- [x] `customers.communicationSummary` procedure: last 30 days of group activity (calls, promises, emails, notes, tasks, payments) + open exposure + collection status → short Greek LLM recap ending with one next step; skips the LLM when the window is empty
+- [x] "AI summary" button in the Communication floating window (and mobile sheet), rendering the recap inside the window — collapsible, refreshable, dismissible
+- [x] Greek output: one lead line for the period, 2-4 bullets, closing `**Επόμενο βήμα:**` with a concrete action for the current month
+- [x] Vitest coverage: `server/communicationAiSummary.test.ts` (panel wiring, window filtering, empty-window short circuit, audit)
+- [ ] Same button available on the company card's Communication window
+- [ ] Tests: the procedure only reads the last 30 days and answers gracefully when nothing happened

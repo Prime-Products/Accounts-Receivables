@@ -717,6 +717,7 @@ export default function CustomerDetail() {
         onClose={commPanel.toggle}
         entries={timelineEntries}
         isLoading={isLoading || historyLoading}
+        group={groupKey || undefined}
         title={groupKey && groupKey !== customer.name ? `Communication — ${groupKey}` : "Communication"}
       />
       </div>

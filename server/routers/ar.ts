@@ -11,7 +11,7 @@ import {
   taskTypes,
 } from "../../drizzle/schema";
 import { matchScore, matchesAllTokens } from "../../shared/textMatch";
-import { parseMentions } from "../../shared/mentions";
+import { parseMentions, stripMentionMarkup } from "../../shared/mentions";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveGroupStatus, normalizeStoredStatus } from "../lib/statusWorkflow";
@@ -1571,6 +1571,209 @@ export const customersRouter = router({
     const names = new Map(users.map(u => [u.id, u.name ?? "—"]));
     return notes.map(n => ({ ...n, authorName: names.get(n.createdBy) ?? "—" }));
   }),
+  /**
+   * Short AI recap of the LAST 30 DAYS of communication for a group.
+   *
+   * Deliberately narrow: the collector opens the Communication window to answer
+   * "what happened here recently and what do I do next?", not to read a full
+   * account analysis. So the model only receives the recent activity (calls,
+   * promises, emails, notes, tasks, money received) plus the exposure needed to
+   * judge urgency, and must answer in a few short Greek lines ending with one
+   * concrete next step.
+   */
+  communicationSummary: protectedProcedure
+    .input(z.object({ group: z.string().min(1), days: z.number().int().min(7).max(120).default(30) }))
+    .mutation(async ({ ctx, input }) => {
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+      if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+      const memberIds = new Set(members.map(m => m.id));
+      const names = new Map(members.map(m => [m.id, m.name]));
+      const now = Date.now();
+      const cutoff = now - input.days * 24 * 60 * 60 * 1000;
+      const day = (v: Date | number | null | undefined): string | null => {
+        if (v == null) return null;
+        const t = v instanceof Date ? v.getTime() : v;
+        return Number.isFinite(t) && t > 0 ? new Date(t).toISOString().slice(0, 10) : null;
+      };
+      const inWindow = (v: Date | number | null | undefined): boolean => {
+        if (v == null) return false;
+        const t = v instanceof Date ? v.getTime() : v;
+        return Number.isFinite(t) && t >= cutoff && t <= now;
+      };
+
+      const [activity, notes, allTasks, allPromises, allReceipts, allInvoices, confirmation, profile] = await Promise.all([
+        db.listActivityLogWithAuthors(input.group, 300).catch(() => []),
+        db.listGroupNotes(input.group).catch(() => []),
+        db.listTasks({}).catch(() => []),
+        db.listPromises().catch(() => []),
+        db.listReceipts().catch(() => []),
+        db.listInvoices(),
+        db.getGroupConfirmationStatus(input.group).catch(() => null),
+        db.getGroupCollectionProfile(input.group).catch(() => null),
+      ]);
+      const emails = (
+        await Promise.all(Array.from(memberIds).map(id => db.listEmailHistory(id, 100).catch(() => [])))
+      ).flat();
+      const wires = await db.listReceivedWireTransfersInRange(cutoff, now + 1).catch(() => []);
+
+      // --- What happened inside the window ---------------------------------
+      const recentActivity = activity
+        .filter(a => inWindow(a.createdAt))
+        .slice(0, 40)
+        .map(a => ({
+          date: day(a.createdAt),
+          type: a.activityType,
+          title: a.title,
+          detail: stripMentionMarkup(a.description ?? "").slice(0, 220) || null,
+          by: a.authorName ?? null,
+        }));
+      const recentNotes = notes
+        .filter(n => inWindow(n.createdAt))
+        .slice(0, 15)
+        .map(n => ({ date: day(n.createdAt), content: stripMentionMarkup(n.content).slice(0, 220) }));
+      const recentEmails = emails
+        .filter(e => inWindow(e.sentAt ?? e.createdAt))
+        .slice(0, 20)
+        .map(e => ({
+          date: day(e.sentAt ?? e.createdAt),
+          company: names.get(e.customerId) ?? null,
+          subject: e.subject,
+          status: e.status,
+        }));
+      const groupTasks = allTasks.filter(t => memberIds.has(t.customerId) || taskGroup(t) === input.group);
+      const recentTasks = groupTasks
+        .filter(t => inWindow(t.createdAt) || inWindow(t.dueDate) || t.status === "Pending" || t.status === "In Progress")
+        .slice(0, 25)
+        .map(t => ({
+          company: names.get(t.customerId) ?? null,
+          type: t.type,
+          title: t.title,
+          dueDate: day(t.dueDate),
+          status: t.status,
+          overdue: (t.status === "Pending" || t.status === "In Progress") && !!t.dueDate && t.dueDate < now,
+        }));
+      const groupPromises = allPromises.filter(p => memberIds.has(p.customerId));
+      const recentPromises = groupPromises
+        .filter(p => inWindow(p.createdAt) || inWindow(p.promisedDate) || p.status === "Pending")
+        .slice(0, 15)
+        .map(p => ({
+          company: names.get(p.customerId) ?? null,
+          amountEur: eur(Number(p.amount)),
+          promisedDate: day(p.promisedDate),
+          status: p.status,
+          notes: (p.notes ?? "").slice(0, 160) || null,
+        }));
+      const windowReceipts = allReceipts.filter(r => memberIds.has(r.customerId) && inWindow(r.receiptDate));
+      const windowWires = wires.filter(w => memberIds.has(w.customerId));
+      const receivedInWindow =
+        windowReceipts.reduce((s, r) => s + Number(r.amount), 0) + windowWires.reduce((s, w) => s + Number(w.amount), 0);
+      const payments = [
+        ...windowReceipts.map(r => ({ date: day(r.receiptDate), company: names.get(r.customerId) ?? null, amountEur: eur(Number(r.amount)) })),
+        ...windowWires.map(w => ({
+          date: day(w.receivedDate ?? w.transferDate),
+          company: names.get(w.customerId) ?? null,
+          amountEur: eur(Number(w.amount)),
+        })),
+      ].slice(0, 20);
+
+      const entryCount =
+        recentActivity.length + recentNotes.length + recentEmails.length + payments.length;
+
+      // --- Exposure & month pace, so "what next" can be prioritised ---------
+      const invs = allInvoices.filter(i => memberIds.has(i.customerId));
+      const open = invs.filter(isOpenInvoice);
+      const overdueInvs = open.filter(i => now > i.dueDate);
+      const eomTs = endOfCurrentMonth();
+      const overdueEom = open.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
+      const today = new Date();
+      const curYear = today.getUTCFullYear();
+      const curMonth = today.getUTCMonth() + 1;
+      const { start: mStart, end: mEnd } = monthRange(curYear, curMonth);
+      const [forecastRows, monthReceipts, monthWires] = await Promise.all([
+        db.listForecastEntries(curYear, curMonth).catch(() => []),
+        db.listReceiptsInRange(mStart, mEnd).catch(() => []),
+        db.listReceivedWireTransfersInRange(mStart, mEnd).catch(() => []),
+      ]);
+      const forecastExpected = forecastRows
+        .filter(f => (f.customerGroup ?? "").trim() === input.group)
+        .reduce((s, f) => s + Number(f.expectedAmount), 0);
+      const collectedThisMonth =
+        monthReceipts.filter(r => memberIds.has(r.customerId)).reduce((s, r) => s + Number(r.amount), 0) +
+        monthWires.filter(w => memberIds.has(w.customerId)).reduce((s, w) => s + Number(w.amount), 0);
+      const conf = effectiveConfirmation(confirmation);
+      const biggestOverdue = [...overdueInvs]
+        .sort((a, b) => outstanding(b) - outstanding(a))
+        .slice(0, 3)
+        .map(i => ({
+          invoice: i.invoiceNumber,
+          company: names.get(i.customerId) ?? null,
+          outstandingEur: eur(outstanding(i)),
+          daysOverdue: daysOverdue(i.dueDate, now),
+        }));
+
+      // Nothing to summarise: answer instantly instead of paying for an LLM call
+      // that would only produce a paraphrase of "no activity".
+      if (entryCount === 0 && recentPromises.length === 0 && recentTasks.length === 0) {
+        return {
+          summary: `Καμία καταγεγραμμένη επικοινωνία τις τελευταίες ${input.days} ημέρες.\n\n**Επόμενο βήμα:** τηλεφώνησε και κατέγραψε την κλήση, ώστε να αρχίσει το ιστορικό του λογαριασμού.`,
+          generatedAt: Date.now(),
+          entryCount: 0,
+          days: input.days,
+          hadActivity: false,
+        };
+      }
+
+      const facts = {
+        windowDays: input.days,
+        today: day(now),
+        companies: members.length,
+        openBalanceEur: eur(open.reduce((s, i) => s + outstanding(i), 0)),
+        overdueEur: eur(overdueInvs.reduce((s, i) => s + outstanding(i), 0)),
+        overdueInvoices: overdueInvs.length,
+        overdueEndOfMonthEur: eur(overdueEom),
+        collectionStatus: confirmationStatusLabel(conf.status),
+        committedAmountEur: conf.amount ? eur(conf.amount) : null,
+        monthlyForecastEur: eur(forecastExpected),
+        collectedThisMonthEur: eur(collectedThisMonth),
+        remainingToCollectThisMonthEur: eur(Math.max(0, forecastExpected - collectedThisMonth)),
+        receivedInWindowEur: eur(receivedInWindow),
+        biggestOverdueInvoices: biggestOverdue,
+        recentActivity,
+        recentNotes,
+        recentEmails,
+        openOrRecentTasks: recentTasks,
+        promises: recentPromises,
+        paymentsReceived: payments,
+        collectionNotes: profile?.notes ? profile.notes.slice(0, 600) : null,
+      };
+
+      const response = await invokeLLM({
+        model: "gemini-2.5-flash",
+        messages: [
+          {
+            role: "system",
+            content:
+              `Είσαι έμπειρος credit controller. Ο χρήστης άνοιξε το παράθυρο επικοινωνίας ενός πελάτη και θέλει να καταλάβει σε 10 δευτερόλεπτα ΤΙ ΕΓΙΝΕ τις τελευταίες ${input.days} ημέρες και ΤΙ ΠΡΕΠΕΙ ΝΑ ΚΑΝΕΙ. Γράψε στα ΕΛΛΗΝΙΚΑ, μέγιστο ~80 λέξεις, με αυτή τη δομή:\n` +
+              `Γραμμή 1: **Τελευταίες ${input.days} ημέρες:** μία πρόταση με το ουσιαστικό γεγονός (π.χ. πόσες κλήσεις/emails, τι δεσμεύτηκε ο πελάτης, τι εισπράχθηκε).\n` +
+              `Μετά 2-4 bullets (με «- ») μόνο για ό,τι έχει σημασία: δεσμεύσεις και αν τηρήθηκαν, εισπράξεις μέσα στο διάστημα, ανοιχτά/εκπρόθεσμα tasks, και το πού συγκεντρώνεται το ληξιπρόθεσμο (τιμολόγιο + ποσό) αν είναι κρίσιμο.\n` +
+              `Τελευταία γραμμή: **Επόμενο βήμα:** μία συγκεκριμένη ενέργεια για τον τρέχοντα μήνα, ώστε να βγει το forecast ή να κλείσει το ληξιπρόθεσμο (ποιον καλώ, για ποιο ποσό, μέχρι πότε).\n` +
+              `Κανόνες: μόνο ό,τι στηρίζεται στα δεδομένα — αν κάτι λείπει, το παραλείπεις σιωπηλά (μη γράφεις «δεν υπάρχουν στοιχεία»). Χωρίς ωμά στατιστικά, χωρίς διάμεσους, χωρίς επανάληψη του ονόματος του πελάτη (φαίνεται στην καρτέλα). Ποσά σε ευρώ με διαχωριστικό χιλιάδων (€156,999). Αν υπάρχει πεδίο collectionNotes (ιδιαιτερότητες, π.χ. πότε τηλεφωνούμε), λάβε το υπόψη στο επόμενο βήμα χωρίς να το αντιγράφεις.`,
+          },
+          { role: "user", content: JSON.stringify(facts) },
+        ],
+      });
+      const raw = response.choices?.[0]?.message?.content;
+      const summary =
+        typeof raw === "string"
+          ? raw
+          : Array.isArray(raw)
+            ? raw.map((c: any) => (c?.type === "text" ? c.text : "")).join("")
+            : "";
+      if (!summary.trim()) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI summary unavailable, please try again" });
+      await audit(ctx, "Generate Communication Summary", "group", input.group, `last ${input.days} days`);
+      return { summary: summary.trim(), generatedAt: Date.now(), entryCount, days: input.days, hadActivity: true };
+    }),
   /** Per-group collection profile: call preferences & particularities, always visible on the group card. */
   getCollectionProfile: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
     const row = await db.getGroupCollectionProfile(input.group);

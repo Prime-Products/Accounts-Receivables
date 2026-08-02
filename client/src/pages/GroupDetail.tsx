@@ -1349,6 +1349,7 @@ export default function GroupDetail() {
         onClose={commPanel.toggle}
         entries={timelineEntries}
         isLoading={isLoading || activityLoading}
+        group={group}
         actions={
           data && data.companies.length > 0 ? (
             <TimelineLogCallButton
