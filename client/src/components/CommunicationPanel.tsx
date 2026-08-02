@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { CommunicationTimeline, type TimelineEntry } from "@/components/CommunicationTimeline";
+import { CommunicationAiSummary } from "@/components/CommunicationAiSummary";
 import { useIsMobile } from "@/hooks/useMobile";
 import { GripVertical, MessageSquare, X } from "lucide-react";
 
@@ -127,6 +128,11 @@ interface PanelProps {
   title?: string;
   /** Rendered in the window header, e.g. the "Log call" button. */
   actions?: React.ReactNode;
+  /**
+   * Collections group whose recent history the AI summary reads. When omitted the
+   * summary button is not offered (there is nothing to scope it to).
+   */
+  group?: string;
 }
 
 /**
@@ -139,7 +145,7 @@ interface PanelProps {
  * remembered. On phones there is no room to float, so the same content opens as
  * a slide-over sheet.
  */
-export function CommunicationPanel({ open, onClose, entries, isLoading, title = "Communication", actions }: PanelProps) {
+export function CommunicationPanel({ open, onClose, entries, isLoading, title = "Communication", actions, group }: PanelProps) {
   const isMobile = useIsMobile();
   const [geometry, setGeometry] = useState<Geometry>(defaultGeometry);
   const dragRef = useRef<{ mode: "move" | "resize"; startX: number; startY: number; base: Geometry } | null>(null);
@@ -207,6 +213,7 @@ export function CommunicationPanel({ open, onClose, entries, isLoading, title = 
               )}
             </SheetTitle>
           </SheetHeader>
+          {group && <CommunicationAiSummary group={group} />}
           <CommunicationTimeline
             entries={entries}
             isLoading={isLoading}
@@ -258,7 +265,16 @@ export function CommunicationPanel({ open, onClose, entries, isLoading, title = 
         <CommunicationTimeline
           entries={entries}
           isLoading={isLoading}
-          actions={actions}
+          actions={
+            group ? (
+              <>
+                {actions}
+                <CommunicationAiSummary group={group} />
+              </>
+            ) : (
+              actions
+            )
+          }
           embedded
           maxHeightClass="max-h-full"
         />
