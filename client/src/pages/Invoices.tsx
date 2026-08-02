@@ -159,6 +159,39 @@ export default function Invoices() {
    * How many filters are narrowing the list right now. Shown next to a Clear
    * button so a forgotten filter never silently hides invoices.
    */
+  /**
+   * Contract installments across all invoices, plus how many of them the other
+   * filters currently hide. The toggle uses this to show a count and to disable
+   * itself when there is nothing to switch to.
+   */
+  const installmentCounts = useMemo(() => {
+    const all = ((invoices ?? []) as any[]).filter(i => i.isContractInstallment);
+    if (all.length === 0) return { total: 0, hidden: 0 };
+    const shown = all.filter(i => {
+      if (!matchesStatusFilter(i, statusFilter)) return false;
+      if (branchFilter !== "all" && i.company !== branchFilter) return false;
+      if (vesselFilter === "none") {
+        if (i.vesselId != null) return false;
+      } else if (vesselFilter !== "all" && String(i.vesselId ?? "") !== vesselFilter) {
+        return false;
+      }
+      if (groupDrill && (i.customerGroup ?? i.customerName) !== groupDrill) return false;
+      if (bucketFilter !== "all") {
+        if (i.daysOverdue <= 0) return false;
+        const b =
+          i.daysOverdue <= 30 ? "0-30" : i.daysOverdue <= 60 ? "31-60" : i.daysOverdue <= 90 ? "61-90" : i.daysOverdue <= 120 ? "91-120" : "120+";
+        if (b !== bucketFilter) return false;
+      }
+      if (search) {
+        const vessel = (i.vesselName ?? "") as string;
+        const group = (i.customerGroup ?? "") as string;
+        if (!matchesAllTokens(search, [i.invoiceNumber, i.customerName, vessel, group])) return false;
+      }
+      return true;
+    });
+    return { total: all.length, hidden: all.length - shown.length };
+  }, [invoices, statusFilter, branchFilter, vesselFilter, bucketFilter, search, groupDrill]);
+
   const activeFilterCount = useMemo(
     () =>
       [
@@ -499,6 +532,8 @@ export default function Invoices() {
         <InstallmentToggle
           value={contractFilter === "installments" ? "installments" : "all"}
           onChange={v => setContractFilter(v)}
+          count={installmentCounts.total}
+          hiddenCount={installmentCounts.hidden}
         />
         {activeFilterCount > 0 && (
           <Button

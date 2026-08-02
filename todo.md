@@ -1771,3 +1771,4 @@ master record. Same company, two screens. Unify them.
 - [x] Team data: added Evaggelia Theologou, Maria Theologou, Tsouflias Konstantinos, Lena Varsami (titles left blank for the user to fill) and fixed the "Credid Controller" typo
 - [x] Group/company card: show responsible people as an avatar People row (Team-list style) with Controller/Account Manager titles
 - [x] Group/company card: add removable Watchers (team members following the receivables card), stored per group
+- [x] Installments toggle: show the installment count and go disabled at zero, matching the Payments / Credit notes buttons on group, company and Invoices pages

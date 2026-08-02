@@ -112,6 +112,16 @@ export default function CustomerDetail() {
     return true;
   });
   const paidHiddenCount = countSettled(invoices as any);
+  /**
+   * Contract installments on this company and how many of them the other filters
+   * are hiding, so the toggle can show a count and disable itself at zero.
+   */
+  const allInstallmentInvoices = invoices.filter(i => (i as any).isContractInstallment);
+  const installmentHiddenCount = allInstallmentInvoices.filter(i => {
+    if (hideSettled(i as any, showPaid, statusFilter)) return true;
+    if (!matchesStatusFilter(i as any, statusFilter)) return true;
+    return false;
+  }).length;
   // Credit notes are part of the same list; the installment/status filters apply
   // to invoices only, so they are hidden while those filters are narrowing down.
   const allCreditNotes = ((data as any).openCreditNotes ?? []) as any[];
@@ -511,7 +521,18 @@ export default function CustomerDetail() {
                 {showPaid ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 {showPaid ? "Hide paid" : `Show paid${paidHiddenCount > 0 ? ` (${paidHiddenCount})` : ""}`}
               </Button>
-              <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
+              <InstallmentToggle
+                value={installmentFilter}
+                onChange={v => {
+                  if (v === "installments") {
+                    setCreditOnly(false);
+                    setPaymentsOnly(false);
+                  }
+                  setInstallmentFilter(v);
+                }}
+                count={allInstallmentInvoices.length}
+                hiddenCount={installmentHiddenCount}
+              />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-44 h-8 text-xs">
                   <SelectValue placeholder="Status" />
