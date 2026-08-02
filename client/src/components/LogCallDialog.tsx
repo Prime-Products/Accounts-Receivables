@@ -58,6 +58,14 @@ export default function LogCallDialog({
       : "";
   };
   const [confirmationStatus, setConfirmationStatus] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">(initialResponse);
+  /*
+   * What the customer actually answered. A refusal ("Did not confirm") still
+   * requires the collector to pick a way forward, which overwrites
+   * `confirmationStatus`. Keeping the original answer here means the refusal
+   * reaches the server and stays in the timeline — it used to be lost, so the
+   * history read as if the customer had cooperated.
+   */
+  const [customerResponse, setCustomerResponse] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">("");
   const [confirmationAmount, setConfirmationAmount] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [promisedDate, setPromisedDate] = useState("");
@@ -90,6 +98,7 @@ export default function LogCallDialog({
       setOutcome("Reached");
       setNotes("");
       setConfirmationStatus(initialResponse());
+      setCustomerResponse("");
       setConfirmationAmount("");
       setFollowUpDate("");
       setPromisedDate("");
@@ -150,6 +159,10 @@ export default function LogCallDialog({
       confirmationStatus: outcome === "No Answer" ? undefined : confirmationStatus || "Not Contacted",
       notes: notes.trim() || undefined,
     };
+    // Only sent when the call ended somewhere other than where it started.
+    if (outcome === "Reached" && customerResponse && customerResponse !== confirmationStatus) {
+      logData.customerResponse = customerResponse;
+    }
 
     if (customerId) logData.customerId = customerId;
     if (selectedContactId && selectedContactId !== "other") {
@@ -323,7 +336,11 @@ export default function LogCallDialog({
             </Label>
             <Select
               value={confirmationStatus}
-              onValueChange={(v) => setConfirmationStatus(v as (typeof CONFIRMATION_STATUSES)[number])}
+              onValueChange={(v) => {
+                setConfirmationStatus(v as (typeof CONFIRMATION_STATUSES)[number]);
+                // Choosing from this dropdown *is* the customer's answer.
+                setCustomerResponse(v as (typeof CONFIRMATION_STATUSES)[number]);
+              }}
               disabled={outcome === "No Answer"}
             >
               <SelectTrigger className="w-full h-9">
@@ -469,6 +486,31 @@ export default function LogCallDialog({
                 </button>
 
               </div>
+              <p className="text-[11px] leading-snug text-red-800">
+                Either way, the refusal stays in the history: the timeline will read
+                <strong> "Did not confirm → …"</strong>.
+              </p>
+            </div>
+          )}
+
+          {/*
+            The status now differs from what the customer actually said, because a
+            way forward was chosen after a refusal. Make that explicit so the
+            collector can see — and undo — what will be recorded.
+          */}
+          {outcome === "Reached" && customerResponse === "Broken" && confirmationStatus !== "Broken" && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <Info className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+              <span>
+                Recorded as <strong>Did not confirm → {STATUS_LABELS[confirmationStatus] ?? confirmationStatus}</strong>
+              </span>
+              <button
+                type="button"
+                className="ml-auto underline hover:no-underline"
+                onClick={() => setConfirmationStatus("Broken")}
+              >
+                Back to Did not confirm
+              </button>
             </div>
           )}
 
