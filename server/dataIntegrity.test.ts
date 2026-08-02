@@ -64,4 +64,22 @@ describe("no test residue in the live tables", () => {
     expect(await count(`SELECT COUNT(*) AS n FROM promises_to_pay WHERE IFNULL(notes,'') LIKE '%vitest%'`)).toBe(0);
     expect(await count(`SELECT COUNT(*) AS n FROM group_notes WHERE content LIKE '%vitest%'`)).toBe(0);
   });
+
+  /**
+   * The audit trail is the one place test runs pile up invisibly: every suite
+   * that calls a mutation writes an audit row under its fake user, and 53,781
+   * such rows had accumulated (vs 634 real ones) before this guard existed.
+   *
+   * Suites that take an id snapshot now sweep their own audit rows, and the
+   * global teardown sweeps whatever is left at the very end of a run. This check
+   * therefore asserts on rows older than the current run: anything written
+   * before this process started must already be gone.
+   */
+  it("leaves no audit-trail rows from earlier test runs", async () => {
+    const runStart = new Date(Date.now() - 30 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
+    const residue = await count(
+      `SELECT COUNT(*) AS n FROM audit_logs WHERE createdAt < '${runStart}' AND userName IN ('Test User','Sample User','Tester','Test Bank User','Vitest','Test')`,
+    );
+    expect(residue, "audit_logs still holds rows from earlier vitest runs — the global teardown did not sweep them").toBe(0);
+  });
 });

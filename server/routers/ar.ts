@@ -18,12 +18,10 @@ import { resolveGroupStatus, normalizeStoredStatus } from "../lib/statusWorkflow
 import {
   confirmationStatusLabel,
   followUpMarker,
-  hasAnyFollowUpMarker,
-  hasFollowUpMarker,
-  hasPromiseMarker,
-  parseFollowUpGroup,
-  parsePromiseId,
   promiseMarker,
+  taskGroup,
+  taskPromiseId,
+  isTaskOfGroup,
 } from "../taskMarkers";
 import {
   buildForecast,
@@ -226,6 +224,10 @@ async function createGroupPromise(
     status: "Pending",
     assignedTo: ctx.user.id,
     assigneeId: await resolveTaskAssignee(ctx, input.assigneeId),
+    // Real columns: the description marker above is only kept so the text still
+    // reads well in the task list and for rows written before these columns.
+    customerGroup: groupKey,
+    promiseId: id,
   } as any);
   await audit(ctx, "Create Task", "task", taskId, `Auto follow-up for promise #${id} (${cust.name})`);
   return id;
@@ -401,7 +403,7 @@ async function findOpenGroupPromise(group: string) {
   const isLive = (t: { status: string }) => t.status !== "Completed" && t.status !== "Cancelled";
 
   for (const p of pending) {
-    const linked = allTasks.filter(t => hasPromiseMarker(t.description, p.id));
+    const linked = allTasks.filter(t => taskPromiseId(t) === p.id);
     if (linked.length === 0 || linked.some(isLive)) {
       return { ...p, customerName: byId.get(p.customerId)?.name ?? "—" };
     }
@@ -537,7 +539,7 @@ async function rescheduleGroupPromise(
   // Move the linked follow-up task (identified by "(Promise #id)" marker) to the new date.
   const marker = promiseMarker(input.promiseId);
   const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-  const linked = openTasks.find(t => hasPromiseMarker(t.description, input.promiseId));
+  const linked = openTasks.find(t => taskPromiseId(t) === input.promiseId);
   if (linked) {
     await db.updateTask(linked.id, {
       title: effAmount > 0 ? `Promise to Pay — ${rLabel}` : `Promise to Pay — ${input.group}`,
@@ -586,7 +588,7 @@ async function upsertFollowUpTask(
 
   // Reuse an existing open follow-up task for this group (avoid duplicates)
   const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-  const existing = openTasks.find(t => hasFollowUpMarker(t.description, input.group));
+  const existing = openTasks.find(t => isTaskOfGroup(t, input.group));
   if (existing) {
     // Only count it as a reschedule when the date actually moved.
     const dateChanged = existing.dueDate !== input.followUpDate;
@@ -619,6 +621,7 @@ async function upsertFollowUpTask(
     status: "Pending",
     assignedTo: ctx.user.id,
     assigneeId: await resolveTaskAssignee(ctx, input.assigneeId),
+    customerGroup: input.group,
   } as any);
   await audit(ctx, "Create Task", "task", taskId, `Auto follow-up call task for ${input.group} on ${dateStr}`);
   return taskId;
@@ -647,7 +650,7 @@ async function cleanupStatusArtifacts(
   // regardless of what the recorded previous status was (covers Confirmed→Broken sequences
   // where a follow-up task from an earlier Pending state was left open).
   if (input.newStatus !== "Pending Follow-up") {
-    const linked = openTasks.filter(t => hasFollowUpMarker(t.description, input.group));
+    const linked = openTasks.filter(t => isTaskOfGroup(t, input.group));
     for (const t of linked) {
       await db.updateTask(t.id, {
         status: "Cancelled",
@@ -673,7 +676,7 @@ async function cleanupStatusArtifacts(
       if (!open) break;
       await db.updatePromise(open.id, { status: "Broken" });
       await audit(ctx, "Cancel Promise-to-Pay", "promiseToPay", open.id, `${input.group}: promise cancelled (status → ${input.newStatus})`);
-      const linked = openTasks.filter(t => hasPromiseMarker(t.description, open.id));
+      const linked = openTasks.filter(t => taskPromiseId(t) === open.id);
       for (const t of linked) {
         await db.updateTask(t.id, {
           status: "Cancelled",
@@ -941,12 +944,12 @@ export const customersRouter = router({
     // "Pending Follow-up" → task with "(Follow-up: <group>)" marker;
     // "Promise to Pay" → promise-check task with "(Promise #<id>)" marker.
     const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] })).filter(
-      t => hasAnyFollowUpMarker(t.description) || parsePromiseId(t.description) !== null,
+      t => taskGroup(t) !== null || taskPromiseId(t) !== null,
     );
     const followUpTaskByGroup = new Map<string, { id: number; status: string; dueDate: number | null }>();
     const promiseTaskByPromiseId = new Map<number, { id: number; status: string; dueDate: number | null }>();
     for (const t of openAutoTasks) {
-      const fg = parseFollowUpGroup(t.description);
+      const fg = taskGroup(t);
       if (fg && !followUpTaskByGroup.has(fg)) followUpTaskByGroup.set(fg, { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
       const pm = t.description?.match(/\(Promise #(\d+)\)/);
       if (pm && !promiseTaskByPromiseId.has(Number(pm[1]))) promiseTaskByPromiseId.set(Number(pm[1]), { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
@@ -957,7 +960,7 @@ export const customersRouter = router({
     {
       const openEscalated = (await db.listTasks({ statuses: ["Pending", "In Progress"] })).filter(t => t.title.startsWith("Escalated:"));
       for (const t of openEscalated) {
-        let g = parseFollowUpGroup(t.description);
+        let g = taskGroup(t);
         if (!g && t.customerId) {
           const c = customers.find(c => c.id === t.customerId);
           if (c) g = (c.customerGroup ?? "").trim() || c.name;
@@ -1387,17 +1390,17 @@ export const customersRouter = router({
       let gConfirmationTask: { id: number; status: string; dueDate: number | null } | null = null;
       if (gConfStatus === "Pending Follow-up" || gConfStatus === "Confirmed") {
         const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => [])).filter(
-          t => hasAnyFollowUpMarker(t.description) || parsePromiseId(t.description) !== null,
+          t => taskGroup(t) !== null || taskPromiseId(t) !== null,
         );
         if (gConfStatus === "Pending Follow-up") {
-          const t = openAutoTasks.find(t => hasFollowUpMarker(t.description, input.group));
+          const t = openAutoTasks.find(t => isTaskOfGroup(t, input.group));
           gConfirmationTask = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
         } else {
           const openPromise = (await db.listPromises().catch(() => []))
             .filter(p => p.status === "Pending" && memberIds.has(p.customerId))
             .sort((a, b) => b.id - a.id)[0];
           if (openPromise) {
-            const t = openAutoTasks.find(t => hasPromiseMarker(t.description, openPromise.id));
+            const t = openAutoTasks.find(t => taskPromiseId(t) === openPromise.id);
             gConfirmationTask = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
           }
         }
@@ -3026,7 +3029,10 @@ export const tasksRouter = router({
         assigneeId: input.assigneeId ?? null,
         status: "Pending",
         assignedTo: ctx.user.id,
-      });
+        // Every task belongs to a collections group, so the Desk can count open
+        // work per group without parsing anything out of the description.
+        customerGroup: (customer.customerGroup ?? "").trim() || customer.name,
+      } as any);
       if (input.invoiceIds && input.invoiceIds.length > 0) {
         await db.addTaskInvoices(id, input.invoiceIds);
       }
@@ -3172,7 +3178,7 @@ export const tasksRouter = router({
       // auto-task must not leave a stale "Pending Follow-up" / "Promise to Pay" badge
       // with no open task behind it (badge click would have nothing to open).
       if ((input.status === "Cancelled" || input.status === "Completed") && existing?.description) {
-        const followUpGroup = parseFollowUpGroup(existing.description);
+        const followUpGroup = taskGroup(existing);
         const promiseMatch = existing.description.match(/\(Promise #(\d+)\)/);
         let group: string | null = followUpGroup;
         if (!group && promiseMatch && existing.customerId) {
@@ -3227,7 +3233,7 @@ export const tasksRouter = router({
       const newCount = (task.rescheduleCount ?? 0) + 1;
       await db.updateTask(input.id, { dueDate: input.dueDate, rescheduleCount: newCount });
       // Keep the group's confirmation-status follow-up date in sync for auto follow-up tasks.
-      const followUpGroup = parseFollowUpGroup(task.description);
+      const followUpGroup = taskGroup(task);
       if (followUpGroup) {
         const group = followUpGroup;
         const conf = await db.getGroupConfirmationStatus(group);
@@ -3267,7 +3273,7 @@ export const tasksRouter = router({
       if (task.status === "Completed" || task.status === "Cancelled") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can be converted" });
       }
-      const followUpGroup = parseFollowUpGroup(task.description);
+      const followUpGroup = taskGroup(task);
       if (!followUpGroup) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "This task is not a follow-up task" });
       }
@@ -3340,7 +3346,7 @@ export const tasksRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can roll to a next task" });
       }
       // Resolve the group: follow-up marker, or the task's customer
-      const followUpGroup = parseFollowUpGroup(task.description);
+      const followUpGroup = taskGroup(task);
       let group = followUpGroup;
       const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
       if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
@@ -3444,7 +3450,7 @@ export const tasksRouter = router({
     .query(async ({ input }) => {
       const task = await db.getTask(input.taskId);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      const followUpGroup = parseFollowUpGroup(task.description);
+      const followUpGroup = taskGroup(task);
       let group = followUpGroup;
       const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
       if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
@@ -3535,7 +3541,7 @@ export const tasksRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can be escalated" });
       }
       // Resolve the group from the follow-up marker or the customer
-      const followUpGroup = parseFollowUpGroup(task.description);
+      const followUpGroup = taskGroup(task);
       let group = followUpGroup;
       let cust = task.customerId ? await db.getCustomer(task.customerId) : null;
       if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
@@ -3596,6 +3602,9 @@ export const tasksRouter = router({
        status: "Pending",
        type: task.type,
        assigneeId: targetId,
+       // The escalated copy stays attached to the same group and promise.
+       customerGroup: (task as any).customerGroup ?? taskGroup(task),
+       promiseId: (task as any).promiseId ?? taskPromiseId(task),
      } as any);
 
       // Watchers: carry over the original task's watchers plus any newly picked ones.
@@ -3645,7 +3654,7 @@ export const tasksRouter = router({
     .query(async ({ input }) => {
       const task = await db.getTask(input.taskId);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      const followUpGroup = parseFollowUpGroup(task.description);
+      const followUpGroup = taskGroup(task);
       let group = followUpGroup;
       const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
       if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
@@ -3751,7 +3760,7 @@ export const tasksRouter = router({
       if (task.status === "Completed" || task.status === "Cancelled") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "This task is already closed" });
       }
-      const followUpGroup = parseFollowUpGroup(task.description);
+      const followUpGroup = taskGroup(task);
       let group = followUpGroup;
       const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
       if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
@@ -4109,7 +4118,9 @@ export const forecastRouter = router({
           invoiceId: input.invoiceId,
           status: "Pending",
           assignedTo: ctx.user.id,
-        });
+          customerGroup: groupKey,
+          promiseId: id,
+        } as any);
         await audit(ctx, "Create Task", "task", taskId, `Auto follow-up for promise #${id} (${cust.name})`);
       }
       return { id };
@@ -4153,7 +4164,7 @@ export const forecastRouter = router({
           // Auto-complete the follow-up task linked to this promise, if still open.
           const tasks = await db.listTasks({ customerId: promise.customerId });
           const followUp = tasks.find(
-            t => (t.status === "Pending" || t.status === "In Progress") && hasPromiseMarker(t.description, input.id),
+            t => (t.status === "Pending" || t.status === "In Progress") && taskPromiseId(t) === input.id,
           );
           if (followUp) {
             await db.updateTask(followUp.id, {
@@ -4792,7 +4803,7 @@ export const callsRouter = router({
       const open = allTasks.filter(t => t.status === "Pending" || t.status === "In Progress");
       let hasOpenLinked = false;
       if (conf.status === "Pending Follow-up") {
-        hasOpenLinked = open.some(t => hasFollowUpMarker(t.description, input.group));
+        hasOpenLinked = open.some(t => isTaskOfGroup(t, input.group));
       } else if (conf.status === "Escalated") {
         // Escalated → any open escalated task for one of the group's customers.
         const customers = await db.listCustomers();
@@ -5164,16 +5175,16 @@ export const callsRouter = router({
       if (row.status === "Pending Follow-up" || row.status === "Confirmed") {
         const nowTs = Date.now();
         const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => [])).filter(
-          t => hasAnyFollowUpMarker(t.description) || parsePromiseId(t.description) !== null,
+          t => taskGroup(t) !== null || taskPromiseId(t) !== null,
         );
         let linked: { id: number; status: string; dueDate: number | null } | null = null;
         if (row.status === "Pending Follow-up") {
-          const t = openAutoTasks.find(t => hasFollowUpMarker(t.description, input.group));
+          const t = openAutoTasks.find(t => isTaskOfGroup(t, input.group));
           linked = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
         } else {
           const openPromise = await findOpenGroupPromise(input.group).catch(() => null);
           if (openPromise) {
-            const t = openAutoTasks.find(t => hasPromiseMarker(t.description, openPromise.id));
+            const t = openAutoTasks.find(t => taskPromiseId(t) === openPromise.id);
             linked = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
           }
         }
@@ -5206,14 +5217,14 @@ export const callsRouter = router({
       if (status !== "Pending Follow-up" && status !== "Confirmed" && status !== "Escalated") return null;
       const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => []);
       if (status === "Pending Follow-up") {
-        const t = openTasks.find(t => hasFollowUpMarker(t.description, input.group));
+        const t = openTasks.find(t => isTaskOfGroup(t, input.group));
         if (!t) return null;
         return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: row.amount ?? null };
       }
       if (status === "Confirmed") {
         const openPromise = await findOpenGroupPromise(input.group).catch(() => null);
         if (!openPromise) return null;
-        const t = openTasks.find(t => hasPromiseMarker(t.description, openPromise.id));
+        const t = openTasks.find(t => taskPromiseId(t) === openPromise.id);
         if (!t) return null;
         return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: String(openPromise.amount ?? row.amount ?? "") };
       }
@@ -5221,7 +5232,7 @@ export const callsRouter = router({
       const customers = await db.listCustomers().catch(() => []);
       const t = openTasks.find(t => {
         if (!t.title.startsWith("Escalated:")) return false;
-        const fg = parseFollowUpGroup(t.description);
+        const fg = taskGroup(t);
         if (fg === input.group) return true;
         const c = customers.find(c => c.id === t.customerId);
         return !!c && (((c.customerGroup ?? "").trim()) || c.name) === input.group;
@@ -5236,7 +5247,7 @@ export const callsRouter = router({
     .input(z.object({ group: z.string().min(1).max(255) }))
     .query(async ({ input }) => {
       const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-      const t = openTasks.find(task => hasFollowUpMarker(task.description, input.group));
+      const t = openTasks.find(task => isTaskOfGroup(task, input.group));
       if (!t) return null;
       return { id: t.id, dueDate: t.dueDate, rescheduleCount: t.rescheduleCount ?? 0, title: t.title };
     }),

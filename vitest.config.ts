@@ -31,5 +31,7 @@ export default defineConfig({
      */
     testTimeout: 30000,
     hookTimeout: 30000,
+    /** Sweeps audit rows written by the fake test users (see the module docs). */
+    globalSetup: ["server/testGlobalTeardown.ts"],
   },
 });

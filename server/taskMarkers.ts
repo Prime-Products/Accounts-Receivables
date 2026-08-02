@@ -69,6 +69,40 @@ export function hasPromiseMarker(description: string | null | undefined, promise
 }
 
 /**
+ * The group a task belongs to.
+ *
+ * Reads the real `tasks.customerGroup` column and only falls back to the
+ * `(Follow-up: <group>)` marker for rows written before that column existed.
+ * New code must use this instead of `parseFollowUpGroup`, so the marker stays a
+ * readability detail in the description rather than the actual data structure.
+ */
+export function taskGroup(task: {
+  customerGroup?: string | null;
+  description?: string | null;
+}): string | null {
+  const col = task.customerGroup?.trim();
+  if (col) return col;
+  return parseFollowUpGroup(task.description);
+}
+
+/** The promise a task checks on — real column first, marker as legacy fallback. */
+export function taskPromiseId(task: {
+  promiseId?: number | null;
+  description?: string | null;
+}): number | null {
+  if (task.promiseId != null) return task.promiseId;
+  return parsePromiseId(task.description);
+}
+
+/** True when the task belongs to exactly this group (column first, marker fallback). */
+export function isTaskOfGroup(
+  task: { customerGroup?: string | null; description?: string | null },
+  group: string
+): boolean {
+  return taskGroup(task) === group.trim();
+}
+
+/**
  * Human-readable confirmation status, matching the labels the UI shows.
  * Kept next to the marker helpers so audit lines, activity logs and task titles
  * all speak the same language as the badge the user is looking at.

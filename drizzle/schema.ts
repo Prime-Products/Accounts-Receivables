@@ -204,6 +204,18 @@ export const tasks = mysqlTable("tasks", {
   assignedTo: int("assignedTo"),
   /** Team member responsible for the task; FK to team_members.id. */
   assigneeId: int("assigneeId"),
+  /**
+   * Collections group this task belongs to, stored explicitly.
+   *
+   * Historically the link lived only inside `description` as a
+   * `(Follow-up: <group>)` marker, which broke for group names containing a
+   * closing parenthesis. The marker is still written for readability and for
+   * rows created before this column existed, but all new code should read this
+   * column (see `server/taskMarkers.ts` → `taskGroup()`).
+   */
+  customerGroup: varchar("customerGroup", { length: 255 }),
+  /** Promise this task checks on, when it is a promise-check task. */
+  promiseId: int("promiseId"),
   completedAt: bigint("completedAt", { mode: "number" }),
   completionNotes: text("completionNotes"),
   /** How many times the task's due date has been pushed back (follow-up reschedules). */
@@ -215,6 +227,8 @@ export const tasks = mysqlTable("tasks", {
   index("idx_tasks_status").on(t.status),
   index("idx_tasks_assigneeId").on(t.assigneeId),
   index("idx_tasks_dueDate").on(t.dueDate),
+  // The Desk resolves "does this group have an open call task?" on every load.
+  index("idx_tasks_customerGroup").on(t.customerGroup),
 ]);
 
 /** Free-form discussion thread on a task — used for internal collaboration between colleagues. */
