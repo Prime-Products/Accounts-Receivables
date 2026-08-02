@@ -124,6 +124,13 @@ interface CommunicationTimelineProps {
   title?: string;
   /** Rendered on the header row, e.g. a "Log call" button. */
   actions?: React.ReactNode;
+  /**
+   * Chromeless mode: no Card wrapper and no title row, for when the timeline is
+   * hosted inside a side panel that already provides the frame and heading.
+   */
+  embedded?: boolean;
+  /** Height cap of the scrollable list. Defaults to the standalone-card height. */
+  maxHeightClass?: string;
 }
 
 /**
@@ -133,7 +140,14 @@ interface CommunicationTimelineProps {
  * Grouped by collections cycle (calendar month) because that is the unit of
  * work — the current month is expanded, earlier months are collapsed.
  */
-export function CommunicationTimeline({ entries, isLoading, title = "Communication", actions }: CommunicationTimelineProps) {
+export function CommunicationTimeline({
+  entries,
+  isLoading,
+  title = "Communication",
+  actions,
+  embedded = false,
+  maxHeightClass = "max-h-[560px]",
+}: CommunicationTimelineProps) {
   const [filter, setFilter] = useState<"all" | TimelineEntry["kind"]>("all");
   const [q, setQ] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -165,48 +179,52 @@ export function CommunicationTimeline({ entries, isLoading, title = "Communicati
   const total = entries.length;
   const searching = q.trim().length > 0;
 
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
+  const header = (
+    <>
+      <div className={`flex items-center justify-between gap-3 flex-wrap ${embedded ? "" : ""}`}>
+        {!embedded && (
           <CardTitle className="text-base">
             {title}
             {total > 0 && <span className="ml-2 text-xs font-normal text-muted-foreground">{total} entries</span>}
           </CardTitle>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-              <Input
-                value={q}
-                onChange={e => setQ(e.target.value)}
-                placeholder="Search notes…"
-                className="h-8 w-44 pl-7 text-xs"
-              />
-            </div>
-            {actions}
+        )}
+        <div className={`flex items-center gap-2 ${embedded ? "w-full" : ""}`}>
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="Search notes…"
+              className={`h-8 pl-7 text-xs ${embedded ? "w-full" : "w-44"}`}
+            />
           </div>
+          {actions}
         </div>
-        <div className="flex items-center gap-1 flex-wrap pt-1">
-          {FILTERS.map(f => {
-            const count = f.key === "all" ? total : entries.filter(e => e.kind === f.key).length;
-            if (f.key !== "all" && count === 0) return null;
-            return (
-              <Button
-                key={f.key}
-                type="button"
-                size="sm"
-                variant={filter === f.key ? "secondary" : "ghost"}
-                className="h-7 px-2 text-xs"
-                onClick={() => setFilter(f.key)}
-              >
-                {f.label}
-                <span className="ml-1 text-muted-foreground">{count}</span>
-              </Button>
-            );
-          })}
-        </div>
-      </CardHeader>
-      <CardContent>
+      </div>
+      <div className="flex items-center gap-1 flex-wrap pt-1">
+        {FILTERS.map(f => {
+          const count = f.key === "all" ? total : entries.filter(e => e.kind === f.key).length;
+          if (f.key !== "all" && count === 0) return null;
+          return (
+            <Button
+              key={f.key}
+              type="button"
+              size="sm"
+              variant={filter === f.key ? "secondary" : "ghost"}
+              className="h-7 px-2 text-xs"
+              onClick={() => setFilter(f.key)}
+            >
+              {f.label}
+              <span className="ml-1 text-muted-foreground">{count}</span>
+            </Button>
+          );
+        })}
+      </div>
+    </>
+  );
+
+  const list = (
+    <>
         {isLoading ? (
           <div className="space-y-3">
             {[...Array(3)].map((_, i) => (
@@ -220,7 +238,7 @@ export function CommunicationTimeline({ entries, isLoading, title = "Communicati
               : "No entries match this filter."}
           </p>
         ) : (
-          <div className="space-y-4 max-h-[560px] overflow-y-auto pr-1">
+          <div className={`space-y-4 ${maxHeightClass} overflow-y-auto pr-1`}>
             {months.map(([key, list]) => {
               // Current cycle open by default; earlier cycles folded unless searching.
               const isCurrent = key === currentMonth;
@@ -295,7 +313,22 @@ export function CommunicationTimeline({ entries, isLoading, title = "Communicati
             })}
           </div>
         )}
-      </CardContent>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="flex flex-col gap-2">
+        {header}
+        {list}
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">{header}</CardHeader>
+      <CardContent>{list}</CardContent>
     </Card>
   );
 }

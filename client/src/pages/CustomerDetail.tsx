@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RecordDetailsPanel } from "@/components/RecordDetailsPanel";
-import { CommunicationTimeline } from "@/components/CommunicationTimeline";
+import { CommunicationPanel, CommunicationToggle, useCommunicationPanel } from "@/components/CommunicationPanel";
 import { buildTimeline } from "@/lib/timeline";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
@@ -58,6 +58,9 @@ export default function CustomerDetail() {
       }),
     [groupDetail, groupNoteRows, data],
   );
+
+  /** Show/hide the communication side panel; shared with the group card. */
+  const commPanel = useCommunicationPanel();
 
   const [promiseOpen, setPromiseOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
@@ -283,6 +286,7 @@ export default function CustomerDetail() {
             >
               <FileDown className="h-4 w-4" /> SOA Excel
             </Button>
+            <CommunicationToggle open={commPanel.open} onToggle={commPanel.toggle} count={timelineEntries.length} />
           </div>
           {/* Same New Task dialog, pre-typed as Help — one flow for asking a colleague. */}
           <NewTaskDialog
@@ -320,6 +324,13 @@ export default function CustomerDetail() {
         </TabsContent>
 
         <TabsContent value="receivables" className="mt-4 space-y-4">
+      {/*
+       * Money on the left in one uninterrupted flow (KPIs → aging →
+       * transactions), communication history as a sticky, hideable panel on the
+       * right instead of a block wedged in the middle of the card.
+       */}
+      <div className="flex gap-4 items-start">
+      <div className="flex-1 min-w-0 space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <Card>
           <CardContent className="pt-4">
@@ -423,13 +434,6 @@ export default function CustomerDetail() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Collections history for the group this company belongs to */}
-      <CommunicationTimeline
-        entries={timelineEntries}
-        isLoading={isLoading || historyLoading}
-        title={groupKey && groupKey !== customer.name ? `Communication — ${groupKey} (group)` : "Communication"}
-      />
 
       {/* Aging — same card style as the group view */}
       <Card>
@@ -710,6 +714,17 @@ export default function CustomerDetail() {
           <WireTransfers customerId={customer.id} />
         </TabsContent>
       </Tabs>
+      </div>
+
+      {/* Collections history for the group this company belongs to */}
+      <CommunicationPanel
+        open={commPanel.open}
+        onClose={commPanel.toggle}
+        entries={timelineEntries}
+        isLoading={isLoading || historyLoading}
+        title={groupKey && groupKey !== customer.name ? `Communication — ${groupKey}` : "Communication"}
+      />
+      </div>
         </TabsContent>
       </Tabs>
     </div>

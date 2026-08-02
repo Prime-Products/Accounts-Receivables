@@ -3,7 +3,7 @@ import NewTaskDialog from "@/components/NewTaskDialog";
 import CollectionNotesBox from "@/components/CollectionNotesBox";
 import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
-import { CommunicationTimeline } from "@/components/CommunicationTimeline";
+import { CommunicationPanel, CommunicationToggle, useCommunicationPanel } from "@/components/CommunicationPanel";
 import { buildTimeline } from "@/lib/timeline";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { AccountManagerControl } from "@/components/AccountManagerControl";
@@ -494,6 +494,9 @@ export default function GroupDetail() {
     [data?.activityLogs, groupActivity, groupNoteRows],
   );
 
+  /** Show/hide the communication side panel; the choice is remembered per user. */
+  const commPanel = useCommunicationPanel();
+
   /** Bucket an overdue invoice by days overdue (same rule as the Invoices page). */
   const bucketOf = (dueDate: number, now: number): "0-30" | "31-60" | "61-90" | "91-120" | "120+" | null => {
     if (now <= dueDate) return null;
@@ -774,6 +777,7 @@ export default function GroupDetail() {
             <Button variant="outline" size="sm" className="gap-1.5 bg-background" onClick={() => doExport("xlsx")} disabled={exportSoa.isPending}>
               <FileDown className="h-4 w-4" /> SOA Excel
             </Button>
+            <CommunicationToggle open={commPanel.open} onToggle={commPanel.toggle} count={timelineEntries.length} />
           </div>
           <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1 pl-2">
             <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -829,6 +833,15 @@ export default function GroupDetail() {
         </TabsContent>
 
         <TabsContent value="receivables" className="mt-4 space-y-4">
+      {/*
+       * Two columns: the money flow on the left (KPIs → notes → aging →
+       * transactions) and the communication history as a sticky panel on the
+       * right. The history used to sit in the middle of the card and pushed
+       * aging and transactions below the fold; now it can also be hidden, and
+       * the choice is remembered.
+       */}
+      <div className="flex gap-4 items-start">
+      <div className="flex-1 min-w-0 space-y-4">
       {isLoading || !data ? (
         <div className="space-y-3">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -956,21 +969,6 @@ export default function GroupDetail() {
 
           {/* Always-visible collection notes: call preferences & customer particularities */}
           <CollectionNotesBox group={group} />
-
-          {/* One chronological history: calls, notes, promises, emails, tasks, payments */}
-          <CommunicationTimeline
-            entries={timelineEntries}
-            isLoading={isLoading || activityLoading}
-            actions={
-              data && data.companies.length > 0 ? (
-                <TimelineLogCallButton
-                  group={group}
-                  companies={data.companies}
-                  defaultCustomerId={defaultActionCustomerId}
-                />
-              ) : undefined
-            }
-          />
 
           {/* Aging for current scope */}
           <Card>
@@ -1327,6 +1325,25 @@ export default function GroupDetail() {
           <GroupActivityTabs group={group} />
         </>
       )}
+      </div>
+
+      {/* One chronological history: calls, notes, promises, emails, tasks, payments */}
+      <CommunicationPanel
+        open={commPanel.open}
+        onClose={commPanel.toggle}
+        entries={timelineEntries}
+        isLoading={isLoading || activityLoading}
+        actions={
+          data && data.companies.length > 0 ? (
+            <TimelineLogCallButton
+              group={group}
+              companies={data.companies}
+              defaultCustomerId={defaultActionCustomerId}
+            />
+          ) : undefined
+        }
+      />
+      </div>
         </TabsContent>
       </Tabs>
     </div>
