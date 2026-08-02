@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { trpc } from "@/lib/trpc";
 import { ChevronsUpDown, Plus } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 export const TASK_TYPES = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual", "Help"] as const;
@@ -69,6 +69,11 @@ export default function NewTaskDialog({
   const [dueDate, setDueDate] = useState(() =>
     new Date(Date.now() + (defaultType === "Help" ? 3 * 86400000 : 0)).toISOString().slice(0, 10)
   );
+  /**
+   * Every task has an owner: no work item is ever left hanging without a name on
+   * it. The field is pre-filled with the logged-in user (see the effect below) and
+   * can be changed to a colleague, but it cannot be emptied.
+   */
   const [assigneeId, setAssigneeId] = useState<number | null>(null);
   const isHelp = defaultType === "Help";
 
@@ -77,6 +82,15 @@ export default function NewTaskDialog({
   const { data: me } = trpc.team.me.useQuery(undefined, { enabled: open });
   const myMemberId = me?.memberId ?? null;
   const myName = me?.name ?? "you";
+
+  /**
+   * Default owner = me. For a help request the point is to hand it to someone
+   * else, so that one starts empty and is validated on submit instead.
+   */
+  useEffect(() => {
+    if (!open || isHelp) return;
+    if (assigneeId == null && myMemberId != null) setAssigneeId(myMemberId);
+  }, [open, isHelp, assigneeId, myMemberId]);
 
   const { data: allCustomers } = trpc.customers.options.useQuery(undefined, { enabled: open });
   const customers = customerIds ? (allCustomers ?? []).filter(c => customerIds.includes(c.id)) : (allCustomers ?? []);
@@ -107,7 +121,7 @@ export default function NewTaskDialog({
       setTitle("");
       setDescription("");
       setType(defaultType ?? "Manual");
-      setAssigneeId(null);
+      setAssigneeId(isHelp ? null : myMemberId);
     },
     onError: e => toast.error(e.message),
   });
@@ -116,13 +130,19 @@ export default function NewTaskDialog({
     if (!customerId) return toast.error("Select a group");
     if (!title.trim()) return toast.error(isHelp ? "Describe what you need" : "Enter a task title");
     if (!dueDate) return toast.error("Select a due date");
+    // Mandatory owner: for a normal task we fall back to the current user, for a
+    // help request the colleague must be chosen explicitly.
+    const owner = assigneeId ?? (isHelp ? null : myMemberId);
+    if (owner == null) {
+      return toast.error(isHelp ? "Pick the colleague you are asking" : "Assign the task to someone");
+    }
     create.mutate({
       customerId,
       type: type as (typeof TASK_TYPES)[number],
       title: title.trim(),
       description: description.trim() || undefined,
       dueDate: new Date(`${dueDate}T12:00:00`).getTime(),
-      assigneeId: assigneeId ?? undefined,
+      assigneeId: owner,
       invoiceIds: attachInvoices && attachInvoices.length > 0 ? attachInvoices.map(i => i.id) : undefined,
     });
   };
@@ -209,20 +229,30 @@ export default function NewTaskDialog({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>{isHelp ? "Ask a colleague" : "Assigned to (optional)"}</Label>
+            <Label>
+              {isHelp ? "Ask a colleague" : "Assigned to"} <span className="text-destructive">*</span>
+            </Label>
             <TeamMemberSelect
               value={assigneeId}
-              onChange={setAssigneeId}
+              // The field cannot be cleared: clearing falls back to me (or, for a
+              // help request, leaves it empty so the validation asks for a name).
+              onChange={id => setAssigneeId(id ?? (isHelp ? null : myMemberId))}
               // Asking yourself for help is not a thing: your own record is out.
               excludeIds={isHelp && myMemberId != null ? [myMemberId] : undefined}
-              emptyLabel={isHelp ? "— Search a colleague… —" : undefined}
+              emptyLabel={isHelp ? "— Search a colleague… —" : "— Search a colleague… —"}
             />
-            {isHelp && (
+            {isHelp ? (
               <p className="text-[11px] text-muted-foreground">
                 Requested by <span className="font-medium text-foreground">{myName}</span>
                 {assigneeId == null
-                  ? " — pick a colleague, or leave empty to keep the task on your own list."
+                  ? " — pick the colleague you need an answer from."
                   : " — you stay a watcher, so you see the answer."}
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                {assigneeId != null && assigneeId === myMemberId
+                  ? <>Assigned to <span className="font-medium text-foreground">{myName}</span> — pick a colleague to hand it over.</>
+                  : "Every task has an owner; pick yourself to keep it on your own list."}
               </p>
             )}
           </div>

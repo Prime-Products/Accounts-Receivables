@@ -1764,3 +1764,4 @@ master record. Same company, two screens. Unify them.
 - [x] Tests for the removed tabs and the floating window behaviour
 - [x] Send Email contact list collapsed by default — names appear only as a dropdown when the search box is clicked
 - [x] Sidebar: Tasks moved from Management into the Collections section
+- [x] New Task: "Assigned to" is mandatory, pre-filled with the logged-in user, and Help requests require naming the colleague
