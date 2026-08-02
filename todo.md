@@ -1807,6 +1807,8 @@ a member company, which read as "this company's promise" when it is the group's 
 - [x] Promise rows created from Log Call must not be attributed to a single company in the UI
 - [x] Company-card promise routes through the group commitment (nothing removed from either card)
 - [x] Tests for the group-level wording and attribution
+- [x] Watcher "+" opens a searchable colleague list directly (no explanatory text)
+- [x] Tests for the direct watcher search picker
 
 ## Company-card actions record against the group (decided 3/8, corrected)
 Kostas: nothing is to be removed from either card — whether a call/promise is logged from a company
