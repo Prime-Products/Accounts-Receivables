@@ -1714,3 +1714,9 @@ master record. Same company, two screens. Unify them.
 - [x] The Ask button on the group and customer cards opens the normal New Task dialog, prefilled as a Help task
 - [x] A Help task assigned to a colleague is written to the customer's Activity Log
 - [x] Tests: creating a Help task from a group logs it in the activity log and appears in the assignee's task list
+
+## Card toolbar grouping (requested 2/8)
+- [x] Log Call, Send Email, New Task and Ask for help are standalone buttons on the group card — no Actions menu
+- [x] Add Note removed from both cards — notes belong in Collection Notes
+- [x] Group card toolbar split into visual clusters: Actions / Export & summary / Filters
+- [x] Company card toolbar uses the same clusters (Actions incl. Promise-to-Pay, Export & summary)
