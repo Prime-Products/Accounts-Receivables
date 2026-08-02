@@ -97,7 +97,7 @@ export default function Tasks() {
             <ListChecks className="h-6 w-6" /> Tasks
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manual tasks, promise follow-ups and internal assignments between colleagues
+            Manual tasks, promise follow-ups and help requests between colleagues
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -160,7 +160,7 @@ export default function Tasks() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="p-10 text-center text-muted-foreground">
-              No tasks match the filters. Create one with "New Task" or send invoices to a colleague from the Invoices page.
+              No tasks match the filters. Create one with "New Task", or use "Ask for help" on a group, a company or selected invoices.
             </div>
           ) : (
             <Table className="table-fixed" style={{ width: cols.totalWidth, minWidth: "100%" }}>

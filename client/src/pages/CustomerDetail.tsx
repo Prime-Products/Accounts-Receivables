@@ -2,7 +2,6 @@ import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
-import AskColleagueDialog from "@/components/AskColleagueDialog";
 import { BankDetails } from "@/components/BankDetails";
 import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
@@ -193,11 +192,15 @@ export default function CustomerDetail() {
           />
           <GroupNotesDialog group={data.groupKey} />
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAskOpen(true)}>
-            <HelpCircle className="h-4 w-4" /> Ask
+            <HelpCircle className="h-4 w-4" /> Ask for help
           </Button>
-          <AskColleagueDialog
-            group={data.groupKey}
+          {/* Same New Task dialog, pre-typed as Help — one flow for asking a colleague. */}
+          <NewTaskDialog
             defaultCustomerId={id}
+            hideCustomerPicker
+            defaultType="Help"
+            defaultTitle={`Help needed: ${data.customer.name}`}
+            trigger={<Button className="hidden">Hidden</Button>}
             open={askOpen}
             onOpenChange={setAskOpen}
           />

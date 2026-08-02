@@ -3104,6 +3104,31 @@ export const tasksRouter = router({
           await db.addTaskWatcher(id, creatorMember.id).catch(() => {});
         }
       }
+      // A manual task — above all a "Help" request to a colleague — belongs in the
+      // customer's history: months later you must be able to see that help was
+      // asked for without hunting through the task list.
+      const taskGroupName = (customer.customerGroup ?? "").trim() || customer.name;
+      const assigneeMember =
+        input.assigneeId != null ? await db.getTeamMemberById(input.assigneeId).catch(() => null) : null;
+      const assigneeLabel = assigneeMember?.name ?? "myself";
+      await db.addActivityLog({
+        groupName: taskGroupName,
+        customerId: input.customerId,
+        activityType: "task",
+        title:
+          input.type === "Help"
+            ? `Help requested from ${assigneeLabel} — ${input.title}`
+            : `Task created — ${input.title}`,
+        description: [
+          input.description?.trim() || null,
+          `Assigned to: ${assigneeLabel}`,
+          `Due: ${new Date(input.dueDate).toLocaleDateString("en-GB")}`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      }).catch(() => {});
       await audit(ctx, "Create Task", "task", id, `Manual task "${input.title}" for ${customer.name}`);
       return { id };
     }),

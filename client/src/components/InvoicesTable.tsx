@@ -8,13 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import NewTaskDialog from "@/components/NewTaskDialog";
-import AskColleagueDialog from "@/components/AskColleagueDialog";
 import { AllocateCreditNoteDialog } from "@/components/AllocateCreditNoteDialog";
 import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDialog";
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { invoiceDisplayStatus } from "@/lib/invoiceFilters";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, HelpCircle, Link2, Send, Ship, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, HelpCircle, Link2, Ship, Undo2, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -402,7 +401,6 @@ export function InvoicesTable({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [sendOpen, setSendOpen] = useState(false);
-  const [askOpen, setAskOpen] = useState(false);
   const markDisputed = trpc.invoices.markDisputed.useMutation({
     onSuccess: (_r, vars) => {
       toast.success(vars.disputed ? "Invoice marked as Disputed" : "Dispute cleared");
@@ -765,36 +763,13 @@ export function InvoicesTable({
       {enableSelection && selectedIds.size > 0 && (
         <div className="sticky bottom-3 z-20 mx-auto w-fit flex items-center gap-3 rounded-full border bg-background shadow-lg px-4 py-2">
           <span className="text-sm font-medium">{selectedIds.size} invoice(s) selected</span>
-          <Button size="sm" className="gap-1.5 rounded-full" onClick={() => setSendOpen(true)}>
-            <Send className="h-3.5 w-3.5" /> Send to colleague
+        <Button size="sm" className="gap-1.5 rounded-full" onClick={() => setSendOpen(true)}>
+            <HelpCircle className="h-3.5 w-3.5" /> Ask for help
           </Button>
-          {group && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5 rounded-full"
-              title="Ask a colleague a question about these invoices — no due date, no task"
-              onClick={() => setAskOpen(true)}
-            >
-              <HelpCircle className="h-3.5 w-3.5" /> Ask a colleague
-            </Button>
-          )}
           <Button size="sm" variant="ghost" className="gap-1 rounded-full text-muted-foreground" onClick={() => setSelectedIds(new Set())}>
             <X className="h-3.5 w-3.5" /> Clear
           </Button>
         </div>
-      )}
-      {askOpen && group && (
-        <AskColleagueDialog
-          group={group}
-          defaultCustomerId={sendDefaultCustomerId}
-          invoiceIds={Array.from(selectedIds)}
-          open={askOpen}
-          onOpenChange={o => {
-            setAskOpen(o);
-            if (!o) setSelectedIds(new Set());
-          }}
-        />
       )}
       {sendOpen && (
         <NewTaskDialog
@@ -805,6 +780,7 @@ export function InvoicesTable({
             if (!o) setSelectedIds(new Set());
           }}
           defaultCustomerId={sendDefaultCustomerId}
+          defaultType="Help"
           defaultTitle={`Help needed: review ${selectedIds.size} invoice(s)`}
           defaultDescription={`Please take a look at the attached invoice(s):\n${selectedRows.map(r => `• ${r.invoiceNumber} — ${r.customerName ?? ""} (${r.currency && r.currency !== "EUR" ? r.currency + " " : "€"}${Number(r.amount).toLocaleString()})`).join("\n")}`}
           attachInvoices={selectedRows.map(r => ({ id: r.id, invoiceNumber: r.invoiceNumber, amount: r.amount, currency: r.currency }))}

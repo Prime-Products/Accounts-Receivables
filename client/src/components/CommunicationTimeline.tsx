@@ -16,7 +16,6 @@ import {
   ChevronDown,
   ChevronRight,
   Search,
-  HelpCircle,
 } from "lucide-react";
 
 /** One entry on the unified communication timeline, whatever its origin table. */
@@ -24,7 +23,7 @@ export interface TimelineEntry {
   id: string;
   /** Milliseconds since epoch (UTC) — the moment the thing happened. */
   at: number;
-  kind: "call" | "note" | "promise" | "email" | "task" | "status" | "payment" | "question";
+  kind: "call" | "note" | "promise" | "email" | "task" | "status" | "payment";
   title: string;
   /** Full text — never truncated in the data, only visually clamped. */
   body?: string | null;
@@ -47,11 +46,6 @@ const KIND_CONFIG: Record<
   task: { icon: <CheckSquare className="w-4 h-4" />, color: "bg-purple-50 text-purple-700 border-purple-200", label: "Task" },
   status: { icon: <AlertCircle className="w-4 h-4" />, color: "bg-rose-50 text-rose-700 border-rose-200", label: "Status" },
   payment: { icon: <Banknote className="w-4 h-4" />, color: "bg-teal-50 text-teal-700 border-teal-200", label: "Payment" },
-  question: {
-    icon: <HelpCircle className="w-4 h-4" />,
-    color: "bg-amber-50 text-amber-700 border-amber-200",
-    label: "Question",
-  },
 };
 
 const FILTERS: { key: "all" | TimelineEntry["kind"]; label: string }[] = [
@@ -63,7 +57,6 @@ const FILTERS: { key: "all" | TimelineEntry["kind"]; label: string }[] = [
   { key: "task", label: "Tasks" },
   { key: "status", label: "Status" },
   { key: "payment", label: "Payments" },
-  { key: "question", label: "Questions" },
 ];
 
 /** UTC month key, e.g. "2026-08" — the collections cycle is a calendar month. */

@@ -101,6 +101,7 @@ export const taskTypeColors: Record<string, string> = {
   "Escalation +30": "bg-red-100 text-red-700 border-red-200",
   "Contract Expiry": "bg-orange-100 text-orange-800 border-orange-200",
   Manual: "bg-gray-100 text-gray-700 border-gray-200",
+  Help: "bg-teal-100 text-teal-800 border-teal-200",
 };
 
 /** Credit rating badge colors (A best → E worst). */
