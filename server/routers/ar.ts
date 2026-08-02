@@ -251,6 +251,8 @@ async function createPromiseRecord(
     promisedDate: number;
     notes?: string;
     contactName?: string;
+    /** Skip the promise activity-log line (the caller already logs the same event). */
+    skipActivityLog?: boolean;
   }
 ) {
   let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
@@ -278,15 +280,19 @@ async function createPromiseRecord(
   );
   const groupKey = cust.customerGroup?.trim() ? cust.customerGroup.trim() : cust.name;
   const dateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
-  await db.addActivityLog({
-    groupName: groupKey,
-    customerId: cust.id,
-    activityType: "promise",
-    title: amt > 0 ? `Promise-to-Pay: ${amtLabel} by ${dateStr}` : `Promise-to-Pay by ${dateStr}`,
-    description: `${cust.name} — confirmed by phone${input.contactName ? ` (${input.contactName})` : ""}${input.notes ? ` — ${input.notes}` : ""}`,
-    createdBy: ctx.user.id,
-    createdAt: new Date(),
-  }).catch(() => {});
+  // A promise recorded during a call is already described by that call's own log
+  // line, so a second entry here would show the same event twice in the timeline.
+  if (!input.skipActivityLog) {
+    await db.addActivityLog({
+      groupName: groupKey,
+      customerId: cust.id,
+      activityType: "promise",
+      title: amt > 0 ? `Promise-to-Pay: ${amtLabel} by ${dateStr}` : `Promise-to-Pay by ${dateStr}`,
+      description: `${cust.name} — confirmed by phone${input.contactName ? ` (${input.contactName})` : ""}${input.notes ? ` — ${input.notes}` : ""}`,
+      createdBy: ctx.user.id,
+      createdAt: new Date(),
+    }).catch(() => {});
+  }
   return id;
 }
 
@@ -296,7 +302,15 @@ async function createPromiseRecord(
  */
 async function reschedulePromiseRecord(
   ctx: { user: { id: number; name: string | null } },
-  input: { group: string; promiseId: number; amount: number; promisedDate: number; notes?: string }
+  input: {
+    group: string;
+    promiseId: number;
+    amount: number;
+    promisedDate: number;
+    notes?: string;
+    /** Skip the reschedule activity-log line (the caller already logs the same event). */
+    skipActivityLog?: boolean;
+  }
 ) {
   const promise = await db.getPromise(input.promiseId);
   if (!promise || promise.status !== "Pending") return null;
@@ -320,15 +334,17 @@ async function reschedulePromiseRecord(
     input.promiseId,
     `${input.group}: ${rLabel} moved ${oldDateStr} → ${newDateStr} (${attemptOrdinal} attempt, no task touched)`
   );
-  await db.addActivityLog({
-    groupName: input.group,
-    customerId: promise.customerId,
-    activityType: "promise",
-    title: `Payment rescheduled: ${rLabel} — ${oldDateStr} → ${newDateStr} (${attemptOrdinal} attempt)`,
-    description: `${cust?.name ?? "—"} moved the promised payment${input.notes ? ` — ${input.notes}` : ""}`,
-    createdBy: ctx.user.id,
-    createdAt: new Date(),
-  }).catch(() => {});
+  if (!input.skipActivityLog) {
+    await db.addActivityLog({
+      groupName: input.group,
+      customerId: promise.customerId,
+      activityType: "promise",
+      title: `Payment rescheduled: ${rLabel} — ${oldDateStr} → ${newDateStr} (${attemptOrdinal} attempt)`,
+      description: `${cust?.name ?? "—"} moved the promised payment${input.notes ? ` — ${input.notes}` : ""}`,
+      createdBy: ctx.user.id,
+      createdAt: new Date(),
+    }).catch(() => {});
+  }
   return input.promiseId;
 }
 
@@ -5260,11 +5276,35 @@ export const callsRouter = router({
       if (input.outcome === "No Answer" && !input.confirmationStatus) {
         parts.push("Contact attempt — no one answered; status unchanged");
       }
+      /*
+       * One call = one timeline entry. The outcome the collector picked (promise,
+       * follow-up, broken...) is folded into this single line instead of being
+       * logged again by the promise helpers, which used to make one call appear
+       * twice in the communication timeline.
+       */
+      const outcomeLabel = (() => {
+        if (!input.confirmationStatus) return null;
+        const label = confirmationStatusLabel(input.confirmationStatus);
+        if (input.confirmationStatus === "Confirmed") {
+          const amt = input.confirmationAmount && input.confirmationAmount > 0
+            ? `€${Number(eur(input.confirmationAmount)).toLocaleString()}`
+            : "amount not stated";
+          const dateStr = input.promisedDate ? new Date(input.promisedDate).toLocaleDateString("en-GB") : "—";
+          return `${label}: ${amt} by ${dateStr}`;
+        }
+        if (input.confirmationStatus === "Pending Follow-up" && input.followUpDate) {
+          return `${label} on ${new Date(input.followUpDate).toLocaleDateString("en-GB")}`;
+        }
+        return label;
+      })();
+      if (outcomeLabel) parts.unshift(outcomeLabel);
       await db.addActivityLog({
         groupName: input.group,
         customerId: input.customerId,
-        activityType: "call",
-        title: `Call logged — ${input.outcome}`,
+        activityType: input.confirmationStatus === "Confirmed" ? "promise" : "call",
+        title: outcomeLabel
+          ? `Call — ${input.outcome} · ${outcomeLabel}`
+          : `Call logged — ${input.outcome}`,
         description: parts.length > 0 ? parts.join(" · ") : undefined,
         createdBy: ctx.user.id,
         createdAt: new Date(),
@@ -5302,6 +5342,8 @@ export const callsRouter = router({
               amount: input.confirmationAmount ?? 0,
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
+              // Already covered by this call's single log line.
+              skipActivityLog: true,
             });
           }
           if (!rescheduled) {
@@ -5312,6 +5354,7 @@ export const callsRouter = router({
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
               contactName: input.contactName,
+              skipActivityLog: true,
             });
           }
         }
