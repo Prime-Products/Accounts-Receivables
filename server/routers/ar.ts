@@ -1022,8 +1022,8 @@ export const customersRouter = router({
     // Contact activity per group: last call, who made it, how many attempts went
     // unanswered. This is what makes "who has been called" answerable from the list.
     const callSummary = await db.callSummaryByGroup().catch(() => new Map());
-    const managerByGroup = new Map<string, { id: number; name: string } | null>();
-    const collectorByGroup = new Map<string, { id: number; name: string } | null>();
+    const managerByGroup = new Map<string, { id: number; name: string; title: string | null } | null>();
+    const collectorByGroup = new Map<string, { id: number; name: string; title: string | null } | null>();
     const groups = new Map<
       string,
       {
@@ -1067,10 +1067,18 @@ export const customersRouter = router({
       }
       g.companyCount += 1;
       if (!managerByGroup.get(key) && c.accountManagerId && teamById.has(c.accountManagerId)) {
-        managerByGroup.set(key, { id: c.accountManagerId, name: teamById.get(c.accountManagerId)!.name });
+        managerByGroup.set(key, {
+          id: c.accountManagerId,
+          name: teamById.get(c.accountManagerId)!.name,
+          title: teamById.get(c.accountManagerId)!.title ?? null,
+        });
       }
       if (!collectorByGroup.get(key) && (c as any).collectorId && teamById.has((c as any).collectorId)) {
-        collectorByGroup.set(key, { id: (c as any).collectorId as number, name: teamById.get((c as any).collectorId)!.name });
+        collectorByGroup.set(key, {
+          id: (c as any).collectorId as number,
+          name: teamById.get((c as any).collectorId)!.name,
+          title: teamById.get((c as any).collectorId)!.title ?? null,
+        });
       }
       g.turnoverYtd += c.turnoverYtd ? Number(c.turnoverYtd) : 0;
       g.turnoverLastYear += c.turnoverLastYear ? Number(c.turnoverLastYear) : 0;
@@ -1394,11 +1402,21 @@ export const customersRouter = router({
       const teamMap = new Map(teamAll.map(m => [m.id, m]));
       const managerMember = members.find(m => (m as any).accountManagerId && teamMap.has((m as any).accountManagerId));
       const accountManager = managerMember
-        ? { id: (managerMember as any).accountManagerId as number, name: teamMap.get((managerMember as any).accountManagerId)!.name }
+        ? {
+            id: (managerMember as any).accountManagerId as number,
+            name: teamMap.get((managerMember as any).accountManagerId)!.name,
+            // The job title is shown next to the name on the card, so a reader
+            // knows whether they are looking at a Controller or a Manager.
+            title: teamMap.get((managerMember as any).accountManagerId)!.title ?? null,
+          }
         : null;
       const collectorMember = members.find(m => (m as any).collectorId && teamMap.has((m as any).collectorId));
       const collector = collectorMember
-        ? { id: (collectorMember as any).collectorId as number, name: teamMap.get((collectorMember as any).collectorId)!.name }
+        ? {
+            id: (collectorMember as any).collectorId as number,
+            name: teamMap.get((collectorMember as any).collectorId)!.name,
+            title: teamMap.get((collectorMember as any).collectorId)!.title ?? null,
+          }
         : null;
       return {
         group: input.group,
@@ -1723,10 +1741,18 @@ export const customersRouter = router({
     const team360 = await db.listTeamMembers(true);
     const teamMap360 = new Map(team360.map(m => [m.id, m]));
     const accountManager = (customer as any).accountManagerId && teamMap360.has((customer as any).accountManagerId)
-      ? { id: (customer as any).accountManagerId as number, name: teamMap360.get((customer as any).accountManagerId)!.name }
+      ? {
+          id: (customer as any).accountManagerId as number,
+          name: teamMap360.get((customer as any).accountManagerId)!.name,
+          title: teamMap360.get((customer as any).accountManagerId)!.title ?? null,
+        }
       : null;
    const collector = (customer as any).collectorId && teamMap360.has((customer as any).collectorId)
-     ? { id: (customer as any).collectorId as number, name: teamMap360.get((customer as any).collectorId)!.name }
+     ? {
+         id: (customer as any).collectorId as number,
+         name: teamMap360.get((customer as any).collectorId)!.name,
+         title: teamMap360.get((customer as any).collectorId)!.title ?? null,
+       }
      : null;
     const openTransfers360 = await listOpenWireTransfers(new Set([input.id]), new Map([[input.id, customer.name]]));
     const unallocatedPayments360 = openTransfers360.reduce((s, t) => s + t.unallocatedEur, 0);
