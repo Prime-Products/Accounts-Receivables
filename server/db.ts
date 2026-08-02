@@ -39,6 +39,7 @@ import {
   taskComments,
   taskInvoices,
   taskWatchers,
+  customerWatchers,
   userProfiles,
   users,
 } from "../drizzle/schema";
@@ -487,6 +488,43 @@ export async function removeTaskWatcher(taskId: number, memberId: number) {
   await db
     .delete(taskWatchers)
     .where(and(eq(taskWatchers.taskId, taskId), eq(taskWatchers.memberId, memberId)));
+}
+// ---------- Customer-group watchers ----------
+/**
+ * Watchers follow a group's receivables card without owning it: they see the
+ * account in their watch list, but the account manager and the collector remain
+ * the responsible people.
+ */
+export async function listCustomerWatchers(groupName: string) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: customerWatchers.id,
+      groupName: customerWatchers.groupName,
+      memberId: customerWatchers.memberId,
+      name: teamMembers.name,
+      title: teamMembers.title,
+    })
+    .from(customerWatchers)
+    .innerJoin(teamMembers, eq(customerWatchers.memberId, teamMembers.id))
+    .where(eq(customerWatchers.groupName, groupName))
+    .orderBy(customerWatchers.createdAt);
+}
+export async function addCustomerWatcher(groupName: string, memberId: number) {
+  const db = await requireDb();
+  const existing = await db
+    .select({ id: customerWatchers.id })
+    .from(customerWatchers)
+    .where(and(eq(customerWatchers.groupName, groupName), eq(customerWatchers.memberId, memberId)));
+  if (existing.length > 0) return existing[0].id;
+  const res = await db.insert(customerWatchers).values({ groupName, memberId });
+  return Number((res as any)[0].insertId);
+}
+export async function removeCustomerWatcher(groupName: string, memberId: number) {
+  const db = await requireDb();
+  await db
+    .delete(customerWatchers)
+    .where(and(eq(customerWatchers.groupName, groupName), eq(customerWatchers.memberId, memberId)));
 }
 
 // ---------- Task ↔ invoice attachments ----------

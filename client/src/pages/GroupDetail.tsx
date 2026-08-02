@@ -6,7 +6,7 @@ import SendEmailDialog from "@/components/SendEmailDialog";
 import { CommunicationPanel, CommunicationToggle, useCommunicationPanel } from "@/components/CommunicationPanel";
 import { buildTimeline } from "@/lib/timeline";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
-import { AccountManagerControl } from "@/components/AccountManagerControl";
+import { PeopleRow } from "@/components/PeopleRow";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import { Button } from "@/components/ui/button";
@@ -726,24 +726,27 @@ export default function GroupDetail() {
                   ↻ Carried over
                 </span>
               )}
-              {data && (
-                <AccountManagerControl
-                  manager={(data as any).accountManager ?? null}
-                  groupName={group}
-                />
-              )}
-              {data && (
-                <AccountManagerControl
-                  role="collector"
-                  manager={(data as any).collector ?? null}
-                  groupName={group}
-                />
-              )}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               Group card — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}
             </p>
             {data && <LastContactLine data={data as any} />}
+            {/*
+             * Who is on this account: the two responsible people plus watchers,
+             * shown as Team-style avatars instead of loose badges in the title
+             * where they read as filter chips.
+             */}
+            {data && (
+              <div className="mt-2 max-w-fit">
+                <PeopleRow
+                  manager={(data as any).accountManager ?? null}
+                  collector={(data as any).collector ?? null}
+                  watchers={(data as any).watchers ?? []}
+                  watcherGroupName={group}
+                  groupName={group}
+                />
+              </div>
+            )}
           </div>
         </div>
         {/*
