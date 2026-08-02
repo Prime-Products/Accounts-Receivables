@@ -480,7 +480,8 @@ export default function Customers() {
         (confirmationFilter === "not-contacted" && g.confirmationStatus === "Not Contacted") ||
         (confirmationFilter === "confirmed" && g.confirmationStatus === "Confirmed") ||
         (confirmationFilter === "pending" && g.confirmationStatus === "Pending Follow-up") ||
-        (confirmationFilter === "broken" && g.confirmationStatus === "Broken");
+        (confirmationFilter === "broken" && g.confirmationStatus === "Broken") ||
+        (confirmationFilter === "paid" && g.confirmationStatus === "Kept");
       const gManager = (g as any).accountManager as { id: number; name: string } | null;
       const matchesManager =
         managerFilter === "all" ||
@@ -778,6 +779,7 @@ export default function Customers() {
                 <SelectItem value="confirmed">Promise to Pay</SelectItem>
                 <SelectItem value="pending">Pending Follow-up</SelectItem>
                 <SelectItem value="broken">Did not confirm</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
               </SelectContent>
             </Select>
             {/*

@@ -19,10 +19,16 @@ export const COLLECTION_ACTION_BUCKET = {
   today: 1,
   /** A promise/follow-up date still ahead of us. */
   upcoming: 2,
-  /** A status that carries no date (Kept, Broken with no reschedule, …). */
+  /** A status that carries no date (Broken with no reschedule, …). */
   noDate: 3,
   /** Never contacted — nothing was ever agreed, so it is chased last. */
   notContacted: 4,
+  /**
+   * Paid ("Kept"): nothing to chase for the rest of the month, so these groups sit
+   * below even the never-contacted ones — they are the only rows a collector can
+   * safely skip today.
+   */
+  paid: 5,
 } as const;
 
 export type CollectionActionRow = {
@@ -34,6 +40,8 @@ export type CollectionActionRow = {
 };
 
 export function collectionActionBucket(row: CollectionActionRow): number {
+  // Paid closes the month: no date to act on, and nothing to chase.
+  if (row.confirmationStatus === "Kept") return COLLECTION_ACTION_BUCKET.paid;
   if ((row.confirmationStatus ?? "Not Contacted") === "Not Contacted") {
     return COLLECTION_ACTION_BUCKET.notContacted;
   }
@@ -55,7 +63,11 @@ export function collectionActionSortValue(row: CollectionActionRow): number {
   const bucket = collectionActionBucket(row);
   const DAY = 86_400_000;
   const bucketOffset = bucket * 1_000_000;
-  if (bucket === COLLECTION_ACTION_BUCKET.noDate || bucket === COLLECTION_ACTION_BUCKET.notContacted) {
+  if (
+    bucket === COLLECTION_ACTION_BUCKET.noDate ||
+    bucket === COLLECTION_ACTION_BUCKET.notContacted ||
+    bucket === COLLECTION_ACTION_BUCKET.paid
+  ) {
     return bucketOffset;
   }
   const days = Math.floor((row.actionDate ?? 0) / DAY);

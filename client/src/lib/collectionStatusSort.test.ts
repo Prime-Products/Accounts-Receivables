@@ -42,10 +42,19 @@ describe("collection action ordering", () => {
   it("places Not Contacted last, after every dated group", () => {
     const notContacted = { confirmationStatus: "Not Contacted", actionDate: null, actionDue: null };
     const future = { confirmationStatus: "Confirmed", actionDate: today + 90 * DAY, actionDue: null };
-    const noDate = { confirmationStatus: "Kept", actionDate: null, actionDue: null };
+    // A dateless status that still needs chasing: the customer refused and named no
+    // new date. Paid groups rank even lower than Not Contacted (see below).
+    const noDate = { confirmationStatus: "Broken", actionDate: null, actionDue: null };
     expect(collectionActionBucket(notContacted)).toBe(COLLECTION_ACTION_BUCKET.notContacted);
     expect(collectionActionSortValue(notContacted)).toBeGreaterThan(collectionActionSortValue(future));
     expect(collectionActionSortValue(notContacted)).toBeGreaterThan(collectionActionSortValue(noDate));
+  });
+
+  it("ranks Paid groups below everything else — nothing left to chase this month", () => {
+    const paid = { confirmationStatus: "Kept", actionDate: null, actionDue: null };
+    const notContacted = { confirmationStatus: "Not Contacted", actionDate: null, actionDue: null };
+    expect(collectionActionBucket(paid)).toBe(COLLECTION_ACTION_BUCKET.paid);
+    expect(collectionActionSortValue(paid)).toBeGreaterThan(collectionActionSortValue(notContacted));
   });
 
   it("treats a missing status as Not Contacted", () => {
@@ -80,4 +89,3 @@ describe("collection action ordering", () => {
     expect(sortByCollectionAction(rows, "desc").map(r => r.group)).toEqual(["never called", "due today"]);
   });
 });
-

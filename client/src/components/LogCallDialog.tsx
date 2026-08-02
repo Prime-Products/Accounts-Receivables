@@ -12,12 +12,19 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 const OUTCOMES = ["Reached", "No Answer"] as const;
-const CONFIRMATION_STATUSES = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken"] as const;
+/*
+ * What the customer answered on the phone. "Kept" is shown as **Paid**: the money
+ * has arrived (or was just sent), so the collections cycle for this month is
+ * closed — the group leaves the calling list until the next month starts, when it
+ * returns as "Not Contacted".
+ */
+const CONFIRMATION_STATUSES = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken", "Kept"] as const;
 const STATUS_LABELS: Record<string, string> = {
   "Not Contacted": "Not Contacted",
   Confirmed: "Promise to Pay",
   "Pending Follow-up": "Pending Follow-up",
   Broken: "Did not confirm",
+  Kept: "Paid",
 };
 
 
@@ -179,6 +186,10 @@ export default function LogCallDialog({
     } else if (outcome === "Reached" && confirmationStatus === "Pending Follow-up") {
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.followUpDate = followUpDate ? new Date(followUpDate).getTime() : undefined;
+    } else if (outcome === "Reached" && confirmationStatus === "Kept") {
+      // The amount that was paid, when the customer named one. It is what the
+      // month's "expected to collect" then rests on.
+      logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
     }
 
     logCall.mutate(logData);
@@ -448,6 +459,34 @@ export default function LogCallDialog({
               </div>
               <p className="text-[11px] leading-snug text-muted-foreground">
                 The follow-up date is kept on the group and shows on the Collections Desk when it arrives.
+              </p>
+            </div>
+          )}
+
+          {/*
+            "Paid" closes the month for this group: the promise is settled, any open
+            follow-up/check task is cancelled, and the group drops out of the calling
+            list — until the new month starts, when it comes back as Not Contacted.
+          */}
+          {confirmationStatus === "Kept" && (
+            <div className="space-y-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2.5">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Amount paid (EUR) — optional</Label>
+                  <Input
+                    className="h-9"
+                    type="number"
+                    value={confirmationAmount}
+                    onChange={e => setConfirmationAmount(e.target.value)}
+                    placeholder="leave empty if not stated"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] leading-snug text-emerald-900">
+                The group is marked <strong>Paid</strong> and leaves the calling list for the rest of the month. Any open
+                promise is closed as kept and its check task is cancelled. At the start of the next month the group
+                returns as <strong>Not Contacted</strong>.
               </p>
             </div>
           )}
