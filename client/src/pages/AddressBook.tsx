@@ -200,13 +200,13 @@ export default function AddressBook() {
     if (!key) return;
     setDeepLinked(true);
     // Groups and companies live on their own card page, so a deep link hands off
-    // there (Details tab) rather than opening the modal on top of the list.
+    // there rather than opening the modal on top of the list.
     if (entity === "group") {
-      navigate(`/groups/${encodeURIComponent(key)}?tab=details`);
+      navigate(`/groups/${encodeURIComponent(key)}`);
       return;
     }
     if (entity === "customer") {
-      navigate(`/customers/${key}?tab=details`);
+      navigate(`/customers/${key}`);
       return;
     }
     setTarget({ entity, recordKey: key, title: key });
@@ -1000,16 +1000,15 @@ export default function AddressBook() {
         }
         onRowClick={r => {
           const any = r as any;
-          // Groups and companies own a full card page (receivables + details), so
-          // the directory opens the very same card the Collections Desk opens,
-          // landing on its Details tab. Vessels and contacts have no page of
-          // their own and keep using the modal.
+          // Groups and companies own a full receivables card, so the directory
+          // opens the very same card the Collections Desk opens. Vessels and
+          // contacts have no page of their own and keep using the modal.
           if (entity === "group") {
-            navigate(`/groups/${encodeURIComponent(any.group)}?tab=details`);
+            navigate(`/groups/${encodeURIComponent(any.group)}`);
             return;
           }
           if (entity === "customer") {
-            navigate(`/customers/${any.id}?tab=details`);
+            navigate(`/customers/${any.id}`);
             return;
           }
           openRecord({

@@ -238,7 +238,9 @@ export function CommunicationTimeline({
               : "No entries match this filter."}
           </p>
         ) : (
-          <div className={`space-y-4 ${maxHeightClass} overflow-y-auto pr-1`}>
+          // Embedded (floating window / sheet): the host provides the single
+          // scroll container, so no second scrollbar is introduced here.
+          <div className={embedded ? "space-y-4 pr-1" : `space-y-4 ${maxHeightClass} overflow-y-auto pr-1`}>
             {months.map(([key, list]) => {
               // Current cycle open by default; earlier cycles folded unless searching.
               const isCurrent = key === currentMonth;
@@ -318,9 +320,11 @@ export function CommunicationTimeline({
 
   if (embedded) {
     return (
-      <div className="flex flex-col gap-2">
-        {header}
-        {list}
+      // h-full + min-h-0 so, inside the floating window, the header stays put
+      // and only the entry list scrolls.
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        <div className="shrink-0">{header}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{list}</div>
       </div>
     );
   }

@@ -1754,3 +1754,11 @@ master record. Same company, two screens. Unify them.
 - [x] Falls back to myself when no colleague is picked, and I cannot pick myself as the colleague being asked
 - [x] Same searchable picker used wherever team members are assigned (task detail, account manager)
 - [x] Tests for the search picker and the creator default
+
+## Receivables-only card + floating Communication window (requested 2/8)
+- [x] Remove the Receivables/Details tab bar from the group card and the company card
+- [x] Address Book deep links land on the card without the removed Details tab
+- [x] Communication opens as a floating window instead of a column, so the figures layout never reflows
+- [x] Window can be dragged by its title bar and resized from the corner; position/size remembered
+- [x] Window stays within the viewport and can be closed from its own header or the toolbar button
+- [x] Tests for the removed tabs and the floating window behaviour

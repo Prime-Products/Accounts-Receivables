@@ -18,7 +18,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RecordDetailsPanel } from "@/components/RecordDetailsPanel";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
@@ -430,13 +429,6 @@ export default function GroupDetail() {
   const [branch, setBranch] = useState<string>("all");
   const [agingFilter, setAgingFilter] = useState<AgingBucket>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  /**
-   * The card has two halves: the receivables view and the directory record.
-   * Kept in the URL (?tab=details) so a link can land straight on either one.
-   */
-  const [cardTab, setCardTab] = useState<"receivables" | "details">(() =>
-    new URLSearchParams(window.location.search).get("tab") === "details" ? "details" : "receivables",
-  );
   const [invoiceView, setInvoiceView] = useState<"list" | "byBranch" | "byVessel">("list");
   /** When set from the By vessel view, the list shows only this vessel's invoices ("none" = no vessel). */
   const [vesselDrill, setVesselDrill] = useState<string>("all");
@@ -811,37 +803,18 @@ export default function GroupDetail() {
         </div>
       </div>
 
-      <Tabs
-        value={cardTab}
-        onValueChange={v => {
-          const next = v === "details" ? "details" : "receivables";
-          setCardTab(next);
-          // Keep the address bar in step without re-mounting the page.
-          const url = new URL(window.location.href);
-          if (next === "details") url.searchParams.set("tab", "details");
-          else url.searchParams.delete("tab");
-          window.history.replaceState(null, "", url.toString());
-        }}
-      >
-        <TabsList>
-          <TabsTrigger value="receivables">Receivables</TabsTrigger>
-          <TabsTrigger value="details">Details</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="details" className="mt-4">
-          <RecordDetailsPanel entity="group" recordKey={group} showCollectionsLink={false} />
-        </TabsContent>
-
-        <TabsContent value="receivables" className="mt-4 space-y-4">
       {/*
-       * Two columns: the money flow on the left (KPIs → notes → aging →
-       * transactions) and the communication history as a sticky panel on the
-       * right. The history used to sit in the middle of the card and pushed
-       * aging and transactions below the fold; now it can also be hidden, and
-       * the choice is remembered.
+       * The group card is a receivables card, full stop: no top-level tabs. The
+       * directory record lives in the Address Book, so nothing here competes
+       * with the money view.
        */}
-      <div className="flex gap-4 items-start">
-      <div className="flex-1 min-w-0 space-y-4">
+      <div className="mt-4 space-y-4">
+      {/*
+       * One uninterrupted money flow at full width: KPIs → notes → aging →
+       * transactions. The communication history floats above the page in a
+       * movable window, so it never reflows or squeezes these figures.
+       */}
+      <div className="space-y-4">
       {isLoading || !data ? (
         <div className="space-y-3">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1344,8 +1317,6 @@ export default function GroupDetail() {
         }
       />
       </div>
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }

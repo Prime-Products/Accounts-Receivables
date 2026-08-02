@@ -157,10 +157,12 @@ describe("address book UI contract", () => {
   });
 
   it("opens the same card page as the Collections Desk for groups and companies", () => {
-    // A group/company row lands on its card page, Details tab — the very same
-    // card the Collections Desk opens, so both entry points share one screen.
-    expect(page).toMatch(/navigate\(`\/groups\/\$\{encodeURIComponent\(any\.group\)\}\?tab=details`\)/);
-    expect(page).toMatch(/navigate\(`\/customers\/\$\{any\.id\}\?tab=details`\)/);
+    // A group/company row lands on its receivables card — the very same card the
+    // Collections Desk opens, so both entry points share one screen. There is no
+    // longer a Details tab to deep-link into.
+    expect(page).toMatch(/navigate\(`\/groups\/\$\{encodeURIComponent\(any\.group\)\}`\)/);
+    expect(page).toMatch(/navigate\(`\/customers\/\$\{any\.id\}`\)/);
+    expect(page).not.toContain("?tab=details");
   });
 
   it("marks ERP-owned columns read-only so the field picker can flag them", () => {
@@ -185,15 +187,15 @@ describe("address book UI contract", () => {
     expect(read("client/src/components/AddressBookRecordDialog.tsx")).toContain("<RecordDetailsPanel");
   });
 
-  it("shows the same details panel as a Details tab on the group and company cards", () => {
+  it("the directory record lives in the Address Book, not as a tab on the cards", () => {
+    // The group/company pages are receivables cards only: the details panel is
+    // reached through the Address Book modal, which keeps the money view free of
+    // competing tabs.
+    expect(read("client/src/components/AddressBookRecordDialog.tsx")).toContain("<RecordDetailsPanel");
     for (const p of ["client/src/pages/GroupDetail.tsx", "client/src/pages/CustomerDetail.tsx"]) {
       const src = read(p);
-      expect(src).toContain('import { RecordDetailsPanel } from "@/components/RecordDetailsPanel"');
-      expect(src).toContain('<TabsTrigger value="receivables">Receivables</TabsTrigger>');
-      expect(src).toContain('<TabsTrigger value="details">Details</TabsTrigger>');
-      expect(src).toContain("<RecordDetailsPanel");
-      // The tab is addressable so a link can open either half of the card.
-      expect(src).toContain('searchParams.set("tab", "details")');
+      expect(src).not.toContain("RecordDetailsPanel");
+      expect(src).not.toContain('<TabsTrigger value="details">Details</TabsTrigger>');
     }
   });
 
