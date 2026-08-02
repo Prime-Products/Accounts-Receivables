@@ -4538,6 +4538,13 @@ export const callsRouter = router({
         customerId: z.number(),
         recipientEmail: z.string().email(),
         recipientName: z.string().optional(),
+        /**
+         * Extra recipients picked in the dialog (the chips after the first one).
+         * The first chip stays in `recipientEmail` so old history rows and the
+         * activity log keep the same shape; the rest travel here and are appended
+         * to the log line so the team can see everyone who was written to.
+         */
+        ccEmails: z.array(z.string().email()).max(20).optional(),
         templateType: z.enum(["SOA", "Payment Reminder", "Overdue Notice", "Friendly Reminder", "Final Notice", "Statement", "Custom"]),
         subject: z.string().min(1).max(255),
         body: z.string().min(1),
@@ -4551,10 +4558,13 @@ export const callsRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
         }
 
+        const cc = (input.ccEmails ?? []).filter(e => e !== input.recipientEmail);
+        const allRecipients = [input.recipientEmail, ...cc];
+
         // Record email in history with "Pending" status
         const emailRecord = await db.addEmailHistory({
           customerId: input.customerId,
-          recipientEmail: input.recipientEmail,
+          recipientEmail: allRecipients.join(", ").slice(0, 255),
           recipientName: input.recipientName,
           templateType: input.templateType,
           subject: input.subject,
@@ -4574,7 +4584,7 @@ export const callsRouter = router({
           "Send Email",
           "email",
           input.customerId,
-          `To: ${input.recipientEmail}, Template: ${input.templateType}`
+          `To: ${allRecipients.join(", ")}, Template: ${input.templateType}`
         );
 
         // Log to activity log
@@ -4584,7 +4594,7 @@ export const callsRouter = router({
           customerId: input.customerId,
           activityType: "email",
           title: `Email sent: ${input.subject}`,
-          description: `To: ${input.recipientEmail} (${input.templateType})`,
+          description: `To: ${allRecipients.join(", ")} (${input.templateType})`,
           createdBy: ctx.user.id,
           createdAt: new Date(),
         }).catch(() => {});

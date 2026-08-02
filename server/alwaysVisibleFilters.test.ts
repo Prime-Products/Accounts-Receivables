@@ -78,4 +78,29 @@ describe("Send Email — searchable contact list", () => {
   it("resets the search when the dialog closes", () => {
     expect(sendEmail).toContain("setContactSearch(\"\")");
   });
+
+  it("selects multiple recipients as removable chips (first is To, rest are Cc)", () => {
+    expect(sendEmail).toContain("const [recipients, setRecipients]");
+    expect(sendEmail).toContain("toggleContact");
+    expect(sendEmail).toContain("removeRecipient");
+    expect(sendEmail).toContain("recipients[0]?.email");
+    expect(sendEmail).toContain("idx === 0 ? \"To\" : \"Cc\"");
+  });
+
+  it("passes the extra recipients to the mailto cc field and to the server", () => {
+    expect(sendEmail).toContain("cc=${encodeURIComponent(cc.join(\",\"))}");
+    expect(sendEmail).toContain("ccEmails: cc");
+  });
+
+  it("allows an ad-hoc address that is not in the address book", () => {
+    expect(sendEmail).toContain("addManualEmail");
+    expect(sendEmail).toContain("Other email address…");
+  });
+
+  it("server accepts and records the cc list", () => {
+    const router = read("server/routers/ar.ts");
+    expect(router).toContain("ccEmails: z.array(z.string().email()).max(20).optional()");
+    expect(router).toContain("const allRecipients = [input.recipientEmail, ...cc]");
+    expect(router).toContain("allRecipients.join(\", \")");
+  });
 });
