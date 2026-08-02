@@ -1,7 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
-import GroupNotesDialog from "@/components/GroupNotesDialog";
 import { BankDetails } from "@/components/BankDetails";
 import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
@@ -180,55 +179,30 @@ export default function CustomerDetail() {
             {customer.paymentTermsDays} days
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <NewTaskDialog
-            defaultCustomerId={id}
-            hideCustomerPicker
-            trigger={
-              <Button size="sm" className="gap-1.5">
-                <Plus className="h-4 w-4" /> New Task
-              </Button>
-            }
-          />
-          <GroupNotesDialog group={data.groupKey} />
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAskOpen(true)}>
-            <HelpCircle className="h-4 w-4" /> Ask for help
-          </Button>
-          {/* Same New Task dialog, pre-typed as Help — one flow for asking a colleague. */}
-          <NewTaskDialog
-            defaultCustomerId={id}
-            hideCustomerPicker
-            defaultType="Help"
-            defaultTitle={`Help needed: ${data.customer.name}`}
-            trigger={<Button className="hidden">Hidden</Button>}
-            open={askOpen}
-            onOpenChange={setAskOpen}
-          />
-          <GroupAiSummaryDialog group={data.groupKey} />
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => exportSoa.mutate({ report: "soa", format: "pdf", customerId: id })}
-            disabled={exportSoa.isPending}
-          >
-            <FileDown className="h-4 w-4" /> SOA (PDF)
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => exportSoa.mutate({ report: "soa", format: "xlsx", customerId: id })}
-            disabled={exportSoa.isPending}
-          >
-            <FileDown className="h-4 w-4" /> SOA (Excel)
-          </Button>
-          <Dialog open={promiseOpen} onOpenChange={setPromiseOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5">
-                <HandCoins className="h-4 w-4" /> Promise-to-Pay
-              </Button>
-            </DialogTrigger>
+        {/*
+         * Same two clusters as the group card: what I DO with this company, and
+         * what I TAKE AWAY. Notes live in Collection Notes, not in this bar.
+         */}
+        <div className="flex items-start gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
+            <NewTaskDialog
+              defaultCustomerId={id}
+              hideCustomerPicker
+              trigger={
+                <Button size="sm" variant="outline" className="gap-1.5 bg-background">
+                  <Plus className="h-4 w-4" /> New Task
+                </Button>
+              }
+            />
+            <Button variant="outline" size="sm" className="gap-1.5 bg-background" onClick={() => setAskOpen(true)}>
+              <HelpCircle className="h-4 w-4" /> Ask for help
+            </Button>
+            <Dialog open={promiseOpen} onOpenChange={setPromiseOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 bg-background">
+                  <HandCoins className="h-4 w-4" /> Promise-to-Pay
+                </Button>
+              </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Record Promise-to-Pay</DialogTitle>
@@ -268,7 +242,39 @@ export default function CustomerDetail() {
                 </Button>
               </DialogFooter>
             </DialogContent>
-          </Dialog>
+            </Dialog>
+          </div>
+          <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
+            <GroupAiSummaryDialog group={data.groupKey} />
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 bg-background"
+              onClick={() => exportSoa.mutate({ report: "soa", format: "pdf", customerId: id })}
+              disabled={exportSoa.isPending}
+            >
+              <FileDown className="h-4 w-4" /> SOA PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 bg-background"
+              onClick={() => exportSoa.mutate({ report: "soa", format: "xlsx", customerId: id })}
+              disabled={exportSoa.isPending}
+            >
+              <FileDown className="h-4 w-4" /> SOA Excel
+            </Button>
+          </div>
+          {/* Same New Task dialog, pre-typed as Help — one flow for asking a colleague. */}
+          <NewTaskDialog
+            defaultCustomerId={id}
+            hideCustomerPicker
+            defaultType="Help"
+            defaultTitle={`Help needed: ${data.customer.name}`}
+            trigger={<Button className="hidden">Hidden</Button>}
+            open={askOpen}
+            onOpenChange={setAskOpen}
+          />
         </div>
       </div>
 

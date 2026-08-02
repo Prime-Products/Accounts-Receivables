@@ -2,7 +2,6 @@ import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import CollectionNotesBox from "@/components/CollectionNotesBox";
-import GroupNotesDialog from "@/components/GroupNotesDialog";
 import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
 import { CommunicationTimeline } from "@/components/CommunicationTimeline";
@@ -14,7 +13,6 @@ import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFil
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -25,7 +23,7 @@ import { RecordDetailsPanel } from "@/components/RecordDetailsPanel";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, HelpCircle, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, HelpCircle, Layers, Mail, Pencil, Phone, Plus, Sparkles, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { useMemo, useState } from "react";
@@ -96,7 +94,12 @@ function EditableGroupForecast({ group, value, reasoning }: { group: string; val
   );
 }
 
-/** Actions dropdown menu for group-level interactions */
+/**
+ * Group-level actions. The four everyday actions sit side by side next to Log
+ * Call instead of hiding in a menu: a collector should see what they can do
+ * without opening anything first. Notes are deliberately absent — they belong
+ * in Collection Notes on the card, which is where the user keeps them.
+ */
 function ActionsMenu({
   companies,
   defaultCustomerId,
@@ -108,7 +111,6 @@ function ActionsMenu({
 }) {
   const [taskOpen, setTaskOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
-  const [noteOpen, setNoteOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
   // `?logCall=1` opens the Log Call dialog straight away, so a call can be
   // logged from a link (e.g. from a task reminder) without extra clicks.
@@ -122,27 +124,15 @@ function ActionsMenu({
       <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700 text-white" onClick={() => setCallOpen(true)}>
         <Phone className="h-4 w-4" /> Log Call
       </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button size="sm" variant="outline" className="gap-1.5">
-            <Plus className="h-4 w-4" /> Actions
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => setTaskOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" /> New Task
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setNoteOpen(true)}>
-            <StickyNote className="h-4 w-4 mr-2" /> Add Note
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setAskOpen(true)}>
-            <HelpCircle className="h-4 w-4 mr-2" /> Ask for help
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setEmailOpen(true)}>
-            <StickyNote className="h-4 w-4 mr-2" /> Send Email
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEmailOpen(true)}>
+        <Mail className="h-4 w-4" /> Send Email
+      </Button>
+      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setTaskOpen(true)}>
+        <Plus className="h-4 w-4" /> New Task
+      </Button>
+      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAskOpen(true)}>
+        <HelpCircle className="h-4 w-4" /> Ask for help
+      </Button>
 
       <NewTaskDialog
         customerIds={companies.map(c => c.id)}
@@ -160,8 +150,6 @@ function ActionsMenu({
         open={emailOpen}
         onOpenChange={setEmailOpen}
       />
-
-      <GroupNotesDialog group={group} open={noteOpen} onOpenChange={setNoteOpen} />
 
       {/*
        * "Ask for help" is the same New Task dialog, pre-typed as Help — one flow,
@@ -733,65 +721,73 @@ export default function GroupDetail() {
             {data && <LastContactLine data={data as any} />}
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        {/*
+         * The toolbar is read in three clusters, each in its own tinted group so
+         * the eye can find them without reading every label: what I DO with this
+         * customer, what I TAKE AWAY (exports/summary), and what I SEE (filters).
+         */}
+        <div className="flex items-start gap-2 flex-wrap">
           {data && data.companies.length > 0 && (
-            <>
-              {/* Actions Dropdown */}
+            <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
               <ActionsMenu
                 key={companyId}
                 companies={data.companies}
                 defaultCustomerId={defaultActionCustomerId}
                 group={group}
               />
-              <GroupAiSummaryDialog group={group} />
-            </>
+            </div>
           )}
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => doExport("pdf")} disabled={exportSoa.isPending}>
-            <FileDown className="h-4 w-4" /> SOA (PDF)
-          </Button>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => doExport("xlsx")} disabled={exportSoa.isPending}>
-            <FileDown className="h-4 w-4" /> SOA (Excel)
-          </Button>
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <Select value={companyId} onValueChange={setCompanyId}>
-            <SelectTrigger className="w-64 h-9">
-              <SelectValue placeholder="Company" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All companies (group)</SelectItem>
-              {(data?.companies ?? []).map(c => (
-                <SelectItem key={c.id} value={String(c.id)}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={branch} onValueChange={setBranch}>
-            <SelectTrigger className="w-44 h-9">
-              <SelectValue placeholder="Branch" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All branches</SelectItem>
-              {(data?.branches ?? []).map(b => (
-                <SelectItem key={b} value={b}>
-                  {branchShort(b)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-44 h-9">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {(["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const).map(s => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
+            {data && data.companies.length > 0 && <GroupAiSummaryDialog group={group} />}
+            <Button variant="outline" size="sm" className="gap-1.5 bg-background" onClick={() => doExport("pdf")} disabled={exportSoa.isPending}>
+              <FileDown className="h-4 w-4" /> SOA PDF
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1.5 bg-background" onClick={() => doExport("xlsx")} disabled={exportSoa.isPending}>
+              <FileDown className="h-4 w-4" /> SOA Excel
+            </Button>
+          </div>
+          <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1 pl-2">
+            <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <Select value={companyId} onValueChange={setCompanyId}>
+              <SelectTrigger className="w-56 h-8 bg-background text-xs">
+                <SelectValue placeholder="Company" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All companies (group)</SelectItem>
+                {(data?.companies ?? []).map(c => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={branch} onValueChange={setBranch}>
+              <SelectTrigger className="w-36 h-8 bg-background text-xs">
+                <SelectValue placeholder="Branch" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All branches</SelectItem>
+                {(data?.branches ?? []).map(b => (
+                  <SelectItem key={b} value={b}>
+                    {branchShort(b)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-36 h-8 bg-background text-xs">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                {(["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const).map(s => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
