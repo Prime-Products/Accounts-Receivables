@@ -741,7 +741,7 @@ export default function Customers() {
                 <SelectItem value="not-contacted">Not Contacted</SelectItem>
                 <SelectItem value="confirmed">Promise to Pay</SelectItem>
                 <SelectItem value="pending">Pending Follow-up</SelectItem>
-                <SelectItem value="broken">Broken</SelectItem>
+                <SelectItem value="broken">Did not confirm</SelectItem>
                 <SelectItem value="escalated">Escalated</SelectItem>
               </SelectContent>
             </Select>

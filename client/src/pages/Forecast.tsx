@@ -646,7 +646,7 @@ export default function Forecast() {
                               : "bg-sky-100 text-sky-800 border-sky-200"
                         }
                       >
-                        {p.status}
+                        {p.status === "Broken" ? "Did not pay" : p.status}
                      </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-52 truncate">{p.notes || "—"}</TableCell>
@@ -664,7 +664,7 @@ export default function Forecast() {
                             Kept
                           </Button>
                          <Button size="sm" variant="ghost" className="text-red-600" onClick={() => setPromiseStatus.mutate({ id: p.id, status: "Broken" })}>
-                            Broken
+                            Did not pay
                          </Button>
                         </div>
                       )}

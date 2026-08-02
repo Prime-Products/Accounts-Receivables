@@ -18,7 +18,7 @@ const STATUS_LABELS: Record<string, string> = {
   "Not Contacted": "Not Contacted",
   Confirmed: "Promise to Pay",
   "Pending Follow-up": "Pending Follow-up",
-  Broken: "Broken",
+  Broken: "Did not confirm",
 };
 
 
@@ -448,7 +448,7 @@ export default function LogCallDialog({
             </div>
           )}
 
-          {/* Broken - show action options */}
+          {/* "Did not confirm" (stored as Broken) — offer the two ways forward */}
           {confirmationStatus === "Broken" && (
             <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-2.5">
               <p className="text-xs font-medium text-red-900">Choose next action:</p>
@@ -479,7 +479,7 @@ export default function LogCallDialog({
             <MentionTextarea
               value={notes}
               onChange={setNotes}
-              placeholder={confirmationStatus === "Broken" ? "Why is the payment not confirmed?" : "What was discussed…"}
+              placeholder={confirmationStatus === "Broken" ? "Why did they not confirm?" : "What was discussed…"}
               rows={2}
               className="resize-y min-h-[56px]"
             />
