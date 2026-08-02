@@ -1641,14 +1641,30 @@ export const customersRouter = router({
         createdAt: Date.now(),
       });
       await audit(ctx, "Add Group Note", "groupNote", id, `Group ${input.group}`);
-      await db.addActivityLog({
+      const noteActivityId = await db.addActivityLog({
         groupName: input.group,
         activityType: "note",
         title: "Note added",
         description: input.content.substring(0, 200),
         createdBy: ctx.user.id,
         createdAt: new Date(),
-      }).catch(() => {});
+      }).catch(() => undefined);
+      // Colleagues named with @ are notified through the mentions inbox; no task is created.
+      const mentioned = parseMentions(input.content);
+      if (mentioned.length > 0) {
+        await db
+          .addNoteMentions(
+            mentioned.map(m => ({
+              memberId: m.memberId,
+              groupName: input.group,
+              source: "groupNote" as const,
+              activityId: typeof noteActivityId === "number" ? noteActivityId : undefined,
+              excerpt: input.content.trim().slice(0, 500),
+              createdBy: ctx.user.id,
+            })),
+          )
+          .catch(() => 0);
+      }
       return { id };
     }),
   deleteGroupNote: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
@@ -3945,6 +3961,69 @@ export const teamRouter = router({
       };
     });
   }),
+  /**
+   * Sign-in accounts a team member can be linked to. Without a link, "@Name" has
+   * no inbox to reach, so the Team screen has to be able to offer this list.
+   * `linkedToMemberId` marks accounts already taken by another member.
+   */
+  linkableUsers: protectedProcedure.query(async () => {
+    const [allUsers, members] = await Promise.all([
+      db.listUsers().catch(() => [] as any[]),
+      db.listTeamMembers(true).catch(() => [] as any[]),
+    ]);
+    const takenBy = new Map<number, { id: number; name: string }>();
+    for (const m of members as any[]) {
+      if (m.userId) takenBy.set(Number(m.userId), { id: Number(m.id), name: String(m.name) });
+    }
+    return (allUsers as any[])
+      .map(u => ({
+        id: Number(u.id),
+        name: String(u.name ?? u.email ?? `User ${u.id}`),
+        email: (u.email ?? null) as string | null,
+        lastSignedIn: (u.lastSignedIn ?? null) as Date | null,
+        linkedToMemberId: takenBy.get(Number(u.id))?.id ?? null,
+        linkedToMemberName: takenBy.get(Number(u.id))?.name ?? null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }),
+  /**
+   * Link (or unlink) a team member to a sign-in account. The relationship is
+   * one-to-one: an account already linked to somebody else is rejected rather
+   * than silently moved, so two members can never share one inbox.
+   */
+  setUserLink: protectedProcedure
+    .input(z.object({ id: z.number(), userId: z.number().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await db.getTeamMemberById(input.id);
+      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+      if (input.userId !== null) {
+        const allUsers = await db.listUsers().catch(() => [] as any[]);
+        if (!(allUsers as any[]).some(u => Number(u.id) === input.userId)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Sign-in account not found" });
+        }
+        const members = await db.listTeamMembers(true).catch(() => [] as any[]);
+        const clash = (members as any[]).find(
+          m => Number(m.userId) === input.userId && Number(m.id) !== input.id,
+        );
+        if (clash) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `That sign-in account is already linked to ${clash.name}`,
+          });
+        }
+      }
+      await db.updateTeamMember(input.id, { userId: input.userId } as any);
+      await audit(
+        ctx,
+        "Link Team Member Login",
+        "teamMember",
+        input.id,
+        input.userId === null
+          ? `"${member.name}" unlinked from its sign-in account`
+          : `"${member.name}" linked to sign-in account #${input.userId}`,
+      );
+      return { success: true as const };
+    }),
 });
 
 export const forecastRouter = router({

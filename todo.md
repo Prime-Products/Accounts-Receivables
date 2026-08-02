@@ -1509,6 +1509,9 @@ master record. Same company, two screens. Unify them.
 - [x] Review freshness is visible instead: the Desk badge shows "Last reviewed"/"Never reviewed" (who + when), and the "Action due" filter (Any / Due today or earlier / Past due only) with due-first ordering is the daily review list
 
 ## Operating model — how the team should work in the hub (user request)
+- [x] Link team members to their login accounts so the @mentions inbox works (Kostas → user 1, Faye → user 40680029; Theofilos has no login yet)
+- [x] Make the link visible/manageable in the Team screen instead of only in the database (Sign-in account column, one-to-one guard)
+- [x] Group Notes now support @mentions too (was the only note field without them)
 - [x] Audit trail cleaned: 53,147 of 53,781 rows were written by vitest users; only 634 real rows remained. Snapshot cleanup now sweeps audit rows, a global vitest teardown sweeps the rest, and `dataIntegrity.test.ts` fails if rows from earlier runs survive
 - [x] Audit every screen as built today: 13 pages / 45 components inventoried in `docs/usage-measurement-2026-08.md` (Dashboard, Desk with Groups+Companies, Group detail, Customer detail, Address Book, Invoices, Vessels, Contracts, Tasks, Wire Transfers, Reports, Team, Settings)
 - [x] Audit the data model behind collaboration: two identity lists coexist — `team_members` (3, none linked to a login) and `users` (7 real logins, 1 admin); notes/mentions/comments UI is fully built but carries 0 rows
