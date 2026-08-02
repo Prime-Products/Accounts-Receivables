@@ -1535,6 +1535,13 @@ master record. Same company, two screens. Unify them.
 - [x] Keyboard accessible (native button = Enter/Space) with aria-expanded and aria-controls
 - [x] When the sidebar is collapsed to icons, all items stay visible since there is no header to click
 - [x] Test coverage extended in server/sidebarSections.test.ts (5 tests)
+
+## Bug: "Open promise exists" reschedule choice does nothing
+- [x] The radio ("Reschedule this promise" / "Create a separate new promise") sent `promiseMode`, but logCall's input schema accepts `reschedulePromiseId` and ignored `promiseMode` entirely — so BOTH options created a duplicate promise row and the reschedule counter never incremented
+- [x] Decision: keep the radio (both cases are real business events) and wire it properly — the dialog now sends `reschedulePromiseId` when "reschedule" is chosen
+- [x] Kept the warning line itself (open promise + reschedule count is real, useful information)
+- [x] Test added in server/promiseRescheduleWiring.test.ts (2 tests): reschedule updates in place and increments the counter; "separate promise" adds a row
+- [x] Evidence found in live data: EVALEND (TANKERS) has 2 identical open promises (ids 8520001 / 8550001, same date, reschedule count 0), created 65 seconds apart — exactly the duplicate the radio was meant to prevent
 - [x] Audit trail cleaned: 53,147 of 53,781 rows were written by vitest users; only 634 real rows remained. Snapshot cleanup now sweeps audit rows, a global vitest teardown sweeps the rest, and `dataIntegrity.test.ts` fails if rows from earlier runs survive
 - [x] Audit every screen as built today: 13 pages / 45 components inventoried in `docs/usage-measurement-2026-08.md` (Dashboard, Desk with Groups+Companies, Group detail, Customer detail, Address Book, Invoices, Vessels, Contracts, Tasks, Wire Transfers, Reports, Team, Settings)
 - [x] Audit the data model behind collaboration: two identity lists coexist — `team_members` (3, none linked to a login) and `users` (7 real logins, 1 admin); notes/mentions/comments UI is fully built but carries 0 rows
