@@ -53,10 +53,21 @@ describe("Ask for help — creator and colleague search", () => {
     expect(dialog).toContain("excludeIds={isHelp && myMemberId != null ? [myMemberId] : undefined}");
   });
 
-  it("leaving the colleague empty keeps the task on your own list", () => {
-    // The server already falls back to the caller's member record.
+  it("a help request cannot be sent without naming the colleague", () => {
+    expect(dialog).toContain('toast.error(isHelp ? "Pick the colleague you are asking" : "Assign the task to someone")');
+    expect(dialog).toContain("pick the colleague you need an answer from");
+  });
+
+  it("an ordinary task always has an owner, pre-filled with the current user", () => {
+    // Pre-filled in the dialog…
+    expect(dialog).toContain("if (assigneeId == null && myMemberId != null) setAssigneeId(myMemberId);");
+    // …the field cannot be emptied…
+    expect(dialog).toContain("onChange={id => setAssigneeId(id ?? (isHelp ? null : myMemberId))}");
+    // …the label is marked required, no longer "optional"…
+    expect(dialog).not.toContain("Assigned to (optional)");
+    expect(dialog).toContain('{isHelp ? "Ask a colleague" : "Assigned to"} <span className="text-destructive">*</span>');
+    // …and the server keeps its own fallback to the caller's member record.
     expect(router).toContain("const own = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);");
-    expect(dialog).toContain("leave empty to keep the task on your own list");
   });
 
   it("the requester stays a watcher when the task goes to someone else", () => {
