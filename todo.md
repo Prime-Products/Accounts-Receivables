@@ -1727,3 +1727,4 @@ master record. Same company, two screens. Unify them.
 - [x] Collections Desk: filter row wrapped in a Filters cluster, view tabs kept separate from filters
 - [x] Collections Desk: Run Forecast kept as the single primary action in an Actions cluster
 - [x] Active-filter indicator with a Clear button on Invoices and Collections Desk
+- [x] Remove AI Summary: button + dialog on both cards, groupAiSummary procedure, its test file

@@ -1,6 +1,5 @@
 import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
-import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import CollectionNotesBox from "@/components/CollectionNotesBox";
 import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
@@ -23,7 +22,7 @@ import { RecordDetailsPanel } from "@/components/RecordDetailsPanel";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, HelpCircle, Layers, Mail, Pencil, Phone, Plus, Sparkles, Trash2, History, MoreVertical } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, HelpCircle, Layers, Mail, Pencil, Phone, Plus, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { useMemo, useState } from "react";
@@ -738,7 +737,6 @@ export default function GroupDetail() {
             </div>
           )}
           <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
-            {data && data.companies.length > 0 && <GroupAiSummaryDialog group={group} />}
             <Button variant="outline" size="sm" className="gap-1.5 bg-background" onClick={() => doExport("pdf")} disabled={exportSoa.isPending}>
               <FileDown className="h-4 w-4" /> SOA PDF
             </Button>
