@@ -3,7 +3,7 @@ import NewTaskDialog from "@/components/NewTaskDialog";
 import { BankDetails } from "@/components/BankDetails";
 import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
-import { AccountManagerControl } from "@/components/AccountManagerControl";
+import { PeopleRow } from "@/components/PeopleRow";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import InstallmentToggle from "@/components/InstallmentToggle";
@@ -177,22 +177,22 @@ export default function CustomerDetail() {
                 <Layers className="h-3 w-3" /> {customer.customerGroup}
               </Badge>
             )}
-            <AccountManagerControl
-              manager={(data as any).accountManager ?? null}
-              customerId={id}
-              onChanged={() => utils.customers.get360.invalidate({ id })}
-            />
-            <AccountManagerControl
-              role="collector"
-              manager={(data as any).collector ?? null}
-              customerId={id}
-              onChanged={() => utils.customers.get360.invalidate({ id })}
-            />
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             {customer.code} · VAT {customer.vatNumber || "—"} · {customer.email || "no email"} · terms{" "}
             {customer.paymentTermsDays} days
           </p>
+          {/* Responsible people + watchers, same row as on the group card. */}
+          <div className="mt-2 max-w-fit">
+            <PeopleRow
+              manager={(data as any).accountManager ?? null}
+              collector={(data as any).collector ?? null}
+              watchers={(data as any).watchers ?? []}
+              watcherGroupName={(data as any).watcherGroupKey ?? data.groupKey}
+              customerId={id}
+              onChanged={() => utils.customers.get360.invalidate({ id })}
+            />
+          </div>
         </div>
         {/*
          * Same two clusters as the group card: what I DO with this company, and

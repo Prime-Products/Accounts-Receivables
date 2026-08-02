@@ -302,7 +302,22 @@ export const taskWatchers = mysqlTable("task_watchers", {
 }, t => [index("idx_task_watchers_taskId").on(t.taskId)]);
 export type TaskWatcher = typeof taskWatchers.$inferSelect;
 export type InsertTaskWatcher = typeof taskWatchers.$inferInsert;
-
+/**
+ * Team members following a customer group's receivables card. Watchers are
+ * interested parties (sales, accounting, management) who want visibility on the
+ * account without owning it — ownership stays with the account manager and the
+ * collector. Stored per group name so it survives company-level churn.
+ */
+export const customerWatchers = mysqlTable("customer_watchers", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Group name (customers.group) the watcher follows. */
+  groupName: varchar("groupName", { length: 191 }).notNull(),
+  /** team_members.id of the watcher. */
+  memberId: int("memberId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [index("idx_customer_watchers_group").on(t.groupName)]);
+export type CustomerWatcher = typeof customerWatchers.$inferSelect;
+export type InsertCustomerWatcher = typeof customerWatchers.$inferInsert;
 export const onHoldStatuses = ["Under Review", "Eligible for On Hold", "On Hold", "Legal", "Rejected", "Resolved"] as const;
 
 export const onHoldProposals = mysqlTable("on_hold_proposals", {

@@ -1768,3 +1768,6 @@ master record. Same company, two screens. Unify them.
 - [x] Manager / collector chips on group and company cards show the job title next to the name (e.g. "Kostas Vanos · Credit Controller")
 - [x] Log Call: add "Paid" customer response — sets the group collection status to Paid, closes the open promise as kept, and resets to Not Contacted at the start of the next month
 - [x] Send Email: removed the template-source note, the invoice/outstanding recap and the SOA how-it-works banner to keep the dialog compact
+- [x] Team data: added Evaggelia Theologou, Maria Theologou, Tsouflias Konstantinos, Lena Varsami (titles left blank for the user to fill) and fixed the "Credid Controller" typo
+- [x] Group/company card: show responsible people as an avatar People row (Team-list style) with Controller/Account Manager titles
+- [x] Group/company card: add removable Watchers (team members following the receivables card), stored per group

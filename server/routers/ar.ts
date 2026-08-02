@@ -1481,6 +1481,9 @@ export const customersRouter = router({
             title: teamMap.get((collectorMember as any).collectorId)!.title ?? null,
           }
         : null;
+      // Watchers follow the account without owning it — shown as a small avatar
+      // stack next to the two responsible people.
+      const watchers = await db.listCustomerWatchers(input.group).catch(() => []);
       return {
         group: input.group,
         companies,
@@ -1488,6 +1491,7 @@ export const customersRouter = router({
         aging,
         accountManager,
         collector,
+        watchers,
         behavior: groupBehavior,
         rating: ratingResult,
         holdStatus: groupHoldStatus,
@@ -1821,10 +1825,16 @@ export const customersRouter = router({
     const unallocatedPayments360 = openTransfers360.reduce((s, t) => s + t.unallocatedEur, 0);
     const openCreditNotes360 = await listOpenCreditNotes(new Set([input.id]), new Map([[input.id, customer.name]]));
     const openCreditNotesEur360 = openCreditNotes360.reduce((s, c) => s + c.openEur, 0);
+    // Watchers are kept per group, so the company card shows the same people as
+    // its group card — one list of interested colleagues per account.
+    const watcherGroupKey = (customer.customerGroup ?? "").trim() || customer.name;
+    const watchers360 = await db.listCustomerWatchers(watcherGroupKey).catch(() => []);
    return {
      customer,
      accountManager,
      collector,
+     watchers: watchers360,
+     watcherGroupKey,
       invoices: invoices.map(i => ({
         ...i,
         vesselName: i.vesselId ? (vesselName360.get(i.vesselId) ?? null) : null,
@@ -2452,6 +2462,34 @@ export const customersRouter = router({
           `${customer.name} → ${collectorName ?? "unassigned"}`);
       }
       return { success: true, collectorName };
+    }),
+  /**
+   * Watchers of a group's receivables card — colleagues who need visibility on
+   * the account (sales, accounting, management) without owning the collection.
+   * Ownership stays with the account manager and the collector.
+   */
+  watchers: protectedProcedure
+    .input(z.object({ groupName: z.string().min(1) }))
+    .query(async ({ input }) => db.listCustomerWatchers(input.groupName)),
+  addWatcher: protectedProcedure
+    .input(z.object({ groupName: z.string().min(1), memberId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await db.getTeamMemberById(input.memberId);
+      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+      if (!member.active) throw new TRPCError({ code: "BAD_REQUEST", message: "Team member is inactive" });
+      const id = await db.addCustomerWatcher(input.groupName, input.memberId);
+      await audit(ctx, "Add Watcher", "customerGroup", undefined,
+        `${member.name} now watches "${input.groupName}"`);
+      return { id, name: member.name };
+    }),
+  removeWatcher: protectedProcedure
+    .input(z.object({ groupName: z.string().min(1), memberId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await db.getTeamMemberById(input.memberId).catch(() => null);
+      await db.removeCustomerWatcher(input.groupName, input.memberId);
+      await audit(ctx, "Remove Watcher", "customerGroup", undefined,
+        `${member?.name ?? `#${input.memberId}`} no longer watches "${input.groupName}"`);
+      return { ok: true };
     }),
 });
 
