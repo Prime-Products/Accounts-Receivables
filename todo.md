@@ -1767,3 +1767,4 @@ master record. Same company, two screens. Unify them.
 - [x] New Task: "Assigned to" is mandatory, pre-filled with the logged-in user, and Help requests require naming the colleague
 - [x] Manager / collector chips on group and company cards show the job title next to the name (e.g. "Kostas Vanos · Credit Controller")
 - [x] Log Call: add "Paid" customer response — sets the group collection status to Paid, closes the open promise as kept, and resets to Not Contacted at the start of the next month
+- [x] Send Email: removed the template-source note, the invoice/outstanding recap and the SOA how-it-works banner to keep the dialog compact
