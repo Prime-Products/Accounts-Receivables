@@ -53,48 +53,6 @@ function daysSince(ts: number): number {
   return Math.floor((Date.now() - ts) / 86400000);
 }
 
-/**
- * Contact recency for a group: when it was last called, by whom, and how many of
- * the logged calls went unanswered. Colour follows staleness so a desk scan shows
- * neglected accounts: never called → amber, over 14 days → amber, otherwise plain.
- */
-const LastContactCell = memo(function LastContactCell({
-  at,
-  by,
-  calls,
-  noAnswer,
-}: {
-  at: number | null;
-  by: string | null;
-  calls: number;
-  noAnswer: number;
-}) {
-  if (!at) {
-    return (
-      <span className="text-[11px] italic text-amber-600" title="No call has ever been logged for this group">
-        never called
-      </span>
-    );
-  }
-  const age = daysSince(at);
-  const stale = age > 14;
-  return (
-    <div className="min-w-0">
-      <div
-        className={`text-xs truncate ${stale ? "text-amber-600 font-medium" : ""}`}
-        title={`Last call ${new Date(at).toLocaleString("en-GB")}${by ? ` by ${by}` : ""} · ${calls} call(s) logged${noAnswer > 0 ? `, ${noAnswer} unanswered` : ""}`}
-      >
-        {age === 0 ? "today" : age === 1 ? "yesterday" : `${age}d ago`}
-      </div>
-      {by && <div className="text-[11px] text-muted-foreground truncate">{by}</div>}
-      {noAnswer > 0 && (
-        <div className="text-[11px] text-muted-foreground">
-          {noAnswer} unanswered
-        </div>
-      )}
-    </div>
-  );
-});
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
 
 /**
@@ -392,7 +350,6 @@ function PlainHead({ label, col, cols, className }: { label?: string; col: strin
 const GROUP_COL_DEFAULTS: Record<string, number> = {
   group: 240,
   confirmation: 150,
-  lastContact: 150,
   promised: 100,
   open: 120,
   overdue: 120,
@@ -991,7 +948,6 @@ export default function Customers() {
                   <TableRow>
                     <PlainHead label="Group" col="group" cols={groupCols} />
                     <PlainHead label="Confirmation" col="confirmation" cols={groupCols} />
-                    <PlainHead label="Last Contact" col="lastContact" cols={groupCols} />
                     <PlainHead label="Promised" col="promised" cols={groupCols} className="text-right" />
                     <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} col="open" cols={groupCols} />
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} col="overdue" cols={groupCols} />
@@ -1004,7 +960,6 @@ export default function Customers() {
                 <TableBody>
                   <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
                     <TableCell>TOTAL ({filteredGroups.length} groups)</TableCell>
-                    <TableCell></TableCell>
                     <TableCell></TableCell>
                     <TableCell></TableCell>
                     <TableCell className="text-right font-mono">{fmtEur(groupTotals.open)}</TableCell>
@@ -1084,20 +1039,6 @@ export default function Customers() {
                           promiseDate={(g as any).confirmationPromiseDate ?? null}
                           actionDate={(g as any).actionDate ?? null}
                           actionDue={(g as any).actionDue ?? null}
-                        />
-                      </TableCell>
-                      {/*
-                        Contact tracking: the whole point of logging calls is being able
-                        to answer "who spoke to this customer, and when". Unanswered
-                        attempts are called out separately, since a run of them means the
-                        account is not really being reached at all.
-                      */}
-                      <TableCell className="overflow-hidden">
-                        <LastContactCell
-                          at={(g as any).lastCallAt ?? null}
-                          by={(g as any).lastCallBy ?? null}
-                          calls={(g as any).callCount ?? 0}
-                          noAnswer={(g as any).noAnswerCount ?? 0}
                         />
                       </TableCell>
                       {/*
