@@ -1520,6 +1520,14 @@ master record. Same company, two screens. Unify them.
 - [x] No duplication when the call ends on the same status it started on
 - [x] Dialog shows an amber notice "Recorded as Did not confirm → …" with a link back, so the collector sees what will be logged
 - [x] Tests: server/notConfirmedInTimeline.test.ts covers all three cases
+
+## Sidebar restructure into sections
+- [x] Grouped the navigation: Dashboard (ungrouped), COLLECTIONS (Collections Desk, Invoices, Wire Transfers), CRM (Address Book, Vessels, Contracts), MANAGEMENT (Reports, Tasks, Team, Settings)
+- [x] CRM section added, holding the who/what data: Address Book, Vessels, Contracts
+- [x] Vessels and Contracts kept reachable under CRM instead of being orphaned
+- [x] Section headers are non-clickable uppercase muted labels, hidden when the sidebar collapses to icons (tooltips carry the meaning there)
+- [x] Active-route highlight verified on every item
+- [x] Test server/sidebarSections.test.ts pins the section order, the item-to-section mapping, and fails if any routed page becomes unreachable from the sidebar
 - [x] Audit trail cleaned: 53,147 of 53,781 rows were written by vitest users; only 634 real rows remained. Snapshot cleanup now sweeps audit rows, a global vitest teardown sweeps the rest, and `dataIntegrity.test.ts` fails if rows from earlier runs survive
 - [x] Audit every screen as built today: 13 pages / 45 components inventoried in `docs/usage-measurement-2026-08.md` (Dashboard, Desk with Groups+Companies, Group detail, Customer detail, Address Book, Invoices, Vessels, Contracts, Tasks, Wire Transfers, Reports, Team, Settings)
 - [x] Audit the data model behind collaboration: two identity lists coexist — `team_members` (3, none linked to a login) and `users` (7 real logins, 1 admin); notes/mentions/comments UI is fully built but carries 0 rows

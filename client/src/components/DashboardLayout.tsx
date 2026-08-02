@@ -11,6 +11,8 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -46,19 +48,46 @@ import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-  { icon: Users, label: "Collections Desk", path: "/customers" },
-  { icon: Contact, label: "Address Book", path: "/address-book" },
-  { icon: FileText, label: "Invoices", path: "/invoices" },
-  { icon: Ship, label: "Vessels", path: "/vessels" },
-  { icon: ScrollText, label: "Contracts", path: "/contracts" },
-  { icon: ListChecks, label: "Tasks", path: "/tasks" },
-  { icon: Banknote, label: "Wire Transfers", path: "/wire-transfers" },
-  { icon: BarChart3, label: "Reports", path: "/reports" },
-  { icon: UserCog, label: "Team", path: "/team" },
-  { icon: Settings, label: "Settings", path: "/settings" },
+/*
+ * Navigation is grouped by what the user is trying to do, not by data type:
+ * chasing money (Collections), knowing who and what we deal with (CRM), and
+ * running the operation (Management). Dashboard stands alone above the groups
+ * because it is the landing view, not a category.
+ */
+const navSections: { label: string | null; items: { icon: typeof LayoutDashboard; label: string; path: string }[] }[] = [
+  {
+    label: null,
+    items: [{ icon: LayoutDashboard, label: "Dashboard", path: "/" }],
+  },
+  {
+    label: "Collections",
+    items: [
+      { icon: Users, label: "Collections Desk", path: "/customers" },
+      { icon: FileText, label: "Invoices", path: "/invoices" },
+      { icon: Banknote, label: "Wire Transfers", path: "/wire-transfers" },
+    ],
+  },
+  {
+    label: "CRM",
+    items: [
+      { icon: Contact, label: "Address Book", path: "/address-book" },
+      { icon: Ship, label: "Vessels", path: "/vessels" },
+      { icon: ScrollText, label: "Contracts", path: "/contracts" },
+    ],
+  },
+  {
+    label: "Management",
+    items: [
+      { icon: BarChart3, label: "Reports", path: "/reports" },
+      { icon: ListChecks, label: "Tasks", path: "/tasks" },
+      { icon: UserCog, label: "Team", path: "/team" },
+      { icon: Settings, label: "Settings", path: "/settings" },
+    ],
+  },
 ];
+
+/** Flat list for lookups (active item, page title) — the grouping is presentational. */
+const menuItems = navSections.flatMap(s => s.items);
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
@@ -210,26 +239,40 @@ function DashboardLayoutContent({
           </SidebarHeader>
 
           <SidebarContent className="gap-0">
-            <SidebarMenu className="px-2 py-1">
-              {menuItems.map(item => {
-                const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
-                return (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => setLocation(item.path)}
-                      tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
-                    >
-                      <item.icon
-                        className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
-                      />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
+            {navSections.map((section, i) => (
+              <SidebarGroup key={section.label ?? `section-${i}`} className="px-0 py-0">
+                {/*
+                  Section headers are labels, not controls: they never navigate and
+                  disappear when the sidebar collapses to icons, where the tooltip
+                  on each button carries the meaning instead.
+                */}
+                {section.label ? (
+                  <SidebarGroupLabel className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 group-data-[collapsible=icon]:hidden">
+                    {section.label}
+                  </SidebarGroupLabel>
+                ) : null}
+                <SidebarMenu className="px-2 py-1">
+                  {section.items.map(item => {
+                    const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
+                    return (
+                      <SidebarMenuItem key={item.path}>
+                        <SidebarMenuButton
+                          isActive={isActive}
+                          onClick={() => setLocation(item.path)}
+                          tooltip={item.label}
+                          className={`h-10 transition-all font-normal`}
+                        >
+                          <item.icon
+                            className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
+                          />
+                          <span>{item.label}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroup>
+            ))}
           </SidebarContent>
 
           <SidebarFooter className="p-3">
