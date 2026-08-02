@@ -8,11 +8,12 @@
  * hover away, and clicking still re-assigns the person. Watchers are the avatar
  * stack plus a bare "+" — no label, no "none", no button text.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { watcherColor, watcherInitials } from "@/components/WatcherStack";
 import { Plus, X, UserRound, HandCoins } from "lucide-react";
 import { toast } from "sonner";
@@ -172,6 +173,12 @@ export function PeopleRow({
     onError: e => toast.error(e.message),
   });
   const watching = new Set(watchers.map(w => w.memberId));
+  // Everyone on the team who is not already watching this account.
+  const { data: teamMembers } = trpc.team.list.useQuery();
+  const candidates = useMemo(
+    () => (teamMembers ?? []).filter(m => !watching.has(m.id)),
+    [teamMembers, watchers],
+  );
 
   return (
     <span className="inline-flex flex-wrap items-center gap-x-1 gap-y-1">
@@ -223,22 +230,40 @@ export function PeopleRow({
           </TooltipTrigger>
           <TooltipContent side="bottom">Add watcher</TooltipContent>
         </Tooltip>
-        <PopoverContent className="w-80" align="start">
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Add watcher</div>
-            <p className="text-xs text-muted-foreground">
-              Watchers follow this account's receivables without owning it — useful for sales,
-              accounting or management who need visibility.
-            </p>
-            <TeamMemberSelect
-              value={null}
-              excludeIds={Array.from(watching)}
-              emptyLabel="Search colleagues…"
-              onChange={id => {
-                if (id != null) addWatcher.mutate({ groupName: watcherGroupName, memberId: id });
-              }}
-            />
-          </div>
+        {/*
+         * The "+" used to open a card explaining what a watcher is, above a combobox
+         * that needed a second click to reveal the names. Adding a watcher is a
+         * two-second action for someone who already knows the concept, so the
+         * popover now IS the searchable list: click, type, pick.
+         */}
+        <PopoverContent className="w-64 p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search colleague…" autoFocus />
+            <CommandList>
+              <CommandEmpty>No colleague found.</CommandEmpty>
+              <CommandGroup>
+                {candidates.map(m => (
+                  <CommandItem
+                    key={m.id}
+                    // Name and title are both searchable, so "finance" finds the controller.
+                    value={`${m.name} ${m.title ?? ""}`}
+                    onSelect={() => addWatcher.mutate({ groupName: watcherGroupName, memberId: m.id })}
+                  >
+                    <span
+                      className="mr-2 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-white select-none"
+                      style={{ backgroundColor: watcherColor(m.name) }}
+                    >
+                      {watcherInitials(m.name)}
+                    </span>
+                    <span className="truncate">
+                      {m.name}
+                      {m.title ? <span className="text-muted-foreground"> · {m.title}</span> : null}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
         </PopoverContent>
       </Popover>
     </span>

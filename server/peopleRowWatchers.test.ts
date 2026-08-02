@@ -47,9 +47,25 @@ describe("people row on the receivables cards", () => {
   it("lets a colleague be added and removed as watcher", () => {
     expect(peopleRow).toContain("customers.addWatcher.useMutation");
     expect(peopleRow).toContain("customers.removeWatcher.useMutation");
-    // Already-watching members are not offered again.
-    expect(peopleRow).toContain("excludeIds={Array.from(watching)}");
     expect(peopleRow).toContain("Remove ${w.name} from watchers".replace("${w.name}", "${w.name}"));
+  });
+
+  /*
+   * The "+" used to open a card explaining what a watcher is, above a combobox
+   * that needed a second click before any name appeared. Picking a colleague is a
+   * two-second action, so the popover is now the searchable list itself.
+   */
+  it("opens the watcher picker straight into a searchable name list", () => {
+    expect(peopleRow).toContain("<CommandInput");
+    expect(peopleRow).toContain("Search colleague…");
+    expect(peopleRow).toContain("autoFocus");
+    expect(peopleRow).toContain("candidates.map");
+    expect(peopleRow).toContain("addWatcher.mutate({ groupName: watcherGroupName, memberId: m.id })");
+    // Already-watching colleagues are filtered out of the list.
+    expect(peopleRow).toContain("filter(m => !watching.has(m.id))");
+    // No explanatory paragraph and no intermediate combobox for watchers.
+    expect(peopleRow).not.toContain("Watchers follow this account's receivables");
+    expect(peopleRow).not.toContain('emptyLabel="Search colleagues…"');
   });
 
   it("reduces the watcher affordance to a bare plus sign", () => {
