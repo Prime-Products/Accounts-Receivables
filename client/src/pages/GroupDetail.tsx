@@ -772,19 +772,6 @@ export default function GroupDetail() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-36 h-8 bg-background text-xs">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                {(["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const).map(s => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
         </div>
       </div>
@@ -1052,6 +1039,21 @@ export default function GroupDetail() {
             <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Transactions ({scopeLabel})</CardTitle>
               <div className="flex items-center gap-2">
+              {/* Invoice status belongs with the transactions it filters, not with the
+                  card-level scope filters (company / branch) above. */}
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-32 h-7 bg-background text-xs">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  {(["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const).map(s => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 size="sm"
                 variant={showPaid ? "secondary" : "ghost"}

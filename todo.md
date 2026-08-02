@@ -1729,3 +1729,4 @@ master record. Same company, two screens. Unify them.
 - [x] Active-filter indicator with a Clear button on Invoices and Collections Desk
 - [x] Remove AI Summary: button + dialog on both cards, groupAiSummary procedure, its test file
 - [x] Fix "Never contacted" shown while a Promise to Pay exists: callSummaryByGroup now counts every logged call (a call whose outcome is a confirmed promise is stored as activityType "promise")
+- [x] Move the invoice status filter from the group-card scope filters into the Transactions toolbar (it filters invoices, not the card)
