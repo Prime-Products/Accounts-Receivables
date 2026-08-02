@@ -1585,6 +1585,10 @@ master record. Same company, two screens. Unify them.
 - [x] Remove the "Next action" dialog (broken promise → follow-up / new promise / escalate) so no status is set outside Log Call
 - [x] Vitest: `statusOnlyViaLogCall.test.ts` (7 tests) pins Log Call as the only status path
 - [x] Remove the "no task created" wording from every toast / hint after logging a call
+
+## Timeline duplication bug (reported 2/8)
+- [x] One logged call with a promise shows two timeline rows ("Call logged" + "Promise-to-Pay") — merged into a single entry that names the call and its outcome
+- [x] Vitest: `logCallSingleEntry.test.ts` (4 tests) — a call that records a promise produces exactly one timeline entry
 - [x] "Action due" filter in the filter row (Any due date / Due today or earlier / Past due only)
 - [x] Default Desk ordering puts due rows first (past due, then due today, oldest date first), and due rows are tinted red/amber
 - [x] Removed the `customers.callBackList` procedure
