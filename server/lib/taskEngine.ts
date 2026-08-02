@@ -27,7 +27,8 @@ export async function runTaskEngine(now = Date.now()) {
         title: `${off.label}: ${customer?.name ?? "Customer"} — Invoice ${inv.invoiceNumber}`,
         description: `SOP ${off.label} (${off.days} days after due date) for invoice ${inv.invoiceNumber}.`,
         dueDate: inv.dueDate + off.days * 24 * 60 * 60 * 1000,
-      });
+        customerGroup: customer ? (customer.customerGroup ?? "").trim() || customer.name : null,
+      } as any);
       created++;
     }
   }
@@ -49,7 +50,8 @@ export async function runTaskEngine(now = Date.now()) {
           title: `Contract expiring: ${customer?.name ?? "Customer"} — ${c.contractNumber}`,
           description: `Contract "${c.title}" expires on ${new Date(c.endDate).toISOString().slice(0, 10)}. Initiate renewal discussion.`,
           dueDate: c.endDate - CONTRACT_EXPIRY_LEAD_MS,
-        });
+          customerGroup: customer ? (customer.customerGroup ?? "").trim() || customer.name : null,
+        } as any);
         created++;
       }
     } else if (now >= c.endDate && status !== "Expired") {

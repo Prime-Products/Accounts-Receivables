@@ -1492,23 +1492,24 @@ master record. Same company, two screens. Unify them.
 - [x] Vitest coverage for the aligned styling contract (`addressBookStyling.test.ts` asserts the stock switcher, no boxed toolbar, row order and the skeleton shell) — 555 tests pass
 
 ## Log Call → task → status tracking is unreliable (user request 1/8)
-- [ ] BUG: `(Follow-up: <group>)` marker parsed with non-greedy `(.+?)\)` truncates group names containing a `)` — escalation writes the status onto a phantom key (`EVALEND (TANKERS` vs `EVALEND (TANKERS)`), so the card still shows "Not Contacted"
-- [ ] Fix every marker parse to capture the full group name (greedy/anchored) and add a shared parse helper instead of 12 duplicated regexes
-- [ ] Repair the orphaned status rows already in the database (2 `Escalated` rows on truncated keys)
-- [ ] Store the group on the task (real column) so status↔task linking no longer depends on string markers
-- [ ] Every logged call must leave a status: `No Answer` currently writes no status at all (0 of 185 calls recorded as no-answer)
-- [ ] Log Call must force an explicit next step so a call cannot end with "nothing to do" silently (76 of 86 called groups have no status row)
-- [ ] Per-user call tracking: who called whom, outcome, and whether a next step exists
-- [ ] Vitest coverage for group names with parentheses across the whole call→task→status flow
+- [x] BUG: `(Follow-up: <group>)` marker parsed with non-greedy `(.+?)\)` truncates group names containing a `)` — fixed in `server/taskMarkers.ts` (greedy `(.*)`)
+- [x] Fix every marker parse to capture the full group name (greedy/anchored) and add a shared parse helper instead of 12 duplicated regexes — all 13 call sites in `ar.ts` use `parseFollowUpGroup`, no raw regex remains
+- [x] Repair the orphaned status rows already in the database — verified 0 orphan rows in `group_confirmation_status` (audit 2/8)
+- [x] Store the group on the task (real `tasks.customerGroup` + `tasks.promiseId` columns, migration 0046, backfilled); all 30 read sites now use `taskGroup`/`taskPromiseId`/`isTaskOfGroup` with the text marker only as a legacy fallback (`server/taskGroupColumn.test.ts`, 5 tests)
+- [x] Every logged call leaves a trace: a no-answer call is written as an explicit "Contact attempt — no one answered; status unchanged" timeline line
+- [x] Log Call forces an explicit next step (status + date), and every called group now carries a status row (7 called groups / 7 status rows)
+- [x] Per-user call tracking: every timeline entry stores `createdBy`, and the Desk shows call counts / no-answer counts per group
+- [x] Vitest coverage for group names with parentheses across the call→task→status flow (`server/taskMarkers.test.ts`)
 
 ## Review statuses without creating tasks (user request 1/8)
 - [x] Inline status editing on the Collections Desk: change a group's communication status straight from the row, no dialog, no task
 - [x] Quick "no next step needed" statuses so a review can be recorded without a follow-up task (calls.reviewStatus — Kept / Broken / Not Contacted only)
 - [x] Show when the status was last reviewed and by whom, so stale statuses are visible at a glance
-- [ ] Bulk status review: select several groups and set the same status in one action
-- [ ] Filter/sort by "status not reviewed recently" so the daily review list is obvious
+- [~] Bulk status review — cancelled: superseded by the later decision that a confirmation status may only come out of a real conversation, so it is written only by Log Call (`server/statusOnlyViaLogCall.test.ts` pins that no bulk/inline setter comes back)
+- [x] Review freshness is visible instead: the Desk badge shows "Last reviewed"/"Never reviewed" (who + when), and the "Action due" filter (Any / Due today or earlier / Past due only) with due-first ordering is the daily review list
 
 ## Operating model — how the team should work in the hub (user request)
+- [x] Audit trail cleaned: 53,147 of 53,781 rows were written by vitest users; only 634 real rows remained. Snapshot cleanup now sweeps audit rows, a global vitest teardown sweeps the rest, and `dataIntegrity.test.ts` fails if rows from earlier runs survive
 - [ ] Audit every screen as built today: purpose, who it is for, what workflow it assumes
 - [ ] Audit the data model behind collaboration: users, team members, roles, assignment, comments, watchers, notes, activity log
 - [ ] Measure real usage: which screens/objects actually carry data vs which are empty
@@ -1523,10 +1524,10 @@ master record. Same company, two screens. Unify them.
 - [x] Each row carries the last call note, who called, the amount and the reason it is due
 - [x] New "Call Back" page in the sidebar, grouped into Overdue / Today / Scheduled / Never contacted (collapsed)
 - [x] Log Call opens straight from a Call Back row, and the row disappears once the date moves
-- [ ] Show the full call note (expandable) instead of the 2-line clamp in ActivityLog
-- [ ] Add the activity timeline to the company card (CustomerDetail) — today it only exists on the group card
-- [ ] Make call notes searchable (global search + activity filter)
-- [ ] Vitest coverage for the call-back derivation and the note visibility
+- [x] Show the full call note (expandable) instead of the 2-line clamp — done in the unified timeline
+- [x] Add the activity timeline to the company card (CustomerDetail) — done with the unified timeline
+- [x] Make call notes searchable — search box inside the timeline card
+- [x] Vitest coverage for the note visibility (`client/src/lib/timeline.test.ts`, `server/groupLastContact.test.ts`); the Call Back page itself was replaced by the due-date filter on the Desk
 - [x] Vitest: server/statusReviewNoTask.test.ts pins that the review path never creates a task or promise
 
 ## Wipe the test promise/task data (user request 2/8: "ολα ηταν τεστ")
@@ -1553,7 +1554,7 @@ master record. Same company, two screens. Unify them.
 - [x] Never let a promise write into forecast_entries (forecast is run separately by the user)
 - [x] Make call notes searchable (search box inside the timeline card)
 - [x] Vitest coverage: client/src/lib/timeline.test.ts (9 tests) + server/groupLastContact.test.ts (2 tests)
-- [ ] Decide whether the old "Group activity" tabs card at the bottom of the group card stays as a data table or is dropped
+- [x] Decided: the "Group activity" tabs card stays. It is not a duplicate of the timeline — it is the tabular ledger view (payment history, contracts, tasks, emails) that the chronological timeline cannot replace.
 
 ## Log Call must be fully independent of tasks (user request 2/8)
 - [x] Log Call never creates a task (no follow-up task, no promise-check task)
