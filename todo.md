@@ -1555,6 +1555,16 @@ master record. Same company, two screens. Unify them.
 - [x] Vitest coverage: client/src/lib/timeline.test.ts (9 tests) + server/groupLastContact.test.ts (2 tests)
 - [ ] Decide whether the old "Group activity" tabs card at the bottom of the group card stays as a data table or is dropped
 
+## Log Call must be fully independent of tasks (user request 2/8)
+- [x] Log Call never creates a task (no follow-up task, no promise-check task)
+- [x] Log Call never cancels or edits an existing task
+- [x] Status badges always open Log Call — never redirect to a linked task
+- [x] Remove the "active case → open its task instead" gate (LogCallLauncher deleted)
+- [x] Keep the call itself recorded (activity log + status + amount + promise) with no task side effects
+- [x] Remove "Assigned to" from the Log Call dialog (a call assigns no work)
+- [x] Vitest: server/logCallNoTasks.test.ts (7 tests) — task list byte-identical before/after a call
+- [x] Update/remove obsolete tests that asserted calls create tasks (logCallAssignee, followUpContact removed; confirmationStatus, confirmationTaskLink, followUpCleanup, followUpActions, activeCommunication updated)
+
 ## Track who spoke to which customer (user request 1/8)
 - [x] "No Answer" is a real outcome: records a contact attempt, leaves the status alone, creates no task
 - [x] Groups payload exposes lastCallAt / lastCallBy / callCount / noAnswerCount

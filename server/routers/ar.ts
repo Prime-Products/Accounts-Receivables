@@ -248,6 +248,103 @@ async function createGroupPromise(
  * assignee always wins; otherwise the task stays with the colleague who logged
  * the call (their own team-member record), so nothing is silently unassigned.
  */
+/**
+ * Record a Promise-to-Pay WITHOUT touching the task list.
+ *
+ * Logging a call must never create work items (user requirement 2/8), but the
+ * promise itself is part of what was said on the phone, so it is still stored and
+ * written to the timeline. Any follow-up task is created by the user, if wanted.
+ */
+async function createPromiseRecord(
+  ctx: { user: { id: number; name: string | null } },
+  input: {
+    group: string;
+    customerId?: number;
+    amount?: number;
+    promisedDate: number;
+    notes?: string;
+    contactName?: string;
+  }
+) {
+  let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
+  if (!cust) {
+    const customers = await db.listCustomers();
+    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+    if (members.length === 0) return null;
+    cust = members[0];
+  }
+  const amt = input.amount && input.amount > 0 ? input.amount : 0;
+  const amtLabel = amt > 0 ? `€${Number(eur(amt)).toLocaleString()}` : "";
+  const id = await db.createPromise({
+    customerId: cust.id,
+    promisedDate: input.promisedDate,
+    amount: eur(amt),
+    notes: input.notes,
+    createdBy: ctx.user.id,
+  });
+  await audit(
+    ctx,
+    "Record Promise-to-Pay",
+    "promiseToPay",
+    id,
+    `Customer #${cust.id} promised ${amt > 0 ? `€${eur(amt)}` : "payment (no amount)"} by ${new Date(input.promisedDate).toISOString().slice(0, 10)} (from logged call, no task created)`
+  );
+  const groupKey = cust.customerGroup?.trim() ? cust.customerGroup.trim() : cust.name;
+  const dateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
+  await db.addActivityLog({
+    groupName: groupKey,
+    customerId: cust.id,
+    activityType: "promise",
+    title: amt > 0 ? `Promise-to-Pay: ${amtLabel} by ${dateStr}` : `Promise-to-Pay by ${dateStr}`,
+    description: `${cust.name} — confirmed by phone${input.contactName ? ` (${input.contactName})` : ""}${input.notes ? ` — ${input.notes}` : ""}`,
+    createdBy: ctx.user.id,
+    createdAt: new Date(),
+  }).catch(() => {});
+  return id;
+}
+
+/**
+ * Move an existing open promise to a new date/amount, again without touching any
+ * task: the customer rescheduled, which is a fact about the promise, not work.
+ */
+async function reschedulePromiseRecord(
+  ctx: { user: { id: number; name: string | null } },
+  input: { group: string; promiseId: number; amount: number; promisedDate: number; notes?: string }
+) {
+  const promise = await db.getPromise(input.promiseId);
+  if (!promise || promise.status !== "Pending") return null;
+  const cust = await db.getCustomer(promise.customerId);
+  const effAmount = input.amount > 0 ? input.amount : Number(promise.amount ?? 0);
+  const rLabel = effAmount > 0 ? `€${Number(eur(effAmount)).toLocaleString()}` : "payment";
+  const oldDateStr = new Date(promise.promisedDate).toLocaleDateString("en-GB");
+  const newDateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
+  const newRescheduleCount = (promise.rescheduleCount ?? 0) + 1;
+  const attemptOrdinal = getOrdinalSuffix(newRescheduleCount + 1);
+  await db.updatePromise(input.promiseId, {
+    promisedDate: input.promisedDate,
+    amount: eur(effAmount),
+    notes: input.notes ?? promise.notes,
+    rescheduleCount: newRescheduleCount,
+  });
+  await audit(
+    ctx,
+    "Reschedule Promise-to-Pay",
+    "promiseToPay",
+    input.promiseId,
+    `${input.group}: ${rLabel} moved ${oldDateStr} → ${newDateStr} (${attemptOrdinal} attempt, no task touched)`
+  );
+  await db.addActivityLog({
+    groupName: input.group,
+    customerId: promise.customerId,
+    activityType: "promise",
+    title: `Payment rescheduled: ${rLabel} — ${oldDateStr} → ${newDateStr} (${attemptOrdinal} attempt)`,
+    description: `${cust?.name ?? "—"} moved the promised payment${input.notes ? ` — ${input.notes}` : ""}`,
+    createdBy: ctx.user.id,
+    createdAt: new Date(),
+  }).catch(() => {});
+  return input.promiseId;
+}
+
 async function resolveTaskAssignee(
   ctx: { user: { id: number } },
   assigneeId?: number | null
@@ -5444,13 +5541,20 @@ export const callsRouter = router({
         // When Confirmed and an open promise already exists: reschedule it instead of creating a new one.
         reschedulePromiseId: z.number().optional(),
         /**
-         * Team member who should own the auto-created follow-up / promise-check task.
-         * Omitted → the task stays with the colleague who logged the call.
+         * Accepted for backwards compatibility with existing clients. Logging a call
+         * no longer touches tasks, so nothing is assigned here.
          */
         assigneeId: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      /*
+       * Logging a call is a pure record of a conversation (user requirement 2/8):
+       * it must neither create/modify/cancel any task, nor be blocked by one.
+       * The call therefore writes an activity-log line, and — when the collector
+       * picked one — the group's confirmation status and promise record. Tasks stay
+       * entirely in the user's hands via the Tasks page / New Task.
+       */
       // Promise to Pay must always carry a target date — it stays active until that date passes.
       if (input.confirmationStatus === "Confirmed" && !input.promisedDate) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A promised payment date is required for Promise to Pay." });
@@ -5480,7 +5584,6 @@ export const callsRouter = router({
 
       // Update confirmation status if provided
       if (input.confirmationStatus) {
-        const previous = await db.getGroupConfirmationStatus(input.group);
         await db.upsertGroupConfirmationStatus(input.group, {
           status: input.confirmationStatus,
           // Amount always follows the new status: reset to 0 for Not Contacted / Broken,
@@ -5500,51 +5603,29 @@ export const callsRouter = router({
           updatedBy: ctx.user.id,
         });
 
-        // Cancel stale auto-created tasks/promises from the previous status
-        await cleanupStatusArtifacts(ctx, {
-          group: input.group,
-          previousStatus: previous?.status ?? null,
-          newStatus: input.confirmationStatus,
-        });
-
-        // "Confirmed" is effectively a Promise-to-Pay: auto-create the promise record
-        // (with follow-up task + activity log) via the shared helper.
+        // A promise to pay is part of the conversation, so it is still recorded —
+        // but only as a promise row + activity log, with no check task attached.
         if (input.confirmationStatus === "Confirmed") {
           let rescheduled: number | null = null;
           if (input.reschedulePromiseId) {
-            rescheduled = await rescheduleGroupPromise(ctx, {
+            rescheduled = await reschedulePromiseRecord(ctx, {
               group: input.group,
               promiseId: input.reschedulePromiseId,
               amount: input.confirmationAmount ?? 0,
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
-              assigneeId: input.assigneeId ?? null,
             });
           }
           if (!rescheduled) {
-            await createGroupPromise(ctx, {
+            await createPromiseRecord(ctx, {
               group: input.group,
               customerId: input.customerId,
               amount: input.confirmationAmount,
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
               contactName: input.contactName,
-              assigneeId: input.assigneeId ?? null,
             });
           }
-        }
-
-        // "Pending Follow-up" with a date: create/reschedule a follow-up-call task
-        if (input.confirmationStatus === "Pending Follow-up" && input.followUpDate) {
-          await upsertFollowUpTask(ctx, {
-            group: input.group,
-            customerId: input.customerId,
-            followUpDate: input.followUpDate,
-            amount: input.confirmationAmount,
-            notes: input.notes,
-            contactName: input.contactName,
-            assigneeId: input.assigneeId ?? null,
-          });
         }
       }
 

@@ -26,13 +26,12 @@ import {
   PROMISE_NO_AMOUNT_LABEL,
 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ExternalLink, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
 import { useLocation, useSearch } from "wouter";
 import LogCallDialog from "@/components/LogCallDialog";
-import TaskDetailDialog from "@/components/TaskDetailDialog";
 import { matchesAllTokens } from "@shared/textMatch";
 
 type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "collected" | "remaining" | "overdueCount";
@@ -179,7 +178,6 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
   updatedBy?: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [taskOpen, setTaskOpen] = useState(false);
   const [loadMembers, setLoadMembers] = useState(false);
   const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: loadMembers });
   const members = useMemo(
@@ -194,25 +192,8 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
     [members]
   );
   const taskBackedStatuses = ["Confirmed", "Pending Follow-up", "Escalated"];
-  const hasLinkedTask = taskId != null && taskBackedStatuses.includes(status);
   const isOverdue = !!taskOverdue && taskBackedStatuses.includes(status);
-  // Task-backed statuses must always open the task; a missing open task means the
-  // status is stale (e.g. the task was cancelled) → offer to reset it instead of
-  // silently opening the Log Call dialog.
-  const isTaskBacked = taskBackedStatuses.includes(status);
   const utils = trpc.useUtils();
-  const resetStale = trpc.calls.resetStaleConfirmation.useMutation({
-    onSuccess: r => {
-      toast.success(
-        r.reset
-          ? "Status reset to Not Contacted — the linked task was no longer open."
-          : "Status refreshed."
-      );
-      utils.customers.groups.invalidate();
-      utils.customers.groupDetail.invalidate();
-    },
-    onError: e => toast.error(e.message),
-  });
   // Quick review — set a status straight from the row without creating any task.
   const review = trpc.calls.reviewStatus.useMutation({
     onSuccess: r => {
@@ -228,9 +209,9 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
   return (
     <>
       {/*
-        The badge keeps its primary click (open the linked task, or start a call),
-        and gains a caret that opens a review menu. The menu is the "no task" path:
-        record what the account's state is without generating follow-up work.
+        Clicking the badge always starts a call — logging a call is independent of
+        tasks, so the badge never jumps into a task. The caret opens a review menu
+        for recording a status directly, again without generating follow-up work.
       */}
       <div className="inline-flex items-stretch">
         <button
@@ -242,30 +223,17 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
           }`}
           title={
             isOverdue
-              ? `Overdue task — the target date has passed and the linked task is still open. Click to open it. ${reviewedLabel}.`
-              : hasLinkedTask
-                ? `Click to open the linked follow-up task. ${reviewedLabel}.`
-                : isTaskBacked
-                  ? `The linked task is no longer open — click to reset this stale status. ${reviewedLabel}.`
-                  : `Click to log a call. ${reviewedLabel}.`
+              ? `The target date has passed. Click to log a call and update the status. ${reviewedLabel}.`
+              : `Click to log a call. ${reviewedLabel}.`
           }
           onClick={() => {
-            if (hasLinkedTask) {
-              setTaskOpen(true);
-              return;
-            }
-            if (isTaskBacked) {
-              // Stale badge (task cancelled/closed elsewhere) — sync the status.
-              if (!resetStale.isPending) resetStale.mutate({ group });
-              return;
-            }
             setLoadMembers(true);
             setOpen(true);
           }}
         >
           {isOverdue && <AlertTriangle className="h-3 w-3 text-red-600" />}
           {confirmationStatusLabels[status] ?? status}
-          {hasLinkedTask ? <ExternalLink className="h-3 w-3 opacity-40" /> : <Phone className="h-3 w-3 opacity-40" />}
+          <Phone className="h-3 w-3 opacity-40" />
         </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -314,7 +282,6 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {taskOpen && <TaskDetailDialog taskId={taskId ?? null} open={taskOpen} onOpenChange={setTaskOpen} />}
       {open && (
         <LogCallDialog
           group={group}
