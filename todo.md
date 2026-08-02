@@ -1740,3 +1740,10 @@ master record. Same company, two screens. Unify them.
 ## Send Email recipients (requested 2/8)
 - [x] Send Email opens with a searchable recipient list instead of a flat list of every contact (search matches name, email, title, company; list is scroll-bounded)
 - [x] Selected recipients shown as removable chips — multi-select contacts, first chip is To and the rest go to Cc (mailto + history + activity log), plus an ad-hoc "Other email address" box
+## Communication as a side panel (requested 2/8)
+- [x] Communication timeline moved out of the middle of the card into a right-hand side panel
+- [x] Toggle button in the card header showing the entry count; open/closed choice remembered per user (localStorage)
+- [x] Panel is sticky and independently scrollable so the money flow (KPI → Aging → Transactions) stays continuous
+- [x] On small screens the panel opens as a slide-over sheet instead of taking column width (closed by default there)
+- [x] Same behaviour on the company card (Customer 360)
+- [x] Tests for the panel toggle, persistence and both hosts
