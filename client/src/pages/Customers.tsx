@@ -630,18 +630,6 @@ export default function Customers() {
     return rows;
   }, [groups, search, statusFilter, ratingFilter, confirmationFilter, managerFilter, collectorFilter, contactFilter, dueFilter, groupSort]);
 
-  /** Groups whose promise / follow-up date has arrived — the "act today" queue. */
-  const dueCounts = useMemo(() => {
-    let today = 0;
-    let overdue = 0;
-    for (const g of groups ?? []) {
-      const d = (g as any).actionDue as "today" | "overdue" | null;
-      if (d === "today") today += 1;
-      else if (d === "overdue") overdue += 1;
-    }
-    return { today, overdue, total: today + overdue };
-  }, [groups]);
-
   const groupTotals = useMemo(
     () =>
       filteredGroups.reduce(
@@ -741,50 +729,6 @@ export default function Customers() {
           {generate.isPending ? "Running…" : forecastStatus?.hasRun ? "Forecast (already run)" : "Run Forecast"}
         </Button>
       </div>
-
-      {/*
-        Needs action today — the replacement for the old Call Back page. Purely
-        date-driven: a Pending promise or a follow-up date that has arrived. No
-        task is created and nothing goes stale; moving the date moves the row.
-      */}
-      {view === "groups" && dueCounts.total > 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-500/40 dark:bg-amber-500/10">
-          <BellRing className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <div className="text-sm text-amber-900 dark:text-amber-100">
-            <b>{dueCounts.total}</b> group{dueCounts.total === 1 ? " needs" : "s need"} action:{" "}
-            {dueCounts.overdue > 0 && (
-              <>
-                <b className="text-red-700 dark:text-red-300">{dueCounts.overdue}</b> past the promised /
-                follow-up date
-              </>
-            )}
-            {dueCounts.overdue > 0 && dueCounts.today > 0 && " · "}
-            {dueCounts.today > 0 && (
-              <>
-                <b>{dueCounts.today}</b> due today
-              </>
-            )}
-          </div>
-          <div className="ms-auto flex gap-2">
-            {dueFilter === "all" ? (
-              <>
-                <Button size="sm" variant="outline" className="bg-white/70 dark:bg-transparent" onClick={() => setDueFilter("due")}>
-                  Show these
-                </Button>
-                {dueCounts.overdue > 0 && (
-                  <Button size="sm" variant="outline" className="bg-white/70 dark:bg-transparent" onClick={() => setDueFilter("overdue")}>
-                    Past due only
-                  </Button>
-                )}
-              </>
-            ) : (
-              <Button size="sm" variant="ghost" onClick={() => setDueFilter("all")}>
-                Show all groups
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Strong re-run warning: the month's forecast already exists */}
       <Dialog open={rerunOpen} onOpenChange={o => { setRerunOpen(o); if (!o) setRerunAck(false); }}>

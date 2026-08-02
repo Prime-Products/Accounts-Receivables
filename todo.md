@@ -1575,7 +1575,7 @@ master record. Same company, two screens. Unify them.
 ## Everything from the Collections Desk — delete Call Back (user request 2/8)
 - [x] Delete the Call Back page, its route and the sidebar entry (`/call-back` now redirects to the Desk)
 - [x] Collections Desk shows when a promise / follow-up date has arrived: `actionDate` / `actionDue` on the groups payload, rendered as a red/amber date line under the status badge
-- [x] "Needs action" banner at the top of the Desk with counts (past due / due today) and one-click "Show these" / "Past due only" filters
+- [x] "Needs action" banner removed at the user's request (2/8) — the row marker and the "Action due" filter cover it
 - [x] "Action due" filter in the filter row (Any due date / Due today or earlier / Past due only)
 - [x] Default Desk ordering puts due rows first (past due, then due today, oldest date first), and due rows are tinted red/amber
 - [x] Removed the `customers.callBackList` procedure
