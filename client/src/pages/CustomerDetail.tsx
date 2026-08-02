@@ -16,7 +16,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RecordDetailsPanel } from "@/components/RecordDetailsPanel";
 import { CommunicationPanel, CommunicationToggle, useCommunicationPanel } from "@/components/CommunicationPanel";
 import { buildTimeline } from "@/lib/timeline";
 import { Textarea } from "@/components/ui/textarea";
@@ -76,13 +75,6 @@ export default function CustomerDetail() {
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
-  /**
-   * The card has two halves: the receivables view and the directory record.
-   * Kept in the URL (?tab=details) so a link can land straight on either one.
-   */
-  const [cardTab, setCardTab] = useState<"receivables" | "details">(() =>
-    new URLSearchParams(window.location.search).get("tab") === "details" ? "details" : "receivables",
-  );
   // Credit-note toggle: when on, the transactions list shows only credit notes.
   const [creditOnly, setCreditOnly] = useState(false);
   // Payments toggle: when on, the transactions list shows only wire transfers.
@@ -302,35 +294,17 @@ export default function CustomerDetail() {
       </div>
 
       {/* Summary cards */}
-      <Tabs
-        value={cardTab}
-        onValueChange={v => {
-          const next = v === "details" ? "details" : "receivables";
-          setCardTab(next);
-          // Keep the address bar in step without re-mounting the page.
-          const url = new URL(window.location.href);
-          if (next === "details") url.searchParams.set("tab", "details");
-          else url.searchParams.delete("tab");
-          window.history.replaceState(null, "", url.toString());
-        }}
-      >
-        <TabsList>
-          <TabsTrigger value="receivables">Receivables</TabsTrigger>
-          <TabsTrigger value="details">Details</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="details" className="mt-4">
-          <RecordDetailsPanel entity="customer" recordKey={String(customer.id)} showCollectionsLink={false} />
-        </TabsContent>
-
-        <TabsContent value="receivables" className="mt-4 space-y-4">
       {/*
-       * Money on the left in one uninterrupted flow (KPIs → aging →
-       * transactions), communication history as a sticky, hideable panel on the
-       * right instead of a block wedged in the middle of the card.
+       * Receivables-only card: no top-level tabs. The directory record for this
+       * company is reached from the Address Book instead.
        */}
-      <div className="flex gap-4 items-start">
-      <div className="flex-1 min-w-0 space-y-4">
+      <div className="mt-4 space-y-4">
+      {/*
+       * Money at full width in one uninterrupted flow (KPIs → aging →
+       * transactions); the communication history floats in a movable window
+       * above the page instead of taking a column here.
+       */}
+      <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <Card>
           <CardContent className="pt-4">
@@ -725,8 +699,6 @@ export default function CustomerDetail() {
         title={groupKey && groupKey !== customer.name ? `Communication — ${groupKey}` : "Communication"}
       />
       </div>
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }
