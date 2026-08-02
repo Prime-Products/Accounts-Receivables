@@ -627,6 +627,33 @@ export default function GroupDetail() {
     return countSettled(data.invoices as any);
   }, [data?.invoices]);
 
+  /**
+   * Contract installments in the current scope, and how many of them the other
+   * active filters are keeping off screen. The toggle needs both so it can show
+   * a count, disable itself at zero and warn when the rows exist but are hidden.
+   */
+  const installmentCounts = useMemo(() => {
+    const rows = (data?.invoices ?? []) as any[];
+    const all = rows.filter(i => i.isContractInstallment);
+    if (all.length === 0) return { total: 0, hidden: 0 };
+    const now = Date.now();
+    const visible = all.filter(inv => {
+      if (hideSettled(inv, showPaid, statusFilter)) return false;
+      if (!matchesStatusFilter(inv, statusFilter)) return false;
+      if (vesselDrill !== "all") {
+        const vid = (inv.vesselId ?? null) as number | null;
+        if (vesselDrill === "none" ? vid != null : String(vid ?? "") !== vesselDrill) return false;
+      }
+      if (agingFilter !== "all") {
+        if (inv.status === "Paid") return false;
+        if (Number(inv.amount) - Number(inv.paidAmount) <= 0) return false;
+        if (bucketOf(inv.dueDate, now) !== agingFilter) return false;
+      }
+      return true;
+    });
+    return { total: all.length, hidden: all.length - visible.length };
+  }, [data?.invoices, showPaid, statusFilter, vesselDrill, agingFilter]);
+
   /** Human label for the active vessel drill-down chip. */
   const vesselDrillLabel = useMemo(() => {
     if (vesselDrill === "all") return "";
@@ -1073,7 +1100,20 @@ export default function GroupDetail() {
                 {showPaid ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 {showPaid ? "Hide paid" : `Show paid${paidHiddenCount > 0 ? ` (${paidHiddenCount})` : ""}`}
               </Button>
-              <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
+              <InstallmentToggle
+                value={installmentFilter}
+                onChange={v => {
+                  // Same courtesy as Payments / Credit notes: leaving an
+                  // exclusive view returns to the invoice list.
+                  if (v === "installments") {
+                    setCreditOnly(false);
+                    setPaymentsOnly(false);
+                  }
+                  setInstallmentFilter(v);
+                }}
+                count={installmentCounts.total}
+                hiddenCount={installmentCounts.hidden}
+              />
               {/* Payments and Credit notes are permanent members of this toolbar: the
                   collector must always be able to tell whether money on account or an
                   unallocated credit exists, so the buttons never disappear — they go
