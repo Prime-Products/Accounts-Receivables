@@ -5068,6 +5068,14 @@ export const callsRouter = router({
         outcome: z.enum(["Reached", "No Answer"]),
         notes: z.string().max(2000).optional(),
         confirmationStatus: z.enum(confirmationStatuses).optional(),
+        /**
+         * What the customer actually answered, when it differs from the status the
+         * call ends on. A refusal followed by a new call-back date used to be
+         * invisible: only the resulting status was logged, so the timeline read as
+         * if the customer had cooperated. The dialog now sends the original
+         * response here and the timeline records both.
+         */
+        customerResponse: z.enum(confirmationStatuses).optional(),
         confirmationAmount: z.number().optional(),
         followUpDate: z.number().optional(),
         promisedDate: z.number().optional(),
@@ -5151,6 +5159,18 @@ export const callsRouter = router({
         }
         return label;
       })();
+      /*
+       * A call can start with a refusal and still end with a new date: the collector
+       * picks "Did not confirm" and then chooses Pending Follow-up or Reschedule
+       * Promise as the way forward. Both facts belong in the record — the refusal is
+       * the collections signal, the new date is only the plan. Without this line the
+       * timeline showed just the plan and the refusal was lost.
+       */
+      const responseLabel =
+        input.customerResponse && input.customerResponse !== input.confirmationStatus
+          ? confirmationStatusLabel(input.customerResponse)
+          : null;
+      if (responseLabel) parts.unshift(`Customer response: ${responseLabel}`);
       // The outcome already leads the title, so repeating it in the body would show
       // the same sentence twice in the timeline entry.
       const activityId = await db.addActivityLog({
@@ -5158,7 +5178,9 @@ export const callsRouter = router({
         customerId: input.customerId,
         activityType: input.confirmationStatus === "Confirmed" ? "promise" : "call",
         title: outcomeLabel
-          ? `Call — ${input.outcome} · ${outcomeLabel}`
+          ? responseLabel
+            ? `Call — ${input.outcome} · ${responseLabel} → ${outcomeLabel}`
+            : `Call — ${input.outcome} · ${outcomeLabel}`
           : `Call logged — ${input.outcome}`,
         description: parts.length > 0 ? parts.join(" · ") : undefined,
         createdBy: ctx.user.id,

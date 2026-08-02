@@ -94,6 +94,18 @@ describe("Task Watchers", () => {
     });
     escalatedTaskId = res.newTaskId;
     const newWatchers = await caller.tasks.watchers({ taskId: res.newTaskId });
-    expect(newWatchers.map(w => w.memberId)).toEqual([memberA]);
+    const ids = newWatchers.map(w => w.memberId);
+    // The original watcher is carried over, the new assignee is not.
+    expect(ids).toContain(memberA);
+    expect(ids).not.toContain(memberB);
+    /*
+     * The escalating collector is added automatically so they can follow
+     * management's decision. That only happens when their login is linked to a
+     * team member, which is now the case for real users — so the watcher list is
+     * memberA plus (optionally) the escalator, and nobody else.
+     */
+    const escalator = await db.getTeamMemberByUserId(1).catch(() => null);
+    const expected = escalator ? [memberA, escalator.id] : [memberA];
+    expect(ids.sort()).toEqual(Array.from(new Set(expected)).sort());
   });
 });
