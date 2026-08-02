@@ -341,15 +341,15 @@ export default function LogCallDialog({
           {/*
             No-answer attempts are the most common call result and used to vanish
             from tracking entirely. Now they are recorded as an attempt: the status
-            is untouched, no task is created, but the attempt is counted and shown
-            on the group so repeated silence becomes visible.
+            is untouched, but the attempt is counted and shown on the group so
+            repeated silence becomes visible.
           */}
           {outcome === "No Answer" && (
             <div className="rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-900/40 dark:border-slate-700 px-3 py-2 flex items-start gap-2">
               <Info className="h-4 w-4 text-slate-500 mt-0.5 shrink-0" />
               <p className="text-xs text-slate-700 dark:text-slate-200">
-                Recorded as a <strong>contact attempt</strong>. The confirmation status stays as it is and no task is
-                created — the attempt still shows in the group history and in the contact log.
+                Recorded as a <strong>contact attempt</strong>. The confirmation status stays as it is, and the attempt
+                still shows in the group history and in the contact log.
               </p>
             </div>
           )}
@@ -410,7 +410,6 @@ export default function LogCallDialog({
                 {openPromise && promiseMode === "reschedule"
                   ? "The existing promise is moved to the new date."
                   : "A Promise-to-Pay record is created."}
-                {" "}No task is created — logging a call never touches the task list.
                 {" "}Leave the amount empty when the customer promised to pay without naming a figure — the promise is recorded as “amount not stated”.
               </p>
             </div>
@@ -442,7 +441,7 @@ export default function LogCallDialog({
                 </div>
               </div>
               <p className="text-[11px] leading-snug text-muted-foreground">
-                The follow-up date is stored on the group status only. Create a task from the Tasks page if you want one.
+                The follow-up date is kept on the group and shows on the Collections Desk when it arrives.
               </p>
             </div>
           )}

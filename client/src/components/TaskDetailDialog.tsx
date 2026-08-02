@@ -5,7 +5,6 @@ import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
-import NextActionDialog from "@/components/NextActionDialog";
 import EscalationPanel from "@/components/EscalationPanel";
 import { WatcherStack, watcherColor, watcherInitials } from "@/components/WatcherStack";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -46,7 +45,6 @@ export default function TaskDetailDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const utils = trpc.useUtils();
-  const [nextActionGroup, setNextActionGroup] = useState<string | null>(null);
   // Latch the last non-null taskId: after mutations (e.g. promise Kept), parent
   // lists refetch and pass taskId=null while the dialog is still open — without
   // this latch the dialog would flash "Task not found".
@@ -82,10 +80,6 @@ export default function TaskDetailDialog({
       utils.tasks.list.invalidate();
       utils.customers.groups.invalidate();
       utils.customers.groupDetail.invalidate();
-      if (vars.status === "Broken" && task) {
-        // The customer did not pay — ask the user what happens next.
-        setNextActionGroup(((task as any).groupName as string) ?? task.customerName ?? null);
-      }
       // Close the task dialog: the linked task has just been auto-completed and
       // the badge will refresh — keeping it open would show stale data.
       onOpenChange(false);
@@ -1008,15 +1002,6 @@ export default function TaskDetailDialog({
         )}
       </ResizableDialogContent>
     </Dialog>
-      {nextActionGroup && (
-        <NextActionDialog
-          group={nextActionGroup}
-          open={nextActionGroup != null}
-          onOpenChange={v => {
-            if (!v) setNextActionGroup(null);
-          }}
-        />
-      )}
     </>
   );
 }

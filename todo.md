@@ -1577,6 +1577,14 @@ master record. Same company, two screens. Unify them.
 - [x] Collections Desk shows when a promise / follow-up date has arrived: `actionDate` / `actionDue` on the groups payload, rendered as a red/amber date line under the status badge
 - [x] "Needs action" banner removed at the user's request (2/8) — the row marker and the "Action due" filter cover it
 - [x] "Last Contact" column removed from the Collections Desk at the user's request (2/8); contact history stays on the group card timeline
+
+## Status changes only through Log Call (user request 2/8)
+- [x] Remove the review caret / dropdown from the confirmation badge in the group list
+- [x] Badge becomes a plain "log a call" button; no inline status setting anywhere in the list
+- [x] Remove the quick-review status setters from the backend (`calls.reviewStatus` / `reviewStatusBulk`) and any bulk review UI
+- [x] Remove the "Next action" dialog (broken promise → follow-up / new promise / escalate) so no status is set outside Log Call
+- [x] Vitest: `statusOnlyViaLogCall.test.ts` (7 tests) pins Log Call as the only status path
+- [x] Remove the "no task created" wording from every toast / hint after logging a call
 - [x] "Action due" filter in the filter row (Any due date / Due today or earlier / Past due only)
 - [x] Default Desk ordering puts due rows first (past due, then due today, oldest date first), and due rows are tinted red/amber
 - [x] Removed the `customers.callBackList` procedure

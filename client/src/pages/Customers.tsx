@@ -3,14 +3,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,7 +18,7 @@ import {
   PROMISE_NO_AMOUNT_LABEL,
 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BellRing, ChevronDown, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BellRing, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
@@ -35,18 +27,6 @@ import LogCallDialog from "@/components/LogCallDialog";
 import { matchesAllTokens } from "@shared/textMatch";
 
 type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "collected" | "remaining" | "overdueCount";
-
-/**
- * Statuses a collector can set straight from the list, because none of them
- * implies pending work. Statuses that need a live task (Promise to Pay, Pending
- * Follow-up, Escalated) are deliberately absent — those go through Log Call so
- * the promise and its check task are created together.
- */
-const REVIEW_STATUSES = [
-  { value: "Kept" as const, label: "Paid — Promise Kept", hint: "Money arrived, nothing pending" },
-  { value: "Broken" as const, label: "Broken", hint: "Not paying / no commitment given" },
-  { value: "Not Contacted" as const, label: "Not Contacted", hint: "Clear the status and start over" },
-];
 
 /** Age of the last logged call, in whole days. */
 function daysSince(ts: number): number {
@@ -165,22 +145,19 @@ const EditableForecastCell = memo(function EditableForecastCell({ group, value }
 });
 
 /**
- * Clickable confirmation badge. "Promise to Pay" / "Pending Follow-up" badges with a
- * linked auto-created task open that task — never the Log Call dialog (logging a call
- * happens when resolving the task as Kept / Not paid). Statuses without a task
- * (Not Contacted / Broken / Kept) open the Log Call dialog to start a new cycle.
+ * Clickable confirmation badge. It only ever opens the Log Call dialog: a status is
+ * the outcome of a conversation, so it is never set straight from the list. The
+ * badge turns red once the promised / follow-up date has passed.
  */
 const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
   group,
   status,
-  taskId,
   taskOverdue,
   updatedAt,
   updatedBy,
 }: {
   group: string;
   status: string;
-  taskId?: number | null;
   taskOverdue?: boolean;
   updatedAt?: number | null;
   updatedBy?: string | null;
@@ -201,95 +178,37 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
   );
   const taskBackedStatuses = ["Confirmed", "Pending Follow-up", "Escalated"];
   const isOverdue = !!taskOverdue && taskBackedStatuses.includes(status);
-  const utils = trpc.useUtils();
-  // Quick review — set a status straight from the row without creating any task.
-  const review = trpc.calls.reviewStatus.useMutation({
-    onSuccess: r => {
-      toast.success(`Status set to ${confirmationStatusLabels[r.status] ?? r.status} — no task created.`);
-      utils.customers.groups.invalidate();
-      utils.customers.groupDetail.invalidate();
-    },
-    onError: e => toast.error(e.message),
-  });
   const reviewedLabel = updatedAt
     ? `Last reviewed ${new Date(updatedAt).toLocaleDateString("en-GB")}${updatedBy ? ` by ${updatedBy}` : ""}`
     : "Never reviewed";
   return (
     <>
       {/*
-        Clicking the badge always starts a call — logging a call is independent of
-        tasks, so the badge never jumps into a task. The caret opens a review menu
-        for recording a status directly, again without generating follow-up work.
+        Clicking the badge always starts a call — the only place a confirmation
+        status can change, so every status carries a conversation behind it.
       */}
-      <div className="inline-flex items-stretch">
-        <button
-          type="button"
-          className={`inline-flex items-center gap-1 pl-2 pr-1.5 py-1 rounded-l border border-r-0 text-xs font-medium cursor-pointer transition-transform hover:shadow-sm active:scale-[0.97] ${
-            isOverdue
-              ? "bg-red-100 text-red-700 border-red-300"
-              : confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
-          }`}
-          title={
-            isOverdue
-              ? `The target date has passed. Click to log a call and update the status. ${reviewedLabel}.`
-              : `Click to log a call. ${reviewedLabel}.`
-          }
-          onClick={() => {
-            setLoadMembers(true);
-            setOpen(true);
-          }}
-        >
-          {isOverdue && <AlertTriangle className="h-3 w-3 text-red-600" />}
-          {confirmationStatusLabels[status] ?? status}
-          <Phone className="h-3 w-3 opacity-40" />
-        </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className={`inline-flex items-center px-1 rounded-r border text-xs cursor-pointer transition-transform hover:shadow-sm active:scale-[0.97] ${
-                isOverdue
-                  ? "bg-red-100 text-red-700 border-red-300"
-                  : confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
-              }`}
-              title="Set the status directly, without creating a task"
-              onClick={e => e.stopPropagation()}
-            >
-              <ChevronDown className="h-3 w-3 opacity-60" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-              Set status without a task
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {REVIEW_STATUSES.map(s => (
-              <DropdownMenuItem
-                key={s.value}
-                disabled={review.isPending || status === s.value}
-                onClick={() => review.mutate({ group, status: s.value })}
-              >
-                <span className="flex flex-col gap-0.5">
-                  <span className="text-xs font-medium">{s.label}</span>
-                  <span className="text-[11px] text-muted-foreground">{s.hint}</span>
-                </span>
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => {
-                setLoadMembers(true);
-                setOpen(true);
-              }}
-            >
-              <Phone className="h-3.5 w-3.5" />
-              <span className="text-xs">Log a call instead…</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <div className="px-2 py-1.5 text-[11px] text-muted-foreground">{reviewedLabel}</div>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      <button
+        type="button"
+        className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs font-medium cursor-pointer transition-transform hover:shadow-sm active:scale-[0.97] ${
+          isOverdue
+            ? "bg-red-100 text-red-700 border-red-300"
+            : confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
+        }`}
+        title={
+          isOverdue
+            ? `The target date has passed. Click to log a call and update the status. ${reviewedLabel}.`
+            : `Click to log a call — the status changes from there. ${reviewedLabel}.`
+        }
+        onClick={e => {
+          e.stopPropagation();
+          setLoadMembers(true);
+          setOpen(true);
+        }}
+      >
+        {isOverdue && <AlertTriangle className="h-3 w-3 text-red-600" />}
+        {confirmationStatusLabels[status] ?? status}
+        <Phone className="h-3 w-3 opacity-40" />
+      </button>
       {open && (
         <LogCallDialog
           group={group}
@@ -1024,7 +943,6 @@ export default function Customers() {
                           status={g.confirmationStatus}
                           updatedAt={(g as any).confirmationUpdatedAt ?? null}
                           updatedBy={(g as any).confirmationUpdatedBy ?? null}
-                          taskId={(g as any).confirmationTaskId}
                           taskOverdue={(g as any).confirmationTaskOverdue}
                         />
                         {(g as any).confirmationCarriedOver && (
