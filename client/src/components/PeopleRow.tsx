@@ -1,21 +1,20 @@
 /**
- * PeopleRow — "who is on this account" for the group / company receivables card.
+ * PeopleRow — "who is on this account", compact enough to sit in the title line.
  *
- * The card used to show two loose badges with the manager and the collector. That
- * read as filter chips rather than people, so this row borrows the Team list's
- * visual language instead: a colored initial avatar, the name, and the job title
- * underneath. Clicking a person re-assigns them; the Watchers block on the right
- * holds colleagues who only need visibility (sales, accounting, management)
- * without owning the collection.
+ * It started as a bordered strip with 32px avatars, full names and job titles,
+ * which took a whole row of the card for information the collector already knows.
+ * It is now a single inline run of small avatars with just the FIRST name, placed
+ * next to the status badges: the full name, the role and the job title stay one
+ * hover away, and clicking still re-assigns the person. Watchers are the avatar
+ * stack plus a bare "+" — no label, no "none", no button text.
  */
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { watcherColor, watcherInitials } from "@/components/WatcherStack";
-import { Eye, Plus, X, UserRound, HandCoins } from "lucide-react";
+import { Plus, X, UserRound, HandCoins } from "lucide-react";
 import { toast } from "sonner";
 
 export interface PersonInfo {
@@ -29,7 +28,12 @@ export interface WatcherRow {
   title?: string | null;
 }
 
-/** One clickable person slot: avatar + name + title, or a dashed "assign" state. */
+/** "Kostas Vanos" → "Kostas": inside one account card the first name is enough. */
+export function firstName(name: string): string {
+  return (name ?? "").trim().split(/\s+/)[0] || name;
+}
+
+/** One clickable person: small avatar + first name. Everything else is in the tooltip. */
 function PersonSlot({
   person,
   role,
@@ -47,7 +51,7 @@ function PersonSlot({
   const [open, setOpen] = useState(false);
   const isCollector = role === "collector";
   const roleName = isCollector ? "Collector" : "Account Manager";
-  const subtitle = (person?.title ?? "").trim() || roleName;
+  const title = (person?.title ?? "").trim();
 
   const setManager = trpc.customers.setAccountManager.useMutation({
     onSuccess: res => {
@@ -72,34 +76,42 @@ function PersonSlot({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="group flex items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          title={isCollector ? "Collector — chases these receivables" : "Account manager — handles all cases of this customer"}
-        >
-          {person ? (
-            <span
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white select-none"
-              style={{ backgroundColor: watcherColor(person.name) }}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              {watcherInitials(person.name)}
-            </span>
+              {person ? (
+                <span
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white select-none"
+                  style={{ backgroundColor: watcherColor(person.name) }}
+                >
+                  {watcherInitials(person.name)}
+                </span>
+              ) : (
+                <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-muted-foreground/50 text-muted-foreground">
+                  {isCollector ? <HandCoins className="h-3 w-3" /> : <UserRound className="h-3 w-3" />}
+                </span>
+              )}
+              <span className="max-w-[100px] truncate text-xs font-medium">
+                {person ? firstName(person.name) : isCollector ? "Collector" : "Manager"}
+              </span>
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {person ? (
+            <>
+              {roleName}: {person.name}
+              {title ? ` — ${title}` : ""}
+            </>
           ) : (
-            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-dashed border-muted-foreground/50 text-muted-foreground">
-              {isCollector ? <HandCoins className="h-4 w-4" /> : <UserRound className="h-4 w-4" />}
-            </span>
+            <>Assign {roleName.toLowerCase()}</>
           )}
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-medium leading-tight">
-              {person ? person.name : isCollector ? "Assign collector" : "Assign manager"}
-            </span>
-            <span className="block truncate text-[11px] leading-tight text-muted-foreground">
-              {person ? subtitle : roleName}
-            </span>
-          </span>
-        </button>
-      </PopoverTrigger>
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent className="w-80" align="start">
         <div className="space-y-2">
           <div className="text-sm font-medium">{groupName ? `Group ${roleName.toLowerCase()}` : roleName}</div>
@@ -162,67 +174,73 @@ export function PeopleRow({
   const watching = new Set(watchers.map(w => w.memberId));
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card px-2 py-1.5">
+    <span className="inline-flex flex-wrap items-center gap-x-1 gap-y-1">
       <PersonSlot person={collector} role="collector" customerId={customerId} groupName={groupName} onChanged={onChanged} />
-      <span className="h-8 w-px bg-border" aria-hidden />
       <PersonSlot person={manager} role="manager" customerId={customerId} groupName={groupName} onChanged={onChanged} />
-      <span className="h-8 w-px bg-border" aria-hidden />
-      <div className="flex items-center gap-1.5">
-        <span className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          <Eye className="h-3.5 w-3.5" /> Watchers
-        </span>
-        {watchers.length === 0 && <span className="text-xs text-muted-foreground">none</span>}
-        {watchers.map(w => (
-          <Tooltip key={w.memberId}>
-            <TooltipTrigger asChild>
-              <span className="group relative inline-flex">
-                <span
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold text-white ring-2 ring-background select-none"
-                  style={{ backgroundColor: watcherColor(w.name) }}
-                >
-                  {watcherInitials(w.name)}
+      {/* Watchers: avatars only, overlapping like everywhere else in the app. */}
+      {watchers.length > 0 && (
+        <span className="ml-1 inline-flex items-center -space-x-1.5">
+          {watchers.map(w => (
+            <Tooltip key={w.memberId}>
+              <TooltipTrigger asChild>
+                <span className="group relative inline-flex">
+                  <span
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white ring-2 ring-background select-none"
+                    style={{ backgroundColor: watcherColor(w.name) }}
+                  >
+                    {watcherInitials(w.name)}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${w.name} from watchers`}
+                    onClick={() => removeWatcher.mutate({ groupName: watcherGroupName, memberId: w.memberId })}
+                    className="absolute -right-1 -top-1 hidden h-3.5 w-3.5 items-center justify-center rounded-full bg-destructive text-destructive-foreground group-hover:inline-flex"
+                  >
+                    <X className="h-2 w-2" />
+                  </button>
                 </span>
-                <button
-                  type="button"
-                  aria-label={`Remove ${w.name} from watchers`}
-                  onClick={() => removeWatcher.mutate({ groupName: watcherGroupName, memberId: w.memberId })}
-                  className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground group-hover:inline-flex"
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              {w.name}
-              {w.title ? ` — ${w.title}` : ""}
-            </TooltipContent>
-          </Tooltip>
-        ))}
-        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" title="Add a colleague as watcher">
-              <Plus className="h-3 w-3" /> Watcher
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-80" align="start">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Add watcher</div>
-              <p className="text-xs text-muted-foreground">
-                Watchers follow this account's receivables without owning it — useful for sales,
-                accounting or management who need visibility.
-              </p>
-              <TeamMemberSelect
-                value={null}
-                excludeIds={Array.from(watching)}
-                emptyLabel="Search colleagues…"
-                onChange={id => {
-                  if (id != null) addWatcher.mutate({ groupName: watcherGroupName, memberId: id });
-                }}
-              />
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
-    </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                Watching: {w.name}
+                {w.title ? ` — ${w.title}` : ""}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </span>
+      )}
+      <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Add watcher"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-muted-foreground/50 text-muted-foreground transition-colors hover:border-solid hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Plus className="h-3 w-3" />
+              </button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Add watcher</TooltipContent>
+        </Tooltip>
+        <PopoverContent className="w-80" align="start">
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Add watcher</div>
+            <p className="text-xs text-muted-foreground">
+              Watchers follow this account's receivables without owning it — useful for sales,
+              accounting or management who need visibility.
+            </p>
+            <TeamMemberSelect
+              value={null}
+              excludeIds={Array.from(watching)}
+              emptyLabel="Search colleagues…"
+              onChange={id => {
+                if (id != null) addWatcher.mutate({ groupName: watcherGroupName, memberId: id });
+              }}
+            />
+          </div>
+        </PopoverContent>
+      </Popover>
+    </span>
   );
 }

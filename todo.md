@@ -1781,3 +1781,10 @@ master record. Same company, two screens. Unify them.
 - [x] Vitest coverage: `server/communicationAiSummary.test.ts` (panel wiring, window filtering, empty-window short circuit, audit)
 - [x] Same button available on the company card's Communication window (Customer 360 passes its group to the window)
 - [x] Tests: the procedure only reads the last 30 days and answers gracefully when nothing happened (no LLM call, fixed Greek line)
+
+## Compact ownership strip (requested 3/8)
+- [x] Shrink the people row: 24px avatars + FIRST NAME only, no job-title second line, no bordered container
+- [x] Move it inline into the title row, right after the "Promise to Pay" badge (group card + Customer 360)
+- [x] Watchers: dropped the "WATCHERS / none" label and the "+ Watcher" text button — 20px avatar stack plus a bare "+"
+- [x] Full name + role + job title on hover (tooltip); click still opens the re-assignment picker
+- [x] Tests updated for the compact layout (`server/peopleRowWatchers.test.ts`)
