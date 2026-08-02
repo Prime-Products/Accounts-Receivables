@@ -17,6 +17,12 @@ import {
   wireTransfers,
   wireTransferAllocations,
   invoices,
+  paymentContacts,
+  activityLog,
+  groupNotes,
+  noteMentions,
+  groupWatchStatus,
+  groupCollectionProfile,
 } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 
@@ -80,6 +86,15 @@ export async function cleanupTestCustomer(fx: TestCustomerFixture): Promise<void
   if (!db) throw new Error("DB unavailable in test fixture");
   await db.delete(tasks).where(eq(tasks.customerId, fx.id));
   await db.delete(promisesToPay).where(eq(promisesToPay.customerId, fx.id));
+  // Contacts, timeline entries and notes written by the suite. Without these the
+  // rows survive the customer deletion and become orphans that later show up in
+  // data-integrity checks (payment_contacts pointing at a deleted customer).
+  await db.delete(paymentContacts).where(eq(paymentContacts.customerId, fx.id));
+  await db.delete(activityLog).where(eq(activityLog.groupName, fx.group));
+  await db.delete(noteMentions).where(eq(noteMentions.groupName, fx.group));
+  await db.delete(groupNotes).where(eq(groupNotes.groupName, fx.group));
+  await db.delete(groupWatchStatus).where(eq(groupWatchStatus.groupName, fx.group));
+  await db.delete(groupCollectionProfile).where(eq(groupCollectionProfile.groupName, fx.group));
   // Wire transfers + their allocations and invoices created for this fixture
   const wts = await db
     .select({ id: wireTransfers.id })

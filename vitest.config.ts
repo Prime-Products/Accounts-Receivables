@@ -23,5 +23,13 @@ export default defineConfig({
       "shared/**/*.test.ts",
     ],
     fileParallelism: false,
+    /**
+     * Almost every suite talks to the remote TiDB instance, where a single
+     * round-trip can take a few hundred ms. The 5s default made DB-backed tests
+     * flake when the whole suite runs back to back; 30s is still short enough to
+     * catch a genuine hang.
+     */
+    testTimeout: 30000,
+    hookTimeout: 30000,
   },
 });

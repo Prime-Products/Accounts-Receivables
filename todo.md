@@ -1624,3 +1624,19 @@ master record. Same company, two screens. Unify them.
 - [x] Default Desk ordering puts due rows first (past due, then due today, oldest date first), and due rows are tinted red/amber
 - [x] Removed the `customers.callBackList` procedure
 - [x] Vitest coverage for the due flags (`server/deskActionDue.test.ts`, 5 tests)
+
+## Full application audit (requested 2/8)
+- [x] TypeScript typecheck clean (`tsc --noEmit`)
+- [x] Full vitest suite green (96 files / 643 tests) — fixed 2 stale suites (contactTracking, contactsImport)
+- [x] Test residue purged from the live DB (69 fake calls on a real group, 12 fake promises, 293 orphan timeline rows, 244 fixture invoices, ~250 fixture customers/contacts)
+- [x] Test isolation hardened: fixtures now delete contacts/timeline/notes/mentions/status; `logCallNoTasks` no longer writes on a real customer
+- [x] New guard `server/dataIntegrity.test.ts` fails if orphan rows or test residue reappear
+- [x] Dead code sweep: orphan pages/components removed (Forecast, ComponentShowcase, AIChatBox, Map, unused shadcn primitives)
+- [x] Unused tRPC procedures removed (escalationStory 167 lines, callList, myMember, updateField, giftYears, syncPushReceipt, runEngine) and unused `server/db.ts` helpers
+- [x] Junk files removed (`vite.config.ts.bak`, `server/routers/ar.ts.new_calls`, one-off scripts) and unused deps (streamdown, framer-motion)
+- [x] `.manus-logs` reviewed — no runtime errors; stale email TODO comment corrected
+- [x] Performance: 5 missing indexes added (migration 0045); payloads trimmed (customers.list 4.0→2.6 MB, contacts 4.3→3.0 MB); new light `customers.options` (420 KB) + `customers.groupMembers` for the 5 pickers and the Log Call dialog
+- [x] Recharts moved to a lazy chunk (initial JS ~1.2 MB → 808 KB); Desk Companies tab now pages 200 rows instead of 3,409
+- [x] Vitest raised to a 30s timeout (remote DB latency was causing flaky failures); suite 97 files / 656 tests green
+- [x] Key pages verified rendering (Dashboard, Collections Desk, Address Book, Invoices, Reports, Contracts, Vessels, Tasks, Team, Settings, Group/Customer detail)
+- [x] Written audit report delivered (`docs/audit-2026-08.md`)

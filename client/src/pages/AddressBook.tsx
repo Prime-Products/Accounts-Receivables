@@ -501,10 +501,11 @@ export default function AddressBook() {
         readOnly: true,
         value: r => r.companyName,
         render: r => {
-          const companies: string[] = Array.isArray((r as { companyNames?: string[] }).companyNames)
-            ? ((r as { companyNames?: string[] }).companyNames as string[])
-            : [];
-          if (companies.length <= 1) return <span className="truncate">{r.companyName}</span>;
+          // The row carries the joined list plus its count; split it back instead
+          // of shipping the array a second time.
+          const count = Number((r as { companyCount?: number }).companyCount ?? 1);
+          if (count <= 1) return <span className="truncate">{r.companyName}</span>;
+          const companies = String(r.companyName ?? "").split(", ");
           // The same person is registered on several companies of the group; the
           // row is collapsed, so name them all on hover.
           return (
@@ -524,10 +525,9 @@ export default function AddressBook() {
         readOnly: true,
         value: r => r.group,
         render: r => {
-          const groups: string[] = Array.isArray((r as { groupNames?: string[] }).groupNames)
-            ? ((r as { groupNames?: string[] }).groupNames as string[])
-            : [];
-          if (groups.length <= 1) return <span className="truncate">{r.group}</span>;
+          const count = Number((r as { groupCount?: number }).groupCount ?? 1);
+          if (count <= 1) return <span className="truncate">{r.group}</span>;
+          const groups = String(r.group ?? "").split(", ");
           return (
             <span className="inline-flex items-center gap-1.5 max-w-full" title={groups.join("\n")}>
               <span className="truncate">{groups[0]}</span>

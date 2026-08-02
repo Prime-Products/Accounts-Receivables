@@ -25,7 +25,7 @@ const METHODS = ["Cash", "Bank Transfer", "Cheque", "Card"] as const;
 
 export default function Invoices() {
   const { data: invoices, isLoading } = trpc.invoices.list.useQuery();
-  const { data: customers } = trpc.customers.list.useQuery();
+  const { data: customers } = trpc.customers.options.useQuery();
   const utils = trpc.useUtils();
 
   const [statusFilter, setStatusFilter] = useState<string>("all");

@@ -334,7 +334,6 @@ export async function createCustomersBulk(rows: InsertCustomer[], chunkSize = 20
   invalidateCache("customers:");
   return inserted;
 }
-
 // ---------- Invoices ----------
 export async function listInvoices(filter?: { customerId?: number; statuses?: string[] }) {
   const cacheable = !filter?.customerId && (!filter?.statuses || filter.statuses.length === 0);
@@ -513,15 +512,7 @@ export async function addAllocation(receiptId: number, invoiceId: number, amount
   await db.insert(receiptAllocations).values({ receiptId, invoiceId, amount });
 }
 
-export async function listAllocationsForReceipt(receiptId: number) {
-  const db = await requireDb();
-  return db.select().from(receiptAllocations).where(eq(receiptAllocations.receiptId, receiptId));
-}
 
-export async function listAllocationsForInvoice(invoiceId: number) {
-  const db = await requireDb();
-  return db.select().from(receiptAllocations).where(eq(receiptAllocations.invoiceId, invoiceId));
-}
 
 // ---------- Contracts & installments ----------
 export async function listContracts(customerId?: number) {
@@ -702,32 +693,8 @@ export async function addTaskInvoices(taskId: number, invoiceIds: number[]) {
 }
 
 
-// ---------- Collection plans & promises ----------
-export async function getPlan(year: number, month: number) {
-  const db = await requireDb();
-  const r = await db
-    .select()
-    .from(collectionPlans)
-    .where(and(eq(collectionPlans.year, year), eq(collectionPlans.month, month)))
-    .limit(1);
-  return r[0];
-}
 
-export async function upsertPlan(year: number, month: number, targetAmount: string, createdBy?: number, notes?: string) {
-  const db = await requireDb();
-  const existing = await getPlan(year, month);
-  if (existing) {
-    await db.update(collectionPlans).set({ targetAmount, notes }).where(eq(collectionPlans.id, existing.id));
-    return existing.id;
-  }
-  const res = await db.insert(collectionPlans).values({ year, month, targetAmount, createdBy, notes });
-  return Number((res as any)[0].insertId);
-}
 
-export async function listPlans() {
-  const db = await requireDb();
-  return db.select().from(collectionPlans).orderBy(desc(collectionPlans.year), desc(collectionPlans.month));
-}
 
 // ---------- Forecast entries (per-customer monthly collection forecast) ----------
 export async function listForecastEntries(year: number, month: number) {
@@ -822,11 +789,6 @@ export async function getSetting(key: string) {
   return r[0]?.value;
 }
 
-// ---------- Payment behavior (historical days-to-pay stats) ----------
-export async function listPaymentBehavior() {
-  const db = await requireDb();
-  return db.select().from(paymentBehavior);
-}
 
 export async function getPaymentBehavior(customerId: number) {
   const db = await requireDb();
@@ -979,29 +941,6 @@ export async function setGroupWatchStatus(
     .values({ groupName, status, problematicSince, updatedBy, updatedAt: Date.now() })
     .onDuplicateKeyUpdate({ set: { status, problematicSince, updatedBy, updatedAt: Date.now() } });
 }
-/**
- * Ensure the escalation clock is running for a group flagged Problematic by the
- * automatic forecast rule (row may not exist yet). Never overwrites an existing
- * manual status other than "Auto"; only stamps problematicSince when missing.
- */
-export async function ensureProblematicSince(groupName: string, now = Date.now()) {
-  const db = await requireDb();
-  const existing = await getGroupWatchStatus(groupName);
-  if (!existing) {
-    await db.insert(groupWatchStatus).values({ groupName, status: "Auto", problematicSince: now, updatedBy: null, updatedAt: now });
-    return now;
-  }
-  if (existing.problematicSince == null) {
-    await db.update(groupWatchStatus).set({ problematicSince: now, updatedAt: now }).where(eq(groupWatchStatus.groupName, groupName));
-    return now;
-  }
-  return existing.problematicSince;
-}
-/** Clear the escalation clock when a group is no longer problematic (rule stopped firing under Auto). */
-export async function clearProblematicSince(groupName: string) {
-  const db = await requireDb();
-  await db.update(groupWatchStatus).set({ problematicSince: null, updatedAt: Date.now() }).where(eq(groupWatchStatus.groupName, groupName));
-}
 
 // ---------- Audit & sync logs ----------
 export async function addAudit(entry: typeof auditLogs.$inferInsert) {
@@ -1125,10 +1064,6 @@ export async function listActivityLogWithAuthors(groupName: string, limit = 200)
   return rows.map(r => ({ ...r, authorName: r.createdBy ? (names.get(r.createdBy) ?? null) : null }));
 }
 
-export async function getActivityLog(id: number) {
-  const db = await requireDb();
-  return db.select().from(activityLog).where(eq(activityLog.id, id)).limit(1);
-}
 /**
  * Per-group call summary in a single query: when the group was last called, by
  * whom, and how many calls were logged. Used by the Collections Desk so contact
@@ -1219,21 +1154,6 @@ export async function addPaymentContact(contact: InsertPaymentContact) {
   return result[0].insertId;
 }
 
-/**
- * Insert many payment contacts in chunks. Used by the ERP contact import, where
- * inserting one row at a time would mean thousands of round trips.
- */
-export async function addPaymentContactsBulk(contacts: InsertPaymentContact[], chunkSize = 200) {
-  if (contacts.length === 0) return 0;
-  const db = await requireDb();
-  let inserted = 0;
-  for (let i = 0; i < contacts.length; i += chunkSize) {
-    const chunk = contacts.slice(i, i + chunkSize);
-    await db.insert(paymentContacts).values(chunk);
-    inserted += chunk.length;
-  }
-  return inserted;
-}
 
 export async function listPaymentContacts(customerId: number) {
   const db = await requireDb();
@@ -1805,10 +1725,6 @@ export async function listAllWireTransfers() {
   return db.select().from(wireTransfers).orderBy(desc(wireTransfers.transferDate));
 }
 
-export async function listWireTransfersByStatus(status: "Pending" | "Received") {
-  const db = await requireDb();
-  return db.select().from(wireTransfers).where(eq(wireTransfers.status, status)).orderBy(desc(wireTransfers.transferDate));
-}
 
 /**
  * Received wire transfers whose effective date (receivedDate, falling back to
@@ -1973,21 +1889,7 @@ export async function listIncomingAllocationsByCustomer(customerId: number) {
  * Credit notes (πιστωτικά) — open documents not yet matched to invoices
  * ------------------------------------------------------------------ */
 
-/** All credit notes, newest document first. */
-export async function listCreditNotes() {
-  const db = await requireDb();
-  return db.select().from(creditNotes).orderBy(desc(creditNotes.docDate));
-}
 
-/** Credit notes of one customer, newest document first. */
-export async function listCreditNotesByCustomerId(customerId: number) {
-  const db = await requireDb();
-  return db
-    .select()
-    .from(creditNotes)
-    .where(eq(creditNotes.customerId, customerId))
-    .orderBy(desc(creditNotes.docDate));
-}
 
 /** Credit notes of several customers (a group), newest document first. */
 export async function listCreditNotesByCustomerIds(customerIds: number[]) {
@@ -2012,10 +1914,6 @@ export async function createCreditNote(data: InsertCreditNote) {
   return Number((res as any)[0].insertId);
 }
 
-export async function updateCreditNote(id: number, data: Partial<InsertCreditNote>) {
-  const db = await requireDb();
-  await db.update(creditNotes).set(data).where(eq(creditNotes.id, id));
-}
 
 export async function deleteCreditNote(id: number) {
   const db = await requireDb();

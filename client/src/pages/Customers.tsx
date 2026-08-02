@@ -175,14 +175,10 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
 }) {
   const [open, setOpen] = useState(false);
   const [loadMembers, setLoadMembers] = useState(false);
-  const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: loadMembers });
-  const members = useMemo(
-    () =>
-      (allCustomers ?? [])
-        .filter(c => ((c.customerGroup ?? "").trim() || c.name) === group)
-        .map(c => ({ id: c.id, name: c.name, openBalance: c.openBalance })),
-    [allCustomers, group]
-  );
+  // Only this group's companies are fetched. The full scored customer list is
+  // several megabytes, and the dialog needs three fields per member.
+  const { data: groupMembers } = trpc.customers.groupMembers.useQuery({ group }, { enabled: loadMembers });
+  const members = useMemo(() => groupMembers ?? [], [groupMembers]);
   const defaultCustomerId = useMemo(
     () => (members.length > 0 ? [...members].sort((a, b) => b.openBalance - a.openBalance)[0].id : undefined),
     [members]
@@ -330,6 +326,9 @@ const COMPANY_COL_DEFAULTS: Record<string, number> = {
   credit: 120,
 };
 
+/** Rows rendered per page in the Companies tab (same rhythm as the Address Book). */
+const COMPANY_PAGE = 200;
+
 export default function Customers() {
   const [view, setView] = useState<"groups" | "companies">("groups");
   const { data, isLoading } = trpc.customers.list.useQuery(undefined, {
@@ -451,6 +450,18 @@ export default function Customers() {
     }
     return rows;
   }, [data, search, ratingFilter, companySort]);
+
+  /**
+   * The Companies tab covers the whole ledger (3,400+ rows). Rendering them all
+   * makes the tab janky on ordinary laptops, so it pages like the Address Book:
+   * the first 200 rows, then Show more / Show all. Filters and totals always
+   * work on the full set, only the DOM is limited.
+   */
+  const [companyLimit, setCompanyLimit] = useState(COMPANY_PAGE);
+  useEffect(() => {
+    setCompanyLimit(COMPANY_PAGE);
+  }, [search, ratingFilter, companySort, view]);
+  const visibleCompanies = useMemo(() => filtered.slice(0, companyLimit), [filtered, companyLimit]);
 
   const filteredGroups = useMemo(() => {
     if (!groups) return [];
@@ -1086,7 +1097,7 @@ export default function Customers() {
                   </TableCell>
                   <TableCell className="text-right font-mono">{fmtEur(companyTotals.credit)}</TableCell>
                 </TableRow>
-                {filtered.map(c => (
+                {visibleCompanies.map(c => (
                   <TableRow key={c.id} className="cursor-pointer" onClick={() => navigate(`/customers/${c.id}`)}>
                     <TableCell className="font-mono text-sm">{c.code}</TableCell>
                     <TableCell className="font-medium overflow-hidden">
@@ -1096,7 +1107,7 @@ export default function Customers() {
                       <Badge
                         variant="outline"
                         className={`${ratingColors[c.rating] ?? ""} font-mono`}
-                        title={`Credit score ${c.ratingScore}/100${c.ratingFactors ? `\n${c.ratingFactors.map(f => `${f.label}: ${f.points}/${f.max} (${f.detail})`).join("\n")}` : ""}`}
+                        title={`Credit score ${c.ratingScore}/100${c.ratingBreakdown ? `\n${c.ratingBreakdown.split(" · ").join("\n")}` : ""}`}
                       >
                         {c.rating}
                       </Badge>
@@ -1113,6 +1124,19 @@ export default function Customers() {
                 ))}
               </TableBody>
             </Table>
+          )}
+          {view === "companies" && !isLoading && filtered.length > visibleCompanies.length && (
+            <div className="p-3 flex items-center justify-center gap-3 border-t">
+              <span className="text-sm text-muted-foreground">
+                Showing {visibleCompanies.length} of {filtered.length} companies
+              </span>
+              <Button variant="outline" size="sm" onClick={() => setCompanyLimit(n => n + COMPANY_PAGE)}>
+                Show more
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setCompanyLimit(filtered.length)}>
+                Show all
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

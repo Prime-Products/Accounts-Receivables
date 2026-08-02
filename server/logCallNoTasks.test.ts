@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appRouter } from "./routers";
 import * as db from "./db";
+import { createTestCustomer, createTestInvoice, cleanupTestCustomers, type TestCustomerFixture } from "./testFixtures";
 
 /**
  * Logging a call must be completely independent of tasks (user requirement 2/8):
@@ -23,14 +24,24 @@ const snapshotTasks = async () => {
   };
 };
 
-/** A real group we can safely log calls against. */
-const pickGroup = async () => {
-  const customers = await db.listCustomers();
-  const c = customers.find(c => ((c.customerGroup ?? "").trim() || c.name).length > 0)!;
-  return { group: (c.customerGroup ?? "").trim() || c.name, customerId: c.id };
-};
-
 describe("Log Call is independent of tasks", () => {
+  /**
+   * Calls are logged against an isolated fixture group — never against a real
+   * customer — so the suite leaves no timeline entries or promises behind in the
+   * live collections data.
+   */
+  let fx: TestCustomerFixture;
+  const pickGroup = async () => ({ group: fx.group, customerId: fx.id });
+
+  beforeAll(async () => {
+    fx = await createTestCustomer("NOTASKCALL");
+    await createTestInvoice(fx);
+  });
+
+  afterAll(async () => {
+    await cleanupTestCustomers([fx]);
+  });
+
   it("a no-answer call changes nothing in the task list", async () => {
     const { group, customerId } = await pickGroup();
     const before = await snapshotTasks();
