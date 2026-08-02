@@ -3,6 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import MentionText from "@/components/MentionText";
+import { stripMentionMarkup } from "@shared/mentions";
 import {
   MessageSquare,
   CheckSquare,
@@ -89,12 +91,20 @@ const CLAMP_CHARS = 180;
 
 function EntryBody({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
-  const long = text.length > CLAMP_CHARS;
-  if (!long) return <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap break-words">{text}</p>;
+  // Clamp on what the reader sees, not on the stored markers, so "@[Name](7)"
+  // does not eat the character budget.
+  const readable = stripMentionMarkup(text);
+  const long = readable.length > CLAMP_CHARS;
+  if (!long)
+    return (
+      <p className="text-sm text-muted-foreground mt-1">
+        <MentionText text={text} />
+      </p>
+    );
   return (
     <div className="mt-1">
-      <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">
-        {open ? text : `${text.slice(0, CLAMP_CHARS).trimEnd()}…`}
+      <p className="text-sm text-muted-foreground">
+        {open ? <MentionText text={text} /> : `${readable.slice(0, CLAMP_CHARS).trimEnd()}…`}
       </p>
       <button
         type="button"
@@ -137,7 +147,7 @@ export function CommunicationTimeline({ entries, isLoading, title = "Communicati
       if (!needle) return true;
       return (
         e.title.toLowerCase().includes(needle) ||
-        (e.body ?? "").toLowerCase().includes(needle) ||
+        stripMentionMarkup(e.body).toLowerCase().includes(needle) ||
         (e.author ?? "").toLowerCase().includes(needle) ||
         (e.company ?? "").toLowerCase().includes(needle)
       );

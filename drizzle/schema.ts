@@ -442,6 +442,34 @@ export const activityLog = mysqlTable("activity_log", {
 export type UserProfile = typeof userProfiles.$inferSelect;
 
 /**
+ * @mentions of internal team members inside notes (call notes, collection notes).
+ *
+ * A mention is a reference — "I informed X" / "X should know" — not an assignment,
+ * so it deliberately carries no due date and no status: it never becomes work.
+ * Rows are keyed by the member so "what mentions me" is a single indexed lookup.
+ */
+export const noteMentions = mysqlTable("note_mentions", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Team member being referred to (team_members.id). */
+  memberId: int("memberId").notNull(),
+  /** Group the note belongs to, so the mention can link back to the card. */
+  groupName: varchar("groupName", { length: 255 }).notNull(),
+  /** Where the mention was written: a call/collection note is always tied to a group. */
+  source: mysqlEnum("source", ["call", "collectionNotes", "groupNote"]).notNull(),
+  /** Activity-log row that contains the note, when there is one. */
+  activityId: int("activityId"),
+  /** The note text (with markers) at the time of writing, for the mentions list. */
+  excerpt: varchar("excerpt", { length: 500 }),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  /** Set when the mentioned member marks it as seen. */
+  readAt: timestamp("readAt"),
+});
+
+export type NoteMention = typeof noteMentions.$inferSelect;
+export type InsertNoteMention = typeof noteMentions.$inferInsert;
+
+/**
  * Editable email templates used by the Send Email dialog. One row per template
  * type; the body/subject may contain {{placeholders}} that are substituted with
  * live customer figures when the dialog is opened.

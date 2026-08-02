@@ -309,6 +309,13 @@
       "when": 1785596277737,
       "tag": "0043_tranquil_garia",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "5",
+      "when": 1785632647498,
+      "tag": "0044_parched_omega_red",
+      "breakpoints": true
     }
   ]
 }

@@ -54,6 +54,7 @@ import {
   InsertCreditNoteAllocation,
 } from "../drizzle/schema";
 import { teamMembers, InsertTeamMember } from "../drizzle/schema";
+import { noteMentions, InsertNoteMention } from "../drizzle/schema";
 import { contactGifts, giftImportReview, type GiftTier } from "../drizzle/schema";
 import { queryTokens } from "../shared/textMatch";
 import {
@@ -883,6 +884,56 @@ export async function addActivityLog(entry: InsertActivityLog) {
   const db = await requireDb();
   const res = await db.insert(activityLog).values(entry);
   return Number((res as any)[0].insertId);
+}
+
+/**
+ * Record @mentions found in a note. Mentions are references, not work items:
+ * nothing here creates or touches a task.
+ */
+export async function addNoteMentions(rows: InsertNoteMention[]) {
+  if (rows.length === 0) return 0;
+  const db = await requireDb();
+  await db.insert(noteMentions).values(rows);
+  return rows.length;
+}
+
+/** Mentions addressed to one team member, newest first. */
+export async function listMentionsForMember(memberId: number, opts?: { unreadOnly?: boolean; limit?: number }) {
+  const db = await requireDb();
+  const where = opts?.unreadOnly
+    ? and(eq(noteMentions.memberId, memberId), sql`${noteMentions.readAt} is null`)
+    : eq(noteMentions.memberId, memberId);
+  return db
+    .select()
+    .from(noteMentions)
+    .where(where)
+    .orderBy(desc(noteMentions.createdAt))
+    .limit(opts?.limit ?? 100);
+}
+
+export async function countUnreadMentions(memberId: number) {
+  const rows = await listMentionsForMember(memberId, { unreadOnly: true, limit: 500 });
+  return rows.length;
+}
+
+/** Mark one mention, or every mention of a member, as seen. */
+export async function markMentionsRead(memberId: number, mentionId?: number) {
+  const db = await requireDb();
+  const where = mentionId
+    ? and(eq(noteMentions.memberId, memberId), eq(noteMentions.id, mentionId))
+    : eq(noteMentions.memberId, memberId);
+  await db.update(noteMentions).set({ readAt: new Date() }).where(where);
+}
+
+/** Every mention written on a group's notes, for the group card. */
+export async function listMentionsByGroup(groupName: string, limit = 100) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(noteMentions)
+    .where(eq(noteMentions.groupName, groupName))
+    .orderBy(desc(noteMentions.createdAt))
+    .limit(limit);
 }
 
 export async function listActivityLog(groupName: string, limit = 100) {
