@@ -26,7 +26,7 @@ import {
   PROMISE_NO_AMOUNT_LABEL,
 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BellRing, ChevronDown, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
@@ -96,6 +96,56 @@ const LastContactCell = memo(function LastContactCell({
   );
 });
 type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
+
+/**
+ * The date a group is waiting on, right under its status badge: the promised
+ * payment date for a Promise to Pay, or the follow-up date otherwise. When that
+ * date has arrived the line turns red/amber and says so — this is how the Desk
+ * tells you to act, instead of a separate call-back list.
+ */
+const DueDateLine = memo(function DueDateLine({
+  status,
+  followUpDate,
+  promiseDate,
+  actionDate,
+  actionDue,
+}: {
+  status: string | null;
+  followUpDate: number | null;
+  promiseDate: number | null;
+  actionDate: number | null;
+  actionDue: "today" | "overdue" | null;
+}) {
+  const isPromise = status === "Confirmed";
+  const date = actionDate ?? (isPromise ? promiseDate : followUpDate);
+  if (!date) return null;
+  const label = isPromise ? "Promised" : "Follow-up";
+  const days = actionDue === "overdue" ? daysSince(date) : 0;
+  return (
+    <div
+      className={`text-xs mt-1 flex items-center gap-1 whitespace-nowrap ${
+        actionDue === "overdue"
+          ? "font-semibold text-red-600"
+          : actionDue === "today"
+            ? "font-medium text-amber-600"
+            : "text-muted-foreground"
+      }`}
+      title={
+        actionDue === "overdue"
+          ? `${label} ${fmtDate(date)} — ${days} day(s) past due, log a call to move it forward`
+          : actionDue === "today"
+            ? `${label} ${fmtDate(date)} — due today`
+            : `${label} ${fmtDate(date)}`
+      }
+    >
+      {actionDue && <BellRing className="h-3 w-3 shrink-0" />}
+      <span>
+        {label}: {fmtDate(date)}
+        {actionDue === "overdue" ? ` · ${days}d late` : actionDue === "today" ? " · today" : ""}
+      </span>
+    </div>
+  );
+});
 
 /** Click-to-edit forecast cell. Saving corrects the month's forecast (expected + initial baseline). */
 const EditableForecastCell = memo(function EditableForecastCell({ group, value }: { group: string; value: number }) {
@@ -384,6 +434,12 @@ export default function Customers() {
    * a number of days meaning "not called in N days".
    */
   const [contactFilter, setContactFilter] = useState<string>("all");
+  /**
+   * Action-due filter: "all" | "due" (promise/follow-up date reached, i.e. today
+   * or earlier) | "overdue" (the date has already passed). This replaces the old
+   * separate Call Back page — the work surfaces here.
+   */
+  const [dueFilter, setDueFilter] = useState<"all" | "due" | "overdue">("all");
   const [confirmationFilter, setConfirmationFilter] = useState<string>(() => {
     const p = new URLSearchParams(window.location.search).get("conf");
     return p && ["not-contacted", "confirmed", "pending", "broken", "escalated"].includes(p) ? p : "all";
@@ -524,8 +580,13 @@ export default function Customers() {
           contactFilter !== "all" &&
           !["never", "unanswered", "called-today"].includes(contactFilter) &&
           (ageDays == null || ageDays >= Number(contactFilter)));
+      const actionDue = (g as any).actionDue as "today" | "overdue" | null;
+      const matchesDue =
+        dueFilter === "all" ||
+        (dueFilter === "due" && actionDue !== null) ||
+        (dueFilter === "overdue" && actionDue === "overdue");
       return (
-        matchesSearch && matchesStatus && matchesRating && matchesConfirmation && matchesManager && matchesCollector && matchesContact
+        matchesSearch && matchesStatus && matchesRating && matchesConfirmation && matchesManager && matchesCollector && matchesContact && matchesDue
       );
     });
     if (groupSort.key) {
@@ -555,9 +616,31 @@ export default function Customers() {
         const diff = getVal(a) - getVal(b);
         return groupSort.dir === "asc" ? diff : -diff;
       });
+    } else {
+      // No explicit sort: rows whose promise/follow-up date has arrived come first
+      // (oldest date first), so today's work is always at the top of the Desk.
+      const rank = (g: any) => (g.actionDue === "overdue" ? 0 : g.actionDue === "today" ? 1 : 2);
+      rows = [...rows].sort(
+        (a: any, b: any) =>
+          rank(a) - rank(b) ||
+          (rank(a) < 2 ? (a.actionDate ?? 0) - (b.actionDate ?? 0) : 0) ||
+          b.overdueBalance - a.overdueBalance
+      );
     }
     return rows;
-  }, [groups, search, statusFilter, ratingFilter, confirmationFilter, managerFilter, collectorFilter, contactFilter, groupSort]);
+  }, [groups, search, statusFilter, ratingFilter, confirmationFilter, managerFilter, collectorFilter, contactFilter, dueFilter, groupSort]);
+
+  /** Groups whose promise / follow-up date has arrived — the "act today" queue. */
+  const dueCounts = useMemo(() => {
+    let today = 0;
+    let overdue = 0;
+    for (const g of groups ?? []) {
+      const d = (g as any).actionDue as "today" | "overdue" | null;
+      if (d === "today") today += 1;
+      else if (d === "overdue") overdue += 1;
+    }
+    return { today, overdue, total: today + overdue };
+  }, [groups]);
 
   const groupTotals = useMemo(
     () =>
@@ -658,6 +741,50 @@ export default function Customers() {
           {generate.isPending ? "Running…" : forecastStatus?.hasRun ? "Forecast (already run)" : "Run Forecast"}
         </Button>
       </div>
+
+      {/*
+        Needs action today — the replacement for the old Call Back page. Purely
+        date-driven: a Pending promise or a follow-up date that has arrived. No
+        task is created and nothing goes stale; moving the date moves the row.
+      */}
+      {view === "groups" && dueCounts.total > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+          <BellRing className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="text-sm text-amber-900 dark:text-amber-100">
+            <b>{dueCounts.total}</b> group{dueCounts.total === 1 ? " needs" : "s need"} action:{" "}
+            {dueCounts.overdue > 0 && (
+              <>
+                <b className="text-red-700 dark:text-red-300">{dueCounts.overdue}</b> past the promised /
+                follow-up date
+              </>
+            )}
+            {dueCounts.overdue > 0 && dueCounts.today > 0 && " · "}
+            {dueCounts.today > 0 && (
+              <>
+                <b>{dueCounts.today}</b> due today
+              </>
+            )}
+          </div>
+          <div className="ms-auto flex gap-2">
+            {dueFilter === "all" ? (
+              <>
+                <Button size="sm" variant="outline" className="bg-white/70 dark:bg-transparent" onClick={() => setDueFilter("due")}>
+                  Show these
+                </Button>
+                {dueCounts.overdue > 0 && (
+                  <Button size="sm" variant="outline" className="bg-white/70 dark:bg-transparent" onClick={() => setDueFilter("overdue")}>
+                    Past due only
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Button size="sm" variant="ghost" onClick={() => setDueFilter("all")}>
+                Show all groups
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Strong re-run warning: the month's forecast already exists */}
       <Dialog open={rerunOpen} onOpenChange={o => { setRerunOpen(o); if (!o) setRerunAck(false); }}>
@@ -770,6 +897,21 @@ export default function Customers() {
                 <SelectItem value="30">Not called in 30 days</SelectItem>
                 <SelectItem value="unanswered">Has unanswered attempts</SelectItem>
                 <SelectItem value="called-today">Called today</SelectItem>
+              </SelectContent>
+            </Select>
+            {/*
+              Action due: replaces the old Call Back page. A promise date or
+              follow-up date that has arrived puts the group at the top of the
+              Desk; this filter narrows the list to exactly those rows.
+            */}
+            <Select value={dueFilter} onValueChange={v => setDueFilter(v as "all" | "due" | "overdue")}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Action due" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any due date</SelectItem>
+                <SelectItem value="due">Due today or earlier</SelectItem>
+                <SelectItem value="overdue">Past due only</SelectItem>
               </SelectContent>
             </Select>
             <Select value={managerFilter} onValueChange={setManagerFilter}>
@@ -941,7 +1083,13 @@ export default function Customers() {
                   {(showAllGroups ? filteredGroups : filteredGroups.slice(0, 100)).map(g => (
                     <TableRow
                       key={g.group}
-                      className="cursor-pointer"
+                      className={`cursor-pointer ${
+                        (g as any).actionDue === "overdue"
+                          ? "bg-red-50/70 hover:bg-red-50 dark:bg-red-500/5"
+                          : (g as any).actionDue === "today"
+                            ? "bg-amber-50/70 hover:bg-amber-50 dark:bg-amber-500/5"
+                            : ""
+                      }`}
                       onClick={() => navigate(`/groups/${encodeURIComponent(g.group)}`)}
                     >
                       <TableCell className="font-medium overflow-hidden">
@@ -986,11 +1134,13 @@ export default function Customers() {
                             <span>Carried over</span>
                           </div>
                         )}
-                        {g.confirmationFollowUpDate && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            Follow-up: {fmtDate(g.confirmationFollowUpDate)}
-                          </div>
-                        )}
+                        <DueDateLine
+                          status={g.confirmationStatus}
+                          followUpDate={g.confirmationFollowUpDate ?? null}
+                          promiseDate={(g as any).confirmationPromiseDate ?? null}
+                          actionDate={(g as any).actionDate ?? null}
+                          actionDue={(g as any).actionDue ?? null}
+                        />
                       </TableCell>
                       {/*
                         Contact tracking: the whole point of logging calls is being able
