@@ -18,6 +18,7 @@ import {
   PROMISE_NO_AMOUNT_LABEL,
 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import { collectionStatusRank } from "@/lib/collectionStatusSort";
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BellRing, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { memo } from "react";
@@ -26,7 +27,17 @@ import { useLocation, useSearch } from "wouter";
 import LogCallDialog from "@/components/LogCallDialog";
 import { matchesAllTokens } from "@shared/textMatch";
 
-type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "collected" | "remaining" | "overdueCount";
+type GroupSortKey =
+  | "companies"
+  | "collectionStatus"
+  | "open"
+  | "overdue"
+  | "overdueEom"
+  | "forecast"
+  | "collected"
+  | "remaining"
+  | "overdueCount";
+
 
 /** Age of the last logged call, in whole days. */
 function daysSince(ts: number): number {
@@ -266,9 +277,40 @@ function PlainHead({ label, col, cols, className }: { label?: string; col: strin
   );
 }
 
+/** Left-aligned sortable header cell (for text columns such as Collection Status). */
+function SortableTextHead({
+  label,
+  active,
+  dir,
+  onClick,
+  col,
+  cols,
+}: {
+  label: string;
+  active: boolean;
+  dir: "asc" | "desc";
+  onClick: () => void;
+  col: string;
+  cols: ResizableColumnsApi;
+}) {
+  return (
+    <TableHead className="relative" style={cols.style(col)}>
+      <button className="inline-flex items-center gap-1 hover:text-foreground w-full max-w-full pr-1" onClick={onClick}>
+        <span className="truncate">{label}</span>
+        {active ? (
+          dir === "desc" ? <ArrowDown className="h-3 w-3 shrink-0" /> : <ArrowUp className="h-3 w-3 shrink-0" />
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-40 shrink-0" />
+        )}
+      </button>
+      <ColResizer col={col} api={cols} />
+    </TableHead>
+  );
+}
+
 const GROUP_COL_DEFAULTS: Record<string, number> = {
   group: 240,
-  confirmation: 150,
+  confirmation: 175,
   promised: 100,
   open: 120,
   overdue: 120,
@@ -470,6 +512,8 @@ export default function Customers() {
         switch (groupSort.key) {
           case "companies":
             return g.companyCount;
+          case "collectionStatus":
+            return collectionStatusRank((g as any).confirmationStatus);
           case "open":
             return g.openBalance;
           case "overdue":
@@ -690,10 +734,10 @@ export default function Customers() {
             </Select>
             <Select value={confirmationFilter} onValueChange={setConfirmationFilter}>
               <SelectTrigger className="w-44">
-                <SelectValue placeholder="Confirmation" />
+                <SelectValue placeholder="Collection status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All confirmations</SelectItem>
+                <SelectItem value="all">All collection statuses</SelectItem>
                 <SelectItem value="not-contacted">Not Contacted</SelectItem>
                 <SelectItem value="confirmed">Promise to Pay</SelectItem>
                 <SelectItem value="pending">Pending Follow-up</SelectItem>
@@ -866,7 +910,14 @@ export default function Customers() {
                 <TableHeader>
                   <TableRow>
                     <PlainHead label="Group" col="group" cols={groupCols} />
-                    <PlainHead label="Confirmation" col="confirmation" cols={groupCols} />
+                    <SortableTextHead
+                      label="Collection Status"
+                      active={groupSort.key === "collectionStatus"}
+                      dir={groupSort.dir}
+                      onClick={() => toggleGroupSort("collectionStatus")}
+                      col="confirmation"
+                      cols={groupCols}
+                    />
                     <PlainHead label="Promised" col="promised" cols={groupCols} className="text-right" />
                     <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} col="open" cols={groupCols} />
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} col="overdue" cols={groupCols} />

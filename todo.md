@@ -1589,6 +1589,11 @@ master record. Same company, two screens. Unify them.
 ## Timeline duplication bug (reported 2/8)
 - [x] One logged call with a promise shows two timeline rows ("Call logged" + "Promise-to-Pay") — merged into a single entry that names the call and its outcome
 - [x] Vitest: `logCallSingleEntry.test.ts` (4 tests) — a call that records a promise produces exactly one timeline entry
+
+## Collection Status column (user request 2/8)
+- [x] Renamed the Desk "Confirmation" column header to "Collection Status" (filter now reads "All collection statuses")
+- [x] Column is sortable by collection urgency (Broken → Escalated → Pending Follow-up → Promise → Not Contacted → Kept)
+- [x] Vitest: `collectionStatusSort.test.ts` (5 tests) covers the urgency ranking
 - [x] "Action due" filter in the filter row (Any due date / Due today or earlier / Past due only)
 - [x] Default Desk ordering puts due rows first (past due, then due today, oldest date first), and due rows are tinted red/amber
 - [x] Removed the `customers.callBackList` procedure
