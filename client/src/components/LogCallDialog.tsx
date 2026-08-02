@@ -3,11 +3,21 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@/components/ui/command";
 import MentionText from "@/components/MentionText";
 import MentionTextarea from "@/components/MentionTextarea";
 import { trpc } from "@/lib/trpc";
 import { fmtPromiseAmountShort } from "@/lib/format";
-import { Building2, CheckCircle2, Info, Mail, Phone, Plus, User } from "lucide-react";
+import { Building2, CheckCircle2, ChevronsUpDown, Info, Mail, Phone, Plus, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -45,6 +55,7 @@ export default function LogCallDialog({
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
   const [contactName, setContactName] = useState("");
   const [selectedContactId, setSelectedContactId] = useState<string>("");
+  const [contactPickerOpen, setContactPickerOpen] = useState(false);
   // Inline "add new contact" form state
   const [newContactName, setNewContactName] = useState("");
   const [newContactEmail, setNewContactEmail] = useState("");
@@ -92,6 +103,13 @@ export default function LogCallDialog({
     selectedContactId && selectedContactId !== "other" && selectedContactId !== "add-new"
       ? groupContacts?.find(c => String(c.id) === selectedContactId)
       : undefined;
+  const selectedContactLabel = selectedContact
+    ? `${selectedContact.name}${selectedContact.title ? ` · ${selectedContact.title}` : ""}`
+    : selectedContactId === "other"
+      ? "Other (type a name)"
+      : selectedContactId === "add-new"
+        ? "Add new contact"
+        : "";
 
 
 
@@ -100,6 +118,7 @@ export default function LogCallDialog({
       setCustomerId(defaultCustomerId ?? null);
       setContactName("");
       setSelectedContactId("");
+      setContactPickerOpen(false);
       setNewContactName("");
       setNewContactEmail("");
       setNewContactPhone("");
@@ -252,23 +271,91 @@ export default function LogCallDialog({
           {/* Contact person selection */}
           <div className="space-y-1">
             <Label className="text-xs">Contact person</Label>
-            <Select value={selectedContactId} onValueChange={setSelectedContactId}>
-              <SelectTrigger className="w-full h-9">
-                <SelectValue placeholder="Select contact…" />
-              </SelectTrigger>
-              <SelectContent>
-                {groupContacts?.map(c => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {(c as { contactType?: string }).contactType === "Department"
-                      ? `${c.name} · department`
-                      : c.name}
-                    {c.title ? ` (${c.title})` : ""}
-                  </SelectItem>
-                ))}
-                <SelectItem value="other">Other (type a name)</SelectItem>
-                <SelectItem value="add-new">+ Add new contact</SelectItem>
-              </SelectContent>
-            </Select>
+            {/*
+             * A group can carry dozens of payment contacts, so the picker is a
+             * search box first: the collector types what they remember (name,
+             * title or email) and always sees the text they typed, instead of a
+             * native select that swallows keystrokes.
+             */}
+            <Popover open={contactPickerOpen} onOpenChange={setContactPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={contactPickerOpen}
+                  className="w-full h-9 justify-between bg-background font-normal"
+                >
+                  <span className={selectedContactLabel ? "truncate" : "truncate text-muted-foreground"}>
+                    {selectedContactLabel || "Select contact…"}
+                  </span>
+                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Search contacts…" />
+                  <CommandList>
+                    <CommandEmpty>No contact found</CommandEmpty>
+                    <CommandGroup>
+                      {groupContacts?.map(c => {
+                        const isDept = (c as { contactType?: string }).contactType === "Department";
+                        return (
+                          <CommandItem
+                            key={c.id}
+                            value={`${c.name} ${c.title ?? ""} ${c.email ?? ""}`}
+                            onSelect={() => {
+                              setSelectedContactId(String(c.id));
+                              setContactPickerOpen(false);
+                            }}
+                          >
+                            {isDept ? (
+                              <Building2 className="mr-2 h-3.5 w-3.5 text-violet-600" />
+                            ) : (
+                              <User className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                            )}
+                            <span className="flex min-w-0 flex-col">
+                              <span className="truncate">
+                                {c.name}
+                                {isDept ? " · department" : ""}
+                              </span>
+                              {(c.title || c.email) && (
+                                <span className="truncate text-[11px] text-muted-foreground">
+                                  {[c.title, c.email].filter(Boolean).join(" · ")}
+                                </span>
+                              )}
+                            </span>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                    <CommandSeparator />
+                    <CommandGroup>
+                      <CommandItem
+                        value="other type a name"
+                        onSelect={() => {
+                          setSelectedContactId("other");
+                          setContactPickerOpen(false);
+                        }}
+                      >
+                        <User className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                        Other (type a name)
+                      </CommandItem>
+                      <CommandItem
+                        value="add new contact"
+                        onSelect={() => {
+                          setSelectedContactId("add-new");
+                          setContactPickerOpen(false);
+                        }}
+                      >
+                        <Plus className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                        Add new contact
+                      </CommandItem>
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
             {selectedContactId === "other" && (
               <Input
                 placeholder="Contact name"

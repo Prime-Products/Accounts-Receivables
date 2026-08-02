@@ -1772,3 +1772,4 @@ master record. Same company, two screens. Unify them.
 - [x] Group/company card: show responsible people as an avatar People row (Team-list style) with Controller/Account Manager titles
 - [x] Group/company card: add removable Watchers (team members following the receivables card), stored per group
 - [x] Installments toggle: show the installment count and go disabled at zero, matching the Payments / Credit notes buttons on group, company and Invoices pages
+- [x] Log Call: contact person picker is a searchable combobox (visible typed text, matches name/title/email, keeps Other and Add new)
