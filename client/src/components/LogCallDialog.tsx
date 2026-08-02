@@ -5,7 +5,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import MentionText from "@/components/MentionText";
 import MentionTextarea from "@/components/MentionTextarea";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { trpc } from "@/lib/trpc";
 import { fmtPromiseAmountShort } from "@/lib/format";
 import { Building2, CheckCircle2, Info, Mail, Phone, Plus, User } from "lucide-react";
@@ -69,10 +68,14 @@ export default function LogCallDialog({
   const [confirmationAmount, setConfirmationAmount] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [promisedDate, setPromisedDate] = useState("");
-  const [promiseMode, setPromiseMode] = useState<"reschedule" | "new">("reschedule");
   const utils = trpc.useUtils();
 
-  // Existing open promise for this group (offered for rescheduling on Confirmed)
+  /*
+   * Existing open promise for this group. Shown only as context ("the customer
+   * already owes a promise for this date/amount") — the collector is not asked what
+   * to do with it: a group carries one payment commitment at a time, so the server
+   * always moves that promise to the new date.
+   */
   const { data: openPromise } = trpc.calls.getOpenPromise.useQuery({ group }, { enabled: open });
   // Payment contacts across all companies of the group
   const { data: groupContacts } = trpc.paymentContacts.listByGroup.useQuery({ group }, { enabled: open });
@@ -102,7 +105,6 @@ export default function LogCallDialog({
       setConfirmationAmount("");
       setFollowUpDate("");
       setPromisedDate("");
-      setPromiseMode("reschedule");
     }
   }, [open, defaultCustomerId]);
 
@@ -174,16 +176,6 @@ export default function LogCallDialog({
     if (outcome === "Reached" && confirmationStatus === "Confirmed") {
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.promisedDate = promisedDate ? new Date(promisedDate).getTime() : undefined;
-      /*
-       * When an open promise already exists the collector chooses whether the
-       * customer moved that payment or made an additional one. Only the first case
-       * must touch the existing row, so the id is sent only then — sending a mode
-       * string instead left the server with nothing to act on, and every call
-       * silently created a second identical promise.
-       */
-      if (openPromise && promiseMode === "reschedule") {
-        logData.reschedulePromiseId = openPromise.id;
-      }
     } else if (outcome === "Reached" && confirmationStatus === "Pending Follow-up") {
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.followUpDate = followUpDate ? new Date(followUpDate).getTime() : undefined;
@@ -386,9 +378,9 @@ export default function LogCallDialog({
           {confirmationStatus === "Confirmed" && (
             <div className="space-y-2 rounded-lg border border-green-200 bg-green-50 p-2.5">
               {openPromise && (
-                <div className="rounded border border-amber-300 bg-amber-50 p-2 space-y-1.5">
-                  <p className="text-xs font-medium text-amber-900">
-                    Open promise exists: {fmtPromiseAmountShort(openPromise.amount)} due{" "}
+                <div className="rounded border border-amber-300 bg-amber-50 p-2">
+                  <p className="text-xs text-amber-900">
+                    Moving the open promise of {fmtPromiseAmountShort(openPromise.amount)} due{" "}
                     {openPromise.promisedDate ? new Date(openPromise.promisedDate).toLocaleDateString("en-GB") : "—"} ({openPromise.customerName})
                     {(openPromise.rescheduleCount ?? 0) > 0 && (
                       <span className="ml-1.5 inline-flex items-center rounded bg-red-200 px-1.5 py-0.5 font-semibold text-red-900">
@@ -396,20 +388,6 @@ export default function LogCallDialog({
                       </span>
                     )}
                   </p>
-                  <RadioGroup value={promiseMode} onValueChange={v => setPromiseMode(v as "reschedule" | "new")} className="gap-1">
-                    <div className="flex items-center gap-2">
-                      <RadioGroupItem value="reschedule" id="pm-reschedule" />
-                      <Label htmlFor="pm-reschedule" className="text-xs font-normal cursor-pointer">
-                        Reschedule this promise (customer moved the payment)
-                      </Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <RadioGroupItem value="new" id="pm-new" />
-                      <Label htmlFor="pm-new" className="text-xs font-normal cursor-pointer">
-                        Create a separate new promise
-                      </Label>
-                    </div>
-                  </RadioGroup>
                 </div>
               )}
               <div className="grid gap-2 sm:grid-cols-2">
@@ -435,7 +413,7 @@ export default function LogCallDialog({
                 </div>
               </div>
               <p className="text-[11px] leading-snug text-muted-foreground">
-                {openPromise && promiseMode === "reschedule"
+                {openPromise
                   ? "The existing promise is moved to the new date."
                   : "A Promise-to-Pay record is created."}
                 {" "}Leave the amount empty when the customer promised to pay without naming a figure — the promise is recorded as “amount not stated”.

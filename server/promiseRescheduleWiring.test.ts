@@ -1,15 +1,18 @@
 import { describe, it, expect, afterAll } from "vitest";
 
 /**
- * "Open promise exists" — reschedule vs new.
+ * One open promise per group.
  *
- * The dialog offers two choices when the group already has an open promise:
- * move the existing one (the customer shifted the same payment) or add a second
- * one (an additional payment was promised). The choice used to be sent as a mode
- * string the server did not understand, so BOTH options created a duplicate row
- * and the reschedule counter never moved — the live data had two identical open
- * promises for EVALEND (TANKERS) created a minute apart. These tests pin the
- * wiring: reschedule must update in place, "new" must add a row.
+ * The Log Call dialog used to ask "reschedule the open promise or create a
+ * separate one?" whenever a group already had an open Promise to Pay. The
+ * question added a step without adding information, and answering "separate"
+ * left two open promises for the same money — the live data had two identical
+ * EVALEND (TANKERS) rows created a minute apart, which double-counted in the
+ * Desk's promised figures and in the kept/broken statistics.
+ *
+ * The question is gone: a newly logged Promise to Pay always moves the group's
+ * open promise and bumps its reschedule counter. These tests pin that, with and
+ * without the legacy `reschedulePromiseId` flag older clients may still send.
  */
 import { appRouter } from "./routers";
 import * as db from "./db";
@@ -26,6 +29,9 @@ let fixture: TestCustomerFixture | null = null;
 afterAll(async () => {
   if (fixture) await cleanupTestCustomer(fixture);
 });
+
+const openPromisesOf = async (customerId: number) =>
+  (await db.listPromises()).filter(p => p.customerId === customerId && p.status === "Pending");
 
 describe("promise reschedule wiring", () => {
   it("moves the existing promise instead of creating a second one", async () => {
@@ -47,7 +53,7 @@ describe("promise reschedule wiring", () => {
     const promiseId = open!.id;
     expect(open!.rescheduleCount ?? 0).toBe(0);
 
-    // Second call: the customer moved the same payment.
+    // Second call: the customer named a new date. No client flag is sent any more.
     const movedDate = Date.now() + 20 * 86400000;
     await caller.calls.logCall({
       group,
@@ -55,38 +61,57 @@ describe("promise reschedule wiring", () => {
       outcome: "Reached",
       confirmationStatus: "Confirmed",
       promisedDate: movedDate,
-      reschedulePromiseId: promiseId,
       notes: "moved to later date",
     });
 
-    const all = await db.listPromises();
-    const mine = all.filter(p => p.customerId === fixture!.id && p.status === "Pending");
-    expect(mine.length, "reschedule must not create a duplicate promise").toBe(1);
+    const mine = await openPromisesOf(fixture.id);
+    expect(mine.length, "a new promise date must not create a duplicate row").toBe(1);
     expect(mine[0].id).toBe(promiseId);
     expect(mine[0].promisedDate).toBe(movedDate);
     expect(mine[0].rescheduleCount).toBe(1);
   });
 
-  it("creates a second promise when the collector chooses a separate one", async () => {
+  it("still honours the legacy reschedulePromiseId flag", async () => {
     const group = fixture!.group;
-    const before = (await db.listPromises()).filter(
-      p => p.customerId === fixture!.id && p.status === "Pending",
-    ).length;
+    const existing = (await openPromisesOf(fixture!.id))[0];
+    const nextDate = Date.now() + 40 * 86400000;
 
-    // No reschedulePromiseId sent = "Create a separate new promise".
     await caller.calls.logCall({
       group,
       customerId: fixture!.id,
       outcome: "Reached",
       confirmationStatus: "Confirmed",
-      promisedDate: Date.now() + 40 * 86400000,
+      promisedDate: nextDate,
       confirmationAmount: 1500,
-      notes: "additional payment promised",
+      reschedulePromiseId: existing.id,
+      notes: "older client sends the id explicitly",
     });
 
-    const after = (await db.listPromises()).filter(
-      p => p.customerId === fixture!.id && p.status === "Pending",
-    ).length;
-    expect(after).toBe(before + 1);
+    const mine = await openPromisesOf(fixture!.id);
+    expect(mine.length).toBe(1);
+    expect(mine[0].id).toBe(existing.id);
+    expect(mine[0].promisedDate).toBe(nextDate);
+    expect(mine[0].rescheduleCount).toBe(2);
+    expect(Number(mine[0].amount)).toBe(1500);
+  });
+
+  it("creates the first promise when the group has none open", async () => {
+    const fresh = await createTestCustomer("VITESTFIX PromiseFirst");
+    try {
+      expect(await openPromisesOf(fresh.id)).toHaveLength(0);
+      await caller.calls.logCall({
+        group: fresh.group,
+        customerId: fresh.id,
+        outcome: "Reached",
+        confirmationStatus: "Confirmed",
+        promisedDate: Date.now() + 7 * 86400000,
+        notes: "first ever promise",
+      });
+      const mine = await openPromisesOf(fresh.id);
+      expect(mine).toHaveLength(1);
+      expect(mine[0].rescheduleCount ?? 0).toBe(0);
+    } finally {
+      await cleanupTestCustomer(fresh);
+    }
   });
 });

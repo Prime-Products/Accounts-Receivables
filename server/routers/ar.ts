@@ -5259,7 +5259,11 @@ export const callsRouter = router({
         confirmationAmount: z.number().optional(),
         followUpDate: z.number().optional(),
         promisedDate: z.number().optional(),
-        // When Confirmed and an open promise already exists: reschedule it instead of creating a new one.
+        /**
+         * Deprecated. A group carries at most one open promise, so a newly logged
+         * Promise to Pay always moves the existing open promise; the collector is no
+         * longer asked to choose. Still accepted so older clients keep working.
+         */
         reschedulePromiseId: z.number().optional(),
         /**
          * Accepted for backwards compatibility with existing clients. Logging a call
@@ -5412,10 +5416,21 @@ export const callsRouter = router({
         // but only as a promise row + activity log, with no check task attached.
         if (input.confirmationStatus === "Confirmed") {
           let rescheduled: number | null = null;
-          if (input.reschedulePromiseId) {
+          /*
+           * A group has one payment commitment at a time: when the customer names a
+           * new date, that is the same promise moving, not an extra one. The collector
+           * used to be asked "reschedule or create a new promise?", which added a step
+           * without adding information — and answering "new" produced two open promises
+           * for the same money, inflating the Desk's promised figures and the
+           * kept/broken statistics. The existing open promise is now always moved.
+           */
+          const existing = input.reschedulePromiseId
+            ? input.reschedulePromiseId
+            : (await findOpenGroupPromise(input.group).catch(() => null))?.id ?? null;
+          if (existing) {
             rescheduled = await reschedulePromiseRecord(ctx, {
               group: input.group,
-              promiseId: input.reschedulePromiseId,
+              promiseId: existing,
               amount: input.confirmationAmount ?? 0,
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
