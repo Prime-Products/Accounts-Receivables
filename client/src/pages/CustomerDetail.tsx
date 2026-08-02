@@ -1,6 +1,5 @@
 import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
-import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import { BankDetails } from "@/components/BankDetails";
 import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
@@ -245,7 +244,6 @@ export default function CustomerDetail() {
             </Dialog>
           </div>
           <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
-            <GroupAiSummaryDialog group={data.groupKey} />
             <Button
               variant="outline"
               size="sm"
