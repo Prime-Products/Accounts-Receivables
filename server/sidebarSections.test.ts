@@ -15,9 +15,11 @@ const app = readFileSync(join(root, "client/src/App.tsx"), "utf-8");
 
 /** Section label -> the item labels that must sit under it, in order. */
 const EXPECTED_SECTIONS: [string, string[]][] = [
-  ["Collections", ["Collections Desk", "Invoices", "Wire Transfers"]],
+  // Tasks sit with the daily chase: follow-ups, promises and help requests all
+  // start from the Collections Desk.
+  ["Collections", ["Collections Desk", "Invoices", "Wire Transfers", "Tasks"]],
   ["CRM", ["Address Book", "Vessels", "Contracts"]],
-  ["Management", ["Reports", "Tasks", "Team", "Settings"]],
+  ["Management", ["Reports", "Team", "Settings"]],
 ];
 
 describe("Sidebar sections", () => {
@@ -45,6 +47,16 @@ describe("Sidebar sections", () => {
         expect(block, `${item} should live under ${section}`).toContain(`label: "${item}"`);
       }
     }
+  });
+
+  it("Tasks is listed once, under Collections", () => {
+    const occurrences = layout.match(/label: "Tasks"/g) ?? [];
+    expect(occurrences).toHaveLength(1);
+    const collectionsAt = layout.indexOf('label: "Collections"');
+    const crmAt = layout.indexOf('label: "CRM"');
+    const tasksAt = layout.indexOf('label: "Tasks"');
+    expect(tasksAt).toBeGreaterThan(collectionsAt);
+    expect(tasksAt).toBeLessThan(crmAt);
   });
 
   it("leaves no top-level page unreachable from the sidebar", () => {
