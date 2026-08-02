@@ -68,6 +68,9 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
       { icon: Users, label: "Collections Desk", path: "/customers" },
       { icon: FileText, label: "Invoices", path: "/invoices" },
       { icon: Banknote, label: "Wire Transfers", path: "/wire-transfers" },
+      // Tasks are part of the daily chase (follow-ups, promises, help requests),
+      // so they belong next to the desk rather than under Management.
+      { icon: ListChecks, label: "Tasks", path: "/tasks" },
     ],
   },
   {
@@ -82,7 +85,6 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
     label: "Management",
     items: [
       { icon: BarChart3, label: "Reports", path: "/reports" },
-      { icon: ListChecks, label: "Tasks", path: "/tasks" },
       { icon: UserCog, label: "Team", path: "/team" },
       { icon: Settings, label: "Settings", path: "/settings" },
     ],
