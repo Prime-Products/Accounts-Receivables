@@ -1793,3 +1793,7 @@ master record. Same company, two screens. Unify them.
 - [x] Removed the "Other email address… / Add" free-typed recipient field; recipients come from the contact list only
 - [x] Empty-state hint updated to "No recipient yet — pick a contact below"; Add Contact remains the way to introduce a new address
 - [x] Test flipped to guard that no free-typed address can be entered
+
+## Transactions toolbar overflow (reported 3/8)
+- [x] "By vessel" was cut off at the card edge — the group card's Transactions toolbar now wraps (`flex-wrap` + `min-w-0`) instead of overflowing
+- [x] Test guards the wrapping classes so the row cannot regress to a single no-wrap line

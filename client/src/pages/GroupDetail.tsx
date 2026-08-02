@@ -1068,9 +1068,12 @@ export default function GroupDetail() {
 
           {/* Invoices for current scope */}
           <Card>
-            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">Transactions ({scopeLabel})</CardTitle>
-              <div className="flex items-center gap-2">
+            {/* The toolbar carries many controls (status, paid, installments,
+                payments, credit notes, view toggle). It must wrap instead of
+                pushing the last group — "By vessel" — past the card edge. */}
+            <CardHeader className="pb-2 flex flex-row flex-wrap items-center justify-between gap-y-2 space-y-0">
+              <CardTitle className="text-base shrink-0">Transactions ({scopeLabel})</CardTitle>
+              <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
               {/* Invoice status belongs with the transactions it filters, not with the
                   card-level scope filters (company / branch) above. */}
               <Select value={statusFilter} onValueChange={setStatusFilter}>
