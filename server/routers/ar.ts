@@ -698,6 +698,44 @@ async function cleanupStatusArtifacts(
   }
 }
 
+/**
+ * Settle a group's open payment commitment because the customer PAID.
+ *
+ * Distinct from `cleanupStatusArtifacts`, which cancels promises that became
+ * obsolete (Not Contacted / Did not confirm). Here the customer honoured the
+ * commitment, so the promise is closed as **Kept** — that is what feeds the
+ * kept/broken reliability statistics and the collector's hit rate. The tasks that
+ * existed only to chase the money (follow-up call, promise check) are cancelled,
+ * because there is nothing left to chase this month.
+ */
+async function settleGroupPromiseAsPaid(
+  ctx: { user: { id: number; name: string | null } },
+  input: { group: string; amount?: number | null },
+) {
+  const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => []);
+  for (let guard = 0; guard < 20; guard++) {
+    const open = await findOpenGroupPromise(input.group).catch(() => null);
+    if (!open) break;
+    await db.updatePromise(open.id, { status: "Kept" });
+    await audit(ctx, "Promise Kept", "promiseToPay", open.id, `${input.group}: customer paid`);
+    for (const t of openTasks.filter(t => taskPromiseId(t) === open.id)) {
+      await db.updateTask(t.id, {
+        status: "Cancelled",
+        completionNotes: "Customer paid — promise check task no longer needed",
+      });
+      await audit(ctx, "Cancel Task", "task", t.id, "Promise check task cancelled (customer paid)");
+    }
+  }
+  // A follow-up call task only exists to chase the payment.
+  for (const t of openTasks.filter(t => isTaskOfGroup(t, input.group))) {
+    await db.updateTask(t.id, {
+      status: "Cancelled",
+      completionNotes: "Customer paid — follow-up call no longer needed",
+    });
+    await audit(ctx, "Cancel Task", "task", t.id, "Follow-up task cancelled (customer paid)");
+  }
+}
+
 export const customersRouter = router({
   /** Global search across groups, companies, invoices, notes, and tasks. */
   search: protectedProcedure
@@ -5049,6 +5087,21 @@ export const callsRouter = router({
               skipActivityLog: true,
             });
           }
+        }
+        /*
+         * "Paid": the money is in, so the collections cycle for this group is closed
+         * for the current month. Any open promise is settled as KEPT (not cancelled —
+         * the customer did what they said, and the kept/broken statistics must show
+         * it), and the follow-up / promise-check tasks that were chasing the money are
+         * cancelled. The status itself expires with the month: `isConfirmationStale`
+         * treats "Kept" as a closed outcome, so the group reappears as "Not Contacted"
+         * as soon as the next month starts.
+         */
+        if (input.confirmationStatus === "Kept") {
+          await settleGroupPromiseAsPaid(ctx, {
+            group: input.group,
+            amount: input.confirmationAmount,
+          });
         }
       }
 

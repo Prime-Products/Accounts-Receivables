@@ -16,7 +16,9 @@ describe("confirmation status labels", () => {
     expect(confirmationStatusLabel("Confirmed")).toBe("Promise to Pay");
     expect(confirmationStatusLabel("Pending Follow-up")).toBe("Pending Follow-up");
     expect(confirmationStatusLabel("Not Contacted")).toBe("Not Contacted");
-    expect(confirmationStatusLabel("Kept")).toBe("Paid — Promise Kept");
+    // Collectors call this outcome simply "Paid" — the wording the Log Call dialog
+    // offers — so the label must not reintroduce the internal "Kept" phrasing.
+    expect(confirmationStatusLabel("Kept")).toBe("Paid");
   });
 
   it("falls back to the raw value for unknown statuses", () => {
