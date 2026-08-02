@@ -2,7 +2,9 @@ import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import CollectionNotesBox from "@/components/CollectionNotesBox";
+import GroupOpenQuestions from "@/components/GroupOpenQuestions";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
+import AskColleagueDialog from "@/components/AskColleagueDialog";
 import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
 import { CommunicationTimeline } from "@/components/CommunicationTimeline";
@@ -25,7 +27,7 @@ import { RecordDetailsPanel } from "@/components/RecordDetailsPanel";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, HelpCircle, Layers, Pencil, Phone, Plus, Sparkles, StickyNote, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { useMemo, useState } from "react";
@@ -109,6 +111,7 @@ function ActionsMenu({
   const [taskOpen, setTaskOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   // `?logCall=1` opens the Log Call dialog straight away, so a call can be
   // logged from a link (e.g. from a task reminder) without extra clicks.
   const [callOpen, setCallOpen] = useState(
@@ -134,6 +137,9 @@ function ActionsMenu({
           <DropdownMenuItem onClick={() => setNoteOpen(true)}>
             <StickyNote className="h-4 w-4 mr-2" /> Add Note
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setAskOpen(true)}>
+            <HelpCircle className="h-4 w-4 mr-2" /> Ask a colleague
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setEmailOpen(true)}>
             <StickyNote className="h-4 w-4 mr-2" /> Send Email
           </DropdownMenuItem>
@@ -158,6 +164,14 @@ function ActionsMenu({
       />
 
       <GroupNotesDialog group={group} open={noteOpen} onOpenChange={setNoteOpen} />
+
+      <AskColleagueDialog
+        group={group}
+        companies={companies}
+        defaultCustomerId={defaultCustomerId}
+        open={askOpen}
+        onOpenChange={setAskOpen}
+      />
 
       {callOpen && (
         <LogCallDialog
@@ -926,6 +940,9 @@ export default function GroupDetail() {
           {/* Always-visible collection notes: call preferences & customer particularities */}
           <CollectionNotesBox group={group} />
 
+          {/* Questions we are waiting on for this customer — visible without leaving the card */}
+          <GroupOpenQuestions group={group} />
+
           {/* One chronological history: calls, notes, promises, emails, tasks, payments */}
           <CommunicationTimeline
             entries={timelineEntries}
@@ -1244,6 +1261,7 @@ export default function GroupDetail() {
                 rows={filteredInvoices as any}
                 creditNotes={visibleCreditNotes as any}
                 transfers={visibleTransfers as any}
+                group={group}
                 maxHeight="480px"
                 onDisputeChanged={() => utils.customers.groupDetail.invalidate()}
               />

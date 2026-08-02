@@ -466,7 +466,7 @@ export const syncLogs = mysqlTable("sync_logs", {
 
 export const emailTemplateTypes = ["SOA", "Payment Reminder", "Overdue Notice", "Friendly Reminder", "Final Notice", "Statement", "Custom"] as const;
 
-export const activityTypes = ["note", "task", "promise", "email", "call", "status_change"] as const;
+export const activityTypes = ["note", "task", "promise", "email", "call", "status_change", "question"] as const;
 
 export const emailHistory = mysqlTable("email_history", {
   id: int("id").autoincrement().primaryKey(),
@@ -952,72 +952,77 @@ export const listLayouts = mysqlTable(
 export type ListLayout = typeof listLayouts.$inferSelect;
 export type InsertListLayout = typeof listLayouts.$inferInsert;
 
-export const requestStatuses = ["Open", "Answered", "Closed", "Cancelled"] as const;
-export type RequestStatus = (typeof requestStatuses)[number];
-
-export const departmentOptions = ["Contracts", "Logistics", "Operations", "Finance", "Legal", "Sales", "Other"] as const;
+/**
+ * Internal questions between colleagues about a customer / group.
+ *
+ * A question is asked to ONE colleague and expects an answer, which is what
+ * separates it from an @mention (a reference, no answer expected) and from a task
+ * (dated work). It carries no due date on purpose: "did the delivery happen?" is
+ * not scheduled work, it is a question that is either answered or not.
+ */
+export const questionStatuses = ["Open", "Answered", "Closed"] as const;
+export type QuestionStatus = (typeof questionStatuses)[number];
+/** Optional hint about which desk the question belongs to, for filtering. */
+export const departmentOptions = [
+  "Contracts",
+  "Logistics",
+  "Operations",
+  "Finance",
+  "Legal",
+  "Sales",
+  "Other",
+] as const;
 export type Department = (typeof departmentOptions)[number];
-
-export const requests = mysqlTable(
-  "requests",
+export const questions = mysqlTable(
+  "questions",
   {
     id: int("id").autoincrement().primaryKey(),
+    /** The group the question is about — always set, so the card can show it. */
+    groupName: varchar("groupName", { length: 255 }).notNull(),
+    /** Member company the question concerns, when it is company-specific. */
     customerId: int("customerId"),
-    groupName: varchar("groupName", { length: 255 }),
-    createdBy: int("createdBy").notNull(), // FK to users.id
-    requestedDepartment: mysqlEnum("requestedDepartment", departmentOptions).notNull(),
+    /** Auth user who asked (users.id). */
+    askedBy: int("askedBy").notNull(),
+    /** Team member the question is addressed to (team_members.id). */
+    askedTo: int("askedTo").notNull(),
+    /** Optional department label, purely for filtering the inbox. */
+    department: mysqlEnum("department", departmentOptions),
     question: text("question").notNull(),
-    status: mysqlEnum("status", requestStatuses).default("Open").notNull(),
-    createdAt: bigint("createdAt", { mode: "number" }).notNull(),
-    updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),
+    /** The colleague's reply, filled in when answered. */
+    answer: text("answer"),
+    /** Auth user who answered (users.id). */
+    answeredBy: int("answeredBy"),
+    answeredAt: timestamp("answeredAt"),
+    status: mysqlEnum("status", questionStatuses).default("Open").notNull(),
+    /** Activity-log row created for the question, so the card can link back. */
+    activityId: int("activityId"),
+    /** Set when the asker marks the question as resolved. */
+    closedAt: timestamp("closedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   t => [
-    index("idx_requests_customerId").on(t.customerId),
-    index("idx_requests_groupName").on(t.groupName),
-    index("idx_requests_createdBy").on(t.createdBy),
-    index("idx_requests_status").on(t.status),
+    index("idx_questions_group").on(t.groupName),
+    index("idx_questions_askedTo_status").on(t.askedTo, t.status),
+    index("idx_questions_askedBy_status").on(t.askedBy, t.status),
   ]
 );
-
-export type Request = typeof requests.$inferSelect;
-export type InsertRequest = typeof requests.$inferInsert;
-
-export const requestResponses = mysqlTable(
-  "request_responses",
+export type Question = typeof questions.$inferSelect;
+export type InsertQuestion = typeof questions.$inferInsert;
+/** Invoices attached to a question, so the colleague sees exactly what is meant. */
+export const questionInvoices = mysqlTable(
+  "question_invoices",
   {
     id: int("id").autoincrement().primaryKey(),
-    requestId: int("requestId").notNull(),
-    respondedBy: int("respondedBy").notNull(), // FK to users.id
-    response: text("response").notNull(),
-    respondedAt: bigint("respondedAt", { mode: "number" }).notNull(),
+    questionId: int("questionId").notNull(),
+    invoiceId: int("invoiceId").notNull(),
   },
   t => [
-    index("idx_requestResponses_requestId").on(t.requestId),
-    index("idx_requestResponses_respondedBy").on(t.respondedBy),
+    index("idx_questionInvoices_questionId").on(t.questionId),
+    unique("uq_question_invoice").on(t.questionId, t.invoiceId),
   ]
 );
-
-export type RequestResponse = typeof requestResponses.$inferSelect;
-export type InsertRequestResponse = typeof requestResponses.$inferInsert;
-
-export const requestNotifications = mysqlTable(
-  "request_notifications",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    requestId: int("requestId").notNull(),
-    userId: int("userId").notNull(), // FK to users.id (recipient)
-    isRead: boolean("isRead").default(false).notNull(),
-    createdAt: bigint("createdAt", { mode: "number" }).notNull(),
-  },
-  t => [
-    index("idx_requestNotifications_requestId").on(t.requestId),
-    index("idx_requestNotifications_userId").on(t.userId),
-    index("idx_requestNotifications_isRead").on(t.isRead),
-  ]
-);
-
-export type RequestNotification = typeof requestNotifications.$inferSelect;
-export type InsertRequestNotification = typeof requestNotifications.$inferInsert;
+export type QuestionInvoice = typeof questionInvoices.$inferSelect;
 /**
  * Credit notes (πιστωτικά) that are still open, i.e. not yet matched against an
  * invoice. They reduce the customer's outstanding balance but are NEVER matched

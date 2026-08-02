@@ -8,12 +8,13 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import NewTaskDialog from "@/components/NewTaskDialog";
+import AskColleagueDialog from "@/components/AskColleagueDialog";
 import { AllocateCreditNoteDialog } from "@/components/AllocateCreditNoteDialog";
 import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDialog";
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { invoiceDisplayStatus } from "@/lib/invoiceFilters";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, Link2, Send, Ship, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, HelpCircle, Link2, Send, Ship, Undo2, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -364,6 +365,7 @@ export function InvoicesTable({
   disableVesselDialog = false,
   enableSelection = true,
   maxHeight,
+  group,
 }: {
   rows: InvoiceRowData[];
   /** Open credit notes to merge into the same list (ordered by issue date). */
@@ -378,6 +380,12 @@ export function InvoicesTable({
   disableVesselDialog?: boolean;
   /** Enable row selection + "Send to colleague" bulk action. */
   enableSelection?: boolean;
+  /**
+   * Group these invoices belong to. When set, the bulk bar also offers "Ask a
+   * colleague": a question needs no due date and creates no task, unlike
+   * "Send to colleague".
+   */
+  group?: string;
   /**
    * Vertical scroll height for the list (e.g. "480px"). When set, the table
    * scrolls inside its own container and the column header stays pinned to the
@@ -394,6 +402,7 @@ export function InvoicesTable({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [sendOpen, setSendOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   const markDisputed = trpc.invoices.markDisputed.useMutation({
     onSuccess: (_r, vars) => {
       toast.success(vars.disputed ? "Invoice marked as Disputed" : "Dispute cleared");
@@ -759,10 +768,33 @@ export function InvoicesTable({
           <Button size="sm" className="gap-1.5 rounded-full" onClick={() => setSendOpen(true)}>
             <Send className="h-3.5 w-3.5" /> Send to colleague
           </Button>
+          {group && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 rounded-full"
+              title="Ask a colleague a question about these invoices — no due date, no task"
+              onClick={() => setAskOpen(true)}
+            >
+              <HelpCircle className="h-3.5 w-3.5" /> Ask a colleague
+            </Button>
+          )}
           <Button size="sm" variant="ghost" className="gap-1 rounded-full text-muted-foreground" onClick={() => setSelectedIds(new Set())}>
             <X className="h-3.5 w-3.5" /> Clear
           </Button>
         </div>
+      )}
+      {askOpen && group && (
+        <AskColleagueDialog
+          group={group}
+          defaultCustomerId={sendDefaultCustomerId}
+          invoiceIds={Array.from(selectedIds)}
+          open={askOpen}
+          onOpenChange={o => {
+            setAskOpen(o);
+            if (!o) setSelectedIds(new Set());
+          }}
+        />
       )}
       {sendOpen && (
         <NewTaskDialog
