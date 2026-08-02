@@ -3413,6 +3413,19 @@ export const teamRouter = router({
     .input(z.object({ includeInactive: z.boolean().optional() }).optional())
     .query(async ({ input }) => db.listTeamMembers(input?.includeInactive ?? false)),
   /**
+   * The caller's own team-member record. Help requests are always created by the
+   * logged-in user, so the UI needs to name them and keep them out of the
+   * "ask a colleague" list.
+   */
+  me: protectedProcedure.query(async ({ ctx }) => {
+    const me = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+    return {
+      memberId: me ? me.id : null,
+      name: me?.name ?? ctx.user.name ?? "me",
+      title: me?.title ?? null,
+    };
+  }),
+  /**
    * The caller's @mentions inbox. A mention is a reference written by a colleague
    * inside a note — it carries no due date and never becomes a task.
    */

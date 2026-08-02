@@ -72,6 +72,12 @@ export default function NewTaskDialog({
   const [assigneeId, setAssigneeId] = useState<number | null>(null);
   const isHelp = defaultType === "Help";
 
+  // A help request is always raised by the logged-in user: we name them in the
+  // dialog and exclude them from the colleague list.
+  const { data: me } = trpc.team.me.useQuery(undefined, { enabled: open });
+  const myMemberId = me?.memberId ?? null;
+  const myName = me?.name ?? "you";
+
   const { data: allCustomers } = trpc.customers.options.useQuery(undefined, { enabled: open });
   const customers = customerIds ? (allCustomers ?? []).filter(c => customerIds.includes(c.id)) : (allCustomers ?? []);
   const groupKeyOf = (c: { customerGroup?: string | null; name: string }) =>
@@ -203,8 +209,22 @@ export default function NewTaskDialog({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>{isHelp ? "Ask (optional — defaults to you)" : "Assigned to (optional)"}</Label>
-            <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} />
+            <Label>{isHelp ? "Ask a colleague" : "Assigned to (optional)"}</Label>
+            <TeamMemberSelect
+              value={assigneeId}
+              onChange={setAssigneeId}
+              // Asking yourself for help is not a thing: your own record is out.
+              excludeIds={isHelp && myMemberId != null ? [myMemberId] : undefined}
+              emptyLabel={isHelp ? "— Search a colleague… —" : undefined}
+            />
+            {isHelp && (
+              <p className="text-[11px] text-muted-foreground">
+                Requested by <span className="font-medium text-foreground">{myName}</span>
+                {assigneeId == null
+                  ? " — pick a colleague, or leave empty to keep the task on your own list."
+                  : " — you stay a watcher, so you see the answer."}
+              </p>
+            )}
           </div>
           {attachInvoices && attachInvoices.length > 0 && (
             <div className="space-y-1.5">

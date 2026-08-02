@@ -1747,3 +1747,10 @@ master record. Same company, two screens. Unify them.
 - [x] On small screens the panel opens as a slide-over sheet instead of taking column width (closed by default there)
 - [x] Same behaviour on the company card (Customer 360)
 - [x] Tests for the panel toggle, persistence and both hosts
+
+## Ask for help — creator + colleague search (requested 2/8)
+- [x] Help request is created by me automatically (requester shown, no "Unassigned" wording)
+- [x] Colleague field is a searchable list (type to filter by name/title) instead of a plain dropdown
+- [x] Falls back to myself when no colleague is picked, and I cannot pick myself as the colleague being asked
+- [x] Same searchable picker used wherever team members are assigned (task detail, account manager)
+- [x] Tests for the search picker and the creator default

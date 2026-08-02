@@ -1,20 +1,19 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, UserRound, X } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Check, ChevronsUpDown, Plus, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 
 /**
  * Team member picker — used for assigning account managers to customers/groups
- * and assignees to tasks. Supports inline creation of a new member.
+ * and assignees to tasks.
+ *
+ * A plain dropdown stopped working once the team grew past a handful of people,
+ * so this is a searchable combobox: type a name or a title and the list narrows
+ * down. Inline creation of a new member is still available.
  */
 export function TeamMemberSelect({
   value,
@@ -22,6 +21,10 @@ export function TeamMemberSelect({
   placeholder = "Unassigned",
   allowCreate = true,
   className,
+  /** Member ids that cannot be chosen, e.g. yourself when asking someone else for help. */
+  excludeIds,
+  /** Label shown when nothing is selected — defaults to "— {placeholder} —". */
+  emptyLabel,
 }: {
   /** Selected team member id, or null when unassigned. */
   value: number | null;
@@ -29,11 +32,20 @@ export function TeamMemberSelect({
   placeholder?: string;
   allowCreate?: boolean;
   className?: string;
+  excludeIds?: number[];
+  emptyLabel?: string;
 }) {
   const utils = trpc.useUtils();
   const { data: members } = trpc.team.list.useQuery();
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const selectable = useMemo(
+    () => (members ?? []).filter(m => !(excludeIds ?? []).includes(m.id)),
+    [members, excludeIds],
+  );
+  const selected = (members ?? []).find(m => m.id === value) ?? null;
 
   const createMember = trpc.team.create.useMutation({
     onSuccess: async res => {
@@ -81,23 +93,58 @@ export function TeamMemberSelect({
 
   return (
     <div className={`flex items-center gap-1.5 ${className ?? ""}`}>
-      <Select
-        value={value ? String(value) : "none"}
-        onValueChange={v => onChange(v === "none" ? null : Number(v))}
-      >
-        <SelectTrigger className="flex-1">
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="none">— {placeholder} —</SelectItem>
-          {(members ?? []).map(m => (
-            <SelectItem key={m.id} value={String(m.id)}>
-              {m.name}
-              {m.title ? ` · ${m.title}` : ""}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="flex-1 justify-between bg-background font-normal"
+          >
+            <span className={`truncate ${selected ? "" : "text-muted-foreground"}`}>
+              {selected ? `${selected.name}${selected.title ? ` · ${selected.title}` : ""}` : (emptyLabel ?? `— ${placeholder} —`)}
+            </span>
+            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search colleague…" />
+            <CommandList>
+              <CommandEmpty>No colleague found.</CommandEmpty>
+              <CommandGroup>
+                <CommandItem
+                  value={emptyLabel ?? placeholder}
+                  onSelect={() => {
+                    onChange(null);
+                    setOpen(false);
+                  }}
+                >
+                  <Check className={`mr-2 h-4 w-4 ${value == null ? "opacity-100" : "opacity-0"}`} />
+                  {emptyLabel ?? `— ${placeholder} —`}
+                </CommandItem>
+                {selectable.map(m => (
+                  <CommandItem
+                    key={m.id}
+                    // Searched text: name and title together, so "finance" finds the controller.
+                    value={`${m.name} ${m.title ?? ""}`}
+                    onSelect={() => {
+                      onChange(m.id);
+                      setOpen(false);
+                    }}
+                  >
+                    <Check className={`mr-2 h-4 w-4 ${value === m.id ? "opacity-100" : "opacity-0"}`} />
+                    <span className="truncate">
+                      {m.name}
+                      {m.title ? <span className="text-muted-foreground"> · {m.title}</span> : null}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
       {allowCreate && (
         <Button
           size="icon"
