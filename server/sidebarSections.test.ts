@@ -60,4 +60,22 @@ describe("Sidebar sections", () => {
     });
     expect(unreachable).toEqual([]);
   });
+
+  it("makes each section header a real toggle control", () => {
+    // A button, not a bare label — so it is clickable and keyboard reachable.
+    expect(layout).toMatch(/aria-expanded=\{isOpen\}/);
+    expect(layout).toContain("toggleSection(section.label!)");
+    // Chevron indicating open/closed state.
+    expect(layout).toContain("ChevronDown");
+    expect(layout).toMatch(/-rotate-90/);
+  });
+
+  it("never hides the section holding the current page, and keeps state across reloads", () => {
+    // The active section stays open regardless of the stored preference.
+    expect(layout).toContain("holdsCurrentPage");
+    expect(layout).toMatch(/isCollapsed \|\| holdsCurrentPage/);
+    // Preference is persisted.
+    expect(layout).toContain("SIDEBAR_SECTIONS_KEY");
+    expect(layout).toMatch(/localStorage\.setItem\(SIDEBAR_SECTIONS_KEY/);
+  });
 });

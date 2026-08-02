@@ -27,6 +27,7 @@ import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
   BarChart3,
+  ChevronDown,
   Contact,
   FileSpreadsheet,
   FileText,
@@ -90,9 +91,42 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
 const menuItems = navSections.flatMap(s => s.items);
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
+const SIDEBAR_SECTIONS_KEY = "sidebar-open-sections";
 const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
+
+/** Section labels that can be toggled (the ungrouped Dashboard row is always shown). */
+const collapsibleSectionLabels = navSections
+  .map(s => s.label)
+  .filter((l): l is string => Boolean(l));
+
+/** Which section a given route belongs to, so the current page is never hidden. */
+function sectionOfPath(path: string): string | null {
+  for (const section of navSections) {
+    if (!section.label) continue;
+    const match = section.items.some(item =>
+      item.path === "/" ? path === "/" : path.startsWith(item.path),
+    );
+    if (match) return section.label;
+  }
+  return null;
+}
+
+function readOpenSections(): string[] {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_SECTIONS_KEY);
+    if (!raw) return collapsibleSectionLabels; // First visit: everything visible.
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return collapsibleSectionLabels;
+    // Drop labels that no longer exist so a rename cannot resurrect a dead section.
+    return parsed.filter((l: unknown): l is string =>
+      typeof l === "string" && collapsibleSectionLabels.includes(l),
+    );
+  } catch {
+    return collapsibleSectionLabels;
+  }
+}
 
 export default function DashboardLayout({
   children,
@@ -170,6 +204,18 @@ function DashboardLayoutContent({
   const activeMenuItem = menuItems.find(item =>
     item.path === "/" ? location === "/" : location.startsWith(item.path),
   );
+  const activeSection = sectionOfPath(location);
+  const [openSections, setOpenSections] = useState<string[]>(readOpenSections);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_SECTIONS_KEY, JSON.stringify(openSections));
+  }, [openSections]);
+
+  const toggleSection = (label: string) => {
+    setOpenSections(prev =>
+      prev.includes(label) ? prev.filter(l => l !== label) : [...prev, label],
+    );
+  };
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -239,19 +285,53 @@ function DashboardLayoutContent({
           </SidebarHeader>
 
           <SidebarContent className="gap-0">
-            {navSections.map((section, i) => (
+            {navSections.map((section, i) => {
+              /*
+               * A section header is a control: clicking it expands or collapses the
+               * items below. Two rules keep it from getting in the way — the section
+               * holding the current page cannot be closed (you must always see where
+               * you are), and when the sidebar is icon-only every item stays visible
+               * because there is no header left to click.
+               */
+              const hasHeader = Boolean(section.label);
+              const holdsCurrentPage = section.label !== null && section.label === activeSection;
+              const isOpen =
+                !hasHeader || isCollapsed || holdsCurrentPage || openSections.includes(section.label!);
+              return (
               <SidebarGroup key={section.label ?? `section-${i}`} className="px-0 py-0">
-                {/*
-                  Section headers are labels, not controls: they never navigate and
-                  disappear when the sidebar collapses to icons, where the tooltip
-                  on each button carries the meaning instead.
-                */}
                 {section.label ? (
-                  <SidebarGroupLabel className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 group-data-[collapsible=icon]:hidden">
-                    {section.label}
+                  <SidebarGroupLabel
+                    asChild
+                    className="px-2 pt-3 group-data-[collapsible=icon]:hidden"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleSection(section.label!)}
+                      aria-expanded={isOpen}
+                      aria-controls={`nav-section-${section.label}`}
+                      title={
+                        holdsCurrentPage
+                          ? `${section.label} — contains the page you are on`
+                          : isOpen
+                            ? `Collapse ${section.label}`
+                            : `Expand ${section.label}`
+                      }
+                      className="flex w-full items-center justify-between rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:bg-accent/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="truncate">{section.label}</span>
+                      <ChevronDown
+                        className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
+                          isOpen ? "" : "-rotate-90"
+                        }`}
+                        aria-hidden="true"
+                      />
+                    </button>
                   </SidebarGroupLabel>
                 ) : null}
-                <SidebarMenu className="px-2 py-1">
+                <SidebarMenu
+                  id={section.label ? `nav-section-${section.label}` : undefined}
+                  className={`px-2 py-1 ${isOpen ? "" : "hidden"}`}
+                >
                   {section.items.map(item => {
                     const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
                     return (
@@ -272,7 +352,8 @@ function DashboardLayoutContent({
                   })}
                 </SidebarMenu>
               </SidebarGroup>
-            ))}
+              );
+            })}
           </SidebarContent>
 
           <SidebarFooter className="p-3">
