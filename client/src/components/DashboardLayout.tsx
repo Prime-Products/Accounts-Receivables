@@ -39,7 +39,6 @@ import {
   Users,
   UserCog,
   Banknote,
-  PhoneCall,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -49,7 +48,6 @@ import { Button } from "./ui/button";
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Users, label: "Collections Desk", path: "/customers" },
-  { icon: PhoneCall, label: "Call Back", path: "/call-back" },
   { icon: Contact, label: "Address Book", path: "/address-book" },
   { icon: FileText, label: "Invoices", path: "/invoices" },
   { icon: Ship, label: "Vessels", path: "/vessels" },

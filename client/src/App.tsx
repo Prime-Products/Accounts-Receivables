@@ -19,7 +19,6 @@ const Invoices = lazy(() => import("./pages/Invoices"));
 const Contracts = lazy(() => import("./pages/Contracts"));
 const AddressBook = lazy(() => import("./pages/AddressBook"));
 const Tasks = lazy(() => import("./pages/Tasks"));
-const CallBack = lazy(() => import("./pages/CallBack"));
 const Reports = lazy(() => import("./pages/Reports"));
 const Settings = lazy(() => import("./pages/Settings"));
 const WireTransfersPage = lazy(() => import("./pages/WireTransfersPage"));
@@ -71,7 +70,11 @@ function Router() {
           {/* Legacy path kept so old links and bookmarks still land somewhere useful. */}
           <Route path={"/contacts"} component={AddressBook} />
           <Route path={"/tasks"} component={Tasks} />
-          <Route path={"/call-back"} component={CallBack} />
+          {/*
+            Call Back page removed — due promises and follow-ups now surface
+            directly on the Collections Desk, so old links land there.
+          */}
+          <Route path={"/call-back"}>{() => <Redirect to="/customers" />}</Route>
           <Route path={"/wire-transfers"} component={WireTransfersPage} />
           {/* Forecast page removed — everything happens on Customers now */}
           <Route path={"/forecast"}>{() => <Redirect to="/customers" />}</Route>
