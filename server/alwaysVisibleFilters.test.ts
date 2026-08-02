@@ -72,11 +72,26 @@ describe("Send Email — searchable contact list", () => {
   });
 
   it("keeps the list bounded so the dialog does not grow forever", () => {
-    expect(sendEmail).toContain("max-h-56 overflow-y-auto");
+    expect(sendEmail).toContain("max-h-56 space-y-1 overflow-y-auto");
   });
 
-  it("resets the search when the dialog closes", () => {
+  it("resets the search and collapses the list when the dialog closes", () => {
     expect(sendEmail).toContain("setContactSearch(\"\")");
+    expect(sendEmail).toContain("setContactListOpen(false)");
+  });
+
+  it("shows no names until the search box is used (dialog opens compact)", () => {
+    expect(sendEmail).toContain("const [contactListOpen, setContactListOpen] = useState(false);");
+    expect(sendEmail).toContain("{contactListOpen && (");
+    expect(sendEmail).toContain("onFocus={() => setContactListOpen(true)}");
+  });
+
+  it("the names appear as an overlay dropdown, not as inline rows", () => {
+    expect(sendEmail).toContain("absolute left-0 right-0 top-9 z-20 max-h-56");
+    expect(sendEmail).toContain("bg-popover p-1 text-popover-foreground shadow-lg");
+    // Click-away and Escape both close it.
+    expect(sendEmail).toContain('className="fixed inset-0 z-10" onClick={() => setContactListOpen(false)}');
+    expect(sendEmail).toContain('if (e.key === "Escape") {');
   });
 
   it("selects multiple recipients as removable chips (first is To, rest are Cc)", () => {

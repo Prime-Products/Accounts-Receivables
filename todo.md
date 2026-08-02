@@ -1762,3 +1762,4 @@ master record. Same company, two screens. Unify them.
 - [x] Window can be dragged by its title bar and resized from the corner; position/size remembered
 - [x] Window stays within the viewport and can be closed from its own header or the toolbar button
 - [x] Tests for the removed tabs and the floating window behaviour
+- [x] Send Email contact list collapsed by default — names appear only as a dropdown when the search box is clicked

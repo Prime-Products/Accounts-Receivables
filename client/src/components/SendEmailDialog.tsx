@@ -77,6 +77,12 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
    * address narrows the list instead of forcing the user to scroll the dialog.
    */
   const [contactSearch, setContactSearch] = useState("");
+  /**
+   * The contact list is collapsed by default: showing a dozen names before the
+   * user has asked for anyone made the dialog tall enough to hide the subject
+   * and body. Clicking (or typing in) the search box drops the list down.
+   */
+  const [contactListOpen, setContactListOpen] = useState(false);
 
   // Contacts belong to the group, not to a single legal entity, so the picker
   // lists everyone in the group and falls back to the company when the dialog is
@@ -168,6 +174,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
     setBody("");
     setDirty(false);
     setContactSearch("");
+    setContactListOpen(false);
   };
 
   const handleTemplateChange = (template: string) => {
@@ -427,55 +434,74 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
                 )}
               </div>
 
-              {/* Search box: always present so the list never has to be scrolled blindly. */}
-              {orderedContacts.length > 3 && (
+              {/*
+               * Search box + dropdown: nothing is listed until the box is clicked,
+               * so the dialog opens compact and the subject/body stay in view.
+               */}
+              {orderedContacts.length > 0 ? (
                 <div className="relative">
                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <Input
                     placeholder={`Search ${orderedContacts.length} contacts…`}
                     value={contactSearch}
-                    onChange={e => setContactSearch(e.target.value)}
+                    onChange={e => {
+                      setContactSearch(e.target.value);
+                      setContactListOpen(true);
+                    }}
+                    onFocus={() => setContactListOpen(true)}
+                    onKeyDown={e => {
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setContactListOpen(false);
+                      }
+                    }}
                     className="h-8 pl-7 text-sm bg-background"
                   />
-                </div>
-              )}
-
-              {/* Contacts List — group-wide when a group is in context */}
-              {orderedContacts.length > 0 ? (
-                shownContacts.length === 0 ? (
-                  <div className="text-xs text-muted-foreground p-2">No contact matches “{contactSearch}”</div>
-                ) : (
-                <div className="space-y-1 max-h-56 overflow-y-auto pr-0.5">
-                  {shownContacts.map(contact => (
-                    <button
-                      key={contact.id}
-                      onClick={() => toggleContact(contact.id)}
-                      className={`w-full text-left p-2 rounded text-sm transition-colors ${
-                        isSelected(contact.email)
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-background hover:bg-muted"
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5 font-medium">
-                        <span className="truncate">{contact.name}</span>
-                        {(contact as { contactType?: string }).contactType === "Department" && (
-                          <span
-                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                              isSelected(contact.email)
-                                ? "bg-primary-foreground/20 text-primary-foreground"
-                                : "bg-violet-100 text-violet-700"
-                            }`}
-                          >
-                            Dept
-                          </span>
+                  {contactListOpen && (
+                    <>
+                      {/* Click-away layer: closes the list without touching the form. */}
+                      <div className="fixed inset-0 z-10" onClick={() => setContactListOpen(false)} />
+                      <div className="absolute left-0 right-0 top-9 z-20 max-h-56 space-y-1 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-lg">
+                        {shownContacts.length === 0 ? (
+                          <div className="p-2 text-xs text-muted-foreground">
+                            No contact matches “{contactSearch}”
+                          </div>
+                        ) : (
+                          shownContacts.map(contact => (
+                            <button
+                              key={contact.id}
+                              onClick={() => toggleContact(contact.id)}
+                              className={`w-full text-left p-2 rounded text-sm transition-colors ${
+                                isSelected(contact.email)
+                                  ? "bg-primary text-primary-foreground"
+                                  : "hover:bg-muted"
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5 font-medium">
+                                <span className="truncate">{contact.name}</span>
+                                {(contact as { contactType?: string }).contactType === "Department" && (
+                                  <span
+                                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                      isSelected(contact.email)
+                                        ? "bg-primary-foreground/20 text-primary-foreground"
+                                        : "bg-violet-100 text-violet-700"
+                                    }`}
+                                  >
+                                    Dept
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs opacity-75">
+                                {contact.email}
+                                {contact.title ? ` · ${contact.title}` : ""}
+                              </div>
+                            </button>
+                          ))
                         )}
                       </div>
-                      <div className="text-xs opacity-75">{contact.email}</div>
-                      {contact.title && <div className="text-xs opacity-75">{contact.title}</div>}
-                    </button>
-                  ))}
+                    </>
+                  )}
                 </div>
-                )
               ) : (
                 <div className="text-xs text-muted-foreground p-2">No payment contacts yet</div>
               )}
