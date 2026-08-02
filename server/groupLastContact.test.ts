@@ -45,7 +45,9 @@ describe("customers.groupDetail last-contact fields", () => {
     expect(d.callCount).toBeGreaterThan(0);
     expect(typeof d.lastCallAt).toBe("number");
     const logs = await db.listActivityLog(target, 200);
-    const calls = logs.filter(l => l.activityType === "call");
+    // The activity type follows the call's outcome (a confirmed promise is stored as
+    // "promise"), so a logged call is recognised by the title the call log writes.
+    const calls = logs.filter(l => l.activityType === "call" || (l.title ?? "").startsWith("Call "));
     expect(d.callCount).toBe(calls.length);
   }, 30_000);
 });

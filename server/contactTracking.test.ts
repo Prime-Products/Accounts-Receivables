@@ -58,6 +58,15 @@ describe("call summary aggregation", () => {
     expect(db).toContain("orderBy(desc(activityLog.createdAt))");
   });
 
+  /**
+   * A logged call is stored with the activity type of its *outcome*: a call that ends
+   * in a confirmed promise becomes a "promise" row. Counting only "call" rows made the
+   * group card claim "Never contacted" while the same call had just set a Promise to Pay.
+   */
+  it("counts a call whose outcome was recorded as a promise", () => {
+    expect(db).toContain('like(activityLog.title, "Call %")');
+  });
+
   it("surfaces the summary on the groups payload", () => {
     expect(router).toContain("db.callSummaryByGroup()");
     for (const field of ["lastCallAt:", "lastCallBy:", "callCount:", "noAnswerCount:"]) {
