@@ -54,7 +54,6 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
    * activity log as before); the rest are sent as cc.
    */
   const [recipients, setRecipients] = useState<{ id: number | null; name: string; email: string }[]>([]);
-  const [manualEmail, setManualEmail] = useState("");
   const recipientEmail = recipients[0]?.email ?? "";
   const recipientName = recipients[0]?.name ?? "";
   const [templateType, setTemplateType] = useState<
@@ -168,7 +167,6 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
   const resetForm = () => {
     setCustomerId(defaultCustomerId ?? null);
     setRecipients([]);
-    setManualEmail("");
     setTemplateType("SOA");
     setSubject("");
     setBody("");
@@ -211,22 +209,6 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
 
   const removeRecipient = (email: string) =>
     setRecipients(prev => prev.filter(r => r.email.toLowerCase() !== email.toLowerCase()));
-
-  /** Free-typed address, for someone not in the address book yet. */
-  const addManualEmail = () => {
-    const value = manualEmail.trim();
-    if (!value) return;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-      toast.error("That does not look like an email address");
-      return;
-    }
-    setRecipients(prev =>
-      prev.some(r => r.email.toLowerCase() === value.toLowerCase())
-        ? prev
-        : [...prev, { id: null, name: value, email: value }],
-    );
-    setManualEmail("");
-  };
 
   const isSelected = (email: string) => recipients.some(r => r.email.toLowerCase() === email.toLowerCase());
 
@@ -408,7 +390,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
               <div className="flex flex-wrap items-center gap-1.5">
                 {recipients.length === 0 ? (
                   <span className="text-xs text-muted-foreground">
-                    No recipient yet — pick a contact below or type an address
+                    No recipient yet — pick a contact below
                   </span>
                 ) : (
                   recipients.map((r, idx) => (
@@ -505,25 +487,6 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
               ) : (
                 <div className="text-xs text-muted-foreground p-2">No payment contacts yet</div>
               )}
-
-              {/* Anyone not in the address book yet can still be added ad hoc. */}
-              <div className="flex items-center gap-1.5 pt-0.5">
-                <Input
-                  placeholder="Other email address…"
-                  value={manualEmail}
-                  onChange={e => setManualEmail(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addManualEmail();
-                    }
-                  }}
-                  className="h-8 text-sm bg-background"
-                />
-                <Button size="sm" variant="outline" className="h-8 bg-background" onClick={addManualEmail}>
-                  Add
-                </Button>
-              </div>
             </div>
           )}
 

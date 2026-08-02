@@ -1788,3 +1788,8 @@ master record. Same company, two screens. Unify them.
 - [x] Watchers: dropped the "WATCHERS / none" label and the "+ Watcher" text button — 20px avatar stack plus a bare "+"
 - [x] Full name + role + job title on hover (tooltip); click still opens the re-assignment picker
 - [x] Tests updated for the compact layout (`server/peopleRowWatchers.test.ts`)
+
+## Send Email — contacts only (requested 3/8)
+- [x] Removed the "Other email address… / Add" free-typed recipient field; recipients come from the contact list only
+- [x] Empty-state hint updated to "No recipient yet — pick a contact below"; Add Contact remains the way to introduce a new address
+- [x] Test flipped to guard that no free-typed address can be entered
