@@ -1674,3 +1674,8 @@ master record. Same company, two screens. Unify them.
 - [x] Vitest raised to a 30s timeout (remote DB latency was causing flaky failures); suite 97 files / 656 tests green
 - [x] Key pages verified rendering (Dashboard, Collections Desk, Address Book, Invoices, Reports, Contracts, Vessels, Tasks, Team, Settings, Group/Customer detail)
 - [x] Written audit report delivered (`docs/audit-2026-08.md`)
+
+## Log Call: drop the open-promise question (requested 2/8)
+- [x] Remove the "Open promise exists" banner and the reschedule/new radio from the Log Call dialog (replaced by a one-line "Moving the open promise of … due …" notice)
+- [x] Server: a Promise to Pay logged for a group with an open promise always moves that promise (no duplicate row), without needing a client flag; legacy `reschedulePromiseId` still accepted
+- [x] Tests rewritten (`server/promiseRescheduleWiring.test.ts`, 3 tests): auto-move without a flag, legacy flag honoured, first promise still created. Suite 103 files / 678 tests green
