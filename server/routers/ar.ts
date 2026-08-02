@@ -873,9 +873,49 @@ export const customersRouter = router({
         hasLedger: custInvoices.length > 0,
         rating: ratingResult.rating,
         ratingScore: ratingResult.score,
-        ratingFactors: ratingResult.factors,
+        /**
+         * Compact score breakdown for the Companies-tab tooltip: "label points/max"
+         * per factor, one string per row. The structured objects with per-factor
+         * detail sentences added ~2 MB to this response; the full explanation
+         * stays on the group detail page.
+         */
+        ratingBreakdown: ratingResult.factors.map(f => `${f.label} ${f.points}/${f.max}`).join(" · "),
       };
     });
+  }),
+  /**
+   * Minimal customer list for dropdown pickers (contract, report, receipt, task
+   * dialogs). `list` computes balances and a credit-score breakdown for every
+   * company — several megabytes — which a picker never reads.
+   */
+  options: protectedProcedure.query(async () => {
+    const customers = await db.listCustomers();
+    return customers
+      .map(c => ({
+        id: c.id,
+        code: c.code,
+        name: c.name,
+        customerGroup: c.customerGroup,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }),
+  /**
+   * The companies of one group with their open balance — what the Log Call
+   * dialog needs to pick which entity a call is about. Scoped to the group so
+   * the dialog never pulls the whole customer ledger.
+   */
+  groupMembers: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
+    const [customers, invoices] = await Promise.all([db.listCustomers(), db.listInvoices()]);
+    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+    const ids = new Set(members.map(c => c.id));
+    const openByCustomer = new Map<number, number>();
+    for (const i of invoices) {
+      if (!ids.has(i.customerId) || !isOpenInvoice(i)) continue;
+      openByCustomer.set(i.customerId, (openByCustomer.get(i.customerId) ?? 0) + outstanding(i));
+    }
+    return members
+      .map(c => ({ id: c.id, name: c.name, openBalance: openByCustomer.get(c.id) ?? 0 }))
+      .sort((a, b) => b.openBalance - a.openBalance);
   }),
   /** Group-level view: aggregated totals per customer group. */
   groups: protectedProcedure.query(async () => {
@@ -1206,181 +1246,6 @@ export const customersRouter = router({
       })
       // Default order: highest overdue first (user request 29/7); ties → open balance.
       .sort((a, b) => (b.overdueBalance - a.overdueBalance) || (b.openBalance - a.openBalance));
-  }),
-  callList: protectedProcedure.query(async () => {
-    const now = Date.now();
-    const today = new Date();
-    const [customers, invoices, forecastRows, behavior, allPromises, receipts, openTasks, watchRowsCl] = await Promise.all([
-      db.listCustomers(),
-      db.listInvoices(),
-      db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
-      db.listPaymentBehaviorWithGroup().catch(() => []),
-      db.listPromises(),
-      db.listReceipts(),
-      db.listTasks({ statuses: ["Pending", "In Progress"] }),
-      db.listGroupWatchStatuses().catch(() => []),
-    ]);
-    const eom = endOfCurrentMonth();
-    const day61 = 61 * 24 * 60 * 60 * 1000;
-    const day90 = 90 * 24 * 60 * 60 * 1000;
-    const watchByGroupCl = new Map<string, { status: string; problematicSince: number | null }>();
-    for (const w of watchRowsCl) {
-      watchByGroupCl.set(w.groupName, { status: w.status, problematicSince: w.problematicSince ?? null });
-    }
-    const forecastByGroup = new Map<string, number>();
-    const forecastGroups = new Set<string>();
-    for (const f of forecastRows) {
-      const key = (f.customerGroup ?? "").trim();
-      if (!key) continue;
-      forecastGroups.add(key);
-      forecastByGroup.set(key, (forecastByGroup.get(key) ?? 0) + Number(f.expectedAmount));
-    }
-    const groupBehavior = aggregateGroupBehavior(behavior as BehaviorRow[]);
-    const custById = new Map(customers.map(c => [c.id, c]));
-    const groupKeyOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
-
-    type Agg = {
-      group: string;
-      openBalance: number;
-      overdueBalance: number;
-      overdueEom: number;
-      overdue6190: number;
-      overdue90Plus: number;
-      overdueCount: number;
-      promisesKept: number;
-      promisesBroken: number;
-      promisesOverduePending: number;
-      pendingPromiseAmount: number;
-      lastPaymentTs: number | null;
-      followUpTs: number | null;
-      turnoverYtd: number;
-      turnoverLastYear: number;
-      // (per-company on-hold removed — unified status is resolved per group below)
-      contacts: { name: string; phone: string | null; email: string | null; contactPerson: string | null }[];
-      memberIds: number[];
-    };
-
-    const aggs = new Map<string, Agg>();
-    for (const c of customers) {
-      const key = groupKeyOf(c);
-      let g = aggs.get(key);
-      if (!g) {
-        g = { group: key, openBalance: 0, overdueBalance: 0, overdueEom: 0, overdue6190: 0, overdue90Plus: 0, overdueCount: 0, promisesKept: 0, promisesBroken: 0, promisesOverduePending: 0, pendingPromiseAmount: 0, lastPaymentTs: null, followUpTs: null, turnoverYtd: 0, turnoverLastYear: 0, contacts: [], memberIds: [] };
-        aggs.set(key, g);
-      }
-      g.memberIds.push(c.id);
-      g.turnoverYtd += c.turnoverYtd ? Number(c.turnoverYtd) : 0;
-      g.turnoverLastYear += c.turnoverLastYear ? Number(c.turnoverLastYear) : 0;
-      if (c.phone || c.email || c.contactPerson) {
-        g.contacts.push({ name: c.name, phone: c.phone, email: c.email, contactPerson: c.contactPerson });
-      }
-    }
-    for (const inv of invoices) {
-      const cust = custById.get(inv.customerId);
-      if (!cust || !isOpenInvoice(inv)) continue;
-      const g = aggs.get(groupKeyOf(cust))!;
-      const out = outstanding(inv);
-      g.openBalance += out;
-      if (inv.dueDate <= eom) g.overdueEom += out;
-      if (now > inv.dueDate) {
-        g.overdueBalance += out;
-        g.overdueCount += 1;
-        const age = now - inv.dueDate;
-        if (age > day61 && age <= day90) g.overdue6190 += out;
-        if (age > day90) g.overdue90Plus += out;
-      }
-    }
-    for (const p of allPromises) {
-      const cust = custById.get(p.customerId);
-      if (!cust) continue;
-      const g = aggs.get(groupKeyOf(cust))!;
-      if (p.status === "Kept") g.promisesKept += 1;
-      else if (p.status === "Broken") g.promisesBroken += 1;
-      else if (p.status === "Pending") {
-        if (p.promisedDate < now) g.promisesOverduePending += 1;
-        g.pendingPromiseAmount += Number(p.amount);
-        if (g.followUpTs === null || p.promisedDate < g.followUpTs) g.followUpTs = p.promisedDate;
-      }
-    }
-    for (const t of openTasks) {
-      if (!t.customerId) continue;
-      const cust = custById.get(t.customerId);
-      if (!cust) continue;
-      const g = aggs.get(groupKeyOf(cust));
-      if (!g) continue;
-      const due = t.dueDate ?? now;
-      if (g.followUpTs === null || due < g.followUpTs) g.followUpTs = due;
-    }
-    for (const r of receipts) {
-      const cust = custById.get(r.customerId);
-      if (!cust) continue;
-      const g = aggs.get(groupKeyOf(cust))!;
-      if (g.lastPaymentTs === null || r.receiptDate > g.lastPaymentTs) g.lastPaymentTs = r.receiptDate;
-    }
-
-    const rows = Array.from(aggs.values())
-      .filter(g => g.overdueBalance > 0.005)
-      .map(g => {
-        const beh = groupBehavior.get(g.group);
-        const expected = forecastByGroup.get(g.group) ?? 0;
-        const coverage = forecastGroups.has(g.group) && g.overdueEom > 0 ? expected / g.overdueEom : null;
-        const daysSinceLastPayment = g.lastPaymentTs !== null ? Math.floor((now - g.lastPaymentTs) / (24 * 60 * 60 * 1000)) : null;
-        // Unified status: manual/auto Problematic → Critical after 30 days; drives the tier.
-        const expectedForRule = forecastGroups.has(g.group) ? expected : 0;
-        const autoProblematic = g.overdueEom > 0 && expectedForRule < 0.8 * g.overdueEom;
-        const resolvedStatus = resolveGroupStatus(watchByGroupCl.get(g.group) ?? null, autoProblematic, now);
-        // Rating uses the group's unified account status.
-        const rating = computeCreditRating({
-          daysLate: beh?.medianDaysLate ?? beh?.avgDaysLate ?? null,
-          openBalance: g.openBalance,
-          overdueBalance: g.overdueBalance,
-          overdue90Plus: g.overdue90Plus,
-          promisesKept: g.promisesKept,
-          promisesBroken: g.promisesBroken,
-          onHoldStatus: resolvedStatus.status,
-          turnoverYtd: g.turnoverYtd,
-          turnoverLastYear: g.turnoverLastYear,
-        });
-        const priority = computeCallPriority({
-          overdueBalance: g.overdueBalance,
-          overdue6190: g.overdue6190,
-          overdue90Plus: g.overdue90Plus,
-          rating: rating.rating,
-          promisesBroken: g.promisesBroken,
-          promisesOverduePending: g.promisesOverduePending,
-          forecastCoverage: coverage,
-          daysSinceLastPayment,
-          groupStatus: resolvedStatus.status,
-        });
-        return {
-          group: g.group,
-          score: priority.score,
-          reasons: priority.reasons,
-          tier: priority.tier,
-          watchStatus: resolvedStatus.status,
-         rating: rating.rating,
-         ratingScore: rating.score,
-         overdueBalance: g.overdueBalance,
-          overdueEomBalance: g.overdueEom,
-         overdue6190: g.overdue6190,
-         overdue90Plus: g.overdue90Plus,
-         overdueCount: g.overdueCount,
-         openBalance: g.openBalance,
-         forecastExpected: expected,
-          forecastCoverage: coverage,
-          promisesBroken: g.promisesBroken,
-          promisesOverduePending: g.promisesOverduePending,
-          pendingPromiseAmount: g.pendingPromiseAmount,
-          daysSinceLastPayment,
-          contacts: g.contacts.slice(0, 3),
-          memberIds: g.memberIds,
-          contacted: g.followUpTs !== null,
-          followUpDate: g.followUpTs,
-        };
-      })
-      // Critical/Legal first; everyone else (incl. Problematic) ordered purely by risk score.
-      .sort((a, b) => (b.tier - a.tier) || (b.score - a.score));
-    return rows;
   }),
   /** Group card: aggregates + invoices, scoped by optional member company and/or Prime Branch. */
   groupDetail: protectedProcedure
@@ -3379,11 +3244,6 @@ export const tasksRouter = router({
       );
       return { success: true, rescheduleCount: newCount };
     }),
-  runEngine: protectedProcedure.mutation(async ({ ctx }) => {
-    const res = await runTaskEngine();
-    await audit(ctx, "Run Task Engine", "system", undefined, `Generated ${res.created} task(s)`);
-    return res;
-  }),
   /**
    * Convert an open Follow-up task into a Promise to Pay:
    * 1. Creates the promise record + auto "Promise to Pay" check task (createGroupPromise)
@@ -3872,173 +3732,6 @@ export const tasksRouter = router({
       };
     }),
   /**
-   * The escalation story: an AI-written narrative of the whole case — what was
-   * tried, what the customer answered, which promises broke, and why it landed on
-   * management's desk. This is what the escalation panel shows instead of tiles.
-   */
-  escalationStory: protectedProcedure
-    .input(z.object({ taskId: z.number() }))
-    .query(async ({ input }) => {
-      const task = await db.getTask(input.taskId);
-      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      const followUpGroup = parseFollowUpGroup(task.description);
-      let group = followUpGroup;
-      const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
-      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
-      if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found for this task" });
-
-      const customers = await db.listCustomers();
-      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === group);
-      const memberIds = new Set(members.map(m => m.id));
-      const now = Date.now();
-
-      const [allInvoices, allPromises, activity, notes, allTasks, allReceipts, teamMembers, profile, confirmation, comments] =
-        await Promise.all([
-          db.listInvoices(),
-          db.listPromises(),
-          db.listActivityLog(group, 60).catch(() => []),
-          db.listGroupNotes(group).catch(() => []),
-          db.listTasks({}).catch(() => []),
-          db.listReceipts().catch(() => []),
-          db.listTeamMembers(true).catch(() => []),
-          db.getGroupCollectionProfile(group).catch(() => null),
-          db.getGroupConfirmationStatus(group).catch(() => null),
-          db.listTaskComments(input.taskId).catch(() => []),
-        ]);
-
-      const invs = allInvoices.filter(i => memberIds.has(i.customerId) && isOpenInvoice(i));
-      let overdueEur = 0;
-      let overdueCount = 0;
-      let oldestOverdueDays = 0;
-      for (const i of invs) {
-        const outEur = toEur(outstanding(i), i.currency ?? "EUR");
-        if (i.dueDate != null && i.dueDate < now) {
-          overdueEur += outEur;
-          overdueCount += 1;
-          const days = Math.floor((now - i.dueDate) / 86400000);
-          if (days > oldestOverdueDays) oldestOverdueDays = days;
-        }
-      }
-      const proms = allPromises.filter(p => memberIds.has(p.customerId));
-      const memberNames = new Map(members.map(m => [m.id, m.name]));
-      const userNames = new Map(teamMembers.map(m => [m.id, m.name]));
-      const groupTasks = allTasks.filter(t => t.customerId != null && memberIds.has(t.customerId));
-      const groupReceipts = allReceipts.filter(r => memberIds.has(r.customerId));
-      const fullTimeline = buildTimeline([
-        eventsFromActivity(activity, id => (id != null ? userNames.get(id) ?? null : null)),
-        eventsFromPromises(proms, id => memberNames.get(id) ?? null),
-        eventsFromTasks(groupTasks),
-        eventsFromReceipts(groupReceipts.slice(-20)),
-        eventsFromNotes(notes),
-      ]);
-      const reasonLine = (task.description ?? "").split("\n").find(l => l.startsWith("⬆")) ?? null;
-
-      // ── Scope: this TASK, not the whole group relationship. ──────────────────
-      // Management reads this panel to understand one escalated task, so the story
-      // must cover only the work behind it: the original follow-up/promise task
-      // that was escalated, the calls and promises logged while it was open, and
-      // the handover itself. Older group history belongs to the group card.
-      const escalatedAt = task.createdAt instanceof Date ? task.createdAt.getTime() : Number(task.createdAt);
-      const originalTitle = (task.description ?? "").match(/Original task: (.+)/)?.[1]?.trim() ?? null;
-      const originalTask = originalTitle
-        ? groupTasks
-            .filter(t => t.title === originalTitle && t.id !== task.id)
-            .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0]
-        : undefined;
-      const startedAt = originalTask
-        ? originalTask.createdAt instanceof Date
-          ? originalTask.createdAt.getTime()
-          : Number(originalTask.createdAt)
-        : escalatedAt - 30 * 86400000; // no chain on file → last month of work
-
-      const timeline = scopeToTask(fullTimeline, { startedAt, escalatedAt });
-      const stats = timelineStats(timeline);
-
-      // Promises that belong to this task's window — the core of its story.
-      const scopedProms = proms.filter(p => {
-        const at = p.createdAt instanceof Date ? p.createdAt.getTime() : Number(p.createdAt);
-        return at >= startedAt - 3 * 86400000 && at <= escalatedAt + 86400000;
-      });
-
-      const facts = {
-        today: shortDate(now),
-        /** What was being chased and since when. */
-        task: {
-          escalatedTitle: task.title,
-          originalTask: originalTitle,
-          workStarted: shortDate(startedAt),
-          escalatedOn: shortDate(escalatedAt),
-          daysWorked: Math.max(0, Math.floor((escalatedAt - startedAt) / 86400000)),
-          postponedTimes: (originalTask as any)?.rescheduleCount ?? 0,
-        },
-        escalationLine: reasonLine,
-        promisesInThisCase: {
-          total: scopedProms.length,
-          kept: scopedProms.filter(p => p.status === "Kept").length,
-          broken: scopedProms.filter(p => p.status === "Broken").length,
-          pending: scopedProms.filter(p => p.status === "Pending").length,
-        },
-        activityCounters: stats,
-        internalComments: comments.slice(-3).map(c => ({ by: c.authorName, body: c.body.slice(0, 200) })),
-        timeline: timeline.map(e => ({
-          date: shortDate(e.at),
-          kind: e.kind,
-          what: e.what,
-          detail: e.detail ? e.detail.slice(0, 200) : null,
-          by: e.who ?? null,
-        })),
-      };
-
-      const escalatedByName = reasonLine?.match(/by (.+?) on /)?.[1] ?? null;
-      const fallback = () =>
-        fallbackStory({
-          group,
-          overdueEur,
-          overdueCount,
-          oldestOverdueDays,
-          promisesTotal: scopedProms.length,
-          promisesBroken: scopedProms.filter(p => p.status === "Broken").length,
-          stats,
-          escalatedBy: escalatedByName,
-        });
-
-      try {
-        const response = await invokeLLM({
-          model: "gemini-2.5-flash",
-          messages: [
-            {
-              role: "system",
-              content: `Είσαι έμπειρος credit manager. Σου δίνεται το ιστορικό ΕΝΟΣ συγκεκριμένου task που κλιμακώθηκε. Γράψε στα ΕΛΛΗΝΙΚΑ, σε ΜΙΑ παράγραφο 45-70 λέξεων, τι έγινε πάνω σε ΑΥΤΟ το task μέχρι να κλιμακωθεί.
-
-Περιεχόμενο: τι ζητούσε το task, τι έγινε στη διάρκειά του με ημερομηνίες (κλήσεις και τι απαντούσαν, υποσχέσεις με ποσό/ημερομηνία και τι απέγιναν, αναβολές, πληρωμές), και με μια τελευταία πρόταση γιατί κλιμακώθηκε.
-
-ΑΠΑΓΟΡΕΥΕΤΑΙ: bullets, τίτλοι, πίνακες, δεύτερη παράγραφος, γενικά στοιχεία για τον όμιλο (συνολικά υπόλοιπα, aging, λίστες τιμολογίων, ιστορικό άλλων tasks), προτάσεις ενεργειών, συστάσεις ή συμπεράσματα — η απόφαση ανήκει στον αναγνώστη.
-
-Κανόνες: Μόνο ό,τι στηρίζεται στα δεδομένα· αν λείπει κάτι, προσπέρασέ το σιωπηλά (μη γράφεις «δεν υπάρχουν στοιχεία»). ΠΟΣΑ πάντα με ΚΟΜΜΑ για χιλιάδες, χωρίς δεκαδικά (σωστό: €66,666 — λάθος: €66.666). Ημερομηνίες σε μορφή 06/08/2026. ΜΗΝ γράψεις το όνομα του ομίλου (φαίνεται στον τίτλο). Μην αναφέρεις ότι διάβασες JSON ή timeline.`,
-            },
-            { role: "user", content: JSON.stringify(facts) },
-          ],
-        });
-        const raw = response.choices?.[0]?.message?.content;
-        const story =
-          typeof raw === "string"
-            ? raw
-            : Array.isArray(raw)
-              ? raw.map((c: any) => (c?.type === "text" ? c.text : "")).join("")
-              : "";
-        return {
-          group,
-          story: story.trim() || fallback(),
-          generated: Boolean(story.trim()),
-          eventCount: stats.events,
-          generatedAt: Date.now(),
-        };
-      } catch {
-        // The panel must always tell the story — never fall back to raw tiles.
-        return { group, story: fallback(), generated: false, eventCount: stats.events, generatedAt: Date.now() };
-      }
-    }),
-  /**
    * Management decision on an escalated task:
    * - "On Hold"             → group account status becomes On Hold; task stays open.
    * - "Legal Review"        → group account status becomes Legal; task stays open.
@@ -4177,13 +3870,6 @@ export const teamRouter = router({
       await db.markMentionsRead(me.id, input?.mentionId);
       return { success: true as const };
     }),
-  /**
-   * The caller's own team-member record (or null when their login is not linked
-   * to one). Used to default assignee pickers to "me".
-   */
-  myMember: protectedProcedure.query(async ({ ctx }) => {
-    return db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
-  }),
   create: protectedProcedure
     .input(z.object({
       name: z.string().min(1).max(191),
@@ -5027,18 +4713,6 @@ export const adminRouter = router({
       throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
     }
   }),
-  syncPushReceipt: protectedProcedure.input(z.object({ receiptId: z.number() })).mutation(async ({ ctx, input }) => {
-    const role = await getAppRole(ctx.user.id);
-    requireRole(role, ["Administrator", "Accounting"]);
-    try {
-      const res = await softone.pushReceipt(input.receiptId);
-      await audit(ctx, "Softone Push Receipt", "sync", input.receiptId, `Softone id ${res.softoneId}`);
-      return res;
-    } catch (e: any) {
-      await db.addSyncLog({ direction: "Push", entityType: "receipts", recordCount: 0, status: "Failed", message: e.message });
-      throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
-    }
-  }),
 
   /**
    * Editable email templates (Settings → Email Templates). Returns the effective
@@ -5248,9 +4922,10 @@ export const callsRouter = router({
           createdBy: ctx.user.id,
         });
 
-        // TODO: Integrate with actual email sending service (e.g., SendGrid, AWS SES)
-        // For now, we'll just mark it as sent and log it
-        // In production, you would call the email service here and handle errors
+        // By design the app does not send mail itself: the dialog hands the drafted
+        // message to the collector's own Outlook, so replies come back to them and
+        // the company signature is preserved. The row above records the draft; the
+        // activity-log line below is what the team reads as "we contacted them".
 
         // Audit the email send action
         await audit(

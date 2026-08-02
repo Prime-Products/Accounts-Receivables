@@ -39,7 +39,7 @@ export function ContactFormDialog({
   onSaved?: () => void;
 }) {
   const utils = trpc.useUtils();
-  const { data: customers } = trpc.customers.list.useQuery(undefined, { enabled: open && !contact });
+  const { data: customers } = trpc.customers.options.useQuery(undefined, { enabled: open && !contact });
   const [groupName, setGroupName] = useState<string>("");
   const [name, setName] = useState(contact?.name ?? "");
   const [email, setEmail] = useState(contact?.email ?? "");

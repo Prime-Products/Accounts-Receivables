@@ -99,7 +99,12 @@ export const customers = mysqlTable("customers", {
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, t => [
+  // Every group-level screen (Desk, Address Book, forecast) buckets customers by
+  // this column, so it must not be a full scan.
+  index("idx_customers_customerGroup").on(t.customerGroup),
+  index("idx_customers_name").on(t.name),
+]);
 
 export const invoiceStatuses = ["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const;
 
@@ -328,7 +333,7 @@ export const groupNotes = mysqlTable("group_notes", {
   content: text("content").notNull(),
   createdBy: int("createdBy").notNull(),
   createdAt: bigint("createdAt", { mode: "number" }).notNull(),
-});
+}, t => [index("idx_group_notes_groupName").on(t.groupName)]);
 export type GroupNote = typeof groupNotes.$inferSelect;
 
 /**
@@ -384,7 +389,11 @@ export const promisesToPay = mysqlTable("promises_to_pay", {
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, t => [
+  index("idx_promises_customerId").on(t.customerId),
+  index("idx_promises_status").on(t.status),
+  index("idx_promises_promisedDate").on(t.promisedDate),
+]);
 
 export const auditLogs = mysqlTable("audit_logs", {
   id: int("id").autoincrement().primaryKey(),
@@ -437,7 +446,12 @@ export const activityLog = mysqlTable("activity_log", {
   metadata: text("metadata"),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, t => [
+  // Timeline reads are always "this group, newest first"; the call summary reads
+  // "all calls, newest first".
+  index("idx_activity_group_created").on(t.groupName, t.createdAt),
+  index("idx_activity_type_created").on(t.activityType, t.createdAt),
+]);
 
 export type UserProfile = typeof userProfiles.$inferSelect;
 
@@ -539,7 +553,11 @@ export const paymentContacts = mysqlTable("payment_contacts", {
   mergedIntoId: int("mergedIntoId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, t => [
+  index("idx_payment_contacts_customerId").on(t.customerId),
+  index("idx_payment_contacts_email").on(t.email),
+  index("idx_payment_contacts_archived").on(t.archived),
+]);
 
 export type PaymentContact = typeof paymentContacts.$inferSelect;
 export type InsertPaymentContact = typeof paymentContacts.$inferInsert;

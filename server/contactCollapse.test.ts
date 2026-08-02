@@ -29,8 +29,12 @@ describe("contacts list collapses duplicate people", () => {
   it("carries every company and group of the person on the merged row", () => {
     expect(router).toContain("companyNames");
     expect(router).toContain("groupNames");
-    expect(router).toMatch(/companyCount: r\.companyNames\.length/);
-    expect(router).toMatch(/groupCount: r\.groupNames\.length/);
+    // The arrays are internal to the merge; the row ships the joined string plus
+    // a count, so the client can render "first name +n" without a second copy.
+    expect(router).toMatch(/companyName: companyNames\.join\(", "\)/);
+    expect(router).toMatch(/companyCount: companyNames\.length/);
+    expect(router).toMatch(/group: groupNames\.join\(", "\)/);
+    expect(router).toMatch(/groupCount: groupNames\.length/);
   });
 
   it("keeps data recorded on any duplicate: gift, department type, title, phone", () => {
@@ -41,7 +45,8 @@ describe("contacts list collapses duplicate people", () => {
   });
 
   it("merges the search haystacks so the person is still findable by any of their companies", () => {
-    expect(router).toMatch(/seen\.searchText = `\$\{seen\.searchText\} \$\{r\.searchText\}`/);
+    // Merged without repeating text already present, so the payload stays small.
+    expect(router).toMatch(/seen\.searchText = r\.searchText && !seen\.searchText\.includes\(r\.searchText\)/);
   });
 
   it("counts unique people for the Contacts tab badge", () => {
@@ -51,8 +56,11 @@ describe("contacts list collapses duplicate people", () => {
   });
 
   it("shows a +n badge with the full list on hover for multi-company people", () => {
-    expect(page).toMatch(/companyNames/);
-    expect(page).toMatch(/groupNames/);
+    // The lists are derived from the joined strings the row already carries.
+    expect(page).toMatch(/companyCount/);
+    expect(page).toMatch(/String\(r\.companyName \?\? ""\)\.split\(", "\)/);
+    expect(page).toMatch(/groupCount/);
+    expect(page).toMatch(/String\(r\.group \?\? ""\)\.split\(", "\)/);
     expect(page).toMatch(/\+\{companies\.length - 1\}/);
     expect(page).toMatch(/\+\{groups\.length - 1\}/);
   });

@@ -45,6 +45,8 @@ export interface IdSnapshot {
   groupNotes: number;
   emailHistory: number;
   confirmations: number;
+  noteMentions: number;
+  paymentContacts: number;
 }
 
 async function maxId(table: string): Promise<number> {
@@ -57,15 +59,17 @@ async function maxId(table: string): Promise<number> {
 }
 
 export async function snapshotIds(): Promise<IdSnapshot> {
-  const [tasks, promises, activity, groupNotes, emailHistory, confirmations] = await Promise.all([
+  const [tasks, promises, activity, groupNotes, emailHistory, confirmations, noteMentions, paymentContacts] = await Promise.all([
     maxId("tasks"),
     maxId("promises_to_pay"),
     maxId("activity_log"),
     maxId("group_notes"),
     maxId("email_history"),
     maxId("group_confirmation_status"),
+    maxId("note_mentions"),
+    maxId("payment_contacts"),
   ]);
-  return { tasks, promises, activity, groupNotes, emailHistory, confirmations };
+  return { tasks, promises, activity, groupNotes, emailHistory, confirmations, noteMentions, paymentContacts };
 }
 
 export async function cleanupSince(snap: IdSnapshot): Promise<void> {
@@ -80,4 +84,6 @@ export async function cleanupSince(snap: IdSnapshot): Promise<void> {
   await run(`DELETE FROM group_notes WHERE id > ${snap.groupNotes}`);
   await run(`DELETE FROM email_history WHERE id > ${snap.emailHistory}`);
   await run(`DELETE FROM group_confirmation_status WHERE id > ${snap.confirmations}`);
+  await run(`DELETE FROM note_mentions WHERE id > ${snap.noteMentions}`);
+  await run(`DELETE FROM payment_contacts WHERE id > ${snap.paymentContacts}`);
 }

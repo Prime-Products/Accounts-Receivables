@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 export default function Reports() {
-  const { data: customers } = trpc.customers.list.useQuery();
+  const { data: customers } = trpc.customers.options.useQuery();
   const [soaCustomer, setSoaCustomer] = useState<string>("");
   const [historyCustomer, setHistoryCustomer] = useState<string>("all");
   const historyInput = useMemo(

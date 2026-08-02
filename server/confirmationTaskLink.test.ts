@@ -47,7 +47,11 @@ describe("Confirmation badge → linked task (customers.groups.confirmationTaskI
     await dbi.execute(sql`DELETE p FROM promises_to_pay p JOIN customers c ON c.id = p.customerId WHERE c.name LIKE 'TaskLink %'`);
     await dbi.execute(sql`DELETE FROM activity_log WHERE groupName LIKE 'TaskLink %'`);
     await dbi.execute(sql`DELETE FROM group_confirmation_status WHERE groupName LIKE 'TaskLink %'`);
-    await dbi.execute(sql`DELETE FROM customers WHERE name LIKE 'TaskLink %' AND id NOT IN (SELECT DISTINCT customerId FROM invoices WHERE customerId IS NOT NULL)`);
+    await dbi.execute(sql`DELETE FROM payment_contacts WHERE customerId IN (SELECT id FROM customers WHERE name LIKE 'TaskLink %')`);
+    // The fixture invoice must go first, otherwise the customer looks "invoiced"
+    // and survives the delete below, leaving VTFX rows in the live ledger.
+    await dbi.execute(sql`DELETE FROM invoices WHERE customerId IN (SELECT id FROM customers WHERE name LIKE 'TaskLink %')`);
+    await dbi.execute(sql`DELETE FROM customers WHERE name LIKE 'TaskLink %'`);
   });
 
   it("links no task for a Pending Follow-up group created by a call", async () => {

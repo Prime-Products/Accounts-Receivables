@@ -11,6 +11,7 @@ const router = readFileSync(join(process.cwd(), "server/routers/ar.ts"), "utf8")
 const db = readFileSync(join(process.cwd(), "server/db.ts"), "utf8");
 const dialog = readFileSync(join(process.cwd(), "client/src/components/LogCallDialog.tsx"), "utf8");
 const desk = readFileSync(join(process.cwd(), "client/src/pages/Customers.tsx"), "utf8");
+const groupCard = readFileSync(join(process.cwd(), "client/src/pages/GroupDetail.tsx"), "utf8");
 
 describe("no-answer attempts", () => {
   it("keeps the two supported outcomes only", () => {
@@ -70,18 +71,23 @@ describe("call summary aggregation", () => {
 });
 
 describe("Collections Desk contact visibility", () => {
-  it("renders a Last Contact column", () => {
-    expect(desk).toContain('label="Last Contact"');
-    expect(desk).toContain("LastContactCell");
-    expect(desk).toContain("lastContact: 150");
+  /**
+   * The "Last Contact" column was removed from the Desk at the user's request
+   * (2 Aug 2026): contact history belongs on the group card timeline, the Desk
+   * stays narrow. What must survive is the ability to *filter* the Desk by
+   * contact recency, and the recency read-out on the group card itself.
+   */
+  it("keeps the Desk free of a Last Contact column", () => {
+    expect(desk).not.toContain('label="Last Contact"');
+    expect(desk).not.toContain("LastContactCell");
   });
 
-  it("flags groups that have never been called", () => {
-    expect(desk).toContain("never called");
+  it("still filters on groups that have never been called", () => {
+    expect(desk).toContain('contactFilter === "never" && lastCallAt == null');
   });
 
-  it("shows relative recency rather than a raw timestamp", () => {
-    expect(desk).toContain('age === 0 ? "today" : age === 1 ? "yesterday" : `${age}d ago`');
+  it("shows relative recency on the group card rather than a raw timestamp", () => {
+    expect(groupCard).toContain('if (days === 1) return "yesterday"');
   });
 
   it("offers a contact-recency filter including a never-called option", () => {
@@ -96,6 +102,6 @@ describe("Collections Desk contact visibility", () => {
   });
 
   it("recomputes the list when the contact filter changes", () => {
-    expect(desk).toContain("collectorFilter, contactFilter, groupSort]");
+    expect(desk).toContain("collectorFilter, contactFilter, dueFilter, groupSort]");
   });
 });

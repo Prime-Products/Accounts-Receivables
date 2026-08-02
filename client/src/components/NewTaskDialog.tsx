@@ -64,7 +64,7 @@ export default function NewTaskDialog({
   const [dueDate, setDueDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [assigneeId, setAssigneeId] = useState<number | null>(null);
 
-  const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: open });
+  const { data: allCustomers } = trpc.customers.options.useQuery(undefined, { enabled: open });
   const customers = customerIds ? (allCustomers ?? []).filter(c => customerIds.includes(c.id)) : (allCustomers ?? []);
   const groupKeyOf = (c: { customerGroup?: string | null; name: string }) =>
     (c.customerGroup ?? "").trim() || c.name;
