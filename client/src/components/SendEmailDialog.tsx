@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { downloadBase64 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
-import { FileDown, Mail, Plus, Search, X } from "lucide-react";
+import { Mail, Plus, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -547,28 +547,12 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
             {isSmart && prefillLoading && (
               <div className="text-xs text-muted-foreground">Preparing content from live figures…</div>
             )}
-            {isSmart && !prefillLoading && (
-              <div className="text-xs text-muted-foreground">
-                Wording comes from Settings → Email Templates; figures are filled in automatically.
-              </div>
-            )}
-            {isSmart && prefill && (
-              <div className="text-xs text-muted-foreground">
-                {prefill.openCount} open invoice{prefill.openCount === 1 ? "" : "s"} · outstanding €
-                {prefill.openTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                {prefill.overdueCount > 0 &&
-                  ` · overdue €${prefill.overdueTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-              </div>
-            )}
-            {templateType === "SOA" && (
-              <div className="text-xs rounded-md border border-blue-200 bg-blue-50 text-blue-900 p-2 flex items-start gap-1.5">
-                <FileDown className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>
-                  On Send, the SOA (PDF) downloads automatically and Outlook opens with the text ready — just attach
-                  the downloaded file and press Send in Outlook.
-                </span>
-              </div>
-            )}
+            {/*
+              Removed on request: the template-source note, the invoice/outstanding
+              recap and the SOA "how it works" banner. The same figures are already in
+              the email body the collector is looking at, so they only made the dialog
+              taller and pushed subject/body out of view.
+            */}
           </div>
 
           {/* Subject */}
