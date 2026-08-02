@@ -1720,3 +1720,10 @@ master record. Same company, two screens. Unify them.
 - [x] Add Note removed from both cards — notes belong in Collection Notes
 - [x] Group card toolbar split into visual clusters: Actions / Export & summary / Filters
 - [x] Company card toolbar uses the same clusters (Actions incl. Promise-to-Pay, Export & summary)
+
+## Toolbar consistency across pages (requested 2/8)
+- [x] Invoices: header split into Actions cluster (Record Receipt) and Export cluster (Aging Excel/PDF)
+- [x] Invoices: filter row wrapped in a Filters cluster with the funnel icon, matching the group card
+- [x] Collections Desk: filter row wrapped in a Filters cluster, view tabs kept separate from filters
+- [x] Collections Desk: Run Forecast kept as the single primary action in an Actions cluster
+- [x] Active-filter indicator with a Clear button on Invoices and Collections Desk

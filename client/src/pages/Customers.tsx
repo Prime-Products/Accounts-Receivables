@@ -19,7 +19,7 @@ import {
 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { collectionActionSortValue } from "@/lib/collectionStatusSort";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BellRing, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BellRing, Filter, Layers, Pencil, Phone, Search, Sparkles, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
@@ -578,6 +578,25 @@ export default function Customers() {
     [filteredGroups]
   );
 
+  /**
+   * Number of filters currently narrowing the desk. Surfaced with a Clear
+   * button, because a filter left on from yesterday hides real work.
+   */
+  const deskFilterCount = useMemo(
+    () =>
+      [
+        search.trim() !== "",
+        statusFilter !== "all",
+        confirmationFilter !== "all",
+        contactFilter !== "all",
+        dueFilter !== "all",
+        managerFilter !== "all",
+        collectorFilter !== "all",
+        ratingFilter !== "all",
+      ].filter(Boolean).length,
+    [search, statusFilter, confirmationFilter, contactFilter, dueFilter, managerFilter, collectorFilter, ratingFilter],
+  );
+
   const companyTotals = useMemo(
     () =>
       filtered.reduce<{ open: number; overdue: number; overdueEom: number; credit: number }>(
@@ -650,14 +669,17 @@ export default function Customers() {
               : "Click a row for the Customer 360 View"}
           </p>
         </div>
-        <Button
-          className="gap-2"
-          disabled={generate.isPending}
-          onClick={handleRunForecast}
-        >
-          <Sparkles className="h-4 w-4" />
-          {generate.isPending ? "Running…" : forecastStatus?.hasRun ? "Forecast (already run)" : "Run Forecast"}
-        </Button>
+        <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
+          <Button
+            size="sm"
+            className="gap-2"
+            disabled={generate.isPending}
+            onClick={handleRunForecast}
+          >
+            <Sparkles className="h-4 w-4" />
+            {generate.isPending ? "Running…" : forecastStatus?.hasRun ? "Forecast (already run)" : "Run Forecast"}
+          </Button>
+        </div>
       </div>
 
       {/* Strong re-run warning: the month's forecast already exists */}
@@ -707,7 +729,9 @@ export default function Customers() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex flex-wrap gap-3">
+      {/* What am I looking at (view) is a different decision from how I narrow it
+          (filters) — so the tabs stand alone and the filters live in one box. */}
+      <div className="flex flex-wrap items-start gap-2">
         <Tabs value={view} onValueChange={v => setView(v as "groups" | "companies")}>
           <TabsList className="h-10">
             <TabsTrigger value="groups" className="gap-1.5">
@@ -718,19 +742,21 @@ export default function Customers() {
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className="relative flex-1 min-w-52">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder={view === "groups" ? "Search group…" : "Search by name or code…"}
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        {view === "groups" && (
+        <div className="flex flex-1 flex-wrap items-center gap-2 rounded-lg border bg-muted/40 p-2 min-w-72">
+          <Filter className="h-4 w-4 text-muted-foreground shrink-0 ml-0.5" />
+          <div className="relative flex-1 min-w-48">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-9 h-9 bg-background"
+              placeholder={view === "groups" ? "Search group…" : "Search by name or code…"}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          {view === "groups" && (
           <>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-40 h-9 bg-background">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -743,7 +769,7 @@ export default function Customers() {
               </SelectContent>
             </Select>
             <Select value={confirmationFilter} onValueChange={setConfirmationFilter}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-44 h-9 bg-background">
                 <SelectValue placeholder="Collection status" />
               </SelectTrigger>
               <SelectContent>
@@ -759,7 +785,7 @@ export default function Customers() {
               "show me who nobody has called", rather than reading the whole list.
             */}
             <Select value={contactFilter} onValueChange={setContactFilter}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-44 h-9 bg-background">
                 <SelectValue placeholder="Contact" />
               </SelectTrigger>
               <SelectContent>
@@ -778,7 +804,7 @@ export default function Customers() {
               Desk; this filter narrows the list to exactly those rows.
             */}
             <Select value={dueFilter} onValueChange={v => setDueFilter(v as "all" | "due" | "overdue")}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-40 h-9 bg-background">
                 <SelectValue placeholder="Action due" />
               </SelectTrigger>
               <SelectContent>
@@ -788,7 +814,7 @@ export default function Customers() {
               </SelectContent>
             </Select>
             <Select value={managerFilter} onValueChange={setManagerFilter}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-40 h-9 bg-background">
                 <SelectValue placeholder="Manager" />
               </SelectTrigger>
               <SelectContent>
@@ -802,7 +828,7 @@ export default function Customers() {
               </SelectContent>
             </Select>
             <Select value={collectorFilter} onValueChange={setCollectorFilter}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-40 h-9 bg-background">
                 <SelectValue placeholder="Collector" />
               </SelectTrigger>
               <SelectContent>
@@ -816,20 +842,40 @@ export default function Customers() {
               </SelectContent>
             </Select>
           </>
-        )}
-        <Select value={ratingFilter} onValueChange={setRatingFilter}>
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="Rating" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All ratings</SelectItem>
-            {["A", "B", "C", "D", "E"].map(r => (
-              <SelectItem key={r} value={r}>
-                Rating {r}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          )}
+          <Select value={ratingFilter} onValueChange={setRatingFilter}>
+            <SelectTrigger className="w-32 h-9 bg-background">
+              <SelectValue placeholder="Rating" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All ratings</SelectItem>
+              {["A", "B", "C", "D", "E"].map(r => (
+                <SelectItem key={r} value={r}>
+                  Rating {r}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {deskFilterCount > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 gap-1.5 text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setSearch("");
+                setStatusFilter("all");
+                setConfirmationFilter("all");
+                setContactFilter("all");
+                setDueFilter("all");
+                setManagerFilter("all");
+                setCollectorFilter("all");
+                setRatingFilter("all");
+              }}
+            >
+              <X className="h-3.5 w-3.5" /> Clear {deskFilterCount}
+            </Button>
+          )}
+        </div>
       </div>
 
       {view === "groups" && !groupsLoading && (
