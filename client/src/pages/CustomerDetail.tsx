@@ -9,19 +9,19 @@ import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFil
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CommunicationPanel, CommunicationToggle, useCommunicationPanel } from "@/components/CommunicationPanel";
 import { buildTimeline } from "@/lib/timeline";
-import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, HandCoins, HelpCircle, Layers, Plus } from "lucide-react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -61,14 +61,23 @@ export default function CustomerDetail() {
   /** Show/hide the communication side panel; shared with the group card. */
   const commPanel = useCommunicationPanel();
 
-  const [promiseOpen, setPromiseOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
+  /*
+   * Promise-to-Pay is offered here as well as on the group card — the collector may be
+   * looking at one company when the customer commits. What it must NOT do is create a
+   * company-level commitment: the group is the unit of collection, so this saves through
+   * `recordGroupPromise`, which moves the group's existing open promise instead of
+   * opening a second one for the same money.
+   */
+  const [promiseOpen, setPromiseOpen] = useState(false);
   const [promiseForm, setPromiseForm] = useState({ amount: "", date: "", notes: "" });
-  const addPromise = trpc.forecast.addPromise.useMutation({
-    onSuccess: () => {
-      toast.success("Promise-to-pay recorded");
-      utils.customers.get360.invalidate({ id });
+  const recordPromise = trpc.calls.recordGroupPromise.useMutation({
+    onSuccess: res => {
+      toast.success(res.moved ? "The group's open promise was moved to the new date" : "Promise-to-Pay recorded for the group");
+      utils.customers.invalidate();
+      utils.calls.invalidate();
       setPromiseOpen(false);
+      setPromiseForm({ amount: "", date: "", notes: "" });
     },
     onError: e => toast.error(e.message),
   });
@@ -228,45 +237,51 @@ export default function CustomerDetail() {
                   <HandCoins className="h-4 w-4" /> Promise-to-Pay
                 </Button>
               </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Record Promise-to-Pay</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label>Amount (€) — optional</Label>
-                  <Input
-                    type="number"
-                    placeholder="leave empty if not stated"
-                    value={promiseForm.amount}
-                    onChange={e => setPromiseForm({ ...promiseForm, amount: e.target.value })}
-                  />
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Record Promise-to-Pay</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  {/* The record belongs to the group, so say so before anything is typed. */}
+                  <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    Recorded for <strong>{data.groupKey}</strong> — collection is tracked per group, so this is
+                    the group's single payment commitment, not a separate promise for {customer.name}.
+                  </p>
+                  <div className="space-y-1.5">
+                    <Label>Amount (€) — optional</Label>
+                    <Input
+                      type="number"
+                      placeholder="leave empty if not stated"
+                      value={promiseForm.amount}
+                      onChange={e => setPromiseForm({ ...promiseForm, amount: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Promised date</Label>
+                    <Input type="date" value={promiseForm.date} onChange={e => setPromiseForm({ ...promiseForm, date: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Notes</Label>
+                    <Textarea value={promiseForm.notes} onChange={e => setPromiseForm({ ...promiseForm, notes: e.target.value })} />
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Promised date</Label>
-                  <Input type="date" value={promiseForm.date} onChange={e => setPromiseForm({ ...promiseForm, date: e.target.value })} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Notes</Label>
-                  <Textarea value={promiseForm.notes} onChange={e => setPromiseForm({ ...promiseForm, notes: e.target.value })} />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  disabled={!promiseForm.date || addPromise.isPending}
-                  onClick={() =>
-                    addPromise.mutate({
-                      customerId: id,
-                      amount: promiseForm.amount ? Number(promiseForm.amount) : 0,
-                      promisedDate: new Date(promiseForm.date).getTime(),
-                      notes: promiseForm.notes || undefined,
-                    })
-                  }
-                >
-                  Save
-                </Button>
-              </DialogFooter>
-            </DialogContent>
+                <DialogFooter>
+                  <Button
+                    disabled={!promiseForm.date || recordPromise.isPending}
+                    onClick={() =>
+                      recordPromise.mutate({
+                        group: data.groupKey,
+                        customerId: id,
+                        amount: promiseForm.amount ? Number(promiseForm.amount) : undefined,
+                        promisedDate: new Date(promiseForm.date).getTime(),
+                        notes: promiseForm.notes || undefined,
+                      })
+                    }
+                  >
+                    Save
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
             </Dialog>
           </div>
           <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">

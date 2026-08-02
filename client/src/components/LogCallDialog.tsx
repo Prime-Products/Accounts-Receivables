@@ -478,14 +478,22 @@ export default function LogCallDialog({
               {openPromise && (
                 <div className="rounded border border-amber-300 bg-amber-50 p-2">
                   <p className="text-xs text-amber-900">
-                    Moving the open promise of {fmtPromiseAmountShort(openPromise.amount)} due{" "}
-                    {openPromise.promisedDate ? new Date(openPromise.promisedDate).toLocaleDateString("en-GB") : "—"} ({openPromise.customerName})
+                    {group} already has an open promise of {fmtPromiseAmountShort(openPromise.amount)} due{" "}
+                    {openPromise.promisedDate ? new Date(openPromise.promisedDate).toLocaleDateString("en-GB") : "—"} — saving
+                    moves it to the new date.
                     {(openPromise.rescheduleCount ?? 0) > 0 && (
                       <span className="ml-1.5 inline-flex items-center rounded bg-red-200 px-1.5 py-0.5 font-semibold text-red-900">
                         rescheduled ×{openPromise.rescheduleCount}
                       </span>
                     )}
                   </p>
+                  {/*
+                   * A promise belongs to the group, never to one member company: the
+                   * group is what gets called and what pays. Naming a member company
+                   * here used to read as "that company's promise", which made a call
+                   * to a different company of the same group look like the wrong
+                   * record was being moved.
+                   */}
                 </div>
               )}
               <div className="grid gap-2 sm:grid-cols-2">
@@ -512,8 +520,8 @@ export default function LogCallDialog({
               </div>
               <p className="text-[11px] leading-snug text-muted-foreground">
                 {openPromise
-                  ? "The existing promise is moved to the new date."
-                  : "A Promise-to-Pay record is created."}
+                  ? "A group carries one payment commitment at a time, so the existing promise is moved to the new date instead of adding a second one."
+                  : "A Promise-to-Pay record is created for the group."}
                 {" "}Leave the amount empty when the customer promised to pay without naming a figure — the promise is recorded as “amount not stated”.
               </p>
             </div>

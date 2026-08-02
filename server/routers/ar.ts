@@ -5206,6 +5206,65 @@ export const callsRouter = router({
     }),
 
   /** Most recent open (Pending) promise for a group — used by Log Call to offer rescheduling. */
+  /**
+   * Record a Promise-to-Pay for a GROUP, from wherever the collector happens to be.
+   *
+   * Collection is tracked per group: a group carries one open payment commitment at a
+   * time. So this is the single entry point used by both the group card and a member
+   * company's card — when a commitment already exists it is MOVED to the new date
+   * (never duplicated), and when there is none a fresh promise plus its check task is
+   * created. `customerId` only records which company was on the phone.
+   */
+  recordGroupPromise: protectedProcedure
+    .input(
+      z.object({
+        group: z.string().min(1).max(255),
+        customerId: z.number().optional(),
+        amount: z.number().nonnegative().optional(),
+        promisedDate: z.number(),
+        notes: z.string().max(2000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await findOpenGroupPromise(input.group).catch(() => null);
+      if (existing) {
+        const moved = await rescheduleGroupPromise(ctx, {
+          group: input.group,
+          promiseId: existing.id,
+          amount: input.amount ?? 0,
+          promisedDate: input.promisedDate,
+          notes: input.notes,
+        });
+        if (moved) {
+          // The badge must follow the commitment, otherwise the Desk shows a stale date.
+          await db.upsertGroupConfirmationStatus(input.group, {
+            status: "Confirmed",
+            amount: String(input.amount ?? Number(existing.amount ?? 0)),
+            followUpDate: input.promisedDate,
+            notes: input.notes,
+            updatedBy: ctx.user.id,
+          });
+          return { promiseId: moved, moved: true };
+        }
+      }
+      const promiseId = await createGroupPromise(ctx, {
+        group: input.group,
+        customerId: input.customerId,
+        amount: input.amount,
+        promisedDate: input.promisedDate,
+        notes: input.notes,
+      });
+      if (!promiseId) throw new TRPCError({ code: "NOT_FOUND", message: "Group has no companies" });
+      await db.upsertGroupConfirmationStatus(input.group, {
+        status: "Confirmed",
+        amount: String(input.amount ?? 0),
+        followUpDate: input.promisedDate,
+        notes: input.notes,
+        updatedBy: ctx.user.id,
+      });
+      return { promiseId, moved: false };
+    }),
+
   getOpenPromise: protectedProcedure
     .input(z.object({ group: z.string().min(1).max(255) }))
     .query(async ({ input }) => {

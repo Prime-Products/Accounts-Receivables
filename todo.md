@@ -1797,3 +1797,24 @@ master record. Same company, two screens. Unify them.
 ## Transactions toolbar overflow (reported 3/8)
 - [x] "By vessel" was cut off at the card edge — the group card's Transactions toolbar now wraps (`flex-wrap` + `min-w-0`) instead of overflowing
 - [x] Test guards the wrapping classes so the row cannot regress to a single no-wrap line
+
+## Promises are group-level only (decided 3/8)
+Rule confirmed by Kostas: a promise (and its check task) belongs to the GROUP. Companies never
+carry their own promise or task. The REEDEREI NORD confusion came from the Log Call banner naming
+a member company, which read as "this company's promise" when it is the group's single commitment.
+- [ ] Log Call banner: drop the member-company name, say the promise belongs to the group
+- [ ] Make the reschedule wording explicit ("the group's open promise moves to the new date")
+- [ ] Promise rows created from Log Call must not be attributed to a single company in the UI
+- [ ] Verify no company-level promise/task can be created from any entry point
+- [ ] Tests for the group-level wording and attribution
+
+## Company-card actions record against the group (decided 3/8, corrected)
+Kostas: nothing is to be removed from either card — whether a call/promise is logged from a company
+or from the group, it is RECORDED on the group. The company card keeps every button; only the
+destination of the record is group-level.
+- [x] Restore the "Promise-to-Pay" dialog on the company card (it was briefly removed)
+- [x] A promise saved from the company card moves the group's open promise instead of adding a second one
+- [x] Company-card promise dialog states that the record lands on the group
+- [x] Keep New Task on the company card
+- [x] Tests: company-card promise routes to the group's single commitment
+- [x] Group-first tracking recorded as a standing rule in the ar-pro-design-system skill
