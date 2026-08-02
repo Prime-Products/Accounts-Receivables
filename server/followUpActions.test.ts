@@ -41,7 +41,7 @@ describe("follow-up task actions", () => {
       caller.calls.logCall({ group, outcome: "Reached", confirmationStatus: "Confirmed" }),
     ).rejects.toThrow(/promised payment date/i);
 
-    // No amount + a date → promise and check task are created
+    // No amount + a date → the promise is created (a call never creates a task)
     const promisedDate = Date.now() + 3 * 24 * 3600 * 1000;
     const res = await caller.calls.logCall({
       group,
@@ -56,16 +56,14 @@ describe("follow-up task actions", () => {
     expect(conf?.status).toBe("Confirmed");
     expect(Number(conf?.amount)).toBe(0);
 
-    // A promise record with amount 0 exists and a linked check task was created
+    // A promise record with amount 0 exists, and no task was generated for it
     const promises = await db.listPromises();
     const open = promises
       .filter(p => p.status === "Pending" && Number(p.amount) === 0)
       .sort((a, b) => b.id - a.id);
     expect(open.length).toBeGreaterThan(0);
     const tasksAfter = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-    const ptpTask = tasksAfter.find(t => t.description?.includes(`(Promise #${open[0].id})`));
-    expect(ptpTask).toBeTruthy();
-    expect(ptpTask?.title).toContain("Promise to Pay");
+    expect(tasksAfter.some(t => t.description?.includes(`(Promise #${open[0].id})`))).toBe(false);
   });
 
   it("converts a follow-up task to a Promise to Pay (new task, status change, old task cancelled)", async () => {

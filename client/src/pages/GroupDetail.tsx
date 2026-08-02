@@ -4,9 +4,7 @@ import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import CollectionNotesBox from "@/components/CollectionNotesBox";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
 import LogCallDialog from "@/components/LogCallDialog";
-import LogCallLauncher from "@/components/LogCallLauncher";
 import SendEmailDialog from "@/components/SendEmailDialog";
-import TaskDetailDialog from "@/components/TaskDetailDialog";
 import { CommunicationTimeline } from "@/components/CommunicationTimeline";
 import { buildTimeline } from "@/lib/timeline";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
@@ -162,7 +160,7 @@ function ActionsMenu({
       <GroupNotesDialog group={group} open={noteOpen} onOpenChange={setNoteOpen} />
 
       {callOpen && (
-        <LogCallLauncher
+        <LogCallDialog
           group={group}
           companies={companies}
           defaultCustomerId={defaultCustomerId}
@@ -204,9 +202,11 @@ function CompanyPicker({
 }
 
 /**
- * Clickable confirmation-status badge for the group header — same behavior as the
- * groups list: a linked task opens inline in TaskDetailDialog, otherwise Log Call.
- * Turns red when the linked task is still open past its due date.
+ * Clickable confirmation-status badge for the group header.
+ *
+ * Logging a call is independent of tasks (user requirement 2/8), so the badge
+ * always opens Log Call — it never redirects into a task. The red state is kept as
+ * a pure warning that the target date has passed.
  */
 function GroupConfirmationBadge({
   group,
@@ -221,10 +221,8 @@ function GroupConfirmationBadge({
   taskId: number | null;
   taskOverdue?: boolean;
 }) {
-  const [taskOpen, setTaskOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
   const taskBacked = status === "Pending Follow-up" || status === "Confirmed" || status === "Escalated";
-  const hasLinkedTask = taskId !== null && taskBacked;
   const isOverdue = !!taskOverdue && taskBacked;
   return (
     <>
@@ -236,18 +234,15 @@ function GroupConfirmationBadge({
         }`}
         title={
           isOverdue
-            ? "Overdue task — the target date has passed and the linked task is still open. Click to open it."
-            : hasLinkedTask
-              ? "Click to open the linked follow-up task"
-              : "Click to log a call and change the confirmation status"
+            ? "The target date has passed. Click to log a call and update the status."
+            : "Click to log a call and change the confirmation status"
         }
-        onClick={() => (hasLinkedTask ? setTaskOpen(true) : setCallOpen(true))}
+        onClick={() => setCallOpen(true)}
       >
         {isOverdue && <AlertTriangle className="h-3 w-3 text-red-600" />}
         {confirmationStatusLabels[status] ?? status}
         <Phone className="h-3 w-3 opacity-40" />
       </button>
-      {taskOpen && <TaskDetailDialog taskId={taskId} open={taskOpen} onOpenChange={setTaskOpen} />}
       {callOpen && (
         <LogCallDialog group={group} companies={companies} open={callOpen} onOpenChange={setCallOpen} />
       )}
@@ -308,9 +303,8 @@ function LastContactLine({
 }
 
 /**
- * "Log call" button for the communication timeline header. Goes through
- * LogCallLauncher so an already-active case offers to open its task instead of
- * silently creating a parallel one.
+ * "Log call" button for the communication timeline header. Opens the call dialog
+ * directly: a call is a record of a conversation and is never gated by a task.
  */
 function TimelineLogCallButton({
   group,
@@ -328,7 +322,7 @@ function TimelineLogCallButton({
         <Phone className="h-3.5 w-3.5" /> Log call
       </Button>
       {open && (
-        <LogCallLauncher
+        <LogCallDialog
           group={group}
           companies={companies}
           defaultCustomerId={defaultCustomerId}

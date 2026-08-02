@@ -5,7 +5,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { trpc } from "@/lib/trpc";
 import { fmtPromiseAmountShort } from "@/lib/format";
 import { Building2, CheckCircle2, Info, Mail, Phone, Plus, User } from "lucide-react";
@@ -62,20 +61,14 @@ export default function LogCallDialog({
   const [followUpDate, setFollowUpDate] = useState("");
   const [promisedDate, setPromisedDate] = useState("");
   const [promiseMode, setPromiseMode] = useState<"reschedule" | "new">("reschedule");
-  /** Team member who will own the auto-created follow-up / promise-check task. */
-  const [assigneeId, setAssigneeId] = useState<number | null>(null);
   const utils = trpc.useUtils();
 
   // Existing open promise for this group (offered for rescheduling on Confirmed)
   const { data: openPromise } = trpc.calls.getOpenPromise.useQuery({ group }, { enabled: open });
-  // Existing open follow-up task for this group (shown when rescheduling a Pending Follow-up)
-  const { data: openFollowUp } = trpc.calls.getOpenFollowUpTask.useQuery({ group }, { enabled: open });
   // Payment contacts across all companies of the group
   const { data: groupContacts } = trpc.paymentContacts.listByGroup.useQuery({ group }, { enabled: open });
   // Collection notes (call preferences & particularities) — shown as a reminder before logging the call
   const { data: collectionProfile } = trpc.customers.getCollectionProfile.useQuery({ group }, { enabled: open });
-  // Own team-member record — the default owner of the task created by this call.
-  const { data: myMember } = trpc.team.myMember.useQuery(undefined, { enabled: open });
   const selectedContact =
     selectedContactId && selectedContactId !== "other" && selectedContactId !== "add-new"
       ? groupContacts?.find(c => String(c.id) === selectedContactId)
@@ -100,22 +93,14 @@ export default function LogCallDialog({
       setFollowUpDate("");
       setPromisedDate("");
       setPromiseMode("reschedule");
-      setAssigneeId(null);
     }
   }, [open, defaultCustomerId]);
 
-  // Default the assignee to the colleague logging the call (they keep the task
-  // unless they explicitly hand it to someone else).
-  useEffect(() => {
-    if (open && assigneeId == null && myMember?.id) setAssigneeId(myMember.id);
-  }, [open, myMember?.id, assigneeId]);
-
-    const logCall = trpc.calls.logCall.useMutation({
+  const logCall = trpc.calls.logCall.useMutation({
     onSuccess: (_data, variables) => {
       toast.success("Call logged");
       utils.customers.invalidate();
       utils.calls.invalidate();
-      utils.tasks.invalidate();
       onOpenChange(false);
     },
     onError: e => toast.error(e.message),
@@ -176,11 +161,9 @@ export default function LogCallDialog({
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.promisedDate = promisedDate ? new Date(promisedDate).getTime() : undefined;
       logData.promiseMode = promiseMode;
-      if (assigneeId) logData.assigneeId = assigneeId;
     } else if (outcome === "Reached" && confirmationStatus === "Pending Follow-up") {
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.followUpDate = followUpDate ? new Date(followUpDate).getTime() : undefined;
-      if (assigneeId) logData.assigneeId = assigneeId;
     }
 
     logCall.mutate(logData);
@@ -401,7 +384,7 @@ export default function LogCallDialog({
                   </RadioGroup>
                 </div>
               )}
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label className="text-xs">Promised amount (EUR) — optional</Label>
                   <Input
@@ -422,16 +405,12 @@ export default function LogCallDialog({
                     onChange={e => setPromisedDate(e.target.value)}
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Assigned to</Label>
-                  <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} placeholder="Unassigned" />
-                </div>
               </div>
               <p className="text-[11px] leading-snug text-muted-foreground">
                 {openPromise && promiseMode === "reschedule"
-                  ? "The existing promise and its follow-up task will be moved to the new date."
-                  : "A Promise-to-Pay record will be created automatically."}
-                {" "}The check task goes to the colleague selected above.
+                  ? "The existing promise is moved to the new date."
+                  : "A Promise-to-Pay record is created."}
+                {" "}No task is created — logging a call never touches the task list.
                 {" "}Leave the amount empty when the customer promised to pay without naming a figure — the promise is recorded as “amount not stated”.
               </p>
             </div>
@@ -440,20 +419,7 @@ export default function LogCallDialog({
           {/* Pending Follow-up - show follow-up date and amount */}
           {confirmationStatus === "Pending Follow-up" && (
             <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
-              {openFollowUp && (
-                <div className="rounded border border-blue-300 bg-blue-100/60 px-2 py-1.5 text-xs text-blue-900 space-y-0.5">
-                  <p className="font-medium">
-                    Open follow-up exists — currently due {openFollowUp.dueDate ? new Date(openFollowUp.dueDate).toLocaleDateString("en-GB") : "—"}
-                    {(openFollowUp.rescheduleCount ?? 0) > 0 && (
-                      <span className="ml-1.5 inline-flex items-center rounded bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-900">
-                        rescheduled ×{openFollowUp.rescheduleCount}
-                      </span>
-                    )}
-                  </p>
-                  <p>Saving with a new date moves this follow-up (no duplicate) and counts as a reschedule.</p>
-                </div>
-              )}
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label className="text-xs">Expected amount (EUR)</Label>
                   <Input
@@ -474,13 +440,9 @@ export default function LogCallDialog({
                     onChange={e => setFollowUpDate(e.target.value)}
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Assigned to</Label>
-                  <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} placeholder="Unassigned" />
-                </div>
               </div>
               <p className="text-[11px] leading-snug text-muted-foreground">
-                The follow-up call task is created for the colleague selected above.
+                The follow-up date is stored on the group status only. Create a task from the Tasks page if you want one.
               </p>
             </div>
           )}

@@ -50,7 +50,7 @@ describe("Confirmation badge → linked task (customers.groups.confirmationTaskI
     await dbi.execute(sql`DELETE FROM customers WHERE name LIKE 'TaskLink %' AND id NOT IN (SELECT DISTINCT customerId FROM invoices WHERE customerId IS NOT NULL)`);
   });
 
-  it("exposes the follow-up task id for a Pending Follow-up group", async () => {
+  it("links no task for a Pending Follow-up group created by a call", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const group = `TaskLink Pending ${Date.now()}`;
     const customerId = await db.createCustomer({
@@ -76,16 +76,13 @@ describe("Confirmation badge → linked task (customers.groups.confirmationTaskI
     const row = groups.find(g => g.group === group);
     expect(row).toBeDefined();
     expect(row!.confirmationStatus).toBe("Pending Follow-up");
-    expect(row!.confirmationTaskId).toBeTypeOf("number");
-
-    // The linked task must be the auto-created follow-up call task for this group.
+    // Logging a call creates no task, so nothing is linked to the badge.
+    expect(row!.confirmationTaskId ?? null).toBeNull();
     const tasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-    const linked = tasks.find(t => t.id === row!.confirmationTaskId);
-    expect(linked).toBeDefined();
-    expect(linked!.description).toContain(`(Follow-up: ${group})`);
+    expect(tasks.some(t => t.description?.includes(`(Follow-up: ${group})`))).toBe(false);
   });
 
-  it("exposes the promise-check task id for a Promise to Pay group", async () => {
+  it("links no task for a Promise to Pay group created by a call", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const group = `TaskLink Promise ${Date.now()}`;
     const customerId = await db.createCustomer({
@@ -111,13 +108,9 @@ describe("Confirmation badge → linked task (customers.groups.confirmationTaskI
     const row = groups.find(g => g.group === group);
     expect(row).toBeDefined();
     expect(row!.confirmationStatus).toBe("Confirmed");
-    expect(row!.confirmationTaskId).toBeTypeOf("number");
-
+    expect(row!.confirmationTaskId ?? null).toBeNull();
     const tasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-    const linked = tasks.find(t => t.id === row!.confirmationTaskId);
-    expect(linked).toBeDefined();
-    expect(linked!.description).toMatch(/\(Promise #\d+\)/);
-    expect(linked!.customerId).toBe(customerId);
+    expect(tasks.some(t => t.description?.match(/\(Promise #\d+\)/) && t.customerId === customerId)).toBe(false);
   });
 
   it("returns null confirmationTaskId for Not Contacted / Broken groups", async () => {

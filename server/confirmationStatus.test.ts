@@ -557,16 +557,15 @@ describe("Confirmation Status Tracking", () => {
       await db.updatePromise(latest.id, { status: "Kept" });
     });
 
-    it("logCall with Pending Follow-up creates a follow-up task (and reschedules instead of duplicating)", async () => {
+    it("logCall with Pending Follow-up records the date on the status and creates no task", async () => {
       const ctx = createAuthContext();
       const caller = appRouter.createCaller(ctx);
 
       const cust = await getFixtureCustomer();
       const groupName = (cust.customerGroup ?? "").trim() || cust.name;
-      const marker = `(Follow-up: ${groupName})`;
       const followUpDate = Date.now() + 5 * 24 * 60 * 60 * 1000;
+      const tasksBefore = (await db.listTasks()).length;
 
-      // First pending call → creates the task
       await caller.calls.logCall({
         group: groupName,
         customerId: cust.id,
@@ -576,12 +575,13 @@ describe("Confirmation Status Tracking", () => {
         followUpDate,
       });
 
-      let openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-      let followUps = openTasks.filter(t => t.description?.includes(marker));
-      expect(followUps.length).toBe(1);
-      expect(followUps[0].dueDate).toBe(followUpDate);
+      // The follow-up date lives on the confirmation row; no task is generated.
+      let row = await db.getGroupConfirmationStatus(groupName);
+      expect(row?.status).toBe("Pending Follow-up");
+      expect(row?.followUpDate).toBe(followUpDate);
+      expect((await db.listTasks()).length).toBe(tasksBefore);
 
-      // Second pending call with a new date → reschedules, no duplicate
+      // Logging again with a new date just moves the stored date.
       const newDate = Date.now() + 12 * 24 * 60 * 60 * 1000;
       await caller.calls.logCall({
         group: groupName,
@@ -592,13 +592,9 @@ describe("Confirmation Status Tracking", () => {
         followUpDate: newDate,
       });
 
-      openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-      followUps = openTasks.filter(t => t.description?.includes(marker));
-      expect(followUps.length).toBe(1);
-      expect(followUps[0].dueDate).toBe(newDate);
-
-      // Cleanup: complete the test task
-      await db.updateTask(followUps[0].id, { status: "Completed", completionNotes: "test cleanup", completedAt: Date.now() });
+      row = await db.getGroupConfirmationStatus(groupName);
+      expect(row?.followUpDate).toBe(newDate);
+      expect((await db.listTasks()).length).toBe(tasksBefore);
     });
 
     it("should reset amount when status changes to Not Contacted or Broken", async () => {
@@ -700,22 +696,17 @@ describe("Confirmation Status Tracking", () => {
       expect(Number(moved?.amount)).toBeCloseTo(5000, 1);
       expect(moved?.promisedDate).toBe(secondDate);
 
-      // Linked follow-up task moved to the new date
+      // No promise-check task is generated: logging a call never creates work.
       const marker = `(Promise #${open1!.id})`;
       const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-      const linked = openTasks.find(t => t.description?.includes(marker));
-      expect(linked).toBeTruthy();
-      expect(linked?.dueDate).toBe(secondDate);
+      expect(openTasks.some(t => t.description?.includes(marker))).toBe(false);
 
-      // Cleanup: cancel test promise + complete test task, reset confirmation row
+      // Cleanup: cancel test promise, reset confirmation row
      await db.updatePromise(open1!.id, { status: "Broken", notes: "test cleanup" });
-     if (linked) {
-       await db.updateTask(linked.id, { status: "Completed", completionNotes: "test cleanup", completedAt: Date.now() });
-     }
       await cleanupTestCustomer(fx);
    });
 
-   it("cancels the follow-up task when status changes away from Pending Follow-up", async () => {
+   it("clears the follow-up date when status changes away from Pending Follow-up, without touching tasks", async () => {
       const ctx = createAuthContext();
       const caller = appRouter.createCaller(ctx);
 
@@ -723,8 +714,8 @@ describe("Confirmation Status Tracking", () => {
       expect(cust).toBeTruthy();
       const groupName = (cust.customerGroup ?? "").trim() || cust.name;
       const marker = `(Follow-up: ${groupName})`;
+      const tasksBefore = (await db.listTasks()).length;
 
-      // Pending Follow-up → follow-up task created
       await caller.calls.logCall({
         group: groupName,
         customerId: cust.id,
@@ -734,20 +725,22 @@ describe("Confirmation Status Tracking", () => {
         followUpDate: Date.now() + 4 * 24 * 60 * 60 * 1000,
       });
 
+      // No task is created for the follow-up.
       let openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-      expect(openTasks.some(t => t.description?.includes(marker))).toBe(true);
+      expect(openTasks.some(t => t.description?.includes(marker))).toBe(false);
+      expect((await db.listTasks()).length).toBe(tasksBefore);
 
-      // Status changes to Not Contacted → follow-up task must be cancelled
       await caller.calls.updateConfirmationStatus({
         group: groupName,
         status: "Not Contacted",
       });
 
-      openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-      expect(openTasks.some(t => t.description?.includes(marker))).toBe(false);
+      const row = await db.getGroupConfirmationStatus(groupName);
+      expect(row?.status).toBe("Not Contacted");
+      expect(row?.followUpDate ?? null).toBeNull();
     });
 
-    it("cancels the open promise and its check task when status changes away from Confirmed", async () => {
+    it("cancels the open promise when status changes away from Confirmed, without touching tasks", async () => {
       const ctx = createAuthContext();
       const caller = appRouter.createCaller(ctx);
 
@@ -755,7 +748,6 @@ describe("Confirmation Status Tracking", () => {
       expect(cust).toBeTruthy();
       const groupName = (cust.customerGroup ?? "").trim() || cust.name;
 
-      // Confirmed → creates a promise + check task
       await caller.calls.logCall({
         group: groupName,
         customerId: cust.id,
@@ -769,10 +761,10 @@ describe("Confirmation Status Tracking", () => {
       expect(open).toBeTruthy();
       const marker = `(Promise #${open!.id})`;
 
-      let openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-      expect(openTasks.some(t => t.description?.includes(marker))).toBe(true);
+      // The promise exists on its own — no check task was generated.
+      const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
+      expect(openTasks.some(t => t.description?.includes(marker))).toBe(false);
 
-      // Status changes to Broken → promise cancelled + check task cancelled
       await caller.calls.updateConfirmationStatus({
         group: groupName,
         status: "Broken",
@@ -781,9 +773,6 @@ describe("Confirmation Status Tracking", () => {
 
       const promiseAfter = await db.getPromise(open!.id);
       expect(promiseAfter?.status).toBe("Broken");
-
-      openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-      expect(openTasks.some(t => t.description?.includes(marker))).toBe(false);
     });
   });
 
