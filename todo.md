@@ -1600,6 +1600,15 @@ master record. Same company, two screens. Unify them.
 - [x] Timeline entry now includes company, contact (resolved from the saved contact list), collection status, amount, promised/follow-up date and the note
 - [x] Removed the duplicated outcome sentence from the entry body (it already leads the title)
 - [x] Vitest: `logCallTimelineDetail.test.ts` (5 tests) asserts every field entered in Log Call appears in the single entry
+
+## @mention of internal team members in notes (requested 2/8)
+- [x] Typing `@` in a note field opens a picker listing our own Team members (not customer contacts)
+- [x] Mention is stored in a structured way (member id) so it survives renames and can be queried
+- [x] Mentioned names render highlighted in the communication timeline entry
+- [x] Mentioned member gets a visible notification/badge (no email spam), with a list of their mentions
+- [x] Available in Log Call notes and in Collection Notes
+- [x] Mentioning must NOT create a task (keeps the Log-Call-creates-no-work rule)
+- [x] Vitest: parsing, storage and retrieval of mentions (`shared/mentions.test.ts` 9, `server/noteMentions.test.ts` 5)
 - [x] "Action due" filter in the filter row (Any due date / Due today or earlier / Past due only)
 - [x] Default Desk ordering puts due rows first (past due, then due today, oldest date first), and due rows are tinted red/amber
 - [x] Removed the `customers.callBackList` procedure

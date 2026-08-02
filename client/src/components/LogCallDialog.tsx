@@ -3,7 +3,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import MentionText from "@/components/MentionText";
+import MentionTextarea from "@/components/MentionTextarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { trpc } from "@/lib/trpc";
 import { fmtPromiseAmountShort } from "@/lib/format";
@@ -191,9 +192,10 @@ export default function LogCallDialog({
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
                   Collection Notes
                 </div>
-                <div className="text-xs text-amber-900 dark:text-amber-100 whitespace-pre-wrap break-words line-clamp-3">
-                  {collectionProfile.notes.trim()}
-                </div>
+                <MentionText
+                  text={collectionProfile.notes.trim()}
+                  className="block text-xs text-amber-900 dark:text-amber-100 line-clamp-3"
+                />
               </div>
             </div>
           ) : null}
@@ -474,9 +476,9 @@ export default function LogCallDialog({
             <Label className="text-xs">
               {confirmationStatus === "Broken" ? "Reason / notes (optional)" : "Additional notes (optional)"}
             </Label>
-            <Textarea
+            <MentionTextarea
               value={notes}
-              onChange={e => setNotes(e.target.value)}
+              onChange={setNotes}
               placeholder={confirmationStatus === "Broken" ? "Why is the payment not confirmed?" : "What was discussed…"}
               rows={2}
               className="resize-y min-h-[56px]"

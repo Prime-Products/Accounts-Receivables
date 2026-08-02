@@ -19,6 +19,8 @@ export default defineConfig({
       "server/**/*.spec.ts",
       // Pure helper modules shared by the UI (formatting, timeline building, filters).
       "client/src/lib/**/*.test.ts",
+      // Contracts shared by client and server (mention markup, text matching).
+      "shared/**/*.test.ts",
     ],
     fileParallelism: false,
   },

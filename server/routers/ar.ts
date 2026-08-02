@@ -11,6 +11,7 @@ import {
   taskTypes,
 } from "../../drizzle/schema";
 import { matchScore, matchesAllTokens } from "../../shared/textMatch";
+import { parseMentions } from "../../shared/mentions";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveGroupStatus, normalizeStoredStatus } from "../lib/statusWorkflow";
@@ -1707,13 +1708,29 @@ export const customersRouter = router({
     .input(z.object({ group: z.string().min(1), notes: z.string().max(2000) }))
     .mutation(async ({ ctx, input }) => {
       await db.upsertGroupCollectionProfile(input.group, input.notes.trim(), ctx.user.id);
-      await db.addActivityLog({
+      const noteActivityId = await db.addActivityLog({
         groupName: input.group,
         activityType: "note",
         title: "Collection notes updated",
         description: input.notes.trim().slice(0, 300) || "(cleared)",
         createdBy: ctx.user.id,
       });
+      // Colleagues named with @ are notified through the mentions inbox; no task is created.
+      const notedMentions = parseMentions(input.notes);
+      if (notedMentions.length > 0) {
+        await db
+          .addNoteMentions(
+            notedMentions.map(m => ({
+              memberId: m.memberId,
+              groupName: input.group,
+              source: "collectionNotes" as const,
+              activityId: noteActivityId,
+              excerpt: input.notes.trim().slice(0, 500),
+              createdBy: ctx.user.id,
+            })),
+          )
+          .catch(() => 0);
+      }
       await audit(ctx, "Update Collection Notes", "group", input.group);
       return { success: true };
     }),
@@ -4188,6 +4205,51 @@ export const teamRouter = router({
     .input(z.object({ includeInactive: z.boolean().optional() }).optional())
     .query(async ({ input }) => db.listTeamMembers(input?.includeInactive ?? false)),
   /**
+   * The caller's @mentions inbox. A mention is a reference written by a colleague
+   * inside a note — it carries no due date and never becomes a task.
+   */
+  myMentions: protectedProcedure
+    .input(z.object({ unreadOnly: z.boolean().optional(), limit: z.number().min(1).max(200).optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const me = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+      if (!me) return { memberId: null as number | null, unread: 0, items: [] as any[] };
+      const rows = await db
+        .listMentionsForMember(me.id, { unreadOnly: input?.unreadOnly, limit: input?.limit ?? 50 })
+        .catch(() => [] as any[]);
+      const unread = await db.countUnreadMentions(me.id).catch(() => 0);
+      const authors = await db.listTeamMembers(true).catch(() => [] as any[]);
+      const users = await db.listUsers().catch(() => [] as any[]);
+      const authorName = (userId: number | null) => {
+        if (!userId) return null;
+        const viaTeam = authors.find((a: any) => a.userId === userId);
+        if (viaTeam?.name) return viaTeam.name as string;
+        const u = (users ?? []).find((x: any) => x.id === userId);
+        return (u?.name as string) ?? null;
+      };
+      return {
+        memberId: me.id,
+        unread,
+        items: rows.map((r: any) => ({
+          id: r.id,
+          group: r.groupName,
+          source: r.source as "call" | "collectionNotes" | "groupNote",
+          excerpt: r.excerpt as string | null,
+          createdAt: r.createdAt as Date,
+          readAt: r.readAt as Date | null,
+          byName: authorName(r.createdBy ?? null),
+        })),
+      };
+    }),
+  /** Mark one mention (or all of mine) as seen. */
+  markMentionsRead: protectedProcedure
+    .input(z.object({ mentionId: z.number().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const me = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+      if (!me) return { success: false as const };
+      await db.markMentionsRead(me.id, input?.mentionId);
+      return { success: true as const };
+    }),
+  /**
    * The caller's own team-member record (or null when their login is not linked
    * to one). Used to default assignee pickers to "me".
    */
@@ -5494,7 +5556,7 @@ export const callsRouter = router({
       })();
       // The outcome already leads the title, so repeating it in the body would show
       // the same sentence twice in the timeline entry.
-      await db.addActivityLog({
+      const activityId = await db.addActivityLog({
         groupName: input.group,
         customerId: input.customerId,
         activityType: input.confirmationStatus === "Confirmed" ? "promise" : "call",
@@ -5505,6 +5567,26 @@ export const callsRouter = router({
         createdBy: ctx.user.id,
         createdAt: new Date(),
       });
+
+      /*
+       * @mentions in the call note are references to colleagues ("I informed X"),
+       * so they are recorded for the mentions inbox only — deliberately no task.
+       */
+      const mentioned = parseMentions(input.notes);
+      if (mentioned.length > 0) {
+        await db
+          .addNoteMentions(
+            mentioned.map(m => ({
+              memberId: m.memberId,
+              groupName: input.group,
+              source: "call" as const,
+              activityId,
+              excerpt: (input.notes ?? "").slice(0, 500),
+              createdBy: ctx.user.id,
+            })),
+          )
+          .catch(() => 0);
+      }
 
       // Update confirmation status if provided
       if (input.confirmationStatus) {

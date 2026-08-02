@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import MentionText from "@/components/MentionText";
+import MentionTextarea from "@/components/MentionTextarea";
 import { trpc } from "@/lib/trpc";
 import { Info, Pencil } from "lucide-react";
 import { useState } from "react";
@@ -34,9 +35,9 @@ export default function CollectionNotesBox({ group }: { group: string }) {
         <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
           <Info className="h-3.5 w-3.5" /> Collection Notes — call preferences & particularities
         </div>
-        <Textarea
+        <MentionTextarea
           value={draft}
-          onChange={e => setDraft(e.target.value)}
+          onChange={setDraft}
           rows={3}
           maxLength={2000}
           autoFocus
@@ -77,7 +78,7 @@ export default function CollectionNotesBox({ group }: { group: string }) {
         <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
           Collection Notes
         </div>
-        <div className="text-sm text-amber-900 dark:text-amber-100 whitespace-pre-wrap break-words">{notes}</div>
+        <MentionText text={notes} className="block text-sm text-amber-900 dark:text-amber-100" />
         {profile?.updatedByName && (
           <div className="text-[10px] text-amber-700/70 dark:text-amber-400/70 mt-1">
             Updated by {profile.updatedByName} · {new Date(profile.updatedAt).toLocaleDateString()}
