@@ -1510,14 +1510,14 @@ master record. Same company, two screens. Unify them.
 
 ## Operating model — how the team should work in the hub (user request)
 - [x] Audit trail cleaned: 53,147 of 53,781 rows were written by vitest users; only 634 real rows remained. Snapshot cleanup now sweeps audit rows, a global vitest teardown sweeps the rest, and `dataIntegrity.test.ts` fails if rows from earlier runs survive
-- [ ] Audit every screen as built today: purpose, who it is for, what workflow it assumes
-- [ ] Audit the data model behind collaboration: users, team members, roles, assignment, comments, watchers, notes, activity log
-- [ ] Measure real usage: which screens/objects actually carry data vs which are empty
-- [ ] Document the intended daily and weekly workflow per role (director, collector, account manager)
-- [ ] Identify the gaps between the built app and that workflow
-- [ ] Decide where internal team communication belongs (and what NOT to build)
-- [ ] Decide the fate of the GitHub-side ActivityFeed/@mentions commit (f781da7)
-- [ ] Deliver a written operating model document to Kostas for agreement before building
+- [x] Audit every screen as built today: 13 pages / 45 components inventoried in `docs/usage-measurement-2026-08.md` (Dashboard, Desk with Groups+Companies, Group detail, Customer detail, Address Book, Invoices, Vessels, Contracts, Tasks, Wire Transfers, Reports, Team, Settings)
+- [x] Audit the data model behind collaboration: two identity lists coexist — `team_members` (3, none linked to a login) and `users` (7 real logins, 1 admin); notes/mentions/comments UI is fully built but carries 0 rows
+- [x] Measure real usage: 634 real audit actions (Log Call 117, Create Task 79, Promise 48, Wire allocation 22, SoA export 21, AI summary 16); empty tables: notes, mentions, task comments, receipts, bank details, collection plans, email templates
+- [x] Document the intended daily and weekly workflow per role — written in `docs/operating-model.md` (Credit Manager works the Desk by action date; Account Manager intervenes only commercially on own groups; Director reads the Dashboard)
+- [x] Identify the gaps between the built app and that workflow — no "my list" (1 of 3,409 customers has a collector), team members not linked to logins, tasks used as a second queue, unused collaboration surface, unscheduled taskEngine, Outlook-only email wording
+- [x] Decide where internal team communication belongs: customer-specific talk becomes a group note with @mention; everything else stays in Teams/email. Do NOT build chat, messaging or email notifications; re-evaluate the mentions inbox and task comments in a month and remove if still unused
+- [x] Decide the fate of the GitHub-side ActivityFeed/@mentions commit (f781da7): leave abandoned — `CommunicationTimeline` + `MentionTextarea` + mentions inbox already supersede everything in it
+- [x] Deliver a written operating model document to Kostas for agreement before building — `docs/operating-model.md` plus the measured basis in `docs/usage-measurement-2026-08.md`
 
 ## Call Back schedule + visible call notes (agreed 2 Aug 2026)
 - [x] Server: `customers.callBackList` builds a date-ordered schedule from promise dates, follow-up dates and never-contacted overdue groups
