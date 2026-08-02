@@ -1614,6 +1614,12 @@ master record. Same company, two screens. Unify them.
 - [x] Groups list loads every group by default (no 100-row cap / "Show all" step); companies list too
 - [x] Collection Status sort orders by action date: overdue (oldest first) → today → future (soonest first) → no date → Not Contacted last
 - [x] Vitest for the date-driven ordering (`collectionStatusSort.test.ts`, 8 tests)
+- [~] Virtual scrolling for the Desk tables — cancelled by user (no measured slowdown)
+
+## Rename "Broken" to "Did not confirm" (requested 2/8)
+- [x] Log Call status option and every UI label read "Did not confirm" instead of "Broken" (badge, Desk filter, timeline lines); the task promise button reads "Did not pay"
+- [x] Stored value stays `Broken` (no migration), only the display label changes
+- [x] Vitest pinning the label mapping (`confirmationStatusLabels.test.ts`, 4 tests)
 - [x] "Action due" filter in the filter row (Any due date / Due today or earlier / Past due only)
 - [x] Default Desk ordering puts due rows first (past due, then due today, oldest date first), and due rows are tinted red/amber
 - [x] Removed the `customers.callBackList` procedure

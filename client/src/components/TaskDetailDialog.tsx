@@ -504,7 +504,7 @@ export default function TaskDetailDialog({
                        disabled={setPromiseStatus.isPending}
                         onClick={() => setFuMode("broken-options" as any)}
                       >
-                       <ThumbsDown className="h-4 w-4" /> Broken
+                       <ThumbsDown className="h-4 w-4" /> Did not pay
                       </Button>
                    </div>
                  )}
@@ -513,7 +513,7 @@ export default function TaskDetailDialog({
                      {(fuMode as string) === "broken-options" && (
                        <div className="grid gap-1.5">
                          <div className="text-sm font-medium flex items-center gap-1.5 text-red-900">
-                           <ThumbsDown className="h-4 w-4" /> Promise broken — choose the next step
+                           <ThumbsDown className="h-4 w-4" /> Not paid — choose the next step
                          </div>
                          <button
                            type="button"

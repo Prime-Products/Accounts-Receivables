@@ -115,7 +115,8 @@ describe("Log Call writes the full information into the timeline entry", () => {
     const entry = await latestEntry();
     const text = `${entry.title} ${entry.description ?? ""}`;
     expect(text).toContain("Nikos (finance)");
-    expect(entry.title).toContain("Broken");
+    // Stored value stays "Broken"; the log line must read the renamed label.
+    expect(entry.title).toContain("Did not confirm");
     expect(text).toContain("Refuses to commit");
   });
 
