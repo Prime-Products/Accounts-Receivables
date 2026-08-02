@@ -174,7 +174,16 @@ export default function LogCallDialog({
     if (outcome === "Reached" && confirmationStatus === "Confirmed") {
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.promisedDate = promisedDate ? new Date(promisedDate).getTime() : undefined;
-      logData.promiseMode = promiseMode;
+      /*
+       * When an open promise already exists the collector chooses whether the
+       * customer moved that payment or made an additional one. Only the first case
+       * must touch the existing row, so the id is sent only then — sending a mode
+       * string instead left the server with nothing to act on, and every call
+       * silently created a second identical promise.
+       */
+      if (openPromise && promiseMode === "reschedule") {
+        logData.reschedulePromiseId = openPromise.id;
+      }
     } else if (outcome === "Reached" && confirmationStatus === "Pending Follow-up") {
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.followUpDate = followUpDate ? new Date(followUpDate).getTime() : undefined;
