@@ -107,9 +107,14 @@ describe("Send Email — searchable contact list", () => {
     expect(sendEmail).toContain("ccEmails: cc");
   });
 
-  it("allows an ad-hoc address that is not in the address book", () => {
-    expect(sendEmail).toContain("addManualEmail");
-    expect(sendEmail).toContain("Other email address…");
+  it("accepts recipients only from the address book (no free-typed address)", () => {
+    // Removed on request: every recipient must be a stored contact, so unknown
+    // addresses cannot be typed straight into the send dialog.
+    expect(sendEmail).not.toContain("addManualEmail");
+    expect(sendEmail).not.toContain("Other email address…");
+    expect(sendEmail).not.toContain("manualEmail");
+    // Adding somebody new goes through Add Contact, which stores them first.
+    expect(sendEmail).toContain("handleAddContact");
   });
 
   it("server accepts and records the cc list", () => {
