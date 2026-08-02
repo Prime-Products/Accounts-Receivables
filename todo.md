@@ -1765,3 +1765,4 @@ master record. Same company, two screens. Unify them.
 - [x] Send Email contact list collapsed by default — names appear only as a dropdown when the search box is clicked
 - [x] Sidebar: Tasks moved from Management into the Collections section
 - [x] New Task: "Assigned to" is mandatory, pre-filled with the logged-in user, and Help requests require naming the colleague
+- [x] Manager / collector chips on group and company cards show the job title next to the name (e.g. "Kostas Vanos · Credit Controller")
