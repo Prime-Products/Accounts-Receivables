@@ -1704,3 +1704,13 @@ master record. Same company, two screens. Unify them.
 - [x] UI: "Ask a colleague" also on the invoice selection bar, attaching the selected invoices
 - [x] UI: open questions box on the group card, answerable inline
 - [x] Tests: server/questions.test.ts — ask/answer/close, inbox sides, activity-log write, no task created
+
+## Revert the separate questions flow — one path only: a Help task (requested 2/8)
+- [x] Remove the `Questions` page, its route and the sidebar entry with its counter
+- [x] Remove `AskColleagueDialog`, `GroupOpenQuestions` and every mount of them (group card, customer card, invoice bar)
+- [x] Remove the `questions` tRPC router, the db helpers and the `question` timeline/activity kind
+- [x] Remove server/questions.test.ts and the questions/questionInvoices schema tables
+- [x] Add a `Help` task type to the task type enum (help request to a colleague)
+- [x] The Ask button on the group and customer cards opens the normal New Task dialog, prefilled as a Help task
+- [x] A Help task assigned to a colleague is written to the customer's Activity Log
+- [x] Tests: creating a Help task from a group logs it in the activity log and appears in the assignee's task list

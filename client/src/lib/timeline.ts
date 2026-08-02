@@ -28,8 +28,6 @@ function kindFromActivityType(t: string): TimelineEntry["kind"] {
       return "task";
     case "status_change":
       return "status";
-    case "question":
-      return "question";
     default:
       return "note";
   }

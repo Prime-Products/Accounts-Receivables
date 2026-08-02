@@ -2,9 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import CollectionNotesBox from "@/components/CollectionNotesBox";
-import GroupOpenQuestions from "@/components/GroupOpenQuestions";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
-import AskColleagueDialog from "@/components/AskColleagueDialog";
 import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
 import { CommunicationTimeline } from "@/components/CommunicationTimeline";
@@ -138,7 +136,7 @@ function ActionsMenu({
             <StickyNote className="h-4 w-4 mr-2" /> Add Note
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setAskOpen(true)}>
-            <HelpCircle className="h-4 w-4 mr-2" /> Ask a colleague
+            <HelpCircle className="h-4 w-4 mr-2" /> Ask for help
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setEmailOpen(true)}>
             <StickyNote className="h-4 w-4 mr-2" /> Send Email
@@ -165,10 +163,17 @@ function ActionsMenu({
 
       <GroupNotesDialog group={group} open={noteOpen} onOpenChange={setNoteOpen} />
 
-      <AskColleagueDialog
-        group={group}
-        companies={companies}
+      {/*
+       * "Ask for help" is the same New Task dialog, pre-typed as Help — one flow,
+       * one place to look. No parallel question mechanism to learn.
+       */}
+      <NewTaskDialog
+        customerIds={companies.map(c => c.id)}
         defaultCustomerId={defaultCustomerId}
+        hideCustomerPicker
+        defaultType="Help"
+        defaultTitle={`Help needed: ${group}`}
+        trigger={<Button className="hidden">Hidden</Button>}
         open={askOpen}
         onOpenChange={setAskOpen}
       />
@@ -939,9 +944,6 @@ export default function GroupDetail() {
 
           {/* Always-visible collection notes: call preferences & customer particularities */}
           <CollectionNotesBox group={group} />
-
-          {/* Questions we are waiting on for this customer — visible without leaving the card */}
-          <GroupOpenQuestions group={group} />
 
           {/* One chronological history: calls, notes, promises, emails, tasks, payments */}
           <CommunicationTimeline
