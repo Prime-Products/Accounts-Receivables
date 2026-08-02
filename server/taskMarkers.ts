@@ -113,7 +113,6 @@ const CONFIRMATION_STATUS_LABELS: Record<string, string> = {
   "Pending Follow-up": "Pending Follow-up",
   Broken: "Did not confirm",
   Kept: "Paid — Promise Kept",
-  Escalated: "Escalated",
 };
 
 export function confirmationStatusLabel(status: string): string {

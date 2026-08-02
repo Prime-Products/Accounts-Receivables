@@ -222,7 +222,7 @@ function GroupConfirmationBadge({
   taskOverdue?: boolean;
 }) {
   const [callOpen, setCallOpen] = useState(false);
-  const taskBacked = status === "Pending Follow-up" || status === "Confirmed" || status === "Escalated";
+  const taskBacked = status === "Pending Follow-up" || status === "Confirmed";
   const isOverdue = !!taskOverdue && taskBacked;
   return (
     <>

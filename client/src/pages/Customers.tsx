@@ -183,7 +183,7 @@ const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
     () => (members.length > 0 ? [...members].sort((a, b) => b.openBalance - a.openBalance)[0].id : undefined),
     [members]
   );
-  const taskBackedStatuses = ["Confirmed", "Pending Follow-up", "Escalated"];
+  const taskBackedStatuses = ["Confirmed", "Pending Follow-up"];
   const isOverdue = !!taskOverdue && taskBackedStatuses.includes(status);
   const reviewedLabel = updatedAt
     ? `Last reviewed ${new Date(updatedAt).toLocaleDateString("en-GB")}${updatedBy ? ` by ${updatedBy}` : ""}`
@@ -359,7 +359,7 @@ export default function Customers() {
   const [dueFilter, setDueFilter] = useState<"all" | "due" | "overdue">("all");
   const [confirmationFilter, setConfirmationFilter] = useState<string>(() => {
     const p = new URLSearchParams(window.location.search).get("conf");
-    return p && ["not-contacted", "confirmed", "pending", "broken", "escalated"].includes(p) ? p : "all";
+    return p && ["not-contacted", "confirmed", "pending", "broken"].includes(p) ? p : "all";
   });
   // Keep filters in sync with the URL — dashboard cards navigate here with ?status= / ?conf=
   // and the lazy useState initializers above only run on first mount.
@@ -370,7 +370,7 @@ export default function Customers() {
       setStatusFilter(s);
     }
     const c = params.get("conf");
-    if (c && ["not-contacted", "confirmed", "pending", "broken", "escalated"].includes(c)) {
+    if (c && ["not-contacted", "confirmed", "pending", "broken"].includes(c)) {
       setConfirmationFilter(c);
     }
   }, [searchStr]);
@@ -480,8 +480,7 @@ export default function Customers() {
         (confirmationFilter === "not-contacted" && g.confirmationStatus === "Not Contacted") ||
         (confirmationFilter === "confirmed" && g.confirmationStatus === "Confirmed") ||
         (confirmationFilter === "pending" && g.confirmationStatus === "Pending Follow-up") ||
-        (confirmationFilter === "broken" && g.confirmationStatus === "Broken") ||
-        (confirmationFilter === "escalated" && g.confirmationStatus === "Escalated");
+        (confirmationFilter === "broken" && g.confirmationStatus === "Broken");
       const gManager = (g as any).accountManager as { id: number; name: string } | null;
       const matchesManager =
         managerFilter === "all" ||
@@ -753,7 +752,6 @@ export default function Customers() {
                 <SelectItem value="confirmed">Promise to Pay</SelectItem>
                 <SelectItem value="pending">Pending Follow-up</SelectItem>
                 <SelectItem value="broken">Did not confirm</SelectItem>
-                <SelectItem value="escalated">Escalated</SelectItem>
               </SelectContent>
             </Select>
             {/*

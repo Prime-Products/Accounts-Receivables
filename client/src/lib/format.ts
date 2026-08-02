@@ -92,7 +92,6 @@ export const taskStatusColors: Record<string, string> = {
   "In Progress": "bg-violet-100 text-violet-800 border-violet-200",
   Completed: "bg-emerald-100 text-emerald-800 border-emerald-200",
   Cancelled: "bg-gray-100 text-gray-600 border-gray-200",
-  Escalated: "bg-orange-100 text-orange-800 border-orange-300",
 };
 
 export const taskTypeColors: Record<string, string> = {
@@ -132,7 +131,6 @@ export const confirmationStatusColors: Record<string, string> = {
   "Pending Follow-up": "bg-blue-100 text-blue-800 border-blue-200",
   Broken: "bg-red-100 text-red-700 border-red-200",
   Kept: "bg-emerald-600 text-white border-emerald-700",
-  Escalated: "bg-orange-100 text-orange-800 border-orange-300",
 };
 
 /** Display labels for confirmation statuses ("Confirmed" → "Promise to Pay"; DB values stay unchanged). */
@@ -142,5 +140,4 @@ export const confirmationStatusLabels: Record<string, string> = {
   "Pending Follow-up": "Pending Follow-up",
   Broken: "Did not confirm",
   Kept: "Paid — Promise Kept",
-  Escalated: "Escalated",
 };
