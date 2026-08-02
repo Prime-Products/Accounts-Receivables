@@ -38,6 +38,13 @@ describe("transactions toolbar — credit notes / payments always visible", () =
       expect(src).toMatch(/Payments are hidden by the current filters/);
     });
   }
+
+  it("group card: the toolbar wraps so the view toggle never overflows the card", () => {
+    // "By vessel" is the last control in the row; with a no-wrap flex row it was
+    // pushed past the card edge on narrower viewports.
+    expect(group).toContain("flex flex-row flex-wrap items-center justify-between gap-y-2 space-y-0");
+    expect(group).toContain('<div className="flex flex-wrap items-center justify-end gap-2 min-w-0">');
+  });
 });
 
 describe("Invoices page — global credit notes view", () => {
