@@ -55,6 +55,7 @@ import {
 } from "../drizzle/schema";
 import { teamMembers, InsertTeamMember } from "../drizzle/schema";
 import { noteMentions, InsertNoteMention } from "../drizzle/schema";
+import { questions, questionInvoices, InsertQuestion } from "../drizzle/schema";
 import { contactGifts, giftImportReview, type GiftTier } from "../drizzle/schema";
 import { queryTokens } from "../shared/textMatch";
 import {
@@ -857,6 +858,86 @@ export async function listMentionsByGroup(groupName: string, limit = 100) {
     .where(eq(noteMentions.groupName, groupName))
     .orderBy(desc(noteMentions.createdAt))
     .limit(limit);
+}
+// ---------- Questions to colleagues ----------
+/**
+ * An internal question about a customer, addressed to one colleague. Unlike a
+ * task it has no due date; unlike an @mention it expects an answer, so it holds
+ * a status the asker can track.
+ */
+export async function createQuestion(entry: InsertQuestion) {
+  const db = await requireDb();
+  const res = await db.insert(questions).values(entry);
+  return Number((res as any)[0].insertId);
+}
+export async function getQuestion(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(questions).where(eq(questions.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+/** Attach invoices to a question so the colleague sees exactly what is meant. */
+export async function addQuestionInvoices(questionId: number, invoiceIds: number[]) {
+  if (invoiceIds.length === 0) return 0;
+  const db = await requireDb();
+  await db
+    .insert(questionInvoices)
+    .values(invoiceIds.map(invoiceId => ({ questionId, invoiceId })))
+    .onDuplicateKeyUpdate({ set: { questionId } });
+  return invoiceIds.length;
+}
+export async function listQuestionInvoices(questionIds: number[]) {
+  if (questionIds.length === 0) return [] as { questionId: number; invoiceId: number }[];
+  const db = await requireDb();
+  return db
+    .select({ questionId: questionInvoices.questionId, invoiceId: questionInvoices.invoiceId })
+    .from(questionInvoices)
+    .where(inArray(questionInvoices.questionId, questionIds));
+}
+/** Record the colleague's reply. Open → Answered; the asker decides when to close. */
+export async function answerQuestion(id: number, answer: string, answeredByUserId: number) {
+  const db = await requireDb();
+  await db
+    .update(questions)
+    .set({ answer, answeredBy: answeredByUserId, answeredAt: new Date(), status: "Answered" })
+    .where(eq(questions.id, id));
+}
+/** The asker marks the question resolved — it leaves both inboxes. */
+export async function closeQuestion(id: number) {
+  const db = await requireDb();
+  await db.update(questions).set({ status: "Closed", closedAt: new Date() }).where(eq(questions.id, id));
+}
+export async function updateQuestionActivityId(id: number, activityId: number) {
+  const db = await requireDb();
+  await db.update(questions).set({ activityId }).where(eq(questions.id, id));
+}
+/**
+ * Questions filtered for an inbox view. `askedTo` is a team member id (who must
+ * answer), `askedBy` is an auth user id (who is waiting).
+ */
+export async function listQuestions(opts?: {
+  askedTo?: number;
+  askedBy?: number;
+  groupName?: string;
+  statuses?: ("Open" | "Answered" | "Closed")[];
+  limit?: number;
+}) {
+  const db = await requireDb();
+  const conds = [] as any[];
+  if (opts?.askedTo != null) conds.push(eq(questions.askedTo, opts.askedTo));
+  if (opts?.askedBy != null) conds.push(eq(questions.askedBy, opts.askedBy));
+  if (opts?.groupName) conds.push(eq(questions.groupName, opts.groupName));
+  if (opts?.statuses && opts.statuses.length > 0) conds.push(inArray(questions.status, opts.statuses));
+  const q = db.select().from(questions);
+  const rows = conds.length > 0 ? await q.where(and(...conds)) : await q;
+  return rows
+    .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))
+    .slice(0, opts?.limit ?? 200);
+}
+/** Counters for the sidebar: what I owe an answer, and what I am still waiting for. */
+export async function countQuestionsForBadges(memberId: number | null, userId: number) {
+  const toMe = memberId == null ? [] : await listQuestions({ askedTo: memberId, statuses: ["Open"], limit: 500 });
+  const fromMe = await listQuestions({ askedBy: userId, statuses: ["Answered"], limit: 500 });
+  return { toAnswer: toMe.length, answeredForMe: fromMe.length };
 }
 
 export async function listActivityLog(groupName: string, limit = 100) {

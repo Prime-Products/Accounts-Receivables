@@ -23,6 +23,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import GlobalSearch from "@/components/GlobalSearch";
+import { trpc } from "@/lib/trpc";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
@@ -31,6 +32,7 @@ import {
   Contact,
   FileSpreadsheet,
   FileText,
+  HelpCircle,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -81,6 +83,7 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
     items: [
       { icon: BarChart3, label: "Reports", path: "/reports" },
       { icon: ListChecks, label: "Tasks", path: "/tasks" },
+      { icon: HelpCircle, label: "Questions", path: "/questions" },
       { icon: UserCog, label: "Team", path: "/team" },
       { icon: Settings, label: "Settings", path: "/settings" },
     ],
@@ -206,6 +209,15 @@ function DashboardLayoutContent({
   );
   const activeSection = sectionOfPath(location);
   const [openSections, setOpenSections] = useState<string[]>(readOpenSections);
+  /**
+   * Unanswered questions addressed to me. Polled slowly: it is a nudge, not a
+   * live feed, and it must never make the sidebar feel busy.
+   */
+  const { data: questionBadges } = trpc.questions.badges.useQuery(undefined, {
+    refetchInterval: 120_000,
+    staleTime: 60_000,
+  });
+  const questionBadge = questionBadges?.toAnswer ?? 0;
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_SECTIONS_KEY, JSON.stringify(openSections));
@@ -334,6 +346,7 @@ function DashboardLayoutContent({
                 >
                   {section.items.map(item => {
                     const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
+                    const count = item.path === "/questions" ? questionBadge : 0;
                     return (
                       <SidebarMenuItem key={item.path}>
                         <SidebarMenuButton
@@ -346,6 +359,14 @@ function DashboardLayoutContent({
                             className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
                           />
                           <span>{item.label}</span>
+                          {count > 0 && (
+                            <span
+                              className="ml-auto rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[10px] font-semibold leading-none group-data-[collapsible=icon]:hidden"
+                              title={`${count} question(s) waiting for your answer`}
+                            >
+                              {count}
+                            </span>
+                          )}
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     );

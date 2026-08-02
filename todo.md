@@ -1689,3 +1689,18 @@ master record. Same company, two screens. Unify them.
 - [x] Critical is the documented hand-over path (docs/escalation-guide.md); the Account Status dropdown on the group card is the single control
 - [x] Management queue already available: Desk `All statuses` filter + Dashboard Critical/On Hold counters
 - [x] Deleted the 5 escalation test files and updated the tests that asserted escalation behaviour — suite 98 files / 640 tests green
+
+## Ask a colleague — internal questions about a customer (requested 2/8)
+- [x] Schema: reshape the unused `requests` tables into person-targeted questions (askedToMemberId, optional department, invoice link, answeredAt/closedAt) and apply the migration
+- [x] Server: `questions.ask` — question about a group/customer sent to a colleague, no due date, optional attached invoices
+- [x] Server: `questions.answer` — the colleague replies; status Open → Answered; asker notified
+- [x] Server: `questions.list` (inbox: asked to me / asked by me, open-only filter) and `questions.close`
+- [x] Server: both the question and the answer are written to the group's Activity Log so they stay in the customer's history
+- [x] UI: "Ask a colleague" button on the group card and the customer card (question + recipient only, no mandatory date)
+- [x] UI: `Questions` page — two tabs (To me / From me), answer inline, close when resolved
+- [x] UI: sidebar counters — questions waiting for my answer, and my questions still unanswered
+- [x] UI: questions/answers appear in the group Activity Log and communication timeline with a distinct icon
+- [x] Tests: ask → answer → close lifecycle, activity-log entries, inbox filtering, counters
+- [x] UI: "Ask a colleague" also on the invoice selection bar, attaching the selected invoices
+- [x] UI: open questions box on the group card, answerable inline
+- [x] Tests: server/questions.test.ts — ask/answer/close, inbox sides, activity-log write, no task created

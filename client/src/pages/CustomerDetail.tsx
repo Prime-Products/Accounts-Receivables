@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
 import GroupNotesDialog from "@/components/GroupNotesDialog";
+import AskColleagueDialog from "@/components/AskColleagueDialog";
 import { BankDetails } from "@/components/BankDetails";
 import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
@@ -24,7 +25,7 @@ import { buildTimeline } from "@/lib/timeline";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, HandCoins, Layers, Plus } from "lucide-react";
+import { ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, HandCoins, HelpCircle, Layers, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
@@ -62,6 +63,7 @@ export default function CustomerDetail() {
   );
 
   const [promiseOpen, setPromiseOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   const [promiseForm, setPromiseForm] = useState({ amount: "", date: "", notes: "" });
   const addPromise = trpc.forecast.addPromise.useMutation({
     onSuccess: () => {
@@ -190,6 +192,15 @@ export default function CustomerDetail() {
             }
           />
           <GroupNotesDialog group={data.groupKey} />
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAskOpen(true)}>
+            <HelpCircle className="h-4 w-4" /> Ask
+          </Button>
+          <AskColleagueDialog
+            group={data.groupKey}
+            defaultCustomerId={id}
+            open={askOpen}
+            onOpenChange={setAskOpen}
+          />
           <GroupAiSummaryDialog group={data.groupKey} />
           <Button
             variant="outline"
@@ -497,6 +508,7 @@ export default function CustomerDetail() {
                   rows={visibleInvoices as any}
                   creditNotes={visibleCreditNotes as any}
                   transfers={visibleTransfers as any}
+                  group={data.groupKey}
                   showCustomer={false}
                   maxHeight="480px"
                   onDisputeChanged={() => utils.customers.get360.invalidate()}
