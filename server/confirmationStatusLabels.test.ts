@@ -17,7 +17,6 @@ describe("confirmation status labels", () => {
     expect(confirmationStatusLabel("Pending Follow-up")).toBe("Pending Follow-up");
     expect(confirmationStatusLabel("Not Contacted")).toBe("Not Contacted");
     expect(confirmationStatusLabel("Kept")).toBe("Paid — Promise Kept");
-    expect(confirmationStatusLabel("Escalated")).toBe("Escalated");
   });
 
   it("falls back to the raw value for unknown statuses", () => {

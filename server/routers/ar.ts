@@ -56,18 +56,6 @@ import { generateMonthlyForecast } from "../lib/smartForecast";
 import { runTaskEngine } from "../lib/taskEngine";
 import * as softone from "../lib/softone";
 import { invokeLLM } from "../_core/llm";
-import {
-  buildTimeline,
-  eventsFromActivity,
-  eventsFromNotes,
-  eventsFromPromises,
-  eventsFromReceipts,
-  eventsFromTasks,
-  fallbackStory,
-  scopeToTask,
-  shortDate,
-  timelineStats,
-} from "../lib/escalationHistory";
 
 
 async function audit(ctx: { user: { id: number; name: string | null } }, action: string, entityType: string, entityId?: string | number, details?: string) {
@@ -135,7 +123,7 @@ function isConfirmationStale(
   // Closed outcomes ("Kept" / "Broken") show for the rest of the month, then
   // reset to Not Contacted when a new month starts.
   if (status === "Kept" || status === "Broken") return isFromPreviousMonth(updatedAt ?? null, now);
-  // Active statuses (Confirmed, Pending Follow-up, Escalated) persist until explicitly
+  // Active statuses (Confirmed, Pending Follow-up) persist until explicitly
   // changed by a human — no date-based auto-reset, no monthly reset.
   return false;
 }
@@ -954,20 +942,6 @@ export const customersRouter = router({
       const pm = t.description?.match(/\(Promise #(\d+)\)/);
       if (pm && !promiseTaskByPromiseId.has(Number(pm[1]))) promiseTaskByPromiseId.set(Number(pm[1]), { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
     }
-    // Escalated badge → the open "Escalated: ..." task, mapped by the copied
-    // "(Follow-up: <group>)" marker or by the task's customer group.
-    const escalatedTaskByGroup = new Map<string, { id: number; status: string; dueDate: number | null }>();
-    {
-      const openEscalated = (await db.listTasks({ statuses: ["Pending", "In Progress"] })).filter(t => t.title.startsWith("Escalated:"));
-      for (const t of openEscalated) {
-        let g = taskGroup(t);
-        if (!g && t.customerId) {
-          const c = customers.find(c => c.id === t.customerId);
-          if (c) g = (c.customerGroup ?? "").trim() || c.name;
-        }
-        if (g && !escalatedTaskByGroup.has(g)) escalatedTaskByGroup.set(g, { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
-      }
-    }
     const eom = endOfCurrentMonth();
     const collectedByCustomer = new Map<number, number>();
     for (const r of receipts) {
@@ -1175,14 +1149,12 @@ export const customersRouter = router({
             ? (followUpTaskByGroup.get(g.group) ?? null)
             : confStatus === "Confirmed"
               ? (openPromiseId !== null ? (promiseTaskByPromiseId.get(openPromiseId) ?? null) : null)
-              : confStatus === "Escalated"
-                ? (escalatedTaskByGroup.get(g.group) ?? null)
-                : null;
+              : null;
         const confirmationTaskId = confirmationTask?.id ?? null;
         // Red badge: the linked task is still open and past its due date.
         // Fallback: no linked open task found but the status target date has passed.
         const confirmationTaskOverdue =
-          (confStatus === "Pending Follow-up" || confStatus === "Confirmed" || confStatus === "Escalated") &&
+          (confStatus === "Pending Follow-up" || confStatus === "Confirmed") &&
           (confirmationTask
             ? isTaskOverdue(confirmationTask, now)
             : ((confirmation?.followUpDate ?? null) !== null && (confirmation!.followUpDate as number) < now));
@@ -3390,11 +3362,8 @@ export const tasksRouter = router({
 
      // 2. Cancel the old task BEFORE creating the new one, so upsertFollowUpTask
      //    does not "reuse" the task we are replacing.
-      // Escalated tasks are closed as Completed (the escalation was handled);
-      // ordinary tasks are Cancelled (rolled into the next step).
-      const isEscalatedTask = task.title.startsWith("Escalated:");
      await db.updateTask(input.taskId, {
-        status: isEscalatedTask ? "Completed" : "Cancelled",
+        status: "Cancelled",
        completionNotes: `Rolled into a new ${input.nextType === "promise" ? "Promise to Pay" : "Pending Follow-up"} for ${new Date(input.date).toLocaleDateString("en-GB")}`,
      });
 
@@ -3535,310 +3504,6 @@ export const tasksRouter = router({
         });
       }
       return { success: true };
-    }),
-  /**
-   * Escalate a task: close the original task as Completed and create a new task for the assignee.
-   * The new task has a title prefixed with "Escalated: " and includes the original task details.
-   */
-  escalate: protectedProcedure
-    .input(
-      z.object({
-        taskId: z.number(),
-        assigneeId: z.number().optional(),
-        note: z.string().max(1000).optional(),
-        /** Team members who will watch the escalated task's progress (avatar stack). */
-        watcherIds: z.array(z.number()).optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const task = await db.getTask(input.taskId);
-      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      if (task.status === "Completed" || task.status === "Cancelled") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can be escalated" });
-      }
-      // Resolve the group from the follow-up marker or the customer
-      const followUpGroup = taskGroup(task);
-      let group = followUpGroup;
-      let cust = task.customerId ? await db.getCustomer(task.customerId) : null;
-      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
-
-      // Pick the target. Preference order:
-      //   1. explicit assignee picked in the dialog
-      //   2. the group's account manager (when one is set)
-      //   3. any manager/admin-level team member, then any active team member
-      // A missing account manager must never block an escalation — the collector
-      // decides where the case goes.
-      let targetId = input.assigneeId ?? null;
-      if (!targetId && group) {
-        const customers = await db.listCustomers();
-        const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === group);
-        const withManager = members.find(m => (m as any).accountManagerId);
-        targetId = withManager ? ((withManager as any).accountManagerId as number) : null;
-      }
-      if (!targetId) {
-        // Fall back to a sensible escalation target so the action always works.
-        const team = await db.listTeamMembers().catch(() => [] as any[]);
-        const active = (team as any[]).filter(m => m.active !== false && m.id !== undefined);
-        // Prefer senior titles, but any active member is an acceptable target.
-        const rank = (title?: string | null) => {
-          const t = (title ?? "").toLowerCase();
-          if (t.includes("director") || t.includes("cfo") || t.includes("chief")) return 0;
-          if (t.includes("manager") || t.includes("head")) return 1;
-          return 2;
-        };
-        const best = active.sort((a, b) => rank(a.title) - rank(b.title) || a.id - b.id)[0];
-        targetId = best ? (best.id as number) : null;
-      }
-      if (!targetId) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "No team member is available to escalate to — add a team member first." });
-      }
-      const member = await db.getTeamMemberById(targetId);
-      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
-
-     const escalationNote = `⬆ Escalated to ${member.name} by ${ctx.user.name ?? "user"} on ${new Date().toLocaleDateString("en-GB")}${input.note ? ` — ${input.note}` : ""}`;
-     
-     // Close the original task as Completed
-     await db.updateTask(input.taskId, {
-       status: "Completed",
-       description: `${task.description ?? ""}\n${escalationNote}`.trim(),
-     } as any);
-
-      // Create a new task for the assignee
-      const newTaskTitle = `Escalated: ${task.title}`;
-      // The (Escalated-by: N) marker lets "Return to Collector" reliably find the
-      // original collector's team member id later.
-      const escalatorMember = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
-      const escalatedByMarker = escalatorMember ? `\n(Escalated-by: ${escalatorMember.id})` : "";
-      const newTaskDescription = `Original task: ${task.title}\n\n${task.description ?? ""}\n\n${escalationNote}${escalatedByMarker}`;
-     const newTaskId = await db.createTask({
-       customerId: task.customerId,
-       title: newTaskTitle,
-       description: newTaskDescription,
-       dueDate: task.dueDate,
-       status: "Pending",
-       type: task.type,
-       assigneeId: targetId,
-       // The escalated copy stays attached to the same group and promise.
-       customerGroup: (task as any).customerGroup ?? taskGroup(task),
-       promiseId: (task as any).promiseId ?? taskPromiseId(task),
-     } as any);
-
-      // Watchers: carry over the original task's watchers plus any newly picked ones.
-      const existingWatchers = await db.listTaskWatchers(input.taskId).catch(() => []);
-      const watcherIds = new Set<number>([
-        ...existingWatchers.map(w => w.memberId),
-        ...(input.watcherIds ?? []),
-      ]);
-      // The escalating collector automatically watches the escalated task so they
-      // can follow management's decision.
-      if (escalatorMember) watcherIds.add(escalatorMember.id);
-      watcherIds.delete(targetId); // The assignee doesn't need to watch their own task
-      for (const memberId of Array.from(watcherIds)) {
-        await db.addTaskWatcher(newTaskId, memberId).catch(() => {});
-      }
-
-     if (group) {
-        // The group's communication status becomes "Escalated" — the badge now
-        // points at the newly created escalated task.
-        const existingConf = await db.getGroupConfirmationStatus(group);
-        await db.upsertGroupConfirmationStatus(group, {
-          status: "Escalated",
-          amount: existingConf?.amount ?? "0.00",
-          followUpDate: task.dueDate ?? null,
-          notes: input.note ?? null,
-          updatedBy: ctx.user.id,
-        }).catch(() => {});
-       await db.addActivityLog({
-         groupName: group,
-         customerId: task.customerId ?? undefined,
-         activityType: "status_change",
-         title: `Task escalated to ${member.name}`,
-         description: `"${task.title}"${input.note ? ` — ${input.note}` : ""}`,
-         createdBy: ctx.user.id,
-         createdAt: new Date(),
-       }).catch(() => {});
-     }
-     await audit(ctx, "Escalate Task", "task", input.taskId, `Escalated to ${member.name} (new task: ${newTaskId})`);
-     return { success: true, assigneeName: member.name, newTaskId };
-   }),
-  /**
-   * Live snapshot shown on an escalated task so management can decide without
-   * digging: balances, promise history, recent activity and the escalation reason.
-   */
-  escalationSummary: protectedProcedure
-    .input(z.object({ taskId: z.number() }))
-    .query(async ({ input }) => {
-      const task = await db.getTask(input.taskId);
-      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      const followUpGroup = taskGroup(task);
-      let group = followUpGroup;
-      const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
-      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
-      if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found for this task" });
-
-      const customers = await db.listCustomers();
-      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === group);
-      const memberIds = new Set(members.map(m => m.id));
-      const now = Date.now();
-
-      const [allInvoices, allPromises, activity, notes, allTasks, allReceipts, teamMembers, profile, confirmation] =
-        await Promise.all([
-          db.listInvoices(),
-          db.listPromises(),
-          db.listActivityLog(group, 60).catch(() => []),
-          db.listGroupNotes(group).catch(() => []),
-          db.listTasks({}).catch(() => []),
-          db.listReceipts().catch(() => []),
-          db.listTeamMembers(true).catch(() => []),
-          db.getGroupCollectionProfile(group).catch(() => null),
-          db.getGroupConfirmationStatus(group).catch(() => null),
-        ]);
-      const invs = allInvoices.filter(i => memberIds.has(i.customerId) && isOpenInvoice(i));
-      let openBalanceEur = 0;
-      let overdueEur = 0;
-      let overdueCount = 0;
-      let oldestOverdueDays = 0;
-      for (const i of invs) {
-        const outEur = toEur(outstanding(i), i.currency ?? "EUR");
-        openBalanceEur += outEur;
-        if (i.dueDate != null && i.dueDate < now) {
-          overdueEur += outEur;
-          overdueCount += 1;
-          const days = Math.floor((now - i.dueDate) / 86400000);
-          if (days > oldestOverdueDays) oldestOverdueDays = days;
-        }
-      }
-
-      const proms = allPromises.filter(p => memberIds.has(p.customerId));
-      const promisesTotal = proms.length;
-      const promisesKept = proms.filter(p => p.status === "Kept").length;
-      const promisesBroken = proms.filter(p => p.status === "Broken").length;
-      const totalReschedules = proms.reduce((s, p) => s + (((p as any).rescheduleCount as number) ?? 0), 0);
-
-      // The escalation reason is the "⬆ Escalated to …" line recorded on the task.
-      const reasonLine = (task.description ?? "").split("\n").find(l => l.startsWith("⬆")) ?? null;
-      // Management decision already recorded on this task (if any).
-      const decisionLine = (task.description ?? "").split("\n").filter(l => l.startsWith("⚖")).pop() ?? null;
-
-      // --- The story ---------------------------------------------------------
-      // Management asked for a narrative, not tiles: assemble every trace of work
-      // on this group into one chronological timeline and let the writer tell it.
-      const memberNames = new Map(members.map(m => [m.id, m.name]));
-      const memberNameOf = (id: number) => memberNames.get(id) ?? null;
-      const userNames = new Map(teamMembers.map(m => [m.id, m.name]));
-      const groupTasks = allTasks.filter(t => t.customerId != null && memberIds.has(t.customerId));
-      const groupReceipts = allReceipts.filter(r => memberIds.has(r.customerId));
-      const timeline = buildTimeline([
-        eventsFromActivity(activity, id => (id != null ? userNames.get(id) ?? null : null)),
-        eventsFromPromises(proms, memberNameOf),
-        eventsFromTasks(groupTasks),
-        eventsFromReceipts(groupReceipts.slice(-20)),
-        eventsFromNotes(notes),
-      ]);
-      const stats = timelineStats(timeline);
-
-      return {
-        group,
-        openBalanceEur: Math.round(openBalanceEur * 100) / 100,
-        overdueEur: Math.round(overdueEur * 100) / 100,
-        overdueCount,
-        oldestOverdueDays,
-        promisesTotal,
-        promisesKept,
-        promisesBroken,
-        totalReschedules,
-        escalationReason: reasonLine,
-        decision: decisionLine,
-        /** Counters the narrative is built on (kept for tests and tooltips). */
-        stats,
-        /** Collector particularities, when recorded — context for the decision. */
-        collectionNotes: profile?.notes ? profile.notes.slice(0, 600) : null,
-        confirmationStatus: confirmation?.status ?? null,
-      };
-    }),
-  /**
-   * Management decision on an escalated task:
-   * - "On Hold"             → group account status becomes On Hold; task stays open.
-   * - "Legal Review"        → group account status becomes Legal; task stays open.
-   * - "Return to Collector" → task reassigned back to the escalating collector with instructions.
-   */
-  escalationDecision: protectedProcedure
-    .input(z.object({
-      taskId: z.number(),
-      decision: z.enum(["On Hold", "Legal Review", "Return to Collector"]),
-      note: z.string().max(1000).optional(),
-      /** Explicit collector to return the task to (falls back to the Escalated-by marker). */
-      returnToMemberId: z.number().optional(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      const task = await db.getTask(input.taskId);
-      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      if (task.status === "Completed" || task.status === "Cancelled") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This task is already closed" });
-      }
-      const followUpGroup = taskGroup(task);
-      let group = followUpGroup;
-      const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
-      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
-
-      const when = new Date().toLocaleDateString("en-GB");
-      const by = ctx.user.name ?? "user";
-      const decisionNote = `⚖ Decision: ${input.decision} by ${by} on ${when}${input.note ? ` — ${input.note}` : ""}`;
-
-      let returnedToName: string | null = null;
-      if (input.decision === "Return to Collector") {
-        // Find the original collector: explicit pick → Escalated-by marker → error.
-        let collectorId = input.returnToMemberId ?? null;
-        if (!collectorId) {
-          const m = task.description?.match(/\(Escalated-by: (\d+)\)/);
-          collectorId = m ? Number(m[1]) : null;
-        }
-        if (!collectorId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Could not identify the original collector — pick a team member to return the task to." });
-        }
-        const collector = await db.getTeamMemberById(collectorId);
-        if (!collector) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
-        returnedToName = collector.name;
-        await db.updateTask(input.taskId, {
-          assigneeId: collectorId,
-          dueDate: Date.now(),
-          description: `${task.description ?? ""}\n${decisionNote}`.trim(),
-        } as any);
-        // Management (the decider) keeps watching the returned task.
-        const deciderMember = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
-        if (deciderMember && deciderMember.id !== collectorId) {
-          await db.addTaskWatcher(input.taskId, deciderMember.id).catch(() => {});
-        }
-      } else {
-        // On Hold / Legal Review: record the decision and flag the group.
-        await db.updateTask(input.taskId, {
-          description: `${task.description ?? ""}\n${decisionNote}`.trim(),
-        } as any);
-        if (group) {
-          const watch = input.decision === "On Hold" ? "On Hold" : "Legal";
-          await db.setGroupWatchStatus(group, watch as any, ctx.user.id);
-          await db.createGroupNote({
-            groupName: group,
-            content: `${decisionNote} (escalation decision on task #${input.taskId})`,
-            createdBy: ctx.user.id,
-            createdAt: Date.now(),
-          }).catch(() => {});
-        }
-      }
-
-      if (group) {
-        await db.addActivityLog({
-          groupName: group,
-          customerId: task.customerId ?? undefined,
-          activityType: "status_change",
-          title: `Escalation decision: ${input.decision}${returnedToName ? ` → ${returnedToName}` : ""}`,
-          description: input.note ?? null,
-          createdBy: ctx.user.id,
-          createdAt: new Date(),
-        }).catch(() => {});
-      }
-      await audit(ctx, "Escalation Decision", "task", input.taskId, `${input.decision}${returnedToName ? ` → ${returnedToName}` : ""}${input.note ? ` — ${input.note}` : ""}`);
-      return { success: true, decision: input.decision, returnedToName };
     }),
 });
 
@@ -4048,7 +3713,6 @@ export const forecastRouter = router({
     const last90Sales = await db.sumInvoicedInRange(now - 90 * 24 * 60 * 60 * 1000, now);
     const dso = computeDso(arBalance, last90Sales, 90);
     const forecast = buildForecast(invoices, installments, now, 6);
-    const escalations = tasksPending.filter(t => t.type === "Escalation +30").length;
     // Contract installments are "must pay on time" invoices — even 1 day overdue is a red flag.
     const overdueContractInvoices = invoices.filter(i => i.isContractInstallment && isOpenInvoice(i) && daysOverdue(i.dueDate, now) > 0);
     const overdueContractCount = overdueContractInvoices.length;
@@ -4139,7 +3803,6 @@ export const forecastRouter = router({
       aging,
       forecast,
       pendingTasks: tasksPending.length,
-      escalations,
       overdueContractCount,
       overdueContractAmount,
       onHoldPending: criticalGroups,
@@ -4875,7 +4538,7 @@ export const callsRouter = router({
     .input(z.object({ group: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const conf = await db.getGroupConfirmationStatus(input.group);
-      if (!conf || (conf.status !== "Pending Follow-up" && conf.status !== "Confirmed" && conf.status !== "Escalated")) {
+      if (!conf || (conf.status !== "Pending Follow-up" && conf.status !== "Confirmed")) {
         return { reset: false };
       }
       const allTasks = await db.listTasks({});
@@ -4883,15 +4546,6 @@ export const callsRouter = router({
       let hasOpenLinked = false;
       if (conf.status === "Pending Follow-up") {
         hasOpenLinked = open.some(t => isTaskOfGroup(t, input.group));
-      } else if (conf.status === "Escalated") {
-        // Escalated → any open escalated task for one of the group's customers.
-        const customers = await db.listCustomers();
-        const memberIds = new Set(
-          customers.filter(c => (((c.customerGroup ?? "").trim() || c.name) === input.group)).map(c => c.id)
-        );
-        hasOpenLinked = open.some(
-          t => t.customerId != null && memberIds.has(t.customerId) && t.title.startsWith("Escalated:")
-        );
       } else {
         // Confirmed → any open promise-check task for one of the group's customers.
         const customers = await db.listCustomers();
@@ -5320,8 +4974,8 @@ export const callsRouter = router({
 
   /**
    * Active communication ("case") for a group — the single open promise-check,
-   * follow-up-call or escalated task. Used by the Log Call button to first ask
-   * whether to open the existing task or just log another call.
+   * or follow-up-call task. Used by the Log Call button to first ask
+    * whether to open the existing task or just log another call.
    */
   getActiveCommunication: protectedProcedure
     .input(z.object({ group: z.string().min(1).max(255) }))
@@ -5330,31 +4984,18 @@ export const callsRouter = router({
       const status = row?.status ?? null;
       if (!row || !status) return null;
       if (isConfirmationStale(status, row.followUpDate, new Date(), (row as any).updatedAt ?? null)) return null;
-      if (status !== "Pending Follow-up" && status !== "Confirmed" && status !== "Escalated") return null;
+      if (status !== "Pending Follow-up" && status !== "Confirmed") return null;
       const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => []);
       if (status === "Pending Follow-up") {
         const t = openTasks.find(t => isTaskOfGroup(t, input.group));
         if (!t) return null;
         return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: row.amount ?? null };
       }
-      if (status === "Confirmed") {
-        const openPromise = await findOpenGroupPromise(input.group).catch(() => null);
-        if (!openPromise) return null;
-        const t = openTasks.find(t => taskPromiseId(t) === openPromise.id);
-        if (!t) return null;
-        return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: String(openPromise.amount ?? row.amount ?? "") };
-      }
-      // Escalated: find the open "Escalated: ..." task by group marker or customer group.
-      const customers = await db.listCustomers().catch(() => []);
-      const t = openTasks.find(t => {
-        if (!t.title.startsWith("Escalated:")) return false;
-        const fg = taskGroup(t);
-        if (fg === input.group) return true;
-        const c = customers.find(c => c.id === t.customerId);
-        return !!c && (((c.customerGroup ?? "").trim()) || c.name) === input.group;
-      });
+      const openPromise = await findOpenGroupPromise(input.group).catch(() => null);
+      if (!openPromise) return null;
+      const t = openTasks.find(t => taskPromiseId(t) === openPromise.id);
       if (!t) return null;
-      return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: row.amount ?? null };
+      return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: String(openPromise.amount ?? row.amount ?? "") };
     }),
 
   /** Open follow-up-call task for a group — used by Log Call to show the current

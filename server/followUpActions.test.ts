@@ -132,42 +132,6 @@ describe("follow-up task actions", () => {
     ).rejects.toThrow(/not a follow-up task/i);
   });
 
-  it("escalates a follow-up task to a chosen team member", async () => {
-    const caller = makeCaller();
-    const cust = await getFixtureCustomer();
-    const group = (cust!.customerGroup ?? "").trim() || cust!.name;
-
-    await caller.calls.updateConfirmationStatus({
-      group,
-      status: "Pending Follow-up",
-      followUpDate: Date.now() + 3 * 24 * 3600 * 1000,
-    });
-    const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-    const fuTask = openTasks.find(t => t.description?.includes(`(Follow-up: ${group})`));
-    expect(fuTask).toBeTruthy();
-
-    const members = await db.listTeamMembers(false);
-    expect(members.length).toBeGreaterThan(0);
-    const target = members[0];
-
-    const res = await caller.tasks.escalate({
-      taskId: fuTask!.id,
-      assigneeId: target.id,
-      note: "test escalation",
-    });
-    expect(res.success).toBe(true);
-    expect(res.newTaskId).toBeDefined();
-
-    // Original task should be Completed
-    const originalAfter = await db.getTask(fuTask!.id);
-    expect(originalAfter?.status).toBe("Completed");
-
-    // New task should be created with the target assignee
-    const newTask = await db.getTask(res.newTaskId);
-    expect(newTask?.assigneeId).toBe(target.id);
-    expect(newTask?.description).toContain("Escalated");
-  });
-
   it("reschedules an open promise from its check task (new date/amount, badge in sync)", async () => {
     const caller = makeCaller();
     const cust = await getFixtureCustomer();

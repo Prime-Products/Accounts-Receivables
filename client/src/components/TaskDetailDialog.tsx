@@ -5,7 +5,6 @@ import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import TaskCommentsThread from "@/components/TaskCommentsThread";
-import EscalationPanel from "@/components/EscalationPanel";
 import { WatcherStack, watcherColor, watcherInitials } from "@/components/WatcherStack";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -17,7 +16,7 @@ import {
   taskTypeColors,
 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, ArrowUpCircle, CalendarClock, CheckCircle2, Eye, FileText, HandCoins, Plus, ThumbsDown, ThumbsUp, User, X, XCircle } from "lucide-react";
+import { ArrowLeft, CalendarClock, CheckCircle2, Eye, FileText, HandCoins, Plus, ThumbsDown, ThumbsUp, User, X, XCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -96,12 +95,11 @@ export default function TaskDetailDialog({
   });
   const [editingDue, setEditingDue] = useState(false);
   const [newDue, setNewDue] = useState("");
-  // Follow-up task action panel: reschedule / convert to promise / escalate
-  const [fuMode, setFuMode] = useState<"none" | "reschedule" | "promise" | "escalate" | "reschedule-promise" | "next-task">("none");
+  // Follow-up task action panel: reschedule / convert to promise / next task
+  const [fuMode, setFuMode] = useState<"none" | "reschedule" | "promise" | "reschedule-promise" | "next-task">("none");
   const [fuDate, setFuDate] = useState("");
   const [fuAmount, setFuAmount] = useState("");
   const [fuNotes, setFuNotes] = useState("");
-  const [fuAssignee, setFuAssignee] = useState<number | null>(null);
   // Next-task panel state
   const [nextType, setNextType] = useState<"promise" | "follow-up">("promise");
   const [resolveAs, setResolveAs] = useState<"Kept" | "Broken" | null>(null);
@@ -111,10 +109,8 @@ export default function TaskDetailDialog({
       setFuDate("");
       setFuAmount("");
       setFuNotes("");
-      setFuAssignee(null);
       setNextType("promise");
       setResolveAs(null);
-      setEscWatcherIds([]);
       setWatcherPickerOpen(false);
     }
   }, [open]);
@@ -129,15 +125,6 @@ export default function TaskDetailDialog({
     onSuccess: () => {
       toast.success("Converted to Promise to Pay — new task created, follow-up cancelled");
       invalidateAll();
-      onOpenChange(false);
-    },
-    onError: e => toast.error(e.message),
-  });
-  const escalateTask = trpc.tasks.escalate.useMutation({
-    onSuccess: r => {
-      toast.success(`Escalated to ${r.assigneeName}`);
-      invalidateAll();
-      utils.team.workload.invalidate();
       onOpenChange(false);
     },
     onError: e => toast.error(e.message),
@@ -164,8 +151,6 @@ export default function TaskDetailDialog({
     onSuccess: () => utils.tasks.list.invalidate(),
     onError: e => toast.error(e.message),
   });
-  // Watchers picked in the escalate form (applied to the NEW escalated task)
-  const [escWatcherIds, setEscWatcherIds] = useState<number[]>([]);
   const reschedule = trpc.tasks.reschedule.useMutation({
     onSuccess: r => {
       toast.success(`Due date updated${r.rescheduleCount > 0 ? ` — rescheduled ×${r.rescheduleCount}` : ""}`);
@@ -191,18 +176,7 @@ export default function TaskDetailDialog({
     onError: e => toast.error(e.message),
   });
   const isTaskOpen = task ? task.status === "Pending" || task.status === "In Progress" : false;
-  /** Escalated tasks get a slimmer layout: comments on top, no promise controls. */
-  const isEscalated = task ? task.title.startsWith("Escalated: ") : false;
-  /**
-   * The "⬆ Escalated to …" line is already shown by the escalation panel, so it is
-   * stripped from the description here to avoid printing it twice.
-   */
-  const descriptionText = (() => {
-    const d = task?.description ?? "";
-    if (!d) return "";
-    const kept = isEscalated ? d.split("\n").filter(l => !l.trim().startsWith("⬆")) : d.split("\n");
-    return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  })();
+  const descriptionText = (task?.description ?? "").replace(/\n{3,}/g, "\n\n").trim();
   const { data: openInv } = trpc.tasks.groupOpenInvoices.useQuery(
     { taskId: task?.id ?? 0 },
     { enabled: open && !!task && isTaskOpen && fuMode === "next-task" }
@@ -229,15 +203,6 @@ export default function TaskDetailDialog({
               <DialogTitle className="pr-6">{task.title}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              {/* Escalated tasks keep a single "Escalated" pill; regular tasks show
-                  the full type/status/promise badge row. */}
-              {isEscalated ? (
-                <div>
-                  <Badge variant="outline" className={taskStatusColors["Escalated"]}>
-                    Escalated
-                  </Badge>
-                </div>
-              ) : (
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline" className={taskTypeColors[task.type] ?? ""}>{task.type}</Badge>
                   <Badge variant="outline" className={taskStatusColors[task.status] ?? ""}>{task.status}</Badge>
@@ -252,9 +217,8 @@ export default function TaskDetailDialog({
                     </Badge>
                   )}
                 </div>
-              )}
 
-              <div className={isEscalated ? "grid grid-cols-1 gap-3 text-sm" : "grid grid-cols-2 gap-3 text-sm"}>
+              <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <div className="text-xs text-muted-foreground">Group</div>
                   <Link
@@ -265,15 +229,6 @@ export default function TaskDetailDialog({
                     {(task as any).groupName ?? task.customerName}
                   </Link>
                 </div>
-                {isEscalated && (
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Assigned</div>
-                    <TeamMemberSelect
-                      value={task.assigneeId ?? null}
-                      onChange={id => assignTask.mutate({ id: task.id, assigneeId: id })}
-                    />
-                  </div>
-                )}
                 <div>
                   <div className="text-xs text-muted-foreground">Due date</div>
                   {editingDue && (task.status === "Pending" || task.status === "In Progress") ? (
@@ -315,16 +270,14 @@ export default function TaskDetailDialog({
                     </div>
                   )}
                 </div>
-                {!isEscalated && (
-                  <div className="col-span-2">
-                    <div className="text-xs text-muted-foreground mb-1">Assigned to</div>
-                    <TeamMemberSelect
-                      value={task.assigneeId ?? null}
-                      onChange={id => assignTask.mutate({ id: task.id, assigneeId: id })}
-                    />
-                  </div>
-                )}
-                <div className={isEscalated ? "" : "col-span-2"}>
+                <div className="col-span-2">
+                  <div className="text-xs text-muted-foreground mb-1">Assigned to</div>
+                  <TeamMemberSelect
+                    value={task.assigneeId ?? null}
+                    onChange={id => assignTask.mutate({ id: task.id, assigneeId: id })}
+                  />
+                </div>
+                <div className="col-span-2">
                   <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
                     <Eye className="h-3 w-3" /> Watchers
                   </div>
@@ -390,14 +343,13 @@ export default function TaskDetailDialog({
                     </div>
                   )}
                 </div>
-                {task.invoiceNumber && !isEscalated && (
+                {task.invoiceNumber && (
                   <div>
                     <div className="text-xs text-muted-foreground">Invoice</div>
                     <div className="font-mono">{task.invoiceNumber}</div>
                   </div>
                 )}
                 {(() => {
-                  if (isEscalated) return null;
                   const m = task.description?.match(/Contact: ([^.·]+)[.·]/);
                   return m ? (
                     <div>
@@ -413,7 +365,7 @@ export default function TaskDetailDialog({
                   </div>
                 )}
               </div>
-              {descriptionText && !isEscalated && (
+              {descriptionText && (
                 <div className="text-sm text-muted-foreground bg-muted/40 rounded-md p-3 whitespace-pre-wrap">
                   {descriptionText}
                 </div>
@@ -423,20 +375,6 @@ export default function TaskDetailDialog({
                   <div className="text-xs text-muted-foreground">Completion notes</div>
                   <div>{task.completionNotes}</div>
                 </div>
-              )}
-
-              {/* Escalated layout: the conversation, then the decision. */}
-              {isEscalated && (
-                <>
-                  <div className="space-y-2">
-                    <div className="text-base font-semibold">Comments</div>
-                    <TaskCommentsThread taskId={task.id} hideHeading />
-                  </div>
-                  <EscalationPanel
-                    taskId={task.id}
-                    taskOpen={task.status === "Pending" || task.status === "In Progress"}
-                  />
-                </>
               )}
 
               {(task as any).attachedInvoices && (task as any).attachedInvoices.length > 0 && (
@@ -465,7 +403,7 @@ export default function TaskDetailDialog({
                 </div>
               )}
 
-              {task.promise && !isEscalated && (
+              {task.promise && (
                 <div className="rounded-md border p-3 space-y-2">
                   <div className="text-sm font-medium flex items-center gap-1.5">
                     <HandCoins className="h-4 w-4" /> Promise-to-Pay
@@ -547,17 +485,10 @@ export default function TaskDetailDialog({
                             <div className="text-xs text-muted-foreground">Schedule the next follow-up call; this task is closed.</div>
                           </div>
                         </button>
-                         <button
-                           type="button"
-                           className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-red-50 hover:border-red-300 transition-colors"
-                           onClick={() => setFuMode("escalate")}
-                         >
-                           <ArrowUpCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
-                           <div>
-                             <div className="text-sm font-medium">Escalate</div>
-                             <div className="text-xs text-muted-foreground">Hand this over to the Account Manager (or another team member).</div>
-                           </div>
-                         </button>
+                         <div className="rounded-md border border-dashed bg-muted/30 p-2.5 text-xs text-muted-foreground">
+                           Out of options? Set the group's <span className="font-medium text-foreground">Account Status</span> to{" "}
+                           <span className="font-medium text-foreground">Critical</span> on its card — management takes it from there.
+                         </div>
                         <Button variant="ghost" size="sm" className="h-7 px-2 text-xs justify-start text-muted-foreground" onClick={() => setFuMode("none")}>
                           <ArrowLeft className="h-3.5 w-3.5" /> Back
                         </Button>
@@ -650,63 +581,6 @@ export default function TaskDetailDialog({
                         </div>
                       </div>
                     )}
-                     {fuMode === "escalate" && !task.description?.includes("(Follow-up: ") && (
-                       <div className="grid gap-2">
-                         <div className="grid gap-1">
-                           <Label className="text-xs">Escalate to (optional — defaults to the group's Account Manager)</Label>
-                           <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
-                         </div>
-                         <div className="grid gap-1">
-                           <Label className="text-xs">Watchers (optional — they follow the escalated task)</Label>
-                           <div className="flex flex-wrap gap-1">
-                             {(teamMembers ?? []).map(m => {
-                               const selected = escWatcherIds.includes(m.id);
-                               return (
-                                 <button
-                                   key={m.id}
-                                   type="button"
-                                   className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${selected ? "border-transparent text-white" : "bg-white hover:bg-muted"}`}
-                                   style={selected ? { backgroundColor: watcherColor(m.name) } : undefined}
-                                   onClick={() =>
-                                     setEscWatcherIds(prev =>
-                                       prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id]
-                                     )
-                                   }
-                                 >
-                                   {selected && <CheckCircle2 className="h-3 w-3" />}
-                                   {m.name}
-                                 </button>
-                               );
-                             })}
-                           </div>
-                         </div>
-                         <div className="grid gap-1">
-                           <Label htmlFor="pr-es-note" className="text-xs">Note (optional)</Label>
-                           <Textarea id="pr-es-note" rows={2} className="bg-white text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} placeholder="e.g. promise broken twice — needs manager attention" />
-                         </div>
-                         <div className="flex justify-between">
-                           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("broken-options" as any)}>
-                             <ArrowLeft className="h-3.5 w-3.5" /> Back
-                           </Button>
-                           <Button
-                             size="sm"
-                             variant="destructive"
-                             className="h-7 px-3 text-xs"
-                             disabled={escalateTask.isPending}
-                             onClick={() =>
-                               escalateTask.mutate({
-                                 taskId: task.id,
-                                 assigneeId: fuAssignee ?? undefined,
-                                 note: fuNotes || undefined,
-                                 watcherIds: escWatcherIds.length > 0 ? escWatcherIds : undefined,
-                               })
-                             }
-                           >
-                             <ArrowUpCircle className="h-3.5 w-3.5" /> Escalate
-                           </Button>
-                         </div>
-                       </div>
-                     )}
                    </div>
                  )}
                </div>
@@ -750,17 +624,10 @@ export default function TaskDetailDialog({
                             <div className="text-xs text-muted-foreground">Customer committed to pay — new Promise task is created, status becomes Promise to Pay, this task is cancelled.</div>
                           </div>
                         </button>
-                       <button
-                         type="button"
-                         className="flex items-start gap-2.5 rounded-md border bg-white p-2.5 text-left hover:bg-red-50 hover:border-red-300 transition-colors"
-                         onClick={() => setFuMode("escalate")}
-                       >
-                         <ArrowUpCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
-                         <div>
-                           <div className="text-sm font-medium">Escalate</div>
-                           <div className="text-xs text-muted-foreground">Hand this over to the Account Manager (or another team member).</div>
-                         </div>
-                       </button>
+                       <div className="rounded-md border border-dashed bg-muted/30 p-2.5 text-xs text-muted-foreground">
+                         Out of options? Set the group's <span className="font-medium text-foreground">Account Status</span> to{" "}
+                         <span className="font-medium text-foreground">Critical</span> on its card — management takes it from there.
+                       </div>
                      </div>
                     )}
                     {fuMode === "next-task" && (
@@ -906,63 +773,6 @@ export default function TaskDetailDialog({
                         </div>
                       </div>
                     )}
-                    {fuMode === "escalate" && (
-                      <div className="grid gap-2">
-                        <div className="grid gap-1">
-                          <Label className="text-xs">Escalate to (optional — defaults to the group's Account Manager)</Label>
-                          <TeamMemberSelect value={fuAssignee} onChange={setFuAssignee} />
-                        </div>
-                        <div className="grid gap-1">
-                          <Label className="text-xs">Watchers (optional — they follow the escalated task)</Label>
-                          <div className="flex flex-wrap gap-1">
-                            {(teamMembers ?? []).map(m => {
-                              const selected = escWatcherIds.includes(m.id);
-                              return (
-                                <button
-                                  key={m.id}
-                                  type="button"
-                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${selected ? "border-transparent text-white" : "bg-white hover:bg-muted"}`}
-                                  style={selected ? { backgroundColor: watcherColor(m.name) } : undefined}
-                                  onClick={() =>
-                                    setEscWatcherIds(prev =>
-                                      prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id]
-                                    )
-                                  }
-                                >
-                                  {selected && <CheckCircle2 className="h-3 w-3" />}
-                                  {m.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                        <div className="grid gap-1">
-                          <Label htmlFor="fu-es-note" className="text-xs">Note (optional)</Label>
-                          <Textarea id="fu-es-note" rows={2} className="bg-white text-sm" value={fuNotes} onChange={e => setFuNotes(e.target.value)} placeholder="e.g. customer unresponsive after 3 calls" />
-                        </div>
-                        <div className="flex justify-between">
-                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setFuMode("none")}>
-                            <ArrowLeft className="h-3.5 w-3.5" /> Back
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="h-7 px-3 text-xs"
-                            disabled={escalateTask.isPending}
-                            onClick={() =>
-                              escalateTask.mutate({
-                                taskId: task.id,
-                                assigneeId: fuAssignee ?? undefined,
-                                note: fuNotes || undefined,
-                                watcherIds: escWatcherIds.length > 0 ? escWatcherIds : undefined,
-                              })
-                            }
-                          >
-                            <ArrowUpCircle className="h-3.5 w-3.5" /> Escalate
-                          </Button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 ) : null
               )}
@@ -996,7 +806,7 @@ export default function TaskDetailDialog({
                 </div>
               )}
 
-              {!isEscalated && <TaskCommentsThread taskId={task.id} />}
+              <TaskCommentsThread taskId={task.id} />
             </div>
           </>
         )}

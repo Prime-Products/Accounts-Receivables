@@ -1679,3 +1679,13 @@ master record. Same company, two screens. Unify them.
 - [x] Remove the "Open promise exists" banner and the reschedule/new radio from the Log Call dialog (replaced by a one-line "Moving the open promise of … due …" notice)
 - [x] Server: a Promise to Pay logged for a group with an open promise always moves that promise (no duplicate row), without needing a client flag; legacy `reschedulePromiseId` still accepted
 - [x] Tests rewritten (`server/promiseRescheduleWiring.test.ts`, 3 tests): auto-move without a flag, legacy flag honoured, first promise still created. Suite 103 files / 678 tests green
+
+## Remove escalation, use Critical instead (requested 2/8)
+- [x] Remove the Escalate action + form from TaskDetailDialog (both the promise "Did not pay" and the follow-up branches) — replaced by a hint pointing at the Critical status
+- [x] Delete EscalationPanel and the escalated-task slim layout in TaskDetailDialog
+- [x] Remove the `tasks.escalate`, `tasks.escalationSummary` and `tasks.escalationDecision` procedures and the escalationHistory/story helpers
+- [x] Drop the `Escalated` collection status from the Desk filter, badges and labels (no rows used it)
+- [x] Remove `escalate_account_manager` from nextAction suggestions; it now suggests `mark_critical`
+- [x] Critical is the documented hand-over path (docs/escalation-guide.md); the Account Status dropdown on the group card is the single control
+- [x] Management queue already available: Desk `All statuses` filter + Dashboard Critical/On Hold counters
+- [x] Deleted the 5 escalation test files and updated the tests that asserted escalation behaviour — suite 98 files / 640 tests green
