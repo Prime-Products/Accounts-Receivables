@@ -1739,4 +1739,4 @@ master record. Same company, two screens. Unify them.
 - [x] Tests: toolbar buttons render with zero counts; the Invoices credit-note list returns open credit notes group-wide
 ## Send Email recipients (requested 2/8)
 - [x] Send Email opens with a searchable recipient list instead of a flat list of every contact (search matches name, email, title, company; list is scroll-bounded)
-- [ ] Selected recipients shown as removable chips (multi-recipient send still pending — one recipient at a time today)
+- [x] Selected recipients shown as removable chips — multi-select contacts, first chip is To and the rest go to Cc (mailto + history + activity log), plus an ad-hoc "Other email address" box

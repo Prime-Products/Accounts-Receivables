@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { downloadBase64 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
-import { FileDown, Mail, Plus, Search } from "lucide-react";
+import { FileDown, Mail, Plus, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -48,9 +48,15 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
     }
   };
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
-  const [selectedContactId, setSelectedContactId] = useState<number | null>(null);
-  const [recipientEmail, setRecipientEmail] = useState("");
-  const [recipientName, setRecipientName] = useState("");
+  /**
+   * Recipients as chips: a chase usually goes to the accounts mailbox AND the person
+   * who signs off. The first chip is the To: address (recorded in history and the
+   * activity log as before); the rest are sent as cc.
+   */
+  const [recipients, setRecipients] = useState<{ id: number | null; name: string; email: string }[]>([]);
+  const [manualEmail, setManualEmail] = useState("");
+  const recipientEmail = recipients[0]?.email ?? "";
+  const recipientName = recipients[0]?.name ?? "";
   const [templateType, setTemplateType] = useState<
     "SOA" | "Payment Reminder" | "Overdue Notice" | "Friendly Reminder" | "Final Notice" | "Statement" | "Custom"
   >("SOA");
@@ -155,9 +161,8 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
 
   const resetForm = () => {
     setCustomerId(defaultCustomerId ?? null);
-    setSelectedContactId(null);
-    setRecipientEmail("");
-    setRecipientName("");
+    setRecipients([]);
+    setManualEmail("");
     setTemplateType("SOA");
     setSubject("");
     setBody("");
@@ -177,23 +182,46 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
 
   const handleCustomerChange = (id: number) => {
     setCustomerId(id);
-    setSelectedContactId(null);
     setDirty(false);
+    // Switching company resets the chips to that company's own address (if any), so a
+    // list built for the previous company is never carried over by accident.
     const company = companies.find(c => c.id === id);
-    if (company) {
-      setRecipientEmail(company.email || "");
-      setRecipientName(company.contactPerson || company.name);
-    }
+    setRecipients(
+      company?.email ? [{ id: null, name: company.contactPerson || company.name, email: company.email }] : [],
+    );
   };
 
-  const handleSelectContact = (contactId: number) => {
+  /** Clicking a contact adds it as a chip; clicking it again removes it. */
+  const toggleContact = (contactId: number) => {
     const contact = paymentContacts?.find(c => c.id === contactId);
-    if (contact) {
-      setSelectedContactId(contactId);
-      setRecipientEmail(contact.email);
-      setRecipientName(contact.name);
-    }
+    if (!contact) return;
+    setRecipients(prev =>
+      prev.some(r => r.email.toLowerCase() === contact.email.toLowerCase())
+        ? prev.filter(r => r.email.toLowerCase() !== contact.email.toLowerCase())
+        : [...prev, { id: contact.id, name: contact.name, email: contact.email }],
+    );
   };
+
+  const removeRecipient = (email: string) =>
+    setRecipients(prev => prev.filter(r => r.email.toLowerCase() !== email.toLowerCase()));
+
+  /** Free-typed address, for someone not in the address book yet. */
+  const addManualEmail = () => {
+    const value = manualEmail.trim();
+    if (!value) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      toast.error("That does not look like an email address");
+      return;
+    }
+    setRecipients(prev =>
+      prev.some(r => r.email.toLowerCase() === value.toLowerCase())
+        ? prev
+        : [...prev, { id: null, name: value, email: value }],
+    );
+    setManualEmail("");
+  };
+
+  const isSelected = (email: string) => recipients.some(r => r.email.toLowerCase() === email.toLowerCase());
 
   const handleAddContact = () => {
     if (!customerId || !newContactName || !newContactEmail) {
@@ -232,14 +260,18 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
         // toast already shown by onError; continue to open the email anyway
       }
     }
-    // Open the default mail client (Outlook) with everything prefilled.
-    const mailto = `mailto:${encodeURIComponent(recipientEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    // Open the default mail client (Outlook) with everything prefilled. Extra chips go
+    // to cc so the To: line still names the primary contact.
+    const cc = recipients.slice(1).map(r => r.email);
+    const ccPart = cc.length > 0 ? `cc=${encodeURIComponent(cc.join(","))}&` : "";
+    const mailto = `mailto:${encodeURIComponent(recipientEmail)}?${ccPart}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailto;
     toast.success("Opening Outlook…");
     sendEmail.mutate({
       customerId,
       recipientEmail,
       recipientName: recipientName || undefined,
+      ccEmails: cc,
       templateType,
       subject,
       body,
@@ -365,6 +397,36 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
                 </div>
               )}
 
+              {/* Selected recipients — removable chips. First chip is the To: address. */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {recipients.length === 0 ? (
+                  <span className="text-xs text-muted-foreground">
+                    No recipient yet — pick a contact below or type an address
+                  </span>
+                ) : (
+                  recipients.map((r, idx) => (
+                    <span
+                      key={r.email}
+                      className="inline-flex items-center gap-1 rounded-full border bg-background pl-2 pr-1 py-0.5 text-xs"
+                      title={idx === 0 ? `To: ${r.email}` : `Cc: ${r.email}`}
+                    >
+                      <span className="font-medium truncate max-w-44">{r.name}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {idx === 0 ? "To" : "Cc"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeRecipient(r.email)}
+                        className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                        title="Remove recipient"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))
+                )}
+              </div>
+
               {/* Search box: always present so the list never has to be scrolled blindly. */}
               {orderedContacts.length > 3 && (
                 <div className="relative">
@@ -387,9 +449,9 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
                   {shownContacts.map(contact => (
                     <button
                       key={contact.id}
-                      onClick={() => handleSelectContact(contact.id)}
+                      onClick={() => toggleContact(contact.id)}
                       className={`w-full text-left p-2 rounded text-sm transition-colors ${
-                        selectedContactId === contact.id
+                        isSelected(contact.email)
                           ? "bg-primary text-primary-foreground"
                           : "bg-background hover:bg-muted"
                       }`}
@@ -399,7 +461,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
                         {(contact as { contactType?: string }).contactType === "Department" && (
                           <span
                             className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                              selectedContactId === contact.id
+                              isSelected(contact.email)
                                 ? "bg-primary-foreground/20 text-primary-foreground"
                                 : "bg-violet-100 text-violet-700"
                             }`}
@@ -417,6 +479,25 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
               ) : (
                 <div className="text-xs text-muted-foreground p-2">No payment contacts yet</div>
               )}
+
+              {/* Anyone not in the address book yet can still be added ad hoc. */}
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <Input
+                  placeholder="Other email address…"
+                  value={manualEmail}
+                  onChange={e => setManualEmail(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addManualEmail();
+                    }
+                  }}
+                  className="h-8 text-sm bg-background"
+                />
+                <Button size="sm" variant="outline" className="h-8 bg-background" onClick={addManualEmail}>
+                  Add
+                </Button>
+              </div>
             </div>
           )}
 
