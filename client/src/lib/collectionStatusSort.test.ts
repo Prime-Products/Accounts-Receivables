@@ -1,43 +1,83 @@
 import { describe, it, expect } from "vitest";
-import { collectionStatusRank, COLLECTION_STATUS_ORDER } from "./collectionStatusSort";
+import {
+  COLLECTION_ACTION_BUCKET,
+  collectionActionBucket,
+  collectionActionSortValue,
+  sortByCollectionAction,
+} from "./collectionStatusSort";
 
 /**
- * The Collection Status column is sorted by urgency, not alphabetically: a
- * descending sort must surface broken promises first and settled groups last.
+ * The Collections Desk is worked by date: what is due today or already late has
+ * to be at the top, what is promised for later comes next (soonest first), and
+ * groups nobody ever contacted are chased last.
  */
-describe("collection status sort ranking", () => {
-  it("ranks broken promises above every other status", () => {
-    for (const s of ["Escalated", "Pending Follow-up", "Confirmed", "Not Contacted", "Kept"]) {
-      expect(collectionStatusRank("Broken")).toBeGreaterThan(collectionStatusRank(s));
-    }
+const DAY = 86_400_000;
+const today = Date.UTC(2026, 7, 2);
+
+describe("collection action ordering", () => {
+  it("puts an overdue promise above one due today", () => {
+    const overdue = { confirmationStatus: "Confirmed", actionDate: today - 3 * DAY, actionDue: "overdue" as const };
+    const dueToday = { confirmationStatus: "Confirmed", actionDate: today, actionDue: "today" as const };
+    expect(collectionActionSortValue(overdue)).toBeLessThan(collectionActionSortValue(dueToday));
   });
 
-  it("ranks an active promise above an untouched group and a settled one", () => {
-    expect(collectionStatusRank("Confirmed")).toBeGreaterThan(collectionStatusRank("Not Contacted"));
-    expect(collectionStatusRank("Not Contacted")).toBeGreaterThan(collectionStatusRank("Kept"));
+  it("puts today's date above any future date", () => {
+    const dueToday = { confirmationStatus: "Pending Follow-up", actionDate: today, actionDue: "today" as const };
+    const future = { confirmationStatus: "Pending Follow-up", actionDate: today + 5 * DAY, actionDue: null };
+    expect(collectionActionSortValue(dueToday)).toBeLessThan(collectionActionSortValue(future));
   });
 
-  it("orders the whole ladder from most to least urgent", () => {
-    const ranks = COLLECTION_STATUS_ORDER.map(collectionStatusRank);
-    expect(ranks).toEqual([...ranks].sort((a, b) => b - a));
+  it("orders future dates soonest first", () => {
+    const soon = { confirmationStatus: "Confirmed", actionDate: today + 2 * DAY, actionDue: null };
+    const later = { confirmationStatus: "Confirmed", actionDate: today + 30 * DAY, actionDue: null };
+    expect(collectionActionSortValue(soon)).toBeLessThan(collectionActionSortValue(later));
   });
 
-  it("treats a missing status as the lowest rank", () => {
-    expect(collectionStatusRank(null)).toBe(0);
-    expect(collectionStatusRank(undefined)).toBe(0);
-    expect(collectionStatusRank("Something else")).toBe(0);
+  it("orders overdue dates oldest first", () => {
+    const older = { confirmationStatus: "Confirmed", actionDate: today - 30 * DAY, actionDue: "overdue" as const };
+    const newer = { confirmationStatus: "Confirmed", actionDate: today - 2 * DAY, actionDue: "overdue" as const };
+    expect(collectionActionSortValue(older)).toBeLessThan(collectionActionSortValue(newer));
   });
 
-  it("sorting descending puts work-needing groups on top", () => {
+  it("places Not Contacted last, after every dated group", () => {
+    const notContacted = { confirmationStatus: "Not Contacted", actionDate: null, actionDue: null };
+    const future = { confirmationStatus: "Confirmed", actionDate: today + 90 * DAY, actionDue: null };
+    const noDate = { confirmationStatus: "Kept", actionDate: null, actionDue: null };
+    expect(collectionActionBucket(notContacted)).toBe(COLLECTION_ACTION_BUCKET.notContacted);
+    expect(collectionActionSortValue(notContacted)).toBeGreaterThan(collectionActionSortValue(future));
+    expect(collectionActionSortValue(notContacted)).toBeGreaterThan(collectionActionSortValue(noDate));
+  });
+
+  it("treats a missing status as Not Contacted", () => {
+    expect(collectionActionBucket({})).toBe(COLLECTION_ACTION_BUCKET.notContacted);
+    expect(collectionActionBucket({ confirmationStatus: null })).toBe(COLLECTION_ACTION_BUCKET.notContacted);
+  });
+
+  it("sorts a mixed Desk the way a collector reads it", () => {
     const rows = [
-      { group: "A", confirmationStatus: "Kept" },
-      { group: "B", confirmationStatus: "Broken" },
-      { group: "C", confirmationStatus: "Confirmed" },
-      { group: "D", confirmationStatus: "Pending Follow-up" },
+      { group: "never called", confirmationStatus: "Not Contacted", actionDate: null, actionDue: null },
+      { group: "promised next month", confirmationStatus: "Confirmed", actionDate: today + 30 * DAY, actionDue: null },
+      { group: "late 10 days", confirmationStatus: "Confirmed", actionDate: today - 10 * DAY, actionDue: "overdue" as const },
+      { group: "due today", confirmationStatus: "Pending Follow-up", actionDate: today, actionDue: "today" as const },
+      { group: "late 2 days", confirmationStatus: "Pending Follow-up", actionDate: today - 2 * DAY, actionDue: "overdue" as const },
+      { group: "promised in 3 days", confirmationStatus: "Confirmed", actionDate: today + 3 * DAY, actionDue: null },
     ];
-    const sorted = [...rows].sort(
-      (a, b) => collectionStatusRank(b.confirmationStatus) - collectionStatusRank(a.confirmationStatus)
-    );
-    expect(sorted.map(r => r.group)).toEqual(["B", "D", "C", "A"]);
+    expect(sortByCollectionAction(rows).map(r => r.group)).toEqual([
+      "late 10 days",
+      "late 2 days",
+      "due today",
+      "promised in 3 days",
+      "promised next month",
+      "never called",
+    ]);
+  });
+
+  it("reverses cleanly when the header is clicked twice", () => {
+    const rows = [
+      { group: "due today", confirmationStatus: "Confirmed", actionDate: today, actionDue: "today" as const },
+      { group: "never called", confirmationStatus: "Not Contacted", actionDate: null, actionDue: null },
+    ];
+    expect(sortByCollectionAction(rows, "desc").map(r => r.group)).toEqual(["never called", "due today"]);
   });
 });
+

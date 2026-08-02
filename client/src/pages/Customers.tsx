@@ -18,7 +18,7 @@ import {
   PROMISE_NO_AMOUNT_LABEL,
 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { collectionStatusRank } from "@/lib/collectionStatusSort";
+import { collectionActionSortValue } from "@/lib/collectionStatusSort";
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BellRing, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { memo } from "react";
@@ -380,9 +380,6 @@ export default function Customers() {
   const { data: teamMembers } = trpc.team.list.useQuery();
   const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
   const [companySort, setCompanySort] = useState<{ key: CompanySortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
-  // Performance: render only the first 100 rows initially; "Show all" reveals the rest.
-  const [showAllGroups, setShowAllGroups] = useState(false);
-  const [showAllCompanies, setShowAllCompanies] = useState(false);
   const groupCols = useResizableColumns("customer-groups", GROUP_COL_DEFAULTS);
   const companyCols = useResizableColumns("customer-companies", COMPANY_COL_DEFAULTS);
 
@@ -513,7 +510,9 @@ export default function Customers() {
           case "companies":
             return g.companyCount;
           case "collectionStatus":
-            return collectionStatusRank((g as any).confirmationStatus);
+            // Sorted by the date the group is waiting on, not by status name:
+            // overdue → today → upcoming (soonest first) → Not Contacted.
+            return collectionActionSortValue(g as any);
           case "open":
             return g.openBalance;
           case "overdue":
@@ -532,19 +531,20 @@ export default function Customers() {
             return 0;
         }
       };
+      // The collection-status key is already "smaller = more urgent", so its
+      // first click must sort ascending; amount columns keep highest-first.
+      const urgencyKey = groupSort.key === "collectionStatus";
       rows = [...rows].sort((a, b) => {
         const diff = getVal(a) - getVal(b);
-        return groupSort.dir === "asc" ? diff : -diff;
+        const ascending = urgencyKey ? groupSort.dir === "desc" : groupSort.dir === "asc";
+        return ascending ? diff : -diff;
       });
     } else {
-      // No explicit sort: rows whose promise/follow-up date has arrived come first
-      // (oldest date first), so today's work is always at the top of the Desk.
-      const rank = (g: any) => (g.actionDue === "overdue" ? 0 : g.actionDue === "today" ? 1 : 2);
+      // No explicit sort: same date-driven order, with the largest exposure first
+      // inside each date so equal-urgency rows are still ranked by money.
       rows = [...rows].sort(
         (a: any, b: any) =>
-          rank(a) - rank(b) ||
-          (rank(a) < 2 ? (a.actionDate ?? 0) - (b.actionDate ?? 0) : 0) ||
-          b.overdueBalance - a.overdueBalance
+          collectionActionSortValue(a) - collectionActionSortValue(b) || b.overdueBalance - a.overdueBalance
       );
     }
     return rows;
@@ -949,7 +949,7 @@ export default function Customers() {
                       {fmtEur(groupTotals.remaining)}
                     </TableCell>
                   </TableRow>
-                  {(showAllGroups ? filteredGroups : filteredGroups.slice(0, 100)).map(g => (
+                  {filteredGroups.map(g => (
                     <TableRow
                       key={g.group}
                       className={`cursor-pointer ${
@@ -1048,18 +1048,6 @@ export default function Customers() {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {!showAllGroups && filteredGroups.length > 100 && (
-                    <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={9} className="text-center py-4">
-                        <span className="text-sm text-muted-foreground mr-3">
-                          Showing 100 of {filteredGroups.length.toLocaleString()} groups
-                        </span>
-                        <Button variant="outline" size="sm" onClick={() => setShowAllGroups(true)}>
-                          Show all
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
             )
@@ -1098,7 +1086,7 @@ export default function Customers() {
                   </TableCell>
                   <TableCell className="text-right font-mono">{fmtEur(companyTotals.credit)}</TableCell>
                 </TableRow>
-                {(showAllCompanies ? filtered : filtered.slice(0, 100)).map(c => (
+                {filtered.map(c => (
                   <TableRow key={c.id} className="cursor-pointer" onClick={() => navigate(`/customers/${c.id}`)}>
                     <TableCell className="font-mono text-sm">{c.code}</TableCell>
                     <TableCell className="font-medium overflow-hidden">
@@ -1123,18 +1111,6 @@ export default function Customers() {
                     <TableCell className="text-right font-mono">{fmtEur(c.creditLimit)}</TableCell>
                   </TableRow>
                 ))}
-                {!showAllCompanies && filtered.length > 100 && (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={8} className="text-center py-4">
-                      <span className="text-sm text-muted-foreground mr-3">
-                        Showing 100 of {filtered.length.toLocaleString()} companies
-                      </span>
-                      <Button variant="outline" size="sm" onClick={() => setShowAllCompanies(true)}>
-                        Show all
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                )}
               </TableBody>
             </Table>
           )}

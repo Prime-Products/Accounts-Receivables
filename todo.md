@@ -1609,6 +1609,11 @@ master record. Same company, two screens. Unify them.
 - [x] Available in Log Call notes and in Collection Notes
 - [x] Mentioning must NOT create a task (keeps the Log-Call-creates-no-work rule)
 - [x] Vitest: parsing, storage and retrieval of mentions (`shared/mentions.test.ts` 9, `server/noteMentions.test.ts` 5)
+
+## Collections Desk: load all groups + date-driven sort (requested 2/8)
+- [x] Groups list loads every group by default (no 100-row cap / "Show all" step); companies list too
+- [x] Collection Status sort orders by action date: overdue (oldest first) → today → future (soonest first) → no date → Not Contacted last
+- [x] Vitest for the date-driven ordering (`collectionStatusSort.test.ts`, 8 tests)
 - [x] "Action due" filter in the filter row (Any due date / Due today or earlier / Past due only)
 - [x] Default Desk ordering puts due rows first (past due, then due today, oldest date first), and due rows are tinted red/amber
 - [x] Removed the `customers.callBackList` procedure
