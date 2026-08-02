@@ -1594,6 +1594,12 @@ master record. Same company, two screens. Unify them.
 - [x] Renamed the Desk "Confirmation" column header to "Collection Status" (filter now reads "All collection statuses")
 - [x] Column is sortable by collection urgency (Broken → Escalated → Pending Follow-up → Promise → Not Contacted → Kept)
 - [x] Vitest: `collectionStatusSort.test.ts` (5 tests) covers the urgency ranking
+
+## Timeline entry must carry the full Log Call information (reported 2/8)
+- [x] Root cause: the dialog sent `contactId` but `calls.logCall` had no such input, so the contact was dropped; follow-up amount was never written either
+- [x] Timeline entry now includes company, contact (resolved from the saved contact list), collection status, amount, promised/follow-up date and the note
+- [x] Removed the duplicated outcome sentence from the entry body (it already leads the title)
+- [x] Vitest: `logCallTimelineDetail.test.ts` (5 tests) asserts every field entered in Log Call appears in the single entry
 - [x] "Action due" filter in the filter row (Any due date / Due today or earlier / Past due only)
 - [x] Default Desk ordering puts due rows first (past due, then due today, oldest date first), and due rows are tinted red/amber
 - [x] Removed the `customers.callBackList` procedure
