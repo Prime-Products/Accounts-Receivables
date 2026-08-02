@@ -753,27 +753,27 @@ export default function GroupDetail() {
                   ↻ Carried over
                 </span>
               )}
+              {/*
+               * Who is on this account, inline after the status badges: small
+               * avatars with the first name only, so ownership costs no vertical
+               * space on a card that is already dense with figures.
+               */}
+              {data && (
+                <span className="ml-1 border-l pl-2 text-base font-normal">
+                  <PeopleRow
+                    manager={(data as any).accountManager ?? null}
+                    collector={(data as any).collector ?? null}
+                    watchers={(data as any).watchers ?? []}
+                    watcherGroupName={group}
+                    groupName={group}
+                  />
+                </span>
+              )}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               Group card — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}
             </p>
             {data && <LastContactLine data={data as any} />}
-            {/*
-             * Who is on this account: the two responsible people plus watchers,
-             * shown as Team-style avatars instead of loose badges in the title
-             * where they read as filter chips.
-             */}
-            {data && (
-              <div className="mt-2 max-w-fit">
-                <PeopleRow
-                  manager={(data as any).accountManager ?? null}
-                  collector={(data as any).collector ?? null}
-                  watchers={(data as any).watchers ?? []}
-                  watcherGroupName={group}
-                  groupName={group}
-                />
-              </div>
-            )}
           </div>
         </div>
         {/*

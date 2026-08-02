@@ -187,22 +187,22 @@ export default function CustomerDetail() {
                 <Layers className="h-3 w-3" /> {customer.customerGroup}
               </Badge>
             )}
+            {/* Ownership inline after the badges, same compact strip as the group card. */}
+            <span className="border-l pl-2 text-base font-normal">
+              <PeopleRow
+                manager={(data as any).accountManager ?? null}
+                collector={(data as any).collector ?? null}
+                watchers={(data as any).watchers ?? []}
+                watcherGroupName={(data as any).watcherGroupKey ?? data.groupKey}
+                customerId={id}
+                onChanged={() => utils.customers.get360.invalidate({ id })}
+              />
+            </span>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             {customer.code} · VAT {customer.vatNumber || "—"} · {customer.email || "no email"} · terms{" "}
             {customer.paymentTermsDays} days
           </p>
-          {/* Responsible people + watchers, same row as on the group card. */}
-          <div className="mt-2 max-w-fit">
-            <PeopleRow
-              manager={(data as any).accountManager ?? null}
-              collector={(data as any).collector ?? null}
-              watchers={(data as any).watchers ?? []}
-              watcherGroupName={(data as any).watcherGroupKey ?? data.groupKey}
-              customerId={id}
-              onChanged={() => utils.customers.get360.invalidate({ id })}
-            />
-          </div>
         </div>
         {/*
          * Same two clusters as the group card: what I DO with this company, and

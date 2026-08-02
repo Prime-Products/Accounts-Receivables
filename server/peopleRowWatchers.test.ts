@@ -1,8 +1,9 @@
 /**
- * The card's "who is on this account" row: the two responsible people rendered
- * like the Team list (avatar + name + title) plus watchers who only follow the
- * account. These tests pin the wiring so the row cannot silently lose the
- * watcher controls or fall back to the old filter-looking badges.
+ * The card's "who is on this account" strip: small avatars with the first name
+ * only, sitting inline in the title row next to the status badges, plus watchers
+ * who only follow the account. These tests pin both the wiring (assignment and
+ * watcher mutations) and the compact shape, so the strip cannot creep back into
+ * a full-width bordered row with job titles.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -14,11 +15,26 @@ const read = (p: string) => readFileSync(join(root, p), "utf8");
 describe("people row on the receivables cards", () => {
   const peopleRow = read("client/src/components/PeopleRow.tsx");
 
-  it("renders each person as an avatar with name and job title", () => {
+  it("renders each person as a small avatar with the first name only", () => {
     expect(peopleRow).toContain("watcherInitials(person.name)");
     expect(peopleRow).toContain("watcherColor(person.name)");
-    // Title line under the name; falls back to the generic role.
-    expect(peopleRow).toMatch(/person\?\.title.*\|\| roleName/s);
+    // First name in the strip, full name + role + title only in the tooltip.
+    expect(peopleRow).toContain("firstName(person.name)");
+    expect(peopleRow).toMatch(/export function firstName/);
+    expect(peopleRow).not.toMatch(/block truncate text-\[11px\]/);
+    // Compact avatars (24px people, 20px watchers), not the old 32px ones.
+    expect(peopleRow).toContain("h-6 w-6");
+    expect(peopleRow).not.toContain("h-8 w-8");
+  });
+
+  it("is an inline strip without its own card border", () => {
+    expect(peopleRow).toContain('<span className="inline-flex flex-wrap items-center');
+    expect(peopleRow).not.toContain("rounded-xl border bg-card");
+  });
+
+  it("keeps the full name and role reachable on hover", () => {
+    expect(peopleRow).toContain("TooltipContent");
+    expect(peopleRow).toMatch(/\{roleName\}: \{person\.name\}|roleName\}: \{person\.name/);
   });
 
   it("keeps both responsible roles assignable from the row", () => {
@@ -26,8 +42,6 @@ describe("people row on the receivables cards", () => {
     expect(peopleRow).toContain('role="manager"');
     expect(peopleRow).toContain("setAccountManager.useMutation");
     expect(peopleRow).toContain("setCollector.useMutation");
-    expect(peopleRow).toContain("Assign collector");
-    expect(peopleRow).toContain("Assign manager");
   });
 
   it("lets a colleague be added and removed as watcher", () => {
@@ -38,9 +52,15 @@ describe("people row on the receivables cards", () => {
     expect(peopleRow).toContain("Remove ${w.name} from watchers".replace("${w.name}", "${w.name}"));
   });
 
-  it("shows an explicit empty state instead of a blank area", () => {
-    expect(peopleRow).toContain("watchers.length === 0");
-    expect(peopleRow).toContain(">none<");
+  it("reduces the watcher affordance to a bare plus sign", () => {
+    // No uppercase "WATCHERS" label, no "none" filler, no "+ Watcher" text button.
+    expect(peopleRow).not.toMatch(/uppercase tracking-wide/);
+    expect(peopleRow).not.toMatch(/<Eye /);
+    expect(peopleRow).not.toContain(">none<");
+    expect(peopleRow).not.toMatch(/<Plus className="h-3 w-3" \/> Watcher/);
+    expect(peopleRow).toContain('aria-label="Add watcher"');
+    // Avatars only render when somebody is actually watching.
+    expect(peopleRow).toContain("watchers.length > 0 &&");
   });
 
   it("is used by both the group card and the company card", () => {
@@ -51,6 +71,8 @@ describe("people row on the receivables cards", () => {
       expect(src).toContain("watcherGroupName=");
       // The old loose badges in the title line are gone.
       expect(src).not.toContain("AccountManagerControl");
+      // The strip is inline in the title line, not a separate block below it.
+      expect(src).not.toContain('<div className="mt-2 max-w-fit">');
     }
   });
 
