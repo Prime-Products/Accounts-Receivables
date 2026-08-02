@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { downloadBase64 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { FileDown, Mail, Plus } from "lucide-react";
+import { matchesAllTokens } from "@shared/textMatch";
+import { FileDown, Mail, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -65,6 +66,11 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
   const [newContactTitle, setNewContactTitle] = useState("");
   /** New contacts default to Person; departments are shared mailboxes. */
   const [newContactType, setNewContactType] = useState<"Person" | "Department">("Person");
+  /**
+   * Big groups carry dozens of mailboxes; typing a name, a department or part of an
+   * address narrows the list instead of forcing the user to scroll the dialog.
+   */
+  const [contactSearch, setContactSearch] = useState("");
 
   // Contacts belong to the group, not to a single legal entity, so the picker
   // lists everyone in the group and falls back to the company when the dialog is
@@ -92,6 +98,19 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
       return a.name.localeCompare(b.name);
     });
   }, [paymentContacts]);
+
+  /** The ordered list narrowed by the search box (name, email, title, company). */
+  const shownContacts = useMemo(() => {
+    if (!contactSearch.trim()) return orderedContacts;
+    return orderedContacts.filter(c =>
+      matchesAllTokens(contactSearch, [
+        c.name,
+        c.email,
+        (c as { title?: string | null }).title ?? "",
+        (c as { customerName?: string | null }).customerName ?? "",
+      ]),
+    );
+  }, [orderedContacts, contactSearch]);
 
   const isSmart = (smartTemplates as readonly string[]).includes(templateType);
   const { data: prefill, isFetching: prefillLoading } = trpc.calls.emailPrefill.useQuery(
@@ -143,6 +162,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
     setSubject("");
     setBody("");
     setDirty(false);
+    setContactSearch("");
   };
 
   const handleTemplateChange = (template: string) => {
@@ -345,10 +365,26 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
                 </div>
               )}
 
+              {/* Search box: always present so the list never has to be scrolled blindly. */}
+              {orderedContacts.length > 3 && (
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder={`Search ${orderedContacts.length} contacts…`}
+                    value={contactSearch}
+                    onChange={e => setContactSearch(e.target.value)}
+                    className="h-8 pl-7 text-sm bg-background"
+                  />
+                </div>
+              )}
+
               {/* Contacts List — group-wide when a group is in context */}
               {orderedContacts.length > 0 ? (
-                <div className="space-y-1">
-                  {orderedContacts.map(contact => (
+                shownContacts.length === 0 ? (
+                  <div className="text-xs text-muted-foreground p-2">No contact matches “{contactSearch}”</div>
+                ) : (
+                <div className="space-y-1 max-h-56 overflow-y-auto pr-0.5">
+                  {shownContacts.map(contact => (
                     <button
                       key={contact.id}
                       onClick={() => handleSelectContact(contact.id)}
@@ -377,6 +413,7 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
                     </button>
                   ))}
                 </div>
+                )
               ) : (
                 <div className="text-xs text-muted-foreground p-2">No payment contacts yet</div>
               )}

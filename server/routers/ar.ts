@@ -2458,6 +2458,22 @@ export const invoicesRouter = router({
     }),
 
   /**
+   * Every open (unmatched) credit note across the whole book, so the Invoices page
+   * can answer "which credits have we issued that the customer has not used yet?"
+   * without walking group by group. Each row carries its group and company so the
+   * list can be filtered and drilled into like the invoice list.
+   */
+  openCreditNotes: protectedProcedure.query(async () => {
+    const customers = await db.listCustomers();
+    const names = new Map(customers.map(c => [c.id, c.name]));
+    const rows = await listOpenCreditNotes(new Set(customers.map(c => c.id)), names);
+    const groupOf = new Map(
+      customers.map(c => [c.id, ((c.customerGroup ?? "").trim() || c.name) as string]),
+    );
+    return rows.map(r => ({ ...r, customerGroup: groupOf.get(r.customerId) ?? r.customerName }));
+  }),
+
+  /**
    * Cancel the payment of an invoice: reverts ALL wire-transfer allocations that
    * settled it — invoice returns to Open (paidAmount reduced), the amounts are
    * freed on their wire transfers, and derived internal inter-office transfers

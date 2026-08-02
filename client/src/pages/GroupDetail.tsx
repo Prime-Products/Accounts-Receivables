@@ -568,10 +568,17 @@ export default function GroupDetail() {
    * silently.
    */
   const allCreditNotes = ((data as any)?.openCreditNotes ?? []) as any[];
+  /**
+   * True while a filter that only makes sense for invoices (status, aging bucket,
+   * installments) is narrowing the list. Credit notes and payments carry none of
+   * those attributes, so they cannot honour such a filter.
+   */
+  const invoiceOnlyFilterActive =
+    installmentFilter === "installments" || statusFilter !== "all" || agingFilter !== "all";
   const visibleCreditNotes = useMemo(() => {
     if (allCreditNotes.length === 0) return [];
     if (paymentsOnly) return [];
-    if (!creditOnly && (installmentFilter === "installments" || statusFilter !== "all" || agingFilter !== "all")) return [];
+    if (!creditOnly && invoiceOnlyFilterActive) return [];
     if (vesselDrill !== "all") {
       return allCreditNotes.filter(c => {
         const name = c.vesselName ?? null;
@@ -580,7 +587,7 @@ export default function GroupDetail() {
       });
     }
     return allCreditNotes;
-  }, [allCreditNotes, creditOnly, paymentsOnly, installmentFilter, statusFilter, agingFilter, vesselDrill]);
+  }, [allCreditNotes, creditOnly, paymentsOnly, invoiceOnlyFilterActive, vesselDrill]);
 
   /**
    * Payments (wire transfers with an unallocated remainder) shown inside the same
@@ -591,9 +598,33 @@ export default function GroupDetail() {
   const visibleTransfers = useMemo(() => {
     if (allTransfers.length === 0) return [];
     if (creditOnly) return [];
-    if (!paymentsOnly && (installmentFilter === "installments" || statusFilter !== "all" || agingFilter !== "all" || vesselDrill !== "all")) return [];
+    if (!paymentsOnly && (invoiceOnlyFilterActive || vesselDrill !== "all")) return [];
     return allTransfers;
-  }, [allTransfers, creditOnly, paymentsOnly, installmentFilter, statusFilter, agingFilter, vesselDrill]);
+  }, [allTransfers, creditOnly, paymentsOnly, invoiceOnlyFilterActive, vesselDrill]);
+
+  /**
+   * Switching to a credit-notes-only or payments-only view drops the invoice-only
+   * filters, so the toggle always shows the full set instead of an empty table.
+   */
+  const clearInvoiceOnlyFilters = () => {
+    setStatusFilter("all");
+    setAgingFilter("all");
+    setInstallmentFilter("all");
+  };
+  const toggleCreditOnly = () => {
+    setPaymentsOnly(false);
+    setCreditOnly(v => {
+      if (!v) clearInvoiceOnlyFilters();
+      return !v;
+    });
+  };
+  const togglePaymentsOnly = () => {
+    setCreditOnly(false);
+    setPaymentsOnly(v => {
+      if (!v) clearInvoiceOnlyFilters();
+      return !v;
+    });
+  };
 
   /** How many settled invoices are currently being hidden (for the toggle label). */
   const paidHiddenCount = useMemo(() => {
@@ -1069,30 +1100,54 @@ export default function GroupDetail() {
                 {showPaid ? "Hide paid" : `Show paid${paidHiddenCount > 0 ? ` (${paidHiddenCount})` : ""}`}
               </Button>
               <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
-              {allTransfers.length > 0 && (
-                <Button
-                  size="sm"
-                  variant={paymentsOnly ? "secondary" : "ghost"}
-                  className={`h-7 px-2.5 text-xs gap-1.5 border ${paymentsOnly ? "border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : ""}`}
-                  onClick={() => { setPaymentsOnly(v => !v); setCreditOnly(false); }}
-                  title={paymentsOnly ? "Show invoices again" : "Show only payments on account"}
-                >
-                  <Banknote className="h-3.5 w-3.5" />
-                  Payments ({allTransfers.length})
-                </Button>
-              )}
-              {allCreditNotes.length > 0 && (
-                <Button
-                  size="sm"
-                  variant={creditOnly ? "secondary" : "ghost"}
-                  className={`h-7 px-2.5 text-xs gap-1.5 border ${creditOnly ? "border-sky-300 bg-sky-100 text-sky-800 hover:bg-sky-100" : ""}`}
-                  onClick={() => { setCreditOnly(v => !v); setPaymentsOnly(false); }}
-                  title={creditOnly ? "Show invoices again" : "Show only credit notes"}
-                >
-                  <FileMinus2 className="h-3.5 w-3.5" />
-                  Credit notes ({allCreditNotes.length})
-                </Button>
-              )}
+              {/* Payments and Credit notes are permanent members of this toolbar: the
+                  collector must always be able to tell whether money on account or an
+                  unallocated credit exists, so the buttons never disappear — they go
+                  disabled at zero and say when other filters are hiding their rows. */}
+              <Button
+                size="sm"
+                variant={paymentsOnly ? "secondary" : "ghost"}
+                disabled={allTransfers.length === 0}
+                className={`h-7 px-2.5 text-xs gap-1.5 border ${paymentsOnly ? "border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : ""}`}
+                onClick={togglePaymentsOnly}
+                title={
+                  allTransfers.length === 0
+                    ? "No payments on account for this scope"
+                    : paymentsOnly
+                      ? "Show invoices again"
+                      : visibleTransfers.length === 0
+                        ? "Payments are hidden by the current filters — click to show them"
+                        : "Show only payments on account"
+                }
+              >
+                <Banknote className="h-3.5 w-3.5" />
+                Payments ({allTransfers.length})
+                {allTransfers.length > 0 && !paymentsOnly && visibleTransfers.length === 0 && (
+                  <span className="text-[10px] text-muted-foreground">hidden</span>
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant={creditOnly ? "secondary" : "ghost"}
+                disabled={allCreditNotes.length === 0}
+                className={`h-7 px-2.5 text-xs gap-1.5 border ${creditOnly ? "border-sky-300 bg-sky-100 text-sky-800 hover:bg-sky-100" : ""}`}
+                onClick={toggleCreditOnly}
+                title={
+                  allCreditNotes.length === 0
+                    ? "No open credit notes for this scope"
+                    : creditOnly
+                      ? "Show invoices again"
+                      : visibleCreditNotes.length === 0
+                        ? "Credit notes are hidden by the current filters — click to show them"
+                        : "Show only credit notes"
+                }
+              >
+                <FileMinus2 className="h-3.5 w-3.5" />
+                Credit notes ({allCreditNotes.length})
+                {allCreditNotes.length > 0 && !creditOnly && visibleCreditNotes.length === 0 && (
+                  <span className="text-[10px] text-muted-foreground">hidden</span>
+                )}
+              </Button>
               <div className="flex items-center rounded-md border p-0.5">
                 <Button
                   size="sm"
