@@ -15,7 +15,7 @@ import InstallmentToggle from "@/components/InstallmentToggle";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { matchesAllTokens } from "@shared/textMatch";
-import { ChevronRight, FileDown, FileText, HandCoins, Ship, Users } from "lucide-react";
+import { ChevronRight, FileDown, FileText, Filter, HandCoins, Ship, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -145,6 +145,23 @@ export default function Invoices() {
     });
   }, [invoices, statusFilter, bucketFilter, branchFilter, vesselFilter, contractFilter, search, groupDrill]);
 
+  /**
+   * How many filters are narrowing the list right now. Shown next to a Clear
+   * button so a forgotten filter never silently hides invoices.
+   */
+  const activeFilterCount = useMemo(
+    () =>
+      [
+        search.trim() !== "",
+        branchFilter !== "all",
+        statusFilter !== "all",
+        vesselFilter !== "all",
+        contractFilter === "installments",
+        bucketFilter !== "all",
+      ].filter(Boolean).length,
+    [search, branchFilter, statusFilter, vesselFilter, contractFilter, bucketFilter],
+  );
+
   // Incremental rendering: mounting 5000+ table rows freezes the browser for
   // seconds. Render a window and grow it on demand.
   const [visibleCount, setVisibleCount] = useState(100);
@@ -227,16 +244,12 @@ export default function Invoices() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">Aging report, status filters and receipt reconciliation</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => exportReport.mutate({ report: "aging", format: "xlsx" })} disabled={exportReport.isPending}>
-            <FileDown className="h-4 w-4" /> Aging (Excel)
-          </Button>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => exportReport.mutate({ report: "aging", format: "pdf" })} disabled={exportReport.isPending}>
-            <FileDown className="h-4 w-4" /> Aging (PDF)
-          </Button>
+        {/* Same clusters as the customer cards: what I DO, then what I TAKE AWAY. */}
+        <div className="flex items-start gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
           <Dialog open={rcOpen} onOpenChange={setRcOpen}>
             <DialogTrigger asChild>
-              <Button variant="secondary" size="sm" className="gap-1.5">
+              <Button size="sm" className="gap-1.5">
                 <HandCoins className="h-4 w-4" /> Record Receipt
               </Button>
             </DialogTrigger>
@@ -347,6 +360,15 @@ export default function Invoices() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
+          <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
+            <Button variant="outline" size="sm" className="gap-1.5 bg-background" onClick={() => exportReport.mutate({ report: "aging", format: "xlsx" })} disabled={exportReport.isPending}>
+              <FileDown className="h-4 w-4" /> Aging Excel
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1.5 bg-background" onClick={() => exportReport.mutate({ report: "aging", format: "pdf" })} disabled={exportReport.isPending}>
+              <FileDown className="h-4 w-4" /> Aging PDF
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -381,10 +403,17 @@ export default function Invoices() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3">
-        <Input className="flex-1 min-w-52" placeholder="Search invoice number or customer…" value={search} onChange={e => setSearch(e.target.value)} />
+      {/* Filters cluster — boxed and labelled, same idiom as the group card. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 p-2">
+        <Filter className="h-4 w-4 text-muted-foreground shrink-0 ml-0.5" />
+        <Input
+          className="flex-1 min-w-52 h-9 bg-background"
+          placeholder="Search invoice number or customer…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
         <Select value={branchFilter} onValueChange={setBranchFilter}>
-          <SelectTrigger className="w-52">
+          <SelectTrigger className="w-48 h-9 bg-background">
             <SelectValue placeholder="All branches" />
           </SelectTrigger>
           <SelectContent>
@@ -397,7 +426,7 @@ export default function Invoices() {
           </SelectContent>
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger className="w-40 h-9 bg-background">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -411,7 +440,7 @@ export default function Invoices() {
         </Select>
         {vesselOptions.length > 0 && (
           <Select value={vesselFilter} onValueChange={setVesselFilter}>
-            <SelectTrigger className="w-52">
+            <SelectTrigger className="w-44 h-9 bg-background">
               <SelectValue placeholder="All vessels" />
             </SelectTrigger>
             <SelectContent>
@@ -429,6 +458,23 @@ export default function Invoices() {
           value={contractFilter === "installments" ? "installments" : "all"}
           onChange={v => setContractFilter(v)}
         />
+        {activeFilterCount > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 gap-1.5 text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              setSearch("");
+              setBranchFilter("all");
+              setStatusFilter("all");
+              setVesselFilter("all");
+              setContractFilter("all");
+              setBucketFilter("all");
+            }}
+          >
+            <X className="h-3.5 w-3.5" /> Clear {activeFilterCount}
+          </Button>
+        )}
       </div>
 
       {/* Filtered totals: EUR + per-currency */}
