@@ -5236,6 +5236,8 @@ export const callsRouter = router({
         group: z.string().min(1).max(255),
         customerId: z.number().optional(),
         contactName: z.string().max(255).optional(),
+        /** Saved payment contact picked from the list; resolved to a name for the log line. */
+        contactId: z.number().optional(),
         outcome: z.enum(["Reached", "No Answer"]),
         notes: z.string().max(2000).optional(),
         confirmationStatus: z.enum(confirmationStatuses).optional(),
@@ -5268,7 +5270,28 @@ export const callsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "A follow-up date is required for Pending Follow-up." });
       }
       const parts: string[] = [];
-      if (input.contactName) parts.push(`Contact: ${input.contactName}`);
+      /*
+       * The timeline entry has to stand on its own: months later the collector must
+       * be able to read one line and know who was called, at which company, what
+       * they answered and for how much. The dialog sends a contactId when a saved
+       * contact is picked from the list, so resolve it to a name here — otherwise
+       * the person we spoke to disappears from the record.
+       */
+      let contactLabel = input.contactName?.trim() || null;
+      if (!contactLabel && input.contactId) {
+        const rows = await db.getPaymentContact(input.contactId).catch(() => []);
+        const picked = Array.isArray(rows) ? rows[0] : rows;
+        if (picked) contactLabel = [picked.name, (picked as any).title].filter(Boolean).join(", ");
+      }
+      let companyLabel: string | null = null;
+      if (input.customerId) {
+        const cust = await db.getCustomer(input.customerId).catch(() => null);
+        const name = cust?.name?.trim();
+        // Only worth showing when it adds something beyond the group name.
+        if (name && name.toUpperCase() !== input.group.trim().toUpperCase()) companyLabel = name;
+      }
+      if (companyLabel) parts.push(companyLabel);
+      if (contactLabel) parts.push(`Contact: ${contactLabel}`);
       if (input.notes) parts.push(input.notes);
       // A no-answer call is a contact attempt: it changes no status and creates no
       // task, so the log line is the only trace. Spell that out, otherwise the
@@ -5293,11 +5316,16 @@ export const callsRouter = router({
           return `${label}: ${amt} by ${dateStr}`;
         }
         if (input.confirmationStatus === "Pending Follow-up" && input.followUpDate) {
-          return `${label} on ${new Date(input.followUpDate).toLocaleDateString("en-GB")}`;
+          const amt =
+            input.confirmationAmount && input.confirmationAmount > 0
+              ? `€${Number(eur(input.confirmationAmount)).toLocaleString()} · `
+              : "";
+          return `${label}: ${amt}call back on ${new Date(input.followUpDate).toLocaleDateString("en-GB")}`;
         }
         return label;
       })();
-      if (outcomeLabel) parts.unshift(outcomeLabel);
+      // The outcome already leads the title, so repeating it in the body would show
+      // the same sentence twice in the timeline entry.
       await db.addActivityLog({
         groupName: input.group,
         customerId: input.customerId,
@@ -5353,7 +5381,7 @@ export const callsRouter = router({
               amount: input.confirmationAmount,
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
-              contactName: input.contactName,
+              contactName: contactLabel ?? undefined,
               skipActivityLog: true,
             });
           }
