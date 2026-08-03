@@ -26,6 +26,17 @@ const Team = lazy(() => import("./pages/Team"));
 const Vessels = lazy(() => import("./pages/Vessels"));
 const VesselDetail = lazy(() => import("./pages/VesselDetail"));
 
+// Operations module pages
+const OpsDashboard = lazy(() => import("./pages/ops/OpsDashboard"));
+const OpsQuotations = lazy(() => import("./pages/ops/OpsQuotations"));
+const OpsContractsList = lazy(() => import("./pages/ops/OpsContractsList"));
+const OpsContractDetail = lazy(() => import("./pages/ops/OpsContractDetail"));
+const OpsAssets = lazy(() => import("./pages/ops/OpsAssets"));
+const OpsCertificates = lazy(() => import("./pages/ops/OpsCertificates"));
+const OpsOrders = lazy(() => import("./pages/ops/OpsOrders"));
+const OpsReturns = lazy(() => import("./pages/ops/OpsReturns"));
+const OpsVesselDashboard = lazy(() => import("./pages/ops/OpsVesselDashboard"));
+
 function PageFallback() {
   return (
     /*
@@ -83,6 +94,16 @@ function Router() {
           <Route path={"/reports"} component={Reports} />
           <Route path={"/team"} component={Team} />
           <Route path={"/settings"} component={Settings} />
+          {/* Operations module */}
+          <Route path={"/ops"} component={OpsDashboard} />
+          <Route path={"/ops/quotations"} component={OpsQuotations} />
+          <Route path={"/ops/contracts"} component={OpsContractsList} />
+          <Route path={"/ops/contracts/:id"} component={OpsContractDetail} />
+          <Route path={"/ops/assets"} component={OpsAssets} />
+          <Route path={"/ops/certificates"} component={OpsCertificates} />
+          <Route path={"/ops/orders"} component={OpsOrders} />
+          <Route path={"/ops/returns"} component={OpsReturns} />
+          <Route path={"/ops/vessel/:id"} component={OpsVesselDashboard} />
           <Route path={"/404"} component={NotFound} />
           <Route component={NotFound} />
         </Switch>

@@ -47,6 +47,15 @@ import {
   UserCog,
   Banknote,
 } from "lucide-react";
+import {
+  Briefcase,
+  ClipboardList,
+  FileCheck2,
+  Package,
+  RotateCcw,
+  ShieldCheck,
+  Truck,
+} from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -81,6 +90,18 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
       { icon: Contact, label: "Address Book", path: "/address-book" },
       { icon: Ship, label: "Vessels", path: "/vessels" },
       { icon: ScrollText, label: "Contracts", path: "/contracts" },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { icon: Briefcase, label: "Ops Dashboard", path: "/ops" },
+      { icon: ClipboardList, label: "Quotations", path: "/ops/quotations" },
+      { icon: FileCheck2, label: "Ops Contracts", path: "/ops/contracts" },
+      { icon: Package, label: "Assets", path: "/ops/assets" },
+      { icon: ShieldCheck, label: "Certificates", path: "/ops/certificates" },
+      { icon: Truck, label: "Orders", path: "/ops/orders" },
+      { icon: RotateCcw, label: "Returns", path: "/ops/returns" },
     ],
   },
   {
