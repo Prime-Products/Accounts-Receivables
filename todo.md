@@ -1870,3 +1870,14 @@ destination of the record is group-level.
 - [x] Note appears immediately in the timeline after saving, without reopening the window
 - [x] Allow editing/deleting a note straight from its timeline entry
 - [x] Tests for the composer wiring and note edit/delete from the timeline
+
+## Remittance type labels must be Cheque / Transfer / Credit Card (user request 3/8)
+- [x] Transaction rows show "Transfer" instead of the generic "Payment" badge
+- [x] Use Cheque / Transfer / Credit Card consistently on the Remittances page, filters and dialogs
+- [x] Legacy rows without a method still read as Transfer
+- [x] Tests for the label set
+
+## Bug: a note added from the Communication window shows twice in the timeline (3/8)
+- [x] Find the duplicate source ("Note added" activity log + the note row itself)
+- [x] Keep a single timeline entry per note (the editable one)
+- [x] Regression test so one note produces one timeline entry

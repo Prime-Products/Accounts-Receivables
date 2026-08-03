@@ -26,6 +26,12 @@ import { Fragment } from "react";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens, matchScore } from "@shared/textMatch";
+import {
+  DEFAULT_REMITTANCE_METHOD,
+  REMITTANCE_METHODS,
+  normalizeRemittanceMethod,
+  type RemittanceMethod,
+} from "@shared/remittanceMethods";
 import { fmtDate, fmtCur } from "@/lib/format";
 import { toast } from "sonner";
 import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDialog";
@@ -36,16 +42,16 @@ const CURRENCIES = ["EUR", "USD", "AED", "SGD", "GBP", "NOK", "JPY"];
  * How the customer remitted the money. Kept in one place so the create form, the
  * filter and the table badges cannot drift apart.
  */
-const METHODS = ["Wire transfer", "Cheque", "Credit card"] as const;
-type Method = (typeof METHODS)[number];
+const METHODS = REMITTANCE_METHODS;
+type Method = RemittanceMethod;
 const METHOD_STYLES: Record<Method, string> = {
-  "Wire transfer": "bg-sky-50 text-sky-700 border-sky-200",
+  Transfer: "bg-sky-50 text-sky-700 border-sky-200",
   Cheque: "bg-amber-50 text-amber-800 border-amber-200",
-  "Credit card": "bg-violet-50 text-violet-700 border-violet-200",
+  "Credit Card": "bg-violet-50 text-violet-700 border-violet-200",
 };
 /** Compact badge used in the remittances table and on allocation rows. */
 function MethodBadge({ method }: { method?: string | null }) {
-  const m = (METHODS as readonly string[]).includes(method ?? "") ? (method as Method) : "Wire transfer";
+  const m = normalizeRemittanceMethod(method);
   return (
     <span className={cn("inline-block rounded border px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap", METHOD_STYLES[m])}>
       {m}
@@ -279,7 +285,7 @@ export default function WireTransfersPage() {
       if (branchFilter !== "all" && t.branch !== branchFilter) return false;
       // Internal inter-office movements carry no customer instrument, so a method
       // filter is a customer-money filter and excludes them.
-      if (methodFilter !== "all" && ((t.method ?? "Wire transfer") !== methodFilter || t.isInternal)) return false;
+      if (methodFilter !== "all" && (normalizeRemittanceMethod(t.method) !== methodFilter || t.isInternal)) return false;
       if (!showInternal && t.isInternal) return false;
       if (allocationFilter !== "all") {
         // Allocation state only meaningful for received customer transfers
@@ -737,7 +743,7 @@ function CreateWireTransferForm({
   const [currency, setCurrency] = useState("EUR");
   const [branch, setBranch] = useState("none");
   /** Bank wire is the common case, so it is the default instrument. */
-  const [method, setMethod] = useState<Method>("Wire transfer");
+  const [method, setMethod] = useState<Method>(DEFAULT_REMITTANCE_METHOD);
   const [transferDate, setTransferDate] = useState(new Date().toISOString().split("T")[0]);
   const [status, setStatus] = useState<"Pending" | "Received">("Pending");
   const [referenceNumber, setReferenceNumber] = useState("");
@@ -884,7 +890,7 @@ function CreateWireTransferForm({
           placeholder={
             method === "Cheque"
               ? "Cheque number"
-              : method === "Credit card"
+              : method === "Credit Card"
                 ? "Card authorisation / transaction ID"
                 : "Bank reference or transaction ID"
           }
@@ -926,7 +932,7 @@ function UpdateWireTransferDialog({
   const [newStatus, setNewStatus] = useState(transfer.status);
   const [newBranch, setNewBranch] = useState(transfer.branch || "none");
   const [newMethod, setNewMethod] = useState<Method>(
-    (METHODS as readonly string[]).includes(transfer.method ?? "") ? (transfer.method as Method) : "Wire transfer",
+    normalizeRemittanceMethod(transfer.method),
   );
   const [isOpen, setIsOpen] = useState(false);
 

@@ -13,6 +13,7 @@ import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDia
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { invoiceDisplayStatus } from "@/lib/invoiceFilters";
 import { trpc } from "@/lib/trpc";
+import { normalizeRemittanceMethod } from "@shared/remittanceMethods";
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, HelpCircle, Link2, Ship, Undo2, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -63,7 +64,7 @@ export interface OpenTransferRow {
   currency: string;
   transferDate: number;
   status: "Pending" | "Received";
-  /** Instrument the money arrived on: Wire transfer, Cheque or Credit card. */
+  /** Instrument the money arrived on: Transfer, Cheque or Credit Card. */
   method?: string | null;
   referenceNumber: string | null;
   branch: string | null;
@@ -306,7 +307,7 @@ function PaymentRow({
       <TableCell className="font-mono text-xs whitespace-nowrap">
         <span
           className="inline-flex items-center gap-1"
-          title={`${t.method ?? "Wire transfer"}${t.referenceNumber ? ` · ref. ${t.referenceNumber}` : " on account"}`}
+          title={`${normalizeRemittanceMethod(t.method)}${t.referenceNumber ? ` · ref. ${t.referenceNumber}` : " on account"}`}
         >
           <Banknote className={`h-3.5 w-3.5 shrink-0 ${settled ? "text-muted-foreground" : "text-emerald-600"}`} aria-label="Payment" role="img" />
           {t.referenceNumber ?? "—"}
@@ -336,8 +337,8 @@ function PaymentRow({
             variant="outline"
             className={settled ? "bg-muted text-muted-foreground border-border" : "bg-emerald-50 text-emerald-700 border-emerald-200"}
           >
-            {/* Name the instrument: a cheque behaves differently from a bank wire. */}
-            {t.method === "Cheque" ? "Cheque" : t.method === "Credit card" ? "Card" : "Payment"}
+            {/* Name the instrument: a cheque behaves differently from a bank transfer. */}
+            {normalizeRemittanceMethod(t.method)}
           </Badge>
           {t.status === "Pending" && (
             <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
