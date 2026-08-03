@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import { scrollPageToTop } from "@/lib/scrollToTop";
 import { normalizeRemittanceMethod } from "@shared/remittanceMethods";
 import { ArrowLeftRight, Banknote, Building2, FileText, ListChecks, Loader2, Mail, Search, Ship, StickyNote, Users, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -55,6 +56,7 @@ export default function GlobalSearch() {
     setOpen(false);
     setQuery("");
     navigate(path);
+    scrollPageToTop();
   };
 
   const hasResults =

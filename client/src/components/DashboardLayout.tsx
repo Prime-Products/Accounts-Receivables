@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/sidebar";
 import GlobalSearch from "@/components/GlobalSearch";
 import { trpc } from "@/lib/trpc";
+import { scrollPageToTop } from "@/lib/scrollToTop";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
@@ -202,7 +203,7 @@ function DashboardLayoutContent({
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
-  const { state, toggleSidebar } = useSidebar();
+  const { state, toggleSidebar, isMobile: sidebarIsMobile, setOpenMobile } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -339,11 +340,23 @@ function DashboardLayoutContent({
                 >
                   {section.items.map(item => {
                     const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
+                    /*
+                     * A menu click always takes you to the top of the page. Deep in a
+                     * 5,000-row invoice list the fastest way back to the filters is the
+                     * menu entry you are already on, so clicking the active item must
+                     * scroll up instead of doing nothing. On a different route we still
+                     * reset the scroll, because wouter keeps the window position.
+                     */
+                    const handleClick = () => {
+                      if (!isActive) setLocation(item.path);
+                      if (sidebarIsMobile) setOpenMobile(false);
+                      scrollPageToTop();
+                    };
                     return (
                       <SidebarMenuItem key={item.path}>
                         <SidebarMenuButton
                           isActive={isActive}
-                          onClick={() => setLocation(item.path)}
+                          onClick={handleClick}
                           tooltip={item.label}
                           className={`h-10 transition-all font-normal`}
                         >
