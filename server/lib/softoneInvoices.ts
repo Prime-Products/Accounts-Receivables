@@ -8,12 +8,15 @@ import {
 } from "./softoneSql";
 
 const MAX_OPEN_INVOICES = 50_000;
+const MAX_PAID_INVOICES = 50_000;
 // Keep each ODBC result set deliberately small. Some SoftOne documents expand
 // to many FINPAYTERMS rows and msnodesqlv8 can otherwise fail while fetching a
 // large page with HY010 (Function sequence error). Pagination remains keyed by
 // FINDOC, so reducing this value changes only the number of read-only queries.
 const SOFTONE_INVOICE_PAGE_SIZE = 25;
 const MAX_SOFTONE_INVOICE_PAGES = 500;
+const SOFTONE_PAID_INVOICE_PAGE_SIZE = 25;
+const MAX_SOFTONE_PAID_INVOICE_PAGES = 2_000;
 const SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE = 250;
 const SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE = 250;
 const SOFTONE_INSTALLMENT_LOOKUP_BATCH_SIZE = 250;
@@ -86,6 +89,83 @@ ORDER BY FP.[FINDOC], FP.[TRDR]`;
 
 export const softOneOpenInvoiceFinancialsQuery =
   buildSoftOneOpenInvoiceFinancialsQuery(0);
+
+function paidInvoiceYear() {
+  const year = Number(process.env.SOFTONE_SQL_PAID_INVOICE_YEAR ?? "2026");
+  if (!Number.isSafeInteger(year) || year < 2000 || year > 2100) {
+    throw new Error("Invalid SoftOne paid invoice year.");
+  }
+  return year;
+}
+
+/**
+ * Closed customer documents supplied by the SoftOne OpenItem report.
+ *
+ * PAYDEMANDMD=-2 is the report's settled side. The query is intentionally
+ * numeric/fixed-width because the production unixODBC driver is unstable when
+ * large result sets mix variable text and numeric values. Document, company
+ * and currency names are resolved afterwards in small, fresh connections.
+ */
+export function buildSoftOnePaidInvoiceFinancialsQuery(
+  afterFinpayterms: number,
+  year = 2026,
+) {
+  if (!Number.isSafeInteger(afterFinpayterms) || afterFinpayterms < 0) {
+    throw new Error("Invalid SoftOne paid invoice page cursor.");
+  }
+  if (!Number.isSafeInteger(year) || year < 2000 || year > 2100) {
+    throw new Error("Invalid SoftOne paid invoice year.");
+  }
+  const start = `${year}0101`;
+  const end = `${year + 1}0101`;
+  return `WITH term_page AS (
+  SELECT TOP (${SOFTONE_PAID_INVOICE_PAGE_SIZE})
+    paid_page.[FINPAYTERMS]
+  FROM [dbo].[CCCVOBFINPAY] AS paid_page
+  INNER JOIN [dbo].[FINDOC] AS document_page
+    ON document_page.[FINDOC] = paid_page.[FINDOC]
+  WHERE paid_page.[COMPANY] IN (1, 2, 3, 5, 6, 7, 8)
+    AND paid_page.[PAYDEMANDMD] = -2
+    AND document_page.[SOSOURCE] IN (1313, 1312, 1381, 1413)
+    AND document_page.[ISCANCEL] = 0
+    AND document_page.[TRNDATE] >= '${start}'
+    AND document_page.[TRNDATE] < '${end}'
+    AND document_page.[FINCODE] NOT LIKE N'%ΠΦΠ%'
+    AND ABS(COALESCE(paid_page.[OPNTAMNT], 0)) <= 0.005
+    AND ${eligibleReceivablesCustomer("PAID_CUSTOMER_PAGE", "paid_page.[TRDR]")}
+    AND paid_page.[FINPAYTERMS] > ${afterFinpayterms}
+  ORDER BY paid_page.[FINPAYTERMS]
+)
+SELECT
+  CAST(paid.[FINPAYTERMS] AS bigint) AS [FINPAYTERMS],
+  CAST(paid.[FINDOC] AS bigint) AS [FINDOC],
+  CAST(paid.[TRDR] AS bigint) AS [TRDR],
+  CAST(document.[COMPANY] AS int) AS [COMPANY],
+  ${softOneInvoiceVesselSelect.replaceAll("FIN.", "document.")} AS [VESSEL_ID],
+  CAST(document.[SOCURRENCY] AS int) AS [SOCURRENCY],
+  CAST(CONVERT(char(8), document.[TRNDATE], 112) AS int) AS [ISSUE_DATE],
+  CAST(CONVERT(char(8), COALESCE(paid.[FINALDATE], document.[TRNDATE]), 112) AS int) AS [DUE_DATE],
+  ABS(CAST(COALESCE(paid.[TAMNT], 0) AS float)) AS [AMOUNT_PART],
+  ABS(CAST(COALESCE(paid.[OPNTAMNT], 0) AS float)) AS [OPEN_AMOUNT_PART]
+FROM [dbo].[CCCVOBFINPAY] AS paid
+INNER JOIN [dbo].[FINDOC] AS document
+  ON document.[FINDOC] = paid.[FINDOC]
+INNER JOIN term_page AS page
+  ON page.[FINPAYTERMS] = paid.[FINPAYTERMS]
+WHERE paid.[COMPANY] IN (1, 2, 3, 5, 6, 7, 8)
+  AND paid.[PAYDEMANDMD] = -2
+  AND document.[SOSOURCE] IN (1313, 1312, 1381, 1413)
+  AND document.[ISCANCEL] = 0
+  AND document.[TRNDATE] >= '${start}'
+  AND document.[TRNDATE] < '${end}'
+  AND document.[FINCODE] NOT LIKE N'%ΠΦΠ%'
+  AND ABS(COALESCE(paid.[OPNTAMNT], 0)) <= 0.005
+  AND ${eligibleReceivablesCustomer("PAID_CUSTOMER", "paid.[TRDR]")}
+ORDER BY paid.[FINPAYTERMS]`;
+}
+
+export const softOnePaidInvoiceFinancialsQuery =
+  buildSoftOnePaidInvoiceFinancialsQuery(0, 2026);
 
 export const softOneOpenInvoiceAmountSummaryQuery = `WITH source AS (
   SELECT
@@ -333,6 +413,71 @@ export function aggregateSoftOneOpenInvoiceParts(rows: SourceRow[]) {
   });
 }
 
+export function aggregateSoftOnePaidInvoiceParts(rows: SourceRow[]) {
+  const terms = new Set<string>();
+  const grouped = new Map<string, SourceRow>();
+  for (const row of rows) {
+    const term = identity(row, "FINPAYTERMS");
+    if (terms.has(term)) {
+      throw new Error(`SoftOne returned duplicate paid FINPAYTERMS ${term}.`);
+    }
+    terms.add(term);
+    const findoc = identity(row, "FINDOC");
+    const trdr = identity(row, "TRDR");
+    const key = `${findoc}:${trdr}`;
+    const amountPart = numberValue(row, "AMOUNT_PART");
+    const openPart = numberValue(row, "OPEN_AMOUNT_PART");
+    if (openPart > 0.005) {
+      throw new Error(`SoftOne paid FINDOC ${findoc} still has an open amount.`);
+    }
+    const dueDate = numberValue(row, "DUE_DATE");
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, {
+        FINDOC: row.FINDOC,
+        TRDR: row.TRDR,
+        COMPANY: row.COMPANY,
+        VESSEL_ID: row.VESSEL_ID,
+        SOCURRENCY: row.SOCURRENCY,
+        ISSUE_DATE: row.ISSUE_DATE,
+        DUE_DATE: dueDate,
+        PAID_AMOUNT: amountPart,
+      });
+      continue;
+    }
+    for (const field of ["COMPANY", "SOCURRENCY", "ISSUE_DATE"]) {
+      if (identity(existing, field) !== identity(row, field)) {
+        throw new Error(`SoftOne paid FINDOC ${findoc} has inconsistent ${field}.`);
+      }
+    }
+    if (String(existing.VESSEL_ID ?? "") !== String(row.VESSEL_ID ?? "")) {
+      throw new Error(`SoftOne paid FINDOC ${findoc} has inconsistent VESSEL_ID.`);
+    }
+    existing.DUE_DATE = Math.max(numberValue(existing, "DUE_DATE"), dueDate);
+    existing.PAID_AMOUNT = numberValue(existing, "PAID_AMOUNT") + amountPart;
+  }
+  const paidRows = Array.from(grouped.values()).filter(
+    row => numberValue(row, "PAID_AMOUNT") > 0.005,
+  );
+  const rowsPerDocument = new Map<string, number>();
+  for (const row of paidRows) {
+    const findoc = identity(row, "FINDOC");
+    rowsPerDocument.set(findoc, (rowsPerDocument.get(findoc) ?? 0) + 1);
+  }
+  const firstCustomerPerDocument = new Set<string>();
+  return paidRows.map(row => {
+    const findoc = identity(row, "FINDOC");
+    const trdr = identity(row, "TRDR");
+    const hasMultipleCustomers = (rowsPerDocument.get(findoc) ?? 0) > 1;
+    const retainLegacyId = !hasMultipleCustomers || !firstCustomerPerDocument.has(findoc);
+    firstCustomerPerDocument.add(findoc);
+    return {
+      ...row,
+      SOFTONE_ID: retainLegacyId ? findoc : `${findoc}:${trdr}`,
+    };
+  });
+}
+
 function dateKeyToUtc(value: unknown, field: string) {
   const text = String(value ?? "").trim();
   if (!/^\d{8}$/.test(text)) {
@@ -426,6 +571,53 @@ export function normalizeSoftOneOpenInvoiceRows(
   });
 }
 
+export function normalizeSoftOnePaidInvoiceRows(
+  rows: SourceRow[],
+  documents: Map<string, string>,
+  companies: Map<string, string>,
+  currencies: Map<string, string>,
+) {
+  if (rows.length === 0) throw new Error("SoftOne returned no paid invoices.");
+  if (rows.length > MAX_PAID_INVOICES) {
+    throw new Error("SoftOne paid invoice row limit exceeded.");
+  }
+  const identifiers = new Set<string>();
+  return rows.map(row => {
+    const findoc = identity(row, "FINDOC");
+    const softoneId = identity(row, "SOFTONE_ID");
+    if (identifiers.has(softoneId)) {
+      throw new Error("SoftOne returned duplicate paid FINDOC.");
+    }
+    identifiers.add(softoneId);
+    const invoiceNumber = documents.get(findoc);
+    const company = companies.get(identity(row, "COMPANY"));
+    const currencyName = currencies.get(identity(row, "SOCURRENCY"));
+    if (!invoiceNumber) throw new Error(`SoftOne paid FINDOC ${findoc} has no document number.`);
+    if (invoiceNumber.toLocaleUpperCase("el-GR").includes("ΠΦΠ")) {
+      throw new Error(`SoftOne paid FINDOC ${findoc} is an excluded ΠΦΠ document.`);
+    }
+    if (!company) throw new Error(`SoftOne paid FINDOC ${findoc} has no company mapping.`);
+    if (!currencyName) throw new Error(`SoftOne paid FINDOC ${findoc} has no currency mapping.`);
+    const amount = Math.round(numberValue(row, "PAID_AMOUNT") * 100) / 100;
+    if (amount <= 0) throw new Error(`SoftOne paid FINDOC ${findoc} has invalid amount.`);
+    const currency = normalizeSoftOneCurrencyName(currencyName);
+    return {
+      customerSoftoneId: identity(row, "TRDR"),
+      invoiceNumber,
+      company,
+      currency,
+      amountEur: toEur(amount, currency).toFixed(2),
+      issueDate: dateKeyToUtc(row.ISSUE_DATE, "ISSUE_DATE"),
+      dueDate: dateKeyToUtc(row.DUE_DATE, "DUE_DATE"),
+      amount: amount.toFixed(2),
+      paidAmount: amount.toFixed(2),
+      status: "Paid",
+      vesselId: Number(row.VESSEL_ID) > 0 ? Number(row.VESSEL_ID) : null,
+      softoneId,
+    } satisfies SoftOneInvoiceUpsert;
+  });
+}
+
 async function queryMaps(
   rows: SourceRow[],
   setStage: (stage: string) => void,
@@ -509,6 +701,38 @@ async function querySoftOneOpenInvoiceSource(
   throw new Error("SoftOne invoice page limit exceeded.");
 }
 
+async function querySoftOnePaidInvoiceSource(
+  setStage: (stage: string) => void = () => undefined,
+) {
+  const records: SourceRow[] = [];
+  let afterFinpayterms = 0;
+  const year = paidInvoiceYear();
+  for (let page = 0; page < MAX_SOFTONE_PAID_INVOICE_PAGES; page += 1) {
+    setStage(
+      `query paid invoice source page ${page + 1} after FINPAYTERMS ${afterFinpayterms}`,
+    );
+    const result = await querySoftOneWithFreshPool<SourceRow>(
+      buildSoftOnePaidInvoiceFinancialsQuery(afterFinpayterms, year),
+      `paid invoice source page ${page + 1} after FINPAYTERMS ${afterFinpayterms}`,
+    );
+    if (result.recordset.length === 0) return records;
+    records.push(...result.recordset);
+    if (records.length > MAX_PAID_INVOICES) {
+      throw new Error("SoftOne paid invoice row limit exceeded.");
+    }
+    const pageTerms = Array.from(
+      new Set(result.recordset.map(row => numberValue(row, "FINPAYTERMS"))),
+    ).sort((left, right) => left - right);
+    const nextCursor = pageTerms.at(-1);
+    if (nextCursor === undefined || nextCursor <= afterFinpayterms) {
+      throw new Error("SoftOne paid invoice pagination did not advance.");
+    }
+    afterFinpayterms = nextCursor;
+    if (pageTerms.length < SOFTONE_PAID_INVOICE_PAGE_SIZE) return records;
+  }
+  throw new Error("SoftOne paid invoice page limit exceeded.");
+}
+
 async function loadSoftOneOpenInvoices(
   setStage: (stage: string) => void,
 ) {
@@ -577,6 +801,19 @@ async function loadSoftOneOpenInvoices(
       vesselAllocations,
     };
   });
+}
+
+async function loadSoftOnePaidInvoices(setStage: (stage: string) => void) {
+  const sourceRows = await querySoftOnePaidInvoiceSource(setStage);
+  const rows = aggregateSoftOnePaidInvoiceParts(sourceRows);
+  if (rows.length === 0) throw new Error("SoftOne returned no paid invoice candidates.");
+  const maps = await queryMaps(rows, setStage);
+  return normalizeSoftOnePaidInvoiceRows(
+    rows,
+    maps.documents,
+    maps.companies,
+    maps.currencies,
+  );
 }
 
 async function ensureInvoiceCustomers(
@@ -744,4 +981,73 @@ export async function syncSoftOneOpenInvoices() {
   } catch (error) {
     throw new Error(softOneSqlError(error, stage));
   }
+}
+
+export async function inspectSoftOnePaidInvoices() {
+  if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
+  let stage = "connect";
+  try {
+    const records = await loadSoftOnePaidInvoices(stageName => {
+      stage = stageName;
+    });
+    const counts = new Map<string, number>();
+    for (const record of records) {
+      const key = `${record.company} | ${record.currency}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return {
+      year: paidInvoiceYear(),
+      total: records.length,
+      amount: records.reduce((sum, record) => sum + Number(record.amount), 0),
+      breakdown: Array.from(counts.entries())
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, count]) => ({ key, count })),
+      preview: records.slice(0, 20),
+    };
+  } catch (error) {
+    throw new Error(softOneSqlError(error, stage));
+  }
+}
+
+export async function syncSoftOnePaidInvoices() {
+  if (process.env.SOFTONE_SQL_PAID_INVOICE_SYNC_ENABLED !== "true") {
+    throw new Error("SoftOne SQL paid invoice synchronization is disabled.");
+  }
+  if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
+  let stage = "connect";
+  try {
+    stage = "query and normalize paid invoices";
+    const records = await loadSoftOnePaidInvoices(stageName => {
+      stage = stageName;
+    });
+    stage = "resolve paid invoice customers";
+    const insertedCustomers = await ensureInvoiceCustomers(records);
+    stage = "upsert MariaDB paid invoices";
+    await db.upsertSoftOneInvoices(records);
+    await db.addSyncLog({
+      direction: "Pull",
+      entityType: "paid-invoices",
+      recordCount: records.length,
+      status: "Success",
+      message: `Read-only SQL sync upserted ${records.length} paid invoices for ${paidInvoiceYear()}`,
+    });
+    return { synced: records.length, insertedCustomers, year: paidInvoiceYear() };
+  } catch (error) {
+    throw new Error(softOneSqlError(error, stage));
+  }
+}
+
+/** Existing scheduled/manual invoice sync, optionally extended with paid rows. */
+export async function syncSoftOneInvoices() {
+  const open = await syncSoftOneOpenInvoices();
+  const paid = process.env.SOFTONE_SQL_PAID_INVOICE_SYNC_ENABLED === "true"
+    ? await syncSoftOnePaidInvoices()
+    : { synced: 0, insertedCustomers: 0, year: paidInvoiceYear() };
+  return {
+    synced: open.synced + paid.synced,
+    insertedCustomers: open.insertedCustomers + paid.insertedCustomers,
+    openSynced: open.synced,
+    paidSynced: paid.synced,
+    paidYear: paid.year,
+  };
 }
