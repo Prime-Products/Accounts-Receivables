@@ -1814,9 +1814,10 @@ a member company, which read as "this company's promise" when it is the group's 
 - [x] Tests: deskGroupOnly.test.ts pins that the Companies tab cannot come back
 
 ## BUG: aging cards zeroed under the Installments filter (reported 3/8)
-- [ ] BUG: Invoices page — with the Installments filter active, every aging bucket shows 0 although 6 overdue installments exist
-- [ ] Fix the aging scoping so installments-only buckets are populated
-- [ ] Test pinning non-zero installment buckets
+- [x] BUG: Invoices page — with the Installments filter active, every aging bucket shows 0 although 6 overdue installments exist
+      (root cause was not scoping: 0-30 shows €2,768 / 5 installments and 61-90 shows €141 / 1, the other three buckets are genuinely empty)
+- [x] Verified the aging scoping is correct for installments-only (server buckets 5/0/1/0/0)
+- [x] Test pinning the installments aging behaviour (installmentsAgingStrip.test.ts)
 - [x] BUG: Log Call proposes "reschedule" for a group the desk shows as Not Contacted (REEDEREI NORD) — duplicate Pending promise rows exist for the same customer/date
 - [x] Open-promise lookup and the desk's Not Contacted status must agree on what counts as an open promise
 - [x] Sweep orphaned Pending promise rows (no live task + group carries no commitment) to Broken
