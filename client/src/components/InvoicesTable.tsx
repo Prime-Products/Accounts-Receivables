@@ -49,9 +49,9 @@ export interface InvoiceRowData {
  * customer's account statement reads.
  */
 /**
- * A customer wire transfer as shown inside the transactions list. Fully matched
- * transfers stay in the list with `settled: true` so the group card is a complete
- * record of the money received.
+ * A customer remittance (bank wire, cheque or card payment) as shown inside the
+ * transactions list. Fully matched remittances stay in the list with
+ * `settled: true` so the group card is a complete record of the money received.
  */
 export interface OpenTransferRow {
   id: number;
@@ -63,6 +63,8 @@ export interface OpenTransferRow {
   currency: string;
   transferDate: number;
   status: "Pending" | "Received";
+  /** Instrument the money arrived on: Wire transfer, Cheque or Credit card. */
+  method?: string | null;
   referenceNumber: string | null;
   branch: string | null;
   notes: string | null;
@@ -88,7 +90,7 @@ export interface CreditNoteRowData {
 
 /**
  * A row of the transactions list: an invoice, an open credit note or a payment
- * (wire transfer). All three are ordered together by issue date, the way an
+ * (remittance). All three are ordered together by issue date, the way an
  * account statement reads.
  */
 type TxRow =
@@ -276,12 +278,12 @@ function CreditNoteRow({
 }
 
 /**
- * One payment (wire transfer) line inside the transactions list. EVERY customer
+ * One payment (remittance) line inside the transactions list. EVERY customer
  * payment appears here, including ones already matched in full: those show a
  * "Matched" badge, a zero remainder and no Allocate button, so the collector can
  * always answer "what happened to that money?". Amounts are shown negative
  * because a payment reduces what the customer owes, and any remainder can be
- * matched straight from this row with the same dialog the Wire Transfers page uses.
+ * matched straight from this row with the same dialog the Remittances page uses.
  */
 function PaymentRow({
   t,
@@ -302,7 +304,10 @@ function PaymentRow({
       {enableSelection && <TableCell className="w-8" />}
       <TableCell className="text-xs whitespace-nowrap" title="Date the payment was received">{fmtDate(t.transferDate)}</TableCell>
       <TableCell className="font-mono text-xs whitespace-nowrap">
-        <span className="inline-flex items-center gap-1" title={t.referenceNumber ? `Payment ref. ${t.referenceNumber}` : "Payment on account"}>
+        <span
+          className="inline-flex items-center gap-1"
+          title={`${t.method ?? "Wire transfer"}${t.referenceNumber ? ` · ref. ${t.referenceNumber}` : " on account"}`}
+        >
           <Banknote className={`h-3.5 w-3.5 shrink-0 ${settled ? "text-muted-foreground" : "text-emerald-600"}`} aria-label="Payment" role="img" />
           {t.referenceNumber ?? "—"}
         </span>
@@ -331,7 +336,8 @@ function PaymentRow({
             variant="outline"
             className={settled ? "bg-muted text-muted-foreground border-border" : "bg-emerald-50 text-emerald-700 border-emerald-200"}
           >
-            Payment
+            {/* Name the instrument: a cheque behaves differently from a bank wire. */}
+            {t.method === "Cheque" ? "Cheque" : t.method === "Credit card" ? "Card" : "Payment"}
           </Badge>
           {t.status === "Pending" && (
             <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
@@ -355,6 +361,7 @@ function PaymentRow({
                 currency: t.currency,
                 status: t.status,
                 allocatedAmount: t.allocated,
+                method: t.method ?? null,
               }}
               trigger={
                 <Button
@@ -401,7 +408,7 @@ export function InvoicesTable({
   rows: InvoiceRowData[];
   /** Open credit notes to merge into the same list (ordered by issue date). */
   creditNotes?: CreditNoteRowData[];
-  /** Payments (wire transfers with an unallocated remainder) to merge into the list. */
+  /** Payments (customer remittances, matched ones included) to merge into the list. */
   transfers?: OpenTransferRow[];
   /** Show the Customer column (hidden on the single-customer card). */
   showCustomer?: boolean;

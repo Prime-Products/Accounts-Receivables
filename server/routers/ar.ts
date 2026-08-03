@@ -463,6 +463,9 @@ async function listGroupWireTransfers(customerIds: Set<number>, customerNames: M
         currency: t.currency ?? "EUR",
         transferDate: t.transferDate,
         status: t.status,
+        // Wire transfer / Cheque / Credit card — the collector needs to know
+        // which instrument the money arrived on, not just that it arrived.
+        method: (t as any).method ?? "Wire transfer",
         referenceNumber: t.referenceNumber ?? null,
         branch: t.branch ?? null,
         notes: t.notes ?? null,
@@ -2171,6 +2174,9 @@ export const customersRouter = router({
         currency: z.string().default("EUR"),
         transferDate: z.number(),
         branch: z.string().optional().nullable(),
+        // How the customer remitted the money. Bank wire is the common case, so
+        // it stays the default for existing callers and ERP imports.
+        method: z.enum(["Wire transfer", "Cheque", "Credit card"]).default("Wire transfer"),
         status: z.enum(["Pending", "Received"]).default("Pending"),
         receivedDate: z.number().optional().nullable(),
         referenceNumber: z.string().optional().nullable(),
@@ -2182,7 +2188,13 @@ export const customersRouter = router({
         ...input,
         createdBy: ctx.user.id,
       });
-      await audit(ctx, "Create Wire Transfer", "customer", input.customerId, `${input.currency ?? "EUR"} ${input.amount}${input.branch ? ` @ ${input.branch}` : ""}`);
+      await audit(
+        ctx,
+        "Create Remittance",
+        "customer",
+        input.customerId,
+        `${input.method ?? "Wire transfer"} · ${input.currency ?? "EUR"} ${input.amount}${input.branch ? ` @ ${input.branch}` : ""}`,
+      );
       return { id, success: true };
     }),
 
@@ -2192,6 +2204,7 @@ export const customersRouter = router({
         id: z.number(),
         customerId: z.number(),
         branch: z.string().optional().nullable(),
+        method: z.enum(["Wire transfer", "Cheque", "Credit card"]).optional(),
         status: z.enum(["Pending", "Received"]).optional(),
         receivedDate: z.number().optional().nullable(),
         referenceNumber: z.string().optional().nullable(),
@@ -2201,7 +2214,7 @@ export const customersRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, customerId, ...data } = input;
       await db.updateWireTransfer(id, { ...data, updatedBy: ctx.user.id });
-      await audit(ctx, "Update Wire Transfer", "customer", customerId);
+      await audit(ctx, "Update Remittance", "customer", customerId);
       return { success: true };
     }),
 

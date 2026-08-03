@@ -67,7 +67,8 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
     items: [
       { icon: Users, label: "Collections Desk", path: "/customers" },
       { icon: FileText, label: "Invoices", path: "/invoices" },
-      { icon: Banknote, label: "Wire Transfers", path: "/wire-transfers" },
+      // "Remittances" covers every instrument the customer pays with: bank wire, cheque, credit card.
+      { icon: Banknote, label: "Remittances", path: "/remittances" },
       // Tasks are part of the daily chase (follow-ups, promises, help requests),
       // so they belong next to the desk rather than under Management.
       { icon: ListChecks, label: "Tasks", path: "/tasks" },

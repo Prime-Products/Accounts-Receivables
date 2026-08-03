@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 
 /**
- * A wire transfer is read chronologically ("what came in, when"), so the Date
- * column leads the table on the Wire Transfers page.
+ * A remittance is read chronologically ("what came in, when"), so the Date
+ * column leads the table on the Remittances page.
  */
-describe("wire transfers table column order", () => {
+describe("remittances table column order", () => {
   const src = readFileSync(new URL("../client/src/pages/WireTransfersPage.tsx", import.meta.url), "utf8");
 
   it("puts Date before Customer in the header definition", () => {
@@ -22,7 +22,9 @@ describe("wire transfers table column order", () => {
   });
 
   it("keeps the stored column widths in the same order as the header", () => {
-    const widths = src.slice(src.indexOf('useResizableColumns("wire-transfers-page"'), src.indexOf("actions: 170"));
+    const widths = src.slice(src.indexOf('useResizableColumns("remittances-page"'), src.indexOf("actions: 170"));
     expect(widths.indexOf("date: 120")).toBeLessThan(widths.indexOf("customer: 280"));
+    // Method sits next to Branch, after the customer name.
+    expect(widths.indexOf("customer: 280")).toBeLessThan(widths.indexOf("method: 120"));
   });
 });

@@ -75,7 +75,9 @@ function Router() {
             directly on the Collections Desk, so old links land there.
           */}
           <Route path={"/call-back"}>{() => <Redirect to="/customers" />}</Route>
-          <Route path={"/wire-transfers"} component={WireTransfersPage} />
+          <Route path={"/remittances"} component={WireTransfersPage} />
+          {/* Legacy path: the page was called "Wire Transfers" before it grew cheques and cards. */}
+          <Route path={"/wire-transfers"}>{() => <Redirect to="/remittances" />}</Route>
           {/* Forecast page removed — everything happens on Customers now */}
           <Route path={"/forecast"}>{() => <Redirect to="/customers" />}</Route>
           <Route path={"/reports"} component={Reports} />
