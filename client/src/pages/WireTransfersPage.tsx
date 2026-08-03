@@ -25,11 +25,12 @@ import {
 import { Fragment } from "react";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
+import { matchesAllTokens, matchScore } from "@shared/textMatch";
 import { fmtDate, fmtCur } from "@/lib/format";
 import { toast } from "sonner";
 import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDialog";
 
-type Company = { id: number; name: string };
+type Company = { id: number; name: string; code?: string | null; group?: string | null };
 const CURRENCIES = ["EUR", "USD", "AED", "SGD", "GBP", "NOK", "JPY"];
 /**
  * How the customer remitted the money. Kept in one place so the create form, the
@@ -110,7 +111,17 @@ function CancelAllocationButton({
   );
 }
 
-/** Searchable customer combobox for large customer lists. */
+/**
+ * Searchable customer combobox.
+ *
+ * The directory holds thousands of companies, so cmdk's built-in filtering is
+ * switched off (`shouldFilter={false}`): it only scores the items it has mounted,
+ * which silently hid anything past the first few hundred rows — typing "mage"
+ * found nothing even though MAGE SHIPPING LIMITED exists. Filtering happens here
+ * over the full list with the same matcher the rest of the app uses (accents,
+ * Greek/Latin spellings, any word order), and only the top hits are rendered so
+ * the popover stays fast.
+ */
 function CustomerCombobox({
   companies,
   value,
@@ -125,13 +136,40 @@ function CustomerCombobox({
   allowAll?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const selectedLabel =
     value === "all"
       ? "All customers"
       : companies.find(c => String(c.id) === value)?.name || placeholder;
 
+  /** Best matches first, capped — 3,400 mounted rows make the popover crawl. */
+  const MAX_VISIBLE = 60;
+  const matches = useMemo(() => {
+    const q = query.trim();
+    if (!q) return companies.slice(0, MAX_VISIBLE);
+    return companies
+      .filter(c => matchesAllTokens(q, [c.name, c.code, c.group]))
+      .sort(
+        (a, b) =>
+          matchScore(q, [b.name, b.code, b.group]) - matchScore(q, [a.name, a.code, a.group]) ||
+          a.name.localeCompare(b.name),
+      )
+      .slice(0, MAX_VISIBLE);
+  }, [companies, query]);
+  const hiddenCount = useMemo(() => {
+    const q = query.trim();
+    const total = q ? companies.filter(c => matchesAllTokens(q, [c.name, c.code, c.group])).length : companies.length;
+    return Math.max(0, total - matches.length);
+  }, [companies, query, matches.length]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={o => {
+        setOpen(o);
+        if (!o) setQuery("");
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -144,9 +182,9 @@ function CustomerCombobox({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[320px] p-0" align="start">
-        <Command>
-          <CommandInput placeholder="Type to search..." />
-          <CommandList>
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Type to search..." value={query} onValueChange={setQuery} />
+          <CommandList className="max-h-72">
             <CommandEmpty>No customer found.</CommandEmpty>
             <CommandGroup>
               {allowAll && (
@@ -155,27 +193,39 @@ function CustomerCombobox({
                   onSelect={() => {
                     onChange("all");
                     setOpen(false);
+                    setQuery("");
                   }}
                 >
                   <Check className={cn("mr-2 h-4 w-4", value === "all" ? "opacity-100" : "opacity-0")} />
                   All customers
                 </CommandItem>
               )}
-              {companies.map(c => (
+              {matches.map(c => (
                 <CommandItem
                   key={c.id}
-                  value={c.name}
+                  value={String(c.id)}
                   onSelect={() => {
                     onChange(String(c.id));
                     setOpen(false);
+                    setQuery("");
                   }}
                 >
                   <Check
                     className={cn("mr-2 h-4 w-4", value === String(c.id) ? "opacity-100" : "opacity-0")}
                   />
-                  <span className="truncate">{c.name}</span>
+                  <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                  {c.group && c.group.trim() && c.group.trim() !== c.name && (
+                    <span className="ml-2 shrink-0 text-xs text-muted-foreground truncate max-w-[90px]">
+                      {c.group}
+                    </span>
+                  )}
                 </CommandItem>
               ))}
+              {hiddenCount > 0 && (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  +{hiddenCount} more — keep typing to narrow down
+                </div>
+              )}
             </CommandGroup>
           </CommandList>
         </Command>

@@ -9,8 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { trpc } from "@/lib/trpc";
+import { matchesAllTokens } from "@shared/textMatch";
 import { ChevronsUpDown, Plus } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 export const TASK_TYPES = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual", "Help"] as const;
@@ -110,6 +111,19 @@ export default function NewTaskDialog({
   const selectedCustomer = (allCustomers ?? []).find(c => c.id === customerId);
   const selectedGroupName = selectedCustomer ? groupKeyOf(selectedCustomer) : null;
 
+  /**
+   * Group search is filtered here, not by cmdk: with hundreds of groups cmdk only
+   * scores the rows it has mounted, so typing a name further down the alphabet
+   * returned "No group found". Same matcher as the rest of the app (accents,
+   * Greek/Latin, any word order), capped so the popover stays responsive.
+   */
+  const [groupQuery, setGroupQuery] = useState("");
+  const visibleGroups = useMemo(() => {
+    const q = groupQuery.trim();
+    const hits = q ? groups.filter(g => matchesAllTokens(q, [g.name])) : groups;
+    return { rows: hits.slice(0, 60), hidden: Math.max(0, hits.length - 60) };
+  }, [groups, groupQuery]);
+
   const create = trpc.tasks.create.useMutation({
     onSuccess: () => {
       toast.success(isHelp ? "Help request sent" : "Task created");
@@ -184,23 +198,29 @@ export default function NewTaskDialog({
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Search group…" />
-                  <CommandList>
+                <Command shouldFilter={false}>
+                  <CommandInput placeholder="Search group…" value={groupQuery} onValueChange={setGroupQuery} />
+                  <CommandList className="max-h-72">
                     <CommandEmpty>No group found.</CommandEmpty>
                     <CommandGroup>
-                      {groups.map(g => (
+                      {visibleGroups.rows.map(g => (
                         <CommandItem
                           key={g.name}
                           value={g.name}
                           onSelect={() => {
                             setCustomerId(g.primaryCustomerId);
                             setCustomerOpen(false);
+                            setGroupQuery("");
                           }}
                         >
                           {g.name}
                         </CommandItem>
                       ))}
+                      {visibleGroups.hidden > 0 && (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                          +{visibleGroups.hidden} more — keep typing to narrow down
+                        </div>
+                      )}
                     </CommandGroup>
                   </CommandList>
                 </Command>

@@ -16,9 +16,10 @@ import {
 import MentionText from "@/components/MentionText";
 import MentionTextarea from "@/components/MentionTextarea";
 import { trpc } from "@/lib/trpc";
+import { matchesAllTokens } from "@shared/textMatch";
 import { fmtPromiseAmountShort } from "@/lib/format";
 import { Building2, CheckCircle2, ChevronsUpDown, Info, Mail, Phone, Plus, User } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 const OUTCOMES = ["Reached", "No Answer"] as const;
@@ -97,6 +98,14 @@ export default function LogCallDialog({
   const { data: openPromise } = trpc.calls.getOpenPromise.useQuery({ group }, { enabled: open });
   // Payment contacts across all companies of the group
   const { data: groupContacts } = trpc.paymentContacts.listByGroup.useQuery({ group }, { enabled: open });
+  const [contactQuery, setContactQuery] = useState("");
+  /** Name, title or email — whatever the collector remembers. */
+  const visibleContacts = useMemo(() => {
+    const rows = groupContacts ?? [];
+    const q = contactQuery.trim();
+    if (!q) return rows;
+    return rows.filter(c => matchesAllTokens(q, [c.name, c.title, c.email]));
+  }, [groupContacts, contactQuery]);
   // Collection notes (call preferences & particularities) — shown as a reminder before logging the call
   const { data: collectionProfile } = trpc.customers.getCollectionProfile.useQuery({ group }, { enabled: open });
   const selectedContact =
@@ -277,7 +286,13 @@ export default function LogCallDialog({
              * title or email) and always sees the text they typed, instead of a
              * native select that swallows keystrokes.
              */}
-            <Popover open={contactPickerOpen} onOpenChange={setContactPickerOpen}>
+            <Popover
+              open={contactPickerOpen}
+              onOpenChange={o => {
+                setContactPickerOpen(o);
+                if (!o) setContactQuery("");
+              }}
+            >
               <PopoverTrigger asChild>
                 <Button
                   type="button"
@@ -293,12 +308,21 @@ export default function LogCallDialog({
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Search contacts…" />
+                {/*
+                 * Filtering happens here rather than inside cmdk: cmdk only scores
+                 * the rows it has mounted, and it does not know that Greek and
+                 * Latin spellings of a name are the same person.
+                 */}
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    placeholder="Search contacts…"
+                    value={contactQuery}
+                    onValueChange={setContactQuery}
+                  />
                   <CommandList>
                     <CommandEmpty>No contact found</CommandEmpty>
                     <CommandGroup>
-                      {groupContacts?.map(c => {
+                      {visibleContacts.map(c => {
                         const isDept = (c as { contactType?: string }).contactType === "Department";
                         return (
                           <CommandItem

@@ -1856,3 +1856,10 @@ destination of the record is group-level.
 - [x] New Remittance form lets the user choose the method, defaulting to Wire transfer
 - [x] Method is visible in the remittances list and on the payment rows of the transactions list
 - [x] Tests: method is persisted, defaulted and surfaced
+
+## Bug: customer search in New Remittance finds nothing (user report 3/8)
+- [x] Reproduce: typing "mage" in the New Remittance customer picker returns "No customer found" although MAGE SHIPPING LIMITED exists
+- [x] Fix the combobox filtering so typing any part of the company name (case-insensitive, also code/group) matches
+- [x] Keep the picker usable with the full customer list (3,409 rows) — filter over the whole list, render top 60 hits
+- [x] Same fix applied to the New Task group picker and the Log Call contact picker
+- [x] Test covering the search filter behaviour

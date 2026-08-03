@@ -18,12 +18,16 @@ describe("Log Call — searchable contact person", () => {
   });
 
   it("shows a visible search input inside the dropdown", () => {
-    expect(block).toContain('<CommandInput placeholder="Search contacts…" />');
+    expect(block).toContain('placeholder="Search contacts…"');
+    // Controlled input: our own filter, not cmdk's, decides what is shown.
+    expect(block).toContain("value={contactQuery}");
+    expect(block).toContain("onValueChange={setContactQuery}");
+    expect(block).toContain("shouldFilter={false}");
     expect(block).toContain("<CommandEmpty>No contact found</CommandEmpty>");
   });
 
   it("searches by name, title and email so any remembered fragment matches", () => {
-    expect(block).toContain("value={`${c.name} ${c.title ?? \"\"} ${c.email ?? \"\"}`}");
+    expect(src).toContain("matchesAllTokens(q, [c.name, c.title, c.email])");
   });
 
   it("keeps the trigger showing the chosen contact, or a placeholder when empty", () => {
