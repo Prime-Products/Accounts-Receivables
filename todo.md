@@ -1896,3 +1896,10 @@ destination of the record is group-level.
 - [x] Keep "Kept" resetting as before (that cycle really is finished)
 - [x] Check every surface reading the status (Collections Desk filter, group card, dashboard counters, timeline) still agrees
 - [x] Tests pinning that a Broken row recorded last month still reads "Did not confirm" this month
+
+## Clicking the active sidebar item scrolls back to the top (user request 3/8)
+- [x] Clicking a sidebar entry for the page you are already on scrolls the page back to the top
+- [x] Works for every sidebar entry (Collections Desk, Invoices, Remittances, Tasks, Address Book, …) on desktop and mobile
+- [x] Navigating to a different page still lands at the top of the new page
+- [x] Test pinning the same-route scroll-to-top behaviour
+- [x] Global search results and the Mentions inbox also land at the top of the target page
