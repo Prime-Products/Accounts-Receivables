@@ -2622,11 +2622,15 @@ export const customersRouter = router({
       return { success: true };
     }),
 
-  /** Lightweight list of all companies (id + name) for dropdowns. */
+  /**
+   * Lightweight list of all companies for dropdowns. Code and group travel with
+   * the name so a picker can be searched the way the user thinks ("dynacom" finds
+   * every member company, an ERP code finds its company).
+   */
   listCompanies: protectedProcedure.query(async () => {
     const customers = await db.listCustomers();
     return customers
-      .map(c => ({ id: c.id, name: c.name }))
+      .map(c => ({ id: c.id, name: c.name, code: c.code ?? null, group: c.customerGroup ?? null }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }),
   /**
