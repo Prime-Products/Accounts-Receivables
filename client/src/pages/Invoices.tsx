@@ -76,7 +76,12 @@ export default function Invoices() {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("view") === "credits";
   });
-  const { data: openCreditNotes } = trpc.invoices.openCreditNotes.useQuery();
+  const { data: creditNotes } = trpc.invoices.creditNotes.useQuery();
+  const openCreditNotes = useMemo(
+    () => (creditNotes ?? []).filter(c => c.creditStatus !== "Used"),
+    [creditNotes],
+  );
+  const [creditStatusFilter, setCreditStatusFilter] = useState("all");
 
   // Receipt dialog
   const [rcOpen, setRcOpen] = useState(false);
@@ -197,12 +202,12 @@ export default function Invoices() {
       [
         search.trim() !== "",
         branchFilter !== "all",
-        statusFilter !== "all",
+        creditView ? creditStatusFilter !== "all" : statusFilter !== "all",
         vesselFilter !== "all",
         contractFilter === "installments",
         bucketFilter !== "all",
       ].filter(Boolean).length,
-    [search, branchFilter, statusFilter, vesselFilter, contractFilter, bucketFilter],
+    [search, branchFilter, statusFilter, creditStatusFilter, creditView, vesselFilter, contractFilter, bucketFilter],
   );
 
   // Incremental rendering: mounting 5000+ table rows freezes the browser for
@@ -232,8 +237,9 @@ export default function Invoices() {
    * invoices only, so they are ignored here instead of emptying the list.
    */
   const filteredCreditNotes = useMemo(() => {
-    const rows = (openCreditNotes ?? []) as any[];
+    const rows = (creditNotes ?? []) as any[];
     return rows.filter(c => {
+      if (creditStatusFilter !== "all" && c.creditStatus !== creditStatusFilter) return false;
       if (branchFilter !== "all" && c.branch !== branchFilter) return false;
       if (vesselFilter === "none") {
         if (c.vesselId != null) return false;
@@ -245,7 +251,7 @@ export default function Invoices() {
         return false;
       return true;
     });
-  }, [openCreditNotes, branchFilter, vesselFilter, groupDrill, search]);
+  }, [creditNotes, creditStatusFilter, branchFilter, vesselFilter, groupDrill, search]);
 
   const creditTotals = useMemo(() => {
     let eurTotal = 0;
@@ -500,13 +506,16 @@ export default function Invoices() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select
+          value={creditView ? creditStatusFilter : statusFilter}
+          onValueChange={creditView ? setCreditStatusFilter : setStatusFilter}
+        >
           <SelectTrigger className="w-40 h-9 bg-background">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All statuses</SelectItem>
-            {STATUSES.map(s => (
+            {(creditView ? ["Open", "Partially Used", "Used"] : STATUSES).map(s => (
               <SelectItem key={s} value={s}>
                 {s}
               </SelectItem>
@@ -529,12 +538,14 @@ export default function Invoices() {
             </SelectContent>
           </Select>
         )}
-        <InstallmentToggle
-          value={contractFilter === "installments" ? "installments" : "all"}
-          onChange={v => setContractFilter(v)}
-          count={installmentCounts.total}
-          hiddenCount={installmentCounts.hidden}
-        />
+        {!creditView && (
+          <InstallmentToggle
+            value={contractFilter === "installments" ? "installments" : "all"}
+            onChange={v => setContractFilter(v)}
+            count={installmentCounts.total}
+            hiddenCount={installmentCounts.hidden}
+          />
+        )}
         {activeFilterCount > 0 && (
           <Button
             variant="ghost"
@@ -544,6 +555,7 @@ export default function Invoices() {
               setSearch("");
               setBranchFilter("all");
               setStatusFilter("all");
+              setCreditStatusFilter("all");
               setVesselFilter("all");
               setContractFilter("all");
               setBucketFilter("all");
@@ -559,7 +571,7 @@ export default function Invoices() {
         <div className="rounded-lg border bg-muted/30 px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <span className="text-muted-foreground">
             {creditView
-              ? `${creditTotals.count} open credit note(s)`
+              ? `${creditTotals.count} credit note(s)`
               : `${filteredTotals.count} invoice(s) shown`}
           </span>
           {groupDrill && (
@@ -634,9 +646,9 @@ export default function Invoices() {
               setGroupView(false);
               setVesselView(false);
             }}
-            title="Show every open credit note across all groups"
+            title="Show every credit note across all groups"
           >
-            <FileMinus2 className="h-3.5 w-3.5" /> Credit notes ({(openCreditNotes ?? []).length})
+            <FileMinus2 className="h-3.5 w-3.5" /> Credit notes ({(creditNotes ?? []).length})
           </Button>
         </div>
       )}
@@ -652,7 +664,7 @@ export default function Invoices() {
           ) : creditView ? (
             filteredCreditNotes.length === 0 ? (
               <div className="p-10 text-center text-muted-foreground">
-                No open credit notes{activeFilterCount > 0 ? " match the current filters" : ""}.
+                No credit notes{activeFilterCount > 0 ? " match the current filters" : ""}.
               </div>
             ) : (
               <Table>
@@ -664,6 +676,7 @@ export default function Invoices() {
                     <TableHead>Group</TableHead>
                     <TableHead>Vessel</TableHead>
                     <TableHead>Branch</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead className="text-right">Matched</TableHead>
                     <TableHead className="text-right">Still open</TableHead>
@@ -702,9 +715,16 @@ export default function Invoices() {
                           <span className="text-muted-foreground text-xs">—</span>
                         )}
                       </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={c.creditStatus === "Used" ? "bg-emerald-50 text-emerald-700" : c.creditStatus === "Partially Used" ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"}>
+                          {c.creditStatus}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="text-right font-mono text-sm">{fmtCur(c.amount, c.currency)}</TableCell>
                       <TableCell className="text-right font-mono text-sm text-muted-foreground">
-                        {Number(c.allocated) > 0.005 ? fmtCur(c.allocated, c.currency) : "—"}
+                        {Number(c.amount) - Number(c.open) > 0.005
+                          ? fmtCur(Number(c.amount) - Number(c.open), c.currency)
+                          : "—"}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold text-sky-700 dark:text-sky-300">
                         −{fmtCur(c.open, c.currency)}
