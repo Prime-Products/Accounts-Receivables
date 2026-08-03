@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSoftOneCreditNotesQuery, normalizeSoftOneCreditNotes } from "./lib/softoneCreditNotes";
+import { buildSoftOneCreditNoteCustomerQuery, buildSoftOneCreditNotesQuery, normalizeSoftOneCreditNotes } from "./lib/softoneCreditNotes";
 
 describe("SoftOne credit-note synchronization", () => {
   it("covers the full configured year and every approved standard/special series", () => {
@@ -10,6 +10,15 @@ describe("SoftOne credit-note synchronization", () => {
     expect(query).toContain("7062, 7063, 7064, 7066");
     expect(query).toContain("4301, 4302, 4303, 4304, 4308, 6651");
     expect(query).toContain("document.[ISCANCEL] = 0");
+    expect(query).toContain("internal_customer.[TRDGROUP] = 473");
+  });
+
+  it("allows one approved active customer without a group but rejects Prime's internal group", () => {
+    const query = buildSoftOneCreditNoteCustomerQuery(39078);
+    expect(query).toContain("customer.[TRDR] = 39078");
+    expect(query).toContain("customer.[SODTYPE] = 13");
+    expect(query).toContain("customer.[ISACTIVE] = 1");
+    expect(query).toContain("customer.[TRDGROUP] IS NULL OR customer.[TRDGROUP] <> 473");
   });
 
   it("can limit a read-only inspection query to one calendar month", () => {
