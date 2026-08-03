@@ -901,9 +901,17 @@ export default function GroupDetail() {
                 <div className={`text-xl font-bold font-mono ${data.totals.overdueBalance > 0 ? "text-red-600" : ""}`}>
                   {fmtEur(data.totals.overdueBalance)}
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">{data.totals.overdueCount} overdue invoice(s)</div>
-                <div className="text-[11px] font-mono mt-0.5 text-orange-600" title="Overdue by end of the current month (today's overdue + invoices falling due until month end)">
-                  EOM: {fmtEur(data.overdueEomBalance)}
+                {/* Secondary amount gets the same weight and layout as the
+                    Open Balance card: a labelled row under a divider, so the
+                    number is readable instead of a faint coloured line. */}
+                <div
+                  className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5"
+                  title="Overdue by end of the current month (today's overdue + invoices falling due until month end)"
+                >
+                  <span className="text-[11px] text-muted-foreground">
+                    End of month · {data.totals.overdueCount} inv.
+                  </span>
+                  <span className="text-[11px] font-mono font-medium">{fmtEur(data.overdueEomBalance)}</span>
                 </div>
               </CardContent>
             </Card>
@@ -913,9 +921,9 @@ export default function GroupDetail() {
                 {groupForecast && (groupForecast as any).hasForecast !== false ? (
                   <>
                     <EditableGroupForecast group={group} value={groupForecast.expectedAmount} reasoning={groupForecast.aiReasoning} />
-                    <div className="text-[11px] font-mono mt-0.5">
-                      <span className="text-muted-foreground">Expected: </span>
-                      <span className="font-semibold">
+                    <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                      <span className="text-[11px] text-muted-foreground">Expected to collect</span>
+                      <span className="text-[11px] font-mono font-medium">
                         {fmtEur((data as any).expectedToCollect ?? groupForecast.expectedAmount)}
                       </span>
                     </div>
@@ -924,12 +932,12 @@ export default function GroupDetail() {
                         (data as any).expectedVariance ??
                         ((data as any).expectedToCollect ?? groupForecast.expectedAmount) - groupForecast.expectedAmount;
                       return (
-                        <div
-                          className={`text-[11px] font-mono mt-0.5 ${variance >= 0 ? "text-emerald-600" : "text-red-600"}`}
-                          title="Expected to Collect vs Forecast"
-                        >
-                          {variance >= 0 ? "+" : ""}
-                          {fmtEur(variance)} vs forecast
+                        <div className="mt-1 flex items-baseline justify-between gap-2" title="Expected to Collect vs Forecast">
+                          <span className="text-[11px] text-muted-foreground">vs forecast</span>
+                          <span className={`text-[11px] font-mono font-medium ${variance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            {variance >= 0 ? "+" : ""}
+                            {fmtEur(variance)}
+                          </span>
                         </div>
                       );
                     })()}
@@ -966,13 +974,19 @@ export default function GroupDetail() {
                 <div className="text-xl font-bold font-mono text-blue-700">
                   {data.totals.turnoverYtd > 0 ? fmtEur(data.totals.turnoverYtd) : "—"}
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
-                  last year: {data.totals.turnoverLastYear > 0 ? fmtEur(data.totals.turnoverLastYear) : "—"}
-                  {data.totals.turnoverYtd > 0 && data.totals.turnoverLastYear > 0 && (
-                    <span className={data.totals.turnoverYtd >= data.totals.turnoverLastYear ? "text-emerald-600" : "text-amber-600"}>
-                      {" "}· {((data.totals.turnoverYtd / data.totals.turnoverLastYear - 1) * 100).toFixed(0)}%
-                    </span>
-                  )}
+                <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                  <span className="text-[11px] text-muted-foreground">
+                    Last year
+                    {data.totals.turnoverYtd > 0 && data.totals.turnoverLastYear > 0 && (
+                      <span className={data.totals.turnoverYtd >= data.totals.turnoverLastYear ? "text-emerald-600" : "text-amber-600"}>
+                        {" "}
+                        ({((data.totals.turnoverYtd / data.totals.turnoverLastYear - 1) * 100).toFixed(0)}%)
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[11px] font-mono font-medium">
+                    {data.totals.turnoverLastYear > 0 ? fmtEur(data.totals.turnoverLastYear) : "—"}
+                  </span>
                 </div>
               </CardContent>
             </Card>
