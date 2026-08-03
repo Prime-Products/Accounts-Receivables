@@ -585,11 +585,15 @@ export default function GroupDetail() {
   }, [allCreditNotes, creditOnly, paymentsOnly, invoiceOnlyFilterActive, vesselDrill]);
 
   /**
-   * Payments (wire transfers with an unallocated remainder) shown inside the same
-   * transactions list. A payment has no vessel or aging bucket, so the
-   * invoice-only filters hide them rather than showing a misleading subset.
+   * Payments (customer wire transfers) shown inside the same transactions list —
+   * including ones already matched in full, which appear as "Matched" so the group
+   * card is a complete record of the money received. A payment has no vessel or
+   * aging bucket, so the invoice-only filters hide them rather than showing a
+   * misleading subset.
    */
   const allTransfers = ((data as any)?.openTransfers ?? []) as any[];
+  /** Payments that still have money sitting on account (nothing matched yet, or a remainder). */
+  const openTransferCount = allTransfers.filter(t => !(t.settled ?? t.unallocated <= 0.005)).length;
   const visibleTransfers = useMemo(() => {
     if (allTransfers.length === 0) return [];
     if (creditOnly) return [];
@@ -1134,7 +1138,7 @@ export default function GroupDetail() {
                       ? "Show invoices again"
                       : visibleTransfers.length === 0
                         ? "Payments are hidden by the current filters — click to show them"
-                        : "Show only payments on account"
+                        : `Show only customer payments — ${openTransferCount} with money still on account, ${allTransfers.length - openTransferCount} already matched`
                 }
               >
                 <Banknote className="h-3.5 w-3.5" />

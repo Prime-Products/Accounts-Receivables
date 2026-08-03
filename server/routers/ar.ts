@@ -446,12 +446,14 @@ async function findOpenGroupPromise(group: string) {
 }
 
 /**
- * Open (not fully allocated) wire transfers for a set of customers — the
- * "payments on account" rows of the transactions list. Fully allocated
- * transfers are hidden (like paid invoices); internal inter-office transfers
- * are excluded. Remaining = amount − sum(allocations).
+ * Customer wire transfers for a set of customers — the "payments on account"
+ * rows of the transactions list. Every external transfer is returned so the
+ * group card is a complete record of the money we received: fully allocated
+ * ones carry `settled: true` and a zero remainder, and the UI marks them as
+ * matched instead of dropping them. Internal inter-office transfers are
+ * excluded. Remaining = amount − sum(allocations).
  */
-async function listOpenWireTransfers(customerIds: Set<number>, customerNames: Map<number, string>) {
+async function listGroupWireTransfers(customerIds: Set<number>, customerNames: Map<number, string>) {
   const all = await db.listAllWireTransfers().catch(() => []);
   const mine = all.filter(t => customerIds.has(t.customerId) && !t.isInternal);
   if (mine.length === 0) return [];
@@ -460,14 +462,17 @@ async function listOpenWireTransfers(customerIds: Set<number>, customerNames: Ma
     .map(t => {
       const alloc = allocated.get(t.id) ?? 0;
       const unallocated = Number(t.amount) - alloc;
+      // Rounding noise below half a cent counts as fully matched.
+      const settled = unallocated <= 0.005;
       return {
         id: t.id,
         customerId: t.customerId,
         customerName: customerNames.get(t.customerId) ?? "—",
         amount: Number(t.amount),
         allocated: alloc,
-        unallocated,
-        unallocatedEur: toEur(unallocated, t.currency ?? "EUR"),
+        unallocated: settled ? 0 : unallocated,
+        unallocatedEur: settled ? 0 : toEur(unallocated, t.currency ?? "EUR"),
+        settled,
         currency: t.currency ?? "EUR",
         transferDate: t.transferDate,
         status: t.status,
@@ -476,7 +481,6 @@ async function listOpenWireTransfers(customerIds: Set<number>, customerNames: Ma
         notes: t.notes ?? null,
       };
     })
-    .filter(t => t.unallocated > 0.005)
     .sort((a, b) => b.transferDate - a.transferDate);
 }
 
@@ -1444,8 +1448,10 @@ export const customersRouter = router({
      const customerNames = new Map(members.map(m => [m.id, m.name]));
      const allVesselRows = await db.listVessels();
      const vesselNameById = new Map(allVesselRows.map(v => [v.id, v.name]));
-      // Open (unallocated) wire transfers — the transactions list's payment rows.
-      const openTransfers = await listOpenWireTransfers(memberIds, customerNames);
+      // Customer wire transfers — the transactions list's payment rows. Fully
+      // allocated ones stay in the list (flagged `settled`) so the group card
+      // shows every payment we received, not only the ones with a remainder.
+      const openTransfers = await listGroupWireTransfers(memberIds, customerNames);
       // Open (unmatched) credit notes — also part of the transactions list.
       const openCreditNotes = await listOpenCreditNotes(memberIds, customerNames);
       const openCreditNotesEur = openCreditNotes.reduce((s, c) => s + c.openEur, 0);
@@ -2065,7 +2071,7 @@ export const customersRouter = router({
          title: teamMap360.get((customer as any).collectorId)!.title ?? null,
        }
      : null;
-    const openTransfers360 = await listOpenWireTransfers(new Set([input.id]), new Map([[input.id, customer.name]]));
+    const openTransfers360 = await listGroupWireTransfers(new Set([input.id]), new Map([[input.id, customer.name]]));
     const unallocatedPayments360 = openTransfers360.reduce((s, t) => s + t.unallocatedEur, 0);
     const openCreditNotes360 = await listOpenCreditNotes(new Set([input.id]), new Map([[input.id, customer.name]]));
     const openCreditNotesEur360 = openCreditNotes360.reduce((s, c) => s + c.openEur, 0);
