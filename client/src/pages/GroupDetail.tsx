@@ -752,7 +752,7 @@ export default function GroupDetail() {
               {data && (data as any).confirmationCarriedOver && (
                 <span
                   className="text-[11px] text-amber-600 font-normal inline-flex items-center gap-1"
-                  title="Recorded in a previous month — still active until its date"
+                  title="Recorded in a previous month — still standing until a new call is logged"
                 >
                   ↻ Carried over
                 </span>
