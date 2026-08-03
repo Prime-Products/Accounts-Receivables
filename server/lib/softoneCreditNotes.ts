@@ -1,4 +1,5 @@
 import type { SoftOneCreditNoteUpsert } from "../db";
+import type { ConnectionPool } from "mssql";
 import * as db from "../db";
 import { toEur } from "./arLogic";
 import {
@@ -7,7 +8,13 @@ import {
   softOneCompaniesQuery,
   softOneCurrenciesQuery,
 } from "./softoneInvoices";
-import { isSoftOneSqlConfigured, querySoftOneWithFreshPool, softOneSqlError } from "./softoneSql";
+import {
+  isSoftOneSqlConfigured,
+  openSoftOneSqlPool,
+  querySoftOneWithFreshPool,
+  querySoftOneWithWatchdog,
+  softOneSqlError,
+} from "./softoneSql";
 import { SOFTONE_INTERNAL_CUSTOMER_GROUP_ID } from "./softoneExclusions";
 
 type SourceRow = Record<string, unknown>;
@@ -235,14 +242,17 @@ export async function syncSoftOneCreditNoteCustomer(softoneId: number) {
     throw new Error("SoftOne SQL credit-note customer synchronization is disabled.");
   }
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
-  const stage = `approved credit-note customer ${softoneId}`;
+  let stage = `approved credit-note customer ${softoneId}`;
+  let pool: ConnectionPool | null = null;
   try {
-    const result = await querySoftOneWithFreshPool<SourceRow>(buildSoftOneCreditNoteCustomerQuery(softoneId), stage);
+    pool = await openSoftOneSqlPool();
+    const result = await querySoftOneWithWatchdog<SourceRow>(pool, buildSoftOneCreditNoteCustomerQuery(softoneId), stage);
     if (result.recordset.length !== 1) {
       throw new Error(`SoftOne customer ${softoneId} was not found or is not an eligible active customer.`);
     }
     const row = result.recordset[0];
     const customerName = identity(row, "CUSTOMER_NAME");
+    stage = `upsert approved credit-note customer ${softoneId} into Hub`;
     await db.insertMissingSoftOneCustomers([{
       code: String(row.CODE ?? "").trim() || String(softoneId),
       name: customerName,
@@ -261,5 +271,7 @@ export async function syncSoftOneCreditNoteCustomer(softoneId: number) {
     return { softoneId, name: customerName };
   } catch (error) {
     throw new Error(softOneSqlError(error, stage));
+  } finally {
+    await pool?.close().catch(() => undefined);
   }
 }
