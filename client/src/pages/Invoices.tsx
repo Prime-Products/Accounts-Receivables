@@ -48,7 +48,8 @@ export default function Invoices() {
   });
   /** The aging cards follow the installments filter, so they always describe the rows below them. */
   const installmentsOnly = contractFilter === "installments";
-  const { data: aging } = trpc.invoices.aging.useQuery({ installmentsOnly });
+  const agingInput = useMemo(() => ({ installmentsOnly }), [installmentsOnly]);
+  const { data: aging } = trpc.invoices.aging.useQuery(agingInput);
   const [groupView, setGroupView] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("view") === "group";
@@ -456,11 +457,18 @@ export default function Invoices() {
             </div>
           )}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => (
+            {(["0-30", "31-60", "61-90", "91-120", "120+"] as const).map(b => {
+              // A bucket with nothing in it must not be clickable: selecting it
+              // would empty the table and make the whole strip look broken.
+              const empty = aging.buckets[b].count === 0;
+              const selected = bucketFilter === b;
+              return (
             <button
               key={b}
-              onClick={() => setBucketFilter(bucketFilter === b ? "all" : b)}
-              className={`rounded-lg border p-3 text-left transition-colors ${bucketFilter === b ? "ring-2 ring-primary bg-primary/5" : installmentsOnly ? "bg-violet-50/60 dark:bg-violet-950/20 border-violet-200 dark:border-violet-900 hover:bg-violet-100/60 dark:hover:bg-violet-950/40" : "bg-card hover:bg-muted/50"}`}
+              onClick={() => setBucketFilter(selected ? "all" : b)}
+              disabled={empty && !selected}
+              title={empty && !selected ? `No ${installmentsOnly ? "installments" : "invoices"} in this bucket` : undefined}
+              className={`rounded-lg border p-3 text-left transition-colors ${selected ? "ring-2 ring-primary bg-primary/5" : empty ? "bg-muted/20 border-dashed opacity-60 cursor-default" : installmentsOnly ? "bg-violet-50/60 dark:bg-violet-950/20 border-violet-200 dark:border-violet-900 hover:bg-violet-100/60 dark:hover:bg-violet-950/40" : "bg-card hover:bg-muted/50"}`}
             >
               <div className="text-xs text-muted-foreground">{b} days overdue</div>
               <div className="text-lg font-bold font-mono">{fmtEur(aging.buckets[b].amount)}</div>
@@ -473,7 +481,8 @@ export default function Invoices() {
                 </div>
               )}
             </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -718,7 +727,32 @@ export default function Invoices() {
               </Table>
             )
           ) : filtered.length === 0 ? (
-            <div className="p-10 text-center text-muted-foreground">No invoices match the current filters.</div>
+            <div className="p-10 text-center space-y-3">
+              <div className="text-muted-foreground">
+                {bucketFilter !== "all" && installmentsOnly
+                  ? `No contract installments are ${bucketFilter} days overdue.`
+                  : bucketFilter !== "all"
+                    ? `No invoices are ${bucketFilter} days overdue under the current filters.`
+                    : "No invoices match the current filters."}
+              </div>
+              {activeFilterCount > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 bg-background"
+                  onClick={() => {
+                    setSearch("");
+                    setBranchFilter("all");
+                    setStatusFilter("all");
+                    setVesselFilter("all");
+                    setContractFilter("all");
+                    setBucketFilter("all");
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" /> Clear {activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""}
+                </Button>
+              )}
+            </div>
           ) : vesselView ? (
             <Table>
               <TableHeader>
