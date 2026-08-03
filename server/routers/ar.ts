@@ -4833,7 +4833,7 @@ export const adminRouter = router({
         const vessels = process.env.SOFTONE_SQL_VESSEL_SYNC_ENABLED === "true"
           ? await softoneVessels.syncSoftOneVessels()
           : { synced: 0 };
-        const invoices = await softoneInvoices.syncSoftOneOpenInvoices();
+        const invoices = await softoneInvoices.syncSoftOneInvoices();
         return { customers: customers.synced, vessels: vessels.synced, invoices: invoices.synced };
       });
 
@@ -4869,7 +4869,7 @@ export const adminRouter = router({
     const role = await getAppRole(ctx.user.id);
     requireRole(role, ["Administrator", "Accounting"]);
     try {
-      const execution = await withSoftOneSyncLock(() => softoneInvoices.syncSoftOneOpenInvoices());
+      const execution = await withSoftOneSyncLock(() => softoneInvoices.syncSoftOneInvoices());
       if (!execution.acquired) {
         throw new TRPCError({
           code: "CONFLICT",

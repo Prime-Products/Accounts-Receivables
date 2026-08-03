@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   aggregateSoftOneOpenInvoiceParts,
+  aggregateSoftOnePaidInvoiceParts,
   buildSoftOneInvoiceCustomerLookupQuery,
   buildSoftOneInvoiceInstallmentLookupQuery,
   buildSoftOneOpenInvoiceDocumentsQuery,
   buildSoftOneOpenInvoiceFinancialsQuery,
+  buildSoftOnePaidInvoiceFinancialsQuery,
   normalizeSoftOneCurrencyName,
   normalizeSoftOneOpenInvoiceRows,
+  normalizeSoftOnePaidInvoiceRows,
   softOneOpenInvoiceAmountSummaryQuery,
   softOneOpenInvoiceFinancialsQuery,
   softOneOpenInvoiceTypeBreakdownQuery,
   softOneInvoiceAmountSamplesQuery,
+  softOnePaidInvoiceFinancialsQuery,
 } from "./lib/softoneInvoices";
 
 const row = {
@@ -243,5 +247,97 @@ describe("SoftOne open invoice sync", () => {
     expect(() =>
       buildSoftOneInvoiceInstallmentLookupQuery(["1403582); DROP TABLE FINDOC"]),
     ).toThrow(/invalid.*identifiers/i);
+  });
+});
+
+describe("SoftOne paid invoice sync", () => {
+  const paidSource = {
+    FINPAYTERMS: 9001,
+    FINDOC: 1312368,
+    TRDR: 10036,
+    COMPANY: 1,
+    VESSEL_ID: 8123,
+    SOCURRENCY: 999,
+    ISSUE_DATE: 20260114,
+    DUE_DATE: 20260213,
+    AMOUNT_PART: 134.73,
+    OPEN_AMOUNT_PART: 0,
+  };
+
+  it("uses the supplied 2026 source rules and remains read-only", () => {
+    expect(softOnePaidInvoiceFinancialsQuery).toContain("[dbo].[CCCVOBFINPAY]");
+    expect(softOnePaidInvoiceFinancialsQuery).toContain("[PAYDEMANDMD] = -2");
+    expect(softOnePaidInvoiceFinancialsQuery).toContain(
+      "[SOSOURCE] IN (1313, 1312, 1381, 1413)",
+    );
+    expect(softOnePaidInvoiceFinancialsQuery).not.toContain("1353");
+    expect(softOnePaidInvoiceFinancialsQuery).toContain("NOT LIKE N'%ΠΦΠ%'");
+    expect(softOnePaidInvoiceFinancialsQuery).toContain("'20260101'");
+    expect(softOnePaidInvoiceFinancialsQuery).toContain("'20270101'");
+    expect(softOnePaidInvoiceFinancialsQuery).not.toMatch(
+      /\b(INSERT|UPDATE|DELETE|DROP|EXEC)\b/i,
+    );
+  });
+
+  it("builds safe keyset pages and validates the year", () => {
+    const query = buildSoftOnePaidInvoiceFinancialsQuery(123, 2026);
+    expect(query).toContain("paid_page.[FINPAYTERMS] > 123");
+    expect(() => buildSoftOnePaidInvoiceFinancialsQuery(-1, 2026)).toThrow(
+      /invalid.*cursor/i,
+    );
+    expect(() => buildSoftOnePaidInvoiceFinancialsQuery(0, 1999)).toThrow(
+      /invalid.*year/i,
+    );
+  });
+
+  it("aggregates payment terms once and rejects a remaining balance", () => {
+    const rows = aggregateSoftOnePaidInvoiceParts([
+      paidSource,
+      { ...paidSource, FINPAYTERMS: 9002, AMOUNT_PART: 65.27 },
+    ]);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        FINDOC: 1312368,
+        SOFTONE_ID: "1312368",
+        PAID_AMOUNT: 200,
+      }),
+    ]);
+    expect(() =>
+      aggregateSoftOnePaidInvoiceParts([
+        { ...paidSource, OPEN_AMOUNT_PART: 1 },
+      ]),
+    ).toThrow(/still has an open amount/i);
+    expect(() =>
+      aggregateSoftOnePaidInvoiceParts([paidSource, paidSource]),
+    ).toThrow(/duplicate paid FINPAYTERMS/i);
+  });
+
+  it("normalizes a closed document as fully Paid", () => {
+    const [invoice] = normalizeSoftOnePaidInvoiceRows(
+      [{ ...paidSource, SOFTONE_ID: "1312368", PAID_AMOUNT: 134.73 }],
+      new Map([["1312368", "PTMET00001"]]),
+      new Map([["1", "Prime Products LTD"]]),
+      new Map([["999", "EURO"]]),
+    );
+    expect(invoice).toMatchObject({
+      softoneId: "1312368",
+      customerSoftoneId: "10036",
+      invoiceNumber: "PTMET00001",
+      amount: "134.73",
+      paidAmount: "134.73",
+      status: "Paid",
+      vesselId: 8123,
+    });
+  });
+
+  it("defensively rejects ΠΦΠ documents even after the SQL filter", () => {
+    expect(() =>
+      normalizeSoftOnePaidInvoiceRows(
+        [{ ...paidSource, SOFTONE_ID: "1312368", PAID_AMOUNT: 134.73 }],
+        new Map([["1312368", "ΠΦΠ-Γ00006"]]),
+        new Map([["1", "Prime Products LTD"]]),
+        new Map([["999", "EURO"]]),
+      ),
+    ).toThrow(/excluded ΠΦΠ/i);
   });
 });
