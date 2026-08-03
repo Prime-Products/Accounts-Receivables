@@ -8,6 +8,7 @@ import {
   softOneCurrenciesQuery,
 } from "./softoneInvoices";
 import { isSoftOneSqlConfigured, querySoftOneWithFreshPool, softOneSqlError } from "./softoneSql";
+import { SOFTONE_INTERNAL_CUSTOMER_GROUP_ID } from "./softoneExclusions";
 
 type SourceRow = Record<string, unknown>;
 // The production unixODBC driver can raise HY010/Function sequence errors on
@@ -84,6 +85,12 @@ WHERE document.[COMPANY] = 1
   AND document.[TRNDATE] >= '${rangeStart}'
   AND document.[TRNDATE] < '${rangeEnd}'
   AND document.[FINDOC] > ${afterFindoc}
+  AND NOT EXISTS (
+    SELECT 1
+    FROM [dbo].[TRDR] AS internal_customer
+    WHERE internal_customer.[TRDR] = document.[TRDR]
+      AND internal_customer.[TRDGROUP] = ${SOFTONE_INTERNAL_CUSTOMER_GROUP_ID}
+  )
   AND (
     (document.[SOSOURCE] = 1351
       AND document.[SOREDIR] = 0
@@ -94,6 +101,23 @@ WHERE document.[COMPANY] = 1
       AND document.[SERIES] IN (4301, 4302, 4303, 4304, 4308, 6651))
   )
 ORDER BY document.[FINDOC]`;
+}
+
+export function buildSoftOneCreditNoteCustomerQuery(softoneId: number) {
+  if (!Number.isSafeInteger(softoneId) || softoneId <= 0) throw new Error("Invalid SoftOne credit-note customer identifier.");
+  return `SELECT
+  CAST(customer.[TRDR] AS bigint) AS [TRDR],
+  CAST(customer.[CODE] AS nchar(64)) AS [CODE],
+  CAST(customer.[NAME] AS nchar(191)) AS [CUSTOMER_NAME],
+  CAST(customer_group.[NAME] AS nchar(191)) AS [GROUP_NAME]
+FROM [dbo].[TRDR] AS customer
+LEFT JOIN [dbo].[TRDGROUP] AS customer_group
+  ON customer_group.[TRDGROUP] = customer.[TRDGROUP]
+WHERE customer.[TRDR] = ${softoneId}
+  AND customer.[COMPANY] = 1
+  AND customer.[SODTYPE] = 13
+  AND customer.[ISACTIVE] = 1
+  AND (customer.[TRDGROUP] IS NULL OR customer.[TRDGROUP] <> ${SOFTONE_INTERNAL_CUSTOMER_GROUP_ID})`;
 }
 
 export function normalizeSoftOneCreditNotes(
@@ -203,4 +227,39 @@ export async function syncSoftOneCreditNotes(onProgress: (stage: string) => void
     await db.addSyncLog({ direction: "Pull", entityType: "credit-notes", recordCount: result.synced, status: "Success", message: `Read-only SQL sync upserted ${result.synced} credit notes for ${period}` });
     return { ...summary(records, month), synced: result.synced };
   } catch (error) { throw new Error(softOneSqlError(error, stage)); }
+}
+
+/** Insert one explicitly approved credit-note customer into Hub only. */
+export async function syncSoftOneCreditNoteCustomer(softoneId: number) {
+  if (process.env.SOFTONE_SQL_CREDIT_NOTE_CUSTOMER_SYNC_ENABLED !== "true") {
+    throw new Error("SoftOne SQL credit-note customer synchronization is disabled.");
+  }
+  if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
+  const stage = `approved credit-note customer ${softoneId}`;
+  try {
+    const result = await querySoftOneWithFreshPool<SourceRow>(buildSoftOneCreditNoteCustomerQuery(softoneId), stage);
+    if (result.recordset.length !== 1) {
+      throw new Error(`SoftOne customer ${softoneId} was not found or is not an eligible active customer.`);
+    }
+    const row = result.recordset[0];
+    const customerName = identity(row, "CUSTOMER_NAME");
+    await db.insertMissingSoftOneCustomers([{
+      code: String(row.CODE ?? "").trim() || String(softoneId),
+      name: customerName,
+      customerGroup: String(row.GROUP_NAME ?? "").trim() || customerName,
+      masterSoftoneId: null,
+      softoneId: String(softoneId),
+      softoneSyncedAt: new Date(),
+    }]);
+    await db.addSyncLog({
+      direction: "Pull",
+      entityType: "customers",
+      recordCount: 1,
+      status: "Success",
+      message: `Approved credit-note customer ${softoneId} synchronized from read-only SoftOne SQL`,
+    });
+    return { softoneId, name: customerName };
+  } catch (error) {
+    throw new Error(softOneSqlError(error, stage));
+  }
 }

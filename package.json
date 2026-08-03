@@ -25,6 +25,7 @@
     "sync:softone-paid-invoices": "tsx scripts/sync-softone-paid-invoices.ts",
     "inspect:softone-credit-notes": "tsx scripts/inspect-softone-credit-notes.ts",
     "sync:softone-credit-notes": "tsx scripts/sync-softone-credit-notes.ts",
+    "sync:softone-credit-note-customer": "tsx scripts/sync-softone-credit-note-customer.ts",
     "inspect:softone-vessels": "tsx scripts/inspect-softone-vessels.ts",
     "sync:softone-vessels": "tsx scripts/sync-softone-vessels.ts",
     "sync:softone-vessel-owner": "tsx scripts/sync-softone-vessel-owner.ts",
