@@ -1974,7 +1974,9 @@ export async function upsertSoftOneCreditNotes(records: SoftOneCreditNoteUpsert[
     .filter(record => !customerIdBySoftoneId.has(record.customerSoftoneId))
     .map(record => record.customerSoftoneId)));
   if (missingCustomers.length > 0) {
-    throw new Error(`SoftOne credit notes reference ${missingCustomers.length} customers that are not synchronized.`);
+    throw new Error(
+      `SoftOne credit notes reference ${missingCustomers.length} customers that are not synchronized: ${missingCustomers.join(", ")}.`,
+    );
   }
   const vesselRows = await database.select({ id: vessels.id }).from(vessels);
   const vesselIds = new Set(vesselRows.map(row => row.id));
