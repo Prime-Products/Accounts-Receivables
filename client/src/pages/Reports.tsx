@@ -3,14 +3,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { downloadBase64, fmtEur, monthName } from "@/lib/format";
+import { downloadBase64, fmtEur, fmtDate, monthName } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { BarChart3, FileDown, FileText, ScrollText } from "lucide-react";
+import { BarChart3, Briefcase, FileDown, FileText, ScrollText } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 export default function Reports() {
   const { data: customers } = trpc.customers.options.useQuery();
+  const { data: opsSummary } = trpc.opsDashboard.summary.useQuery();
   const [soaCustomer, setSoaCustomer] = useState<string>("");
   const [historyCustomer, setHistoryCustomer] = useState<string>("all");
   const historyInput = useMemo(
@@ -174,6 +175,51 @@ export default function Reports() {
           )}
         </CardContent>
       </Card>
+
+      {/* Operations Summary Card */}
+      {opsSummary && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Briefcase className="h-4 w-4" /> Operations Overview
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Active Contracts</p>
+                <p className="text-lg font-bold font-mono">{opsSummary.activeContracts}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Total Contract Value</p>
+                <p className="text-lg font-bold font-mono">{fmtEur(opsSummary.totalContractValue)}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Collected</p>
+                <p className="text-lg font-bold font-mono text-emerald-700">{fmtEur(opsSummary.collectedAmount)}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Active Assets</p>
+                <p className="text-lg font-bold font-mono">{opsSummary.activeAssets}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Pending Returns</p>
+                <p className="text-lg font-bold font-mono text-amber-700">{opsSummary.pendingReturns}</p>
+              </div>
+            </div>
+            {(opsSummary.overduePayments > 0 || opsSummary.expiredCerts > 0) && (
+              <div className="mt-4 pt-4 border-t flex flex-wrap gap-4">
+                {opsSummary.overduePayments > 0 && (
+                  <p className="text-sm text-red-700 font-medium">{opsSummary.overduePayments} overdue payment{opsSummary.overduePayments !== 1 ? "s" : ""}</p>
+                )}
+                {opsSummary.expiredCerts > 0 && (
+                  <p className="text-sm text-red-700 font-medium">{opsSummary.expiredCerts} expired certificate{opsSummary.expiredCerts !== 1 ? "s" : ""}</p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
