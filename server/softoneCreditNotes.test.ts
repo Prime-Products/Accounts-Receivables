@@ -12,6 +12,14 @@ describe("SoftOne credit-note synchronization", () => {
     expect(query).toContain("document.[ISCANCEL] = 0");
   });
 
+  it("can limit a read-only inspection query to one calendar month", () => {
+    const query = buildSoftOneCreditNotesQuery(0, 2026, 8);
+    expect(query).toContain("document.[TRNDATE] >= '20260801'");
+    expect(query).toContain("document.[TRNDATE] < '20260901'");
+    const december = buildSoftOneCreditNotesQuery(0, 2026, 12);
+    expect(december).toContain("document.[TRNDATE] < '20270101'");
+  });
+
   it("normalizes open, partial and fully used balances without duplicates", () => {
     const base = { TRDR: 10, COMPANY: 1, VESSEL_ID: 0, SOCURRENCY: 999, DOC_DATE: 20260110, SERIES: 7063 };
     const records = normalizeSoftOneCreditNotes(

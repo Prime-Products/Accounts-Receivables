@@ -23,6 +23,14 @@ function yearSetting() {
   return year;
 }
 
+function inspectionMonthSetting() {
+  const raw = process.env.SOFTONE_SQL_CREDIT_NOTE_MONTH?.trim();
+  if (!raw) return undefined;
+  const month = Number(raw);
+  if (!Number.isSafeInteger(month) || month < 1 || month > 12) throw new Error("Invalid SoftOne credit-note inspection month.");
+  return month;
+}
+
 function numberValue(row: SourceRow, key: string) {
   const value = Number(row[key]);
   if (!Number.isFinite(value)) throw new Error(`SoftOne credit note has invalid ${key}.`);
@@ -42,9 +50,15 @@ function dateKeyToUtc(value: unknown) {
 }
 
 /** Greece, export and special credit-note series supplied by the SoftOne operator. */
-export function buildSoftOneCreditNotesQuery(afterFindoc: number, year = 2026) {
+export function buildSoftOneCreditNotesQuery(afterFindoc: number, year = 2026, month?: number) {
   if (!Number.isSafeInteger(afterFindoc) || afterFindoc < 0) throw new Error("Invalid SoftOne credit-note cursor.");
   if (!Number.isSafeInteger(year) || year < 2000 || year > 2100) throw new Error("Invalid SoftOne credit-note year.");
+  if (month !== undefined && (!Number.isSafeInteger(month) || month < 1 || month > 12)) throw new Error("Invalid SoftOne credit-note month.");
+  const startMonth = String(month ?? 1).padStart(2, "0");
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = String(month === undefined ? 1 : month === 12 ? 1 : month + 1).padStart(2, "0");
+  const rangeStart = `${year}${startMonth}01`;
+  const rangeEnd = month === undefined ? `${year + 1}0101` : `${nextYear}${nextMonth}01`;
   return `SELECT TOP (${PAGE_SIZE})
   CAST(document.[FINDOC] AS bigint) AS [FINDOC],
   CAST(document.[TRDR] AS bigint) AS [TRDR],
@@ -67,8 +81,8 @@ FROM [dbo].[FINDOC] AS document
 WHERE document.[COMPANY] = 1
   AND document.[SODTYPE] = 13
   AND document.[ISCANCEL] = 0
-  AND document.[TRNDATE] >= '${year}0101'
-  AND document.[TRNDATE] < '${year + 1}0101'
+  AND document.[TRNDATE] >= '${rangeStart}'
+  AND document.[TRNDATE] < '${rangeEnd}'
   AND document.[FINDOC] > ${afterFindoc}
   AND (
     (document.[SOSOURCE] = 1351
@@ -119,14 +133,14 @@ export function normalizeSoftOneCreditNotes(
   });
 }
 
-async function load(onProgress: (stage: string) => void) {
+async function load(onProgress: (stage: string) => void, month?: number) {
   const rows: SourceRow[] = [];
   let cursor = 0;
   const year = yearSetting();
   for (let page = 1; page <= MAX_PAGES; page += 1) {
     const label = `credit-note source page ${page} after FINDOC ${cursor}`;
     onProgress(label);
-    const result = await querySoftOneWithFreshPool<SourceRow>(buildSoftOneCreditNotesQuery(cursor, year), label);
+    const result = await querySoftOneWithFreshPool<SourceRow>(buildSoftOneCreditNotesQuery(cursor, year, month), label);
     if (result.recordset.length === 0) break;
     rows.push(...result.recordset);
     const next = Math.max(...result.recordset.map(row => numberValue(row, "FINDOC")));
@@ -135,7 +149,10 @@ async function load(onProgress: (stage: string) => void) {
     if (result.recordset.length < PAGE_SIZE) break;
     if (page === MAX_PAGES) throw new Error("SoftOne credit-note page limit exceeded.");
   }
-  if (rows.length === 0) throw new Error("SoftOne returned no credit notes.");
+  if (rows.length === 0) {
+    if (month !== undefined) return [];
+    throw new Error("SoftOne returned no credit notes.");
+  }
   const findocs = rows.map(row => identity(row, "FINDOC"));
   const documentRows: SourceRow[] = [];
   for (let index = 0; index < findocs.length; index += LOOKUP_BATCH) {
@@ -156,17 +173,20 @@ async function load(onProgress: (stage: string) => void) {
   );
 }
 
-function summary(records: SoftOneCreditNoteUpsert[]) {
+function summary(records: SoftOneCreditNoteUpsert[], month?: number) {
   const open = records.filter(record => Number(record.openAmount) >= Number(record.amount) - 0.005).length;
   const used = records.filter(record => Number(record.openAmount) <= 0.005).length;
-  return { year: yearSetting(), total: records.length, open, partial: records.length - open - used, used,
+  return { year: yearSetting(), month, total: records.length, open, partial: records.length - open - used, used,
     openAmount: records.reduce((sum, record) => sum + Number(record.openAmount), 0), preview: records.slice(0, 20) };
 }
 
 export async function inspectSoftOneCreditNotes(onProgress: (stage: string) => void = () => undefined) {
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
   let stage = "connect";
-  try { return summary(await load(value => { stage = value; onProgress(value); })); }
+  try {
+    const month = inspectionMonthSetting();
+    return summary(await load(value => { stage = value; onProgress(value); }, month), month);
+  }
   catch (error) { throw new Error(softOneSqlError(error, stage)); }
 }
 
