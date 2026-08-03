@@ -123,7 +123,7 @@ function endOfCurrentMonth(now = new Date()): number {
  * Rolling flow (no monthly reset): "Kept" (Paid) is the only status that resets
  * back to "Not Contacted" at the start of a new month, because the money is in and
  * that cycle is finished. Every other status carries over into the new month —
- * including "Broken" ("Did not confirm"), which stays visible until a human logs a
+ * including "Broken" ("Promise Broken"), which stays visible until a human logs a
  * new call, so a refusal never looks like an untouched group. Active statuses
  * ("Confirmed" / "Pending Follow-up") carry over with their open tasks as well, so
  * the collector never restarts from zero.
@@ -139,7 +139,7 @@ function isConfirmationStale(
   // "Kept" (Paid) is the only closed outcome: it shows for the rest of the month
   // and resets to Not Contacted when a new month starts, because the money is in.
   if (status === "Kept") return isFromPreviousMonth(updatedAt ?? null, now);
-  // Everything else — including "Broken" ("Did not confirm") — persists until a
+  // Everything else — including "Broken" ("Promise Broken") — persists until a
   // human records a new call. A refusal is still a refusal in the new month, so it
   // must not silently turn back into an untouched group.
   return false;
@@ -394,7 +394,7 @@ async function handOverTask(taskId: number, previousAssigneeId: number | null, n
  *
  * The group's own collection status is the second gate. The Desk decides whether a
  * group carries a live commitment from `group_confirmation_status`; when that says
- * "Not Contacted" (or the row is closed as Paid, or the customer did not confirm) the group shows
+ * "Not Contacted" (or the row is closed as Paid, or the customer promise broken) the group shows
  * no promise anywhere in the UI, so a leftover `Pending` row must not resurrect one.
  * Without this gate a group whose status was reset kept offering "saving moves it to
  * the new date" for a promise the collector could not see.
@@ -421,7 +421,7 @@ async function findOpenGroupPromise(group: string) {
 
   // A promise with no live task is only open while the group is genuinely carrying a
   // commitment. "Not Contacted" (including stale rows and Paid rows that reset with the
-  // month) and "Did not confirm" mean the Desk shows no commitment, so such rows are
+  // month) and "Promise Broken" mean the Desk shows no commitment, so such rows are
   // orphans → repair them.
   let groupCarriesCommitment: boolean | null = null;
   const carriesCommitment = async () => {
@@ -758,7 +758,7 @@ async function cleanupStatusArtifacts(
  * Settle a group's open payment commitment because the customer PAID.
  *
  * Distinct from `cleanupStatusArtifacts`, which cancels promises that became
- * obsolete (Not Contacted / Did not confirm). Here the customer honoured the
+ * obsolete (Not Contacted / Promise Broken). Here the customer honoured the
  * commitment, so the promise is closed as **Kept** — that is what feeds the
  * kept/broken reliability statistics and the collector's hit rate. The tasks that
  * existed only to chase the money (follow-up call, promise check) are cancelled,
@@ -1260,7 +1260,7 @@ export const customersRouter = router({
         // Expected to Collect: live estimate driven by log calls.
         // Not Contacted → forecast; Confirmed/Pending → confirmation amount; Broken → 0.
         // Only a "Paid" row recorded in a previous month is stale → treated as Not
-        // Contacted; "Did not confirm" carries over and keeps holding the estimate at 0.
+        // Contacted; "Promise Broken" carries over and keeps holding the estimate at 0.
         const conf = effectiveConfirmation(confirmation);
         const confStatus = conf.status;
         const confAmount = conf.amount;
@@ -5333,7 +5333,7 @@ export const callsRouter = router({
       })();
       /*
        * A call can start with a refusal and still end with a new date: the collector
-       * picks "Did not confirm" and then chooses Pending Follow-up or Reschedule
+       * picks "Promise Broken" and then chooses Pending Follow-up or Reschedule
        * Promise as the way forward. Both facts belong in the record — the refusal is
        * the collections signal, the new date is only the plan. Without this line the
        * timeline showed just the plan and the refusal was lost.
