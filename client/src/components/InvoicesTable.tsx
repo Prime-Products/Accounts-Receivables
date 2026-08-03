@@ -48,7 +48,11 @@ export interface InvoiceRowData {
  * are ordered together with the invoices by issue date, because that is how the
  * customer's account statement reads.
  */
-/** A wire transfer with an unallocated remainder, as shown inside the transactions list. */
+/**
+ * A customer wire transfer as shown inside the transactions list. Fully matched
+ * transfers stay in the list with `settled: true` so the group card is a complete
+ * record of the money received.
+ */
 export interface OpenTransferRow {
   id: number;
   customerId: number;
@@ -62,6 +66,8 @@ export interface OpenTransferRow {
   referenceNumber: string | null;
   branch: string | null;
   notes: string | null;
+  /** True when the whole amount has been matched against invoices. */
+  settled?: boolean;
 }
 
 export interface CreditNoteRowData {
@@ -270,11 +276,12 @@ function CreditNoteRow({
 }
 
 /**
- * One payment (wire transfer) line inside the transactions list. Only transfers
- * with an unallocated remainder reach this list — fully allocated payments
- * disappear like paid invoices. Amounts are shown negative because a payment
- * reduces what the customer owes, and the remainder can be matched straight from
- * this row with the same dialog the Wire Transfers page uses.
+ * One payment (wire transfer) line inside the transactions list. EVERY customer
+ * payment appears here, including ones already matched in full: those show a
+ * "Matched" badge, a zero remainder and no Allocate button, so the collector can
+ * always answer "what happened to that money?". Amounts are shown negative
+ * because a payment reduces what the customer owes, and any remainder can be
+ * matched straight from this row with the same dialog the Wire Transfers page uses.
  */
 function PaymentRow({
   t,
@@ -287,13 +294,16 @@ function PaymentRow({
 }) {
   const cur = t.currency && t.currency !== "EUR" ? t.currency : null;
   const neg = (v: number) => (cur ? `−${fmtCur(v, cur, 2)}` : `−${fmtEur(v)}`);
+  // A payment is settled once nothing is left to match. Fully matched rows are
+  // toned down (like paid invoices) but never hidden.
+  const settled = t.settled ?? t.unallocated <= 0.005;
   return (
-    <TableRow className="bg-emerald-50/40 hover:bg-emerald-50">
+    <TableRow className={settled ? "bg-muted/30 hover:bg-muted/50" : "bg-emerald-50/40 hover:bg-emerald-50"}>
       {enableSelection && <TableCell className="w-8" />}
       <TableCell className="text-xs whitespace-nowrap" title="Date the payment was received">{fmtDate(t.transferDate)}</TableCell>
       <TableCell className="font-mono text-xs whitespace-nowrap">
         <span className="inline-flex items-center gap-1" title={t.referenceNumber ? `Payment ref. ${t.referenceNumber}` : "Payment on account"}>
-          <Banknote className="h-3.5 w-3.5 text-emerald-600 shrink-0" aria-label="Payment" role="img" />
+          <Banknote className={`h-3.5 w-3.5 shrink-0 ${settled ? "text-muted-foreground" : "text-emerald-600"}`} aria-label="Payment" role="img" />
           {t.referenceNumber ?? "—"}
         </span>
       </TableCell>
@@ -317,11 +327,25 @@ function PaymentRow({
       <TableCell className="text-xs whitespace-nowrap text-muted-foreground/60">—</TableCell>
       <TableCell>
         <div className="flex flex-nowrap items-center gap-1">
-          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">Payment</Badge>
+          <Badge
+            variant="outline"
+            className={settled ? "bg-muted text-muted-foreground border-border" : "bg-emerald-50 text-emerald-700 border-emerald-200"}
+          >
+            Payment
+          </Badge>
           {t.status === "Pending" && (
             <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
           )}
-          {t.status === "Received" && (
+          {settled && (
+            <Badge
+              variant="outline"
+              className="bg-slate-100 text-slate-600 border-slate-200"
+              title="This payment has been matched against invoices in full — nothing left on account"
+            >
+              Matched
+            </Badge>
+          )}
+          {t.status === "Received" && !settled && (
             <AllocateWireTransferDialog
               transfer={{
                 id: t.id,
@@ -346,11 +370,19 @@ function PaymentRow({
           )}
         </div>
       </TableCell>
-      <TableCell className="text-right font-mono text-sm whitespace-nowrap text-emerald-700">{neg(t.amount)}</TableCell>
+      <TableCell className={`text-right font-mono text-sm whitespace-nowrap ${settled ? "text-muted-foreground" : "text-emerald-700"}`}>
+        {neg(t.amount)}
+      </TableCell>
       <TableCell className="text-right font-mono text-sm whitespace-nowrap" title="Already matched against invoices">
         {t.allocated > 0.005 ? (cur ? fmtCur(t.allocated, cur, 2) : fmtEur(t.allocated)) : <span className="text-muted-foreground/50">—</span>}
       </TableCell>
-      <TableCell className="text-right font-mono text-sm font-semibold whitespace-nowrap text-emerald-700">{neg(t.unallocated)}</TableCell>
+      <TableCell className="text-right font-mono text-sm font-semibold whitespace-nowrap">
+        {settled ? (
+          <span className="text-muted-foreground/60" title="Nothing left to match">—</span>
+        ) : (
+          <span className="text-emerald-700">{neg(t.unallocated)}</span>
+        )}
+      </TableCell>
     </TableRow>
   );
 }

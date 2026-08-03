@@ -1841,3 +1841,18 @@ destination of the record is group-level.
 - [x] Empty result now names the empty bucket ("No contract installments are 31-60 days overdue.") and offers "Clear N filters"
 - [x] Removed the temporary aging diagnostic console logging
 - [x] Tests: installmentsAgingStrip.test.ts pins the scoping, disabled empty buckets and the escape action
+
+## Audit: are all wire transfers visible on the group card? (user request 3/8)
+- [x] Compare wire transfers in the database against what the group card shows, per group
+- [x] Identify transfers that are hidden (fully allocated, internal, or customer not matched to a group)
+- [x] Fully allocated customer transfers now stay in the transactions list with a "Matched" badge instead of vanishing
+- [x] Settled payment rows are toned down, show no remainder and no Allocate button
+- [x] Open-remainder totals (on-account, net open balance) still count only unmatched money
+- [x] Tests: settled transfers reach the group card and totals stay unchanged
+
+## Rename Wire Transfers to Remittances + payment method (user request 3/8)
+- [ ] Add a `method` field (Wire transfer / Cheque / Credit card) to the remittance table and migrate the DB
+- [ ] Rename "Wire Transfers" to "Remittances" in the sidebar, page titles and user-facing copy
+- [ ] New Remittance form lets the user choose the method, defaulting to Wire transfer
+- [ ] Method is visible in the remittances list and on the payment rows of the transactions list
+- [ ] Tests: method is persisted, defaulted and surfaced
