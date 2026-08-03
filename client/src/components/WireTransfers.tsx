@@ -92,6 +92,9 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
     status: "Pending",
     referenceNumber: "",
     notes: "",
+    // Cheque-only fields, ignored for transfers and card payments.
+    chequeBank: "",
+    chequeDueDate: "",
   });
 
   const createMutation = trpc.customers.createWireTransfer.useMutation({
@@ -108,6 +111,8 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
         status: "Pending",
         referenceNumber: "",
         notes: "",
+        chequeBank: "",
+        chequeDueDate: "",
       });
     },
     onError: (e) => toast.error(e.message),
@@ -147,6 +152,9 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
       referenceNumber: form.referenceNumber || null,
       notes: form.notes || null,
       receivedDate: form.status === "Received" ? new Date().getTime() : null,
+      chequeBank: form.method === "Cheque" ? form.chequeBank.trim() || null : null,
+      chequeDueDate:
+        form.method === "Cheque" && form.chequeDueDate ? new Date(form.chequeDueDate).getTime() : null,
     });
   };
 
@@ -248,6 +256,28 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                   </SelectContent>
                 </Select>
               </div>
+
+              {form.method === "Cheque" && (
+                <div className="grid grid-cols-2 gap-4 rounded-md border border-dashed border-border/70 bg-muted/30 p-3">
+                  <div>
+                    <Label>Bank</Label>
+                    <Input
+                      value={form.chequeBank}
+                      onChange={e => setForm({ ...form, chequeBank: e.target.value })}
+                      placeholder="Issuing bank, e.g. Alpha Bank"
+                    />
+                  </div>
+                  <div>
+                    <Label>Due date</Label>
+                    <Input
+                      type="date"
+                      value={form.chequeDueDate}
+                      onChange={e => setForm({ ...form, chequeDueDate: e.target.value })}
+                    />
+                    <p className="mt-1 text-[11px] text-muted-foreground">Date the cheque can be cashed.</p>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <Label>Branch (received at)</Label>
@@ -384,7 +414,33 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                       )}
                     </TableCell>
                     <TableCell className="text-sm">
-                      {t.isInternal ? <span className="text-muted-foreground">—</span> : <MethodBadge method={t.method} />}
+                      {t.isInternal ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <>
+                          <MethodBadge method={t.method} />
+                          {normalizeRemittanceMethod(t.method) === "Cheque" && (t.chequeBank || t.chequeDueDate) && (
+                            <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                              {t.chequeBank && (
+                                <div className="truncate" title={t.chequeBank}>
+                                  {t.chequeBank}
+                                </div>
+                              )}
+                              {t.chequeDueDate && (
+                                <div
+                                  className={
+                                    t.status !== "Received" && Number(t.chequeDueDate) < Date.now()
+                                      ? "font-medium text-red-600"
+                                      : undefined
+                                  }
+                                >
+                                  due {fmtDate(Number(t.chequeDueDate))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
                     </TableCell>
                     <TableCell>{fmtCur(t.amount, t.currency)}</TableCell>
                     <TableCell>

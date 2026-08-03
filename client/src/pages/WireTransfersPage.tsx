@@ -59,6 +59,38 @@ function MethodBadge({ method }: { method?: string | null }) {
   );
 }
 
+/**
+ * Bank and due date of a cheque, shown under the method badge. Nothing renders
+ * for transfers or card payments, and a cheque still pending past its due date
+ * is called out because it should have been cashed by then.
+ */
+function ChequeDetails({
+  method,
+  bank,
+  dueDate,
+  status,
+}: {
+  method?: string | null;
+  bank?: string | null;
+  dueDate?: number | null;
+  status?: string | null;
+}) {
+  if (normalizeRemittanceMethod(method) !== "Cheque") return null;
+  if (!bank && !dueDate) return null;
+  const overdue = !!dueDate && status !== "Received" && dueDate < Date.now();
+  return (
+    <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+      {bank && <div className="truncate max-w-[130px]" title={bank}>{bank}</div>}
+      {dueDate && (
+        <div className={overdue ? "font-medium text-red-600" : undefined}>
+          due {fmtDate(Number(dueDate))}
+          {overdue ? " · overdue" : ""}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Cancel a single allocation from the transfer side: reverts the invoice, frees the amount, deletes the derived internal transfer. */
 function CancelAllocationButton({
   allocationId,
@@ -621,7 +653,15 @@ export default function WireTransfersPage() {
                             {t.isInternal ? (
                               <span className="text-muted-foreground">—</span>
                             ) : (
-                              <MethodBadge method={t.method} />
+                              <>
+                                <MethodBadge method={t.method} />
+                                <ChequeDetails
+                                  method={t.method}
+                                  bank={(t as any).chequeBank}
+                                  dueDate={(t as any).chequeDueDate}
+                                  status={t.status}
+                                />
+                              </>
                             )}
                           </TableCell>
                           <TableCell>{fmtCur(Number(t.amount), t.currency)}</TableCell>
@@ -748,6 +788,10 @@ function CreateWireTransferForm({
   const [status, setStatus] = useState<"Pending" | "Received">("Pending");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [notes, setNotes] = useState("");
+  /** Cheque-only: the issuing bank and the date the cheque can be cashed. */
+  const [chequeBank, setChequeBank] = useState("");
+  const [chequeDueDate, setChequeDueDate] = useState("");
+  const isCheque = method === "Cheque";
 
   const utils = trpc.useUtils();
   const createMutation = trpc.customers.createWireTransfer.useMutation({
@@ -778,6 +822,9 @@ function CreateWireTransferForm({
       referenceNumber: referenceNumber || null,
       notes: notes || null,
       receivedDate: status === "Received" ? new Date().getTime() : null,
+      // Cheque details are meaningless for a transfer or a card payment.
+      chequeBank: isCheque ? chequeBank.trim() || null : null,
+      chequeDueDate: isCheque && chequeDueDate ? new Date(chequeDueDate).getTime() : null,
     });
   };
 
@@ -838,6 +885,30 @@ function CreateWireTransferForm({
           </SelectContent>
         </Select>
       </div>
+
+      {isCheque && (
+        <div className="grid grid-cols-2 gap-4 rounded-md border border-dashed border-border/70 bg-muted/30 p-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="cheque-bank">Bank</Label>
+            <Input
+              id="cheque-bank"
+              value={chequeBank}
+              onChange={e => setChequeBank(e.target.value)}
+              placeholder="Issuing bank, e.g. Alpha Bank"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cheque-due">Due date</Label>
+            <Input
+              id="cheque-due"
+              type="date"
+              value={chequeDueDate}
+              onChange={e => setChequeDueDate(e.target.value)}
+            />
+            <p className="text-[11px] text-muted-foreground">Date the cheque can be cashed.</p>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <Label htmlFor="branch">Branch (received at)</Label>
@@ -926,6 +997,8 @@ function UpdateWireTransferDialog({
     currency: string;
     branch?: string | null;
     method?: string | null;
+    chequeBank?: string | null;
+    chequeDueDate?: number | null;
   };
   branches: string[];
 }) {
@@ -933,6 +1006,10 @@ function UpdateWireTransferDialog({
   const [newBranch, setNewBranch] = useState(transfer.branch || "none");
   const [newMethod, setNewMethod] = useState<Method>(
     normalizeRemittanceMethod(transfer.method),
+  );
+  const [newChequeBank, setNewChequeBank] = useState(transfer.chequeBank ?? "");
+  const [newChequeDue, setNewChequeDue] = useState(
+    transfer.chequeDueDate ? new Date(transfer.chequeDueDate).toISOString().split("T")[0] : "",
   );
   const [isOpen, setIsOpen] = useState(false);
 
@@ -967,6 +1044,8 @@ function UpdateWireTransferDialog({
       branch: newBranch !== "none" ? newBranch : null,
       method: newMethod,
       receivedDate: newStatus === "Received" ? new Date().getTime() : null,
+      chequeBank: newMethod === "Cheque" ? newChequeBank.trim() || null : null,
+      chequeDueDate: newMethod === "Cheque" && newChequeDue ? new Date(newChequeDue).getTime() : null,
     });
   };
 
@@ -1012,6 +1091,28 @@ function UpdateWireTransferDialog({
               </SelectContent>
             </Select>
           </div>
+          {newMethod === "Cheque" && (
+            <div className="grid grid-cols-2 gap-4 rounded-md border border-dashed border-border/70 bg-muted/30 p-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="update-cheque-bank">Bank</Label>
+                <Input
+                  id="update-cheque-bank"
+                  value={newChequeBank}
+                  onChange={e => setNewChequeBank(e.target.value)}
+                  placeholder="Issuing bank"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="update-cheque-due">Due date</Label>
+                <Input
+                  id="update-cheque-due"
+                  type="date"
+                  value={newChequeDue}
+                  onChange={e => setNewChequeDue(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="update-branch">Branch (received at)</Label>
             <Select value={newBranch} onValueChange={setNewBranch}>

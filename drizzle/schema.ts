@@ -703,6 +703,12 @@ export const wireTransfers = mysqlTable("wire_transfers", {
   // same way and allocated against invoices with the same flow.
   method: mysqlEnum("method", ["Transfer", "Cheque", "Credit Card"]).default("Transfer").notNull(),
   
+  // Cheque-only details. A cheque is a promise dated in the future, so the
+  // collector needs the issuing bank and the date it can be cashed; both stay
+  // null for transfers and card payments.
+  chequeBank: varchar("chequeBank", { length: 128 }),
+  chequeDueDate: bigint("chequeDueDate", { mode: "number" }), // Unix ms — date the cheque matures / expires
+
   // Status tracking: Pending (waiting to receive) or Received
   status: mysqlEnum("status", ["Pending", "Received"]).default("Pending").notNull(),
   receivedDate: bigint("receivedDate", { mode: "number" }), // Unix timestamp when payment was received (null if still pending)
@@ -730,6 +736,7 @@ export const wireTransfers = mysqlTable("wire_transfers", {
   index("idx_wire_transfers_status").on(t.status),
   index("idx_wire_transfers_transferDate").on(t.transferDate),
   index("idx_wire_transfers_sourceWireTransferId").on(t.sourceWireTransferId),
+  index("idx_wire_transfers_chequeDueDate").on(t.chequeDueDate),
 ]);
 
 export type WireTransfer = typeof wireTransfers.$inferSelect;

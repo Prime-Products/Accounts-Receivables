@@ -1881,3 +1881,12 @@ destination of the record is group-level.
 - [x] Find the duplicate source ("Note added" activity log + the note row itself)
 - [x] Keep a single timeline entry per note (the editable one)
 - [x] Regression test so one note produces one timeline entry
+
+## Cheque-specific fields on remittances (user request 3/8)
+- [x] Schema: cheque bank name + cheque due (expiration) date columns, migration applied
+- [x] Procedures accept and return the cheque fields
+- [x] New Remittance form shows the cheque fields only when Cheque is selected
+- [x] Company-card remittance form shows the same conditional fields
+- [x] Edit dialog can correct the cheque bank and due date
+- [x] Remittances table shows bank + due date for cheques (and a due/expired hint)
+- [x] Tests for storing, updating and hiding the cheque fields
