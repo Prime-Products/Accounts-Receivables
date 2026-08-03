@@ -68,7 +68,17 @@ describe("Paid closes the collections cycle server-side", () => {
 
   it("keeps Paid as a closed outcome that resets at the start of a new month", () => {
     // isConfirmationStale is the single place the monthly reset is decided.
-    expect(router).toMatch(/if \(status === "Kept" \|\| status === "Broken"\) return isFromPreviousMonth/);
+    expect(router).toMatch(/if \(status === "Kept"\) return isFromPreviousMonth/);
+  });
+
+  it("keeps 'Did not confirm' on the group when the new month starts", () => {
+    // Only Paid may reset: a refusal must never silently look like an untouched group.
+    const fn = router.slice(
+      router.indexOf("function isConfirmationStale("),
+      router.indexOf("function isFromPreviousMonth("),
+    );
+    expect(fn).not.toMatch(/"Broken"\) return isFromPreviousMonth/);
+    expect(fn).toMatch(/return false;/);
   });
 });
 

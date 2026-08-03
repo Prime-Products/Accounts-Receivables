@@ -1890,3 +1890,9 @@ destination of the record is group-level.
 - [x] Edit dialog can correct the cheque bank and due date
 - [x] Remittances table shows bank + due date for cheques (and a due/expired hint)
 - [x] Tests for storing, updating and hiding the cheque fields
+
+## "Did not confirm" must survive the month change (user request 3/8)
+- [x] Stop resetting the Broken ("Did not confirm") status to Not Contacted when a new month starts
+- [x] Keep "Kept" resetting as before (that cycle really is finished)
+- [x] Check every surface reading the status (Collections Desk filter, group card, dashboard counters, timeline) still agrees
+- [x] Tests pinning that a Broken row recorded last month still reads "Did not confirm" this month

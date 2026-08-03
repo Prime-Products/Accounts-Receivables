@@ -107,10 +107,13 @@ function endOfCurrentMonth(now = new Date()): number {
  * passes and the linked auto-task is still open, the badge turns red (taskOverdue)
  * instead of resetting the status.
  *
- * Rolling flow (no full monthly reset): only CLOSED outcomes — "Kept" and
- * "Broken" — reset back to "Not Contacted" at the start of a new month.
- * Active statuses ("Confirmed" / "Pending Follow-up") carry over across months
- * together with their open tasks, so the collector never restarts from zero.
+ * Rolling flow (no monthly reset): "Kept" (Paid) is the only status that resets
+ * back to "Not Contacted" at the start of a new month, because the money is in and
+ * that cycle is finished. Every other status carries over into the new month —
+ * including "Broken" ("Did not confirm"), which stays visible until a human logs a
+ * new call, so a refusal never looks like an untouched group. Active statuses
+ * ("Confirmed" / "Pending Follow-up") carry over with their open tasks as well, so
+ * the collector never restarts from zero.
  */
 function isConfirmationStale(
   status: string | null | undefined,
@@ -120,11 +123,12 @@ function isConfirmationStale(
 ): boolean {
   // "Not Contacted" is always stale (no active follow-up).
   if (!status || status === "Not Contacted") return true;
-  // Closed outcomes ("Kept" / "Broken") show for the rest of the month, then
-  // reset to Not Contacted when a new month starts.
-  if (status === "Kept" || status === "Broken") return isFromPreviousMonth(updatedAt ?? null, now);
-  // Active statuses (Confirmed, Pending Follow-up) persist until explicitly
-  // changed by a human — no date-based auto-reset, no monthly reset.
+  // "Kept" (Paid) is the only closed outcome: it shows for the rest of the month
+  // and resets to Not Contacted when a new month starts, because the money is in.
+  if (status === "Kept") return isFromPreviousMonth(updatedAt ?? null, now);
+  // Everything else — including "Broken" ("Did not confirm") — persists until a
+  // human records a new call. A refusal is still a refusal in the new month, so it
+  // must not silently turn back into an untouched group.
   return false;
 }
 
@@ -377,7 +381,7 @@ async function handOverTask(taskId: number, previousAssigneeId: number | null, n
  *
  * The group's own collection status is the second gate. The Desk decides whether a
  * group carries a live commitment from `group_confirmation_status`; when that says
- * "Not Contacted" (or the row is stale / closed as Kept or Broken) the group shows
+ * "Not Contacted" (or the row is closed as Paid, or the customer did not confirm) the group shows
  * no promise anywhere in the UI, so a leftover `Pending` row must not resurrect one.
  * Without this gate a group whose status was reset kept offering "saving moves it to
  * the new date" for a promise the collector could not see.
@@ -403,8 +407,9 @@ async function findOpenGroupPromise(group: string) {
   const isLive = (t: { status: string }) => t.status !== "Completed" && t.status !== "Cancelled";
 
   // A promise with no live task is only open while the group is genuinely carrying a
-  // commitment. "Not Contacted" (including stale rows and month-reset Kept/Broken)
-  // means the Desk shows nothing, so such rows are orphans → repair them.
+  // commitment. "Not Contacted" (including stale rows and Paid rows that reset with the
+  // month) and "Did not confirm" mean the Desk shows no commitment, so such rows are
+  // orphans → repair them.
   let groupCarriesCommitment: boolean | null = null;
   const carriesCommitment = async () => {
     if (groupCarriesCommitment === null) {
@@ -1219,7 +1224,8 @@ export const customersRouter = router({
         const aging = computeAging(groupInvoices.get(g.group) ?? [], now);
         // Expected to Collect: live estimate driven by log calls.
         // Not Contacted → forecast; Confirmed/Pending → confirmation amount; Broken → 0.
-        // A status recorded in a previous month is stale → treated as Not Contacted.
+        // Only a "Paid" row recorded in a previous month is stale → treated as Not
+        // Contacted; "Did not confirm" carries over and keeps holding the estimate at 0.
         const conf = effectiveConfirmation(confirmation);
         const confStatus = conf.status;
         const confAmount = conf.amount;

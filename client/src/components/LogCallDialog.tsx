@@ -635,6 +635,9 @@ export default function LogCallDialog({
                 Either way, the refusal stays in the history: the timeline will read
                 <strong> "Did not confirm → …"</strong>.
               </p>
+              <p className="text-[11px] leading-snug text-red-800">
+                The status also stays on the group when the new month starts — only a new call clears it.
+              </p>
             </div>
           )}
 
