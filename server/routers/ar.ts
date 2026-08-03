@@ -466,6 +466,9 @@ async function listGroupWireTransfers(customerIds: Set<number>, customerNames: M
         // Transfer / Cheque / Credit Card — the collector needs to know
         // which instrument the money arrived on, not just that it arrived.
         method: (t as any).method ?? "Transfer",
+        // Cheque-only details, so a row can show "Alpha Bank · due 15 Sep".
+        chequeBank: (t as any).chequeBank ?? null,
+        chequeDueDate: (t as any).chequeDueDate ?? null,
         referenceNumber: t.referenceNumber ?? null,
         branch: t.branch ?? null,
         notes: t.notes ?? null,
@@ -2181,11 +2184,19 @@ export const customersRouter = router({
         receivedDate: z.number().optional().nullable(),
         referenceNumber: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
+        // Cheque-only: issuing bank and the date the cheque can be cashed.
+        chequeBank: z.string().max(128).optional().nullable(),
+        chequeDueDate: z.number().optional().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // A transfer or card payment has no cheque details; drop anything sent by
+      // mistake so the row cannot claim a bank it does not have.
+      const isCheque = input.method === "Cheque";
       const id = await db.createWireTransfer({
         ...input,
+        chequeBank: isCheque ? (input.chequeBank?.trim() || null) : null,
+        chequeDueDate: isCheque ? (input.chequeDueDate ?? null) : null,
         createdBy: ctx.user.id,
       });
       await audit(
@@ -2209,11 +2220,22 @@ export const customersRouter = router({
         receivedDate: z.number().optional().nullable(),
         referenceNumber: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
+        chequeBank: z.string().max(128).optional().nullable(),
+        chequeDueDate: z.number().optional().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, customerId, ...data } = input;
-      await db.updateWireTransfer(id, { ...data, updatedBy: ctx.user.id });
+      // Switching a cheque to a transfer/card must not leave stale cheque details
+      // behind, so they are cleared whenever the method moves away from Cheque.
+      const patch: Record<string, unknown> = { ...data, updatedBy: ctx.user.id };
+      if (data.method !== undefined && data.method !== "Cheque") {
+        patch.chequeBank = null;
+        patch.chequeDueDate = null;
+      } else if (data.chequeBank !== undefined) {
+        patch.chequeBank = data.chequeBank?.trim() || null;
+      }
+      await db.updateWireTransfer(id, patch as any);
       await audit(ctx, "Update Remittance", "customer", customerId);
       return { success: true };
     }),

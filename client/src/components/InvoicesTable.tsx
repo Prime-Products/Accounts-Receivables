@@ -66,6 +66,9 @@ export interface OpenTransferRow {
   status: "Pending" | "Received";
   /** Instrument the money arrived on: Transfer, Cheque or Credit Card. */
   method?: string | null;
+  /** Cheque-only: issuing bank and the date the cheque can be cashed. */
+  chequeBank?: string | null;
+  chequeDueDate?: number | null;
   referenceNumber: string | null;
   branch: string | null;
   notes: string | null;
@@ -336,10 +339,30 @@ function PaymentRow({
           <Badge
             variant="outline"
             className={settled ? "bg-muted text-muted-foreground border-border" : "bg-emerald-50 text-emerald-700 border-emerald-200"}
+            title={
+              normalizeRemittanceMethod(t.method) === "Cheque"
+                ? [t.chequeBank, t.chequeDueDate ? `due ${fmtDate(Number(t.chequeDueDate))}` : null]
+                    .filter(Boolean)
+                    .join(" · ") || undefined
+                : undefined
+            }
           >
             {/* Name the instrument: a cheque behaves differently from a bank transfer. */}
             {normalizeRemittanceMethod(t.method)}
           </Badge>
+          {normalizeRemittanceMethod(t.method) === "Cheque" && t.chequeDueDate && (
+            <Badge
+              variant="outline"
+              className={
+                t.status !== "Received" && Number(t.chequeDueDate) < Date.now()
+                  ? "bg-red-50 text-red-700 border-red-200"
+                  : "bg-slate-50 text-slate-600 border-slate-200"
+              }
+              title={t.chequeBank ? `Cheque of ${t.chequeBank}` : "Date the cheque can be cashed"}
+            >
+              due {fmtDate(Number(t.chequeDueDate))}
+            </Badge>
+          )}
           {t.status === "Pending" && (
             <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
           )}
