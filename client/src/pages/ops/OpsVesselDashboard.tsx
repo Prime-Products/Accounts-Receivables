@@ -30,7 +30,17 @@ export default function OpsVesselDashboard() {
   const [, navigate] = useLocation();
   const { data, isLoading } = trpc.opsVessel.dashboard.useQuery({ vesselId }, { enabled: vesselId > 0 });
 
-  if (isLoading || !data) {
+  if (vesselId <= 0) {
+    return (
+      <div className="p-2 sm:p-4 flex flex-col items-center justify-center min-h-[400px] text-muted-foreground">
+        <Ship className="h-10 w-10 mb-3 opacity-40" />
+        <p className="text-lg font-medium">Invalid vessel ID</p>
+        <Button variant="outline" className="mt-4" onClick={() => navigate("/ops/assets")}>Back to Assets</Button>
+      </div>
+    );
+  }
+
+  if (isLoading) {
     return (
       <div className="p-2 sm:p-4 space-y-4">
         <Skeleton className="h-8 w-48" />
@@ -38,6 +48,17 @@ export default function OpsVesselDashboard() {
           {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24" />)}
         </div>
         <Skeleton className="h-[300px]" />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="p-2 sm:p-4 flex flex-col items-center justify-center min-h-[400px] text-muted-foreground">
+        <Ship className="h-10 w-10 mb-3 opacity-40" />
+        <p className="text-lg font-medium">Vessel not found</p>
+        <p className="text-sm mt-1">This vessel may not have any active assignments.</p>
+        <Button variant="outline" className="mt-4" onClick={() => navigate("/ops/assets")}>Back to Assets</Button>
       </div>
     );
   }
@@ -180,4 +201,3 @@ export default function OpsVesselDashboard() {
     </div>
   );
 }
-

@@ -3,16 +3,19 @@
 - [x] Update Contracts page with new implementation (resizable columns, search, sort, detail dialog, summary strip)
 - [x] Verify TypeScript compilation passes
 - [x] Save checkpoint and publish (auto-publish enabled)
-- [ ] Create database schema for new tables (client_groups, client_entities, services, asset_catalog, consumable_catalog, quotations, quotation_items, contracts ops tables, contract_library, payment_schedule, vessels_ops, assets, certificates, consumable_orders, vessel_history)
-- [ ] Build backend tRPC routers for all modules
-- [ ] Build sidebar navigation with Operations section
-- [ ] Build Operations Dashboard
-- [ ] Build Client Management pages (Groups & Entities)
-- [ ] Build Quotation Builder
-- [ ] Build Contracts module with Library & Payment Schedule
-- [ ] Build Vessel Dashboard with automation engine
-- [ ] Build Asset Tracking with status workflow
-- [ ] Build Consumable Orders with quota deduction
-- [ ] Build Certificates with renewal reminders
-- [ ] Build Reverse Logistics Dashboard
-- [ ] Build Statement of Account (SoA) Module
+- [x] Create database schema for new tables (ops_services, ops_asset_catalog, ops_consumable_catalog, ops_quotations, ops_quotation_items, ops_contracts, ops_contract_library, ops_payment_schedule, ops_vessel_assignments, ops_assets, ops_certificates, ops_consumable_orders, ops_vessel_history)
+- [x] Build backend tRPC routers for all modules (catalog, quotations, contracts, assets, certificates, orders, vessel, dashboard)
+- [x] Build sidebar navigation with Operations section
+- [x] Build Operations Dashboard with KPI cards
+- [x] Add Create Quotation dialog with item builder
+- [x] Add Quotation detail view with convert-to-contract action
+- [x] Add Create Contract dialog
+- [x] Add Assign Vessel dialog to Contract Detail
+- [x] Add Create Asset dialog
+- [x] Add Asset status change actions
+- [x] Build Certificates page with expiry warnings
+- [x] Build Consumable Orders page with status filter
+- [x] Build Reverse Logistics Dashboard (pending returns)
+- [x] Build Statement of Account (SoA) in Reports page
+- [x] Build Vessel Dashboard with KPIs, equipment, quota, history
+- [ ] Add Catalog management page (Services, Assets, Consumables CRUD)
