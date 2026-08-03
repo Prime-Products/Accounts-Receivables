@@ -104,6 +104,7 @@ function Router() {
           <Route path={"/ops/orders"} component={OpsOrders} />
           <Route path={"/ops/returns"} component={OpsReturns} />
           <Route path={"/ops/vessel/:id"} component={OpsVesselDashboard} />
+          <Route path={"/ops/catalog"} component={OpsCatalog} />
           <Route path={"/404"} component={NotFound} />
           <Route component={NotFound} />
         </Switch>
@@ -134,3 +135,4 @@ function App() {
 }
 
 export default App;
+const OpsCatalog = lazy(() => import("./pages/ops/OpsCatalog"));
