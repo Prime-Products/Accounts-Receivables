@@ -1042,3 +1042,271 @@ export const creditNoteAllocations = mysqlTable(
 );
 export type CreditNoteAllocation = typeof creditNoteAllocations.$inferSelect;
 export type InsertCreditNoteAllocation = typeof creditNoteAllocations.$inferInsert;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OPERATIONS MODULE — Contracts & Maritime Operations Management
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Catalog of services offered by Prime Products. */
+export const opsServices = mysqlTable("ops_services", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  defaultCost: decimal("defaultCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  category: varchar("category", { length: 100 }),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type OpsService = typeof opsServices.$inferSelect;
+export type InsertOpsService = typeof opsServices.$inferInsert;
+
+/** Catalog of equipment/assets (e.g., gas meters) that can be quoted and supplied. */
+export const opsAssetCatalog = mysqlTable("ops_asset_catalog", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  defaultCost: decimal("defaultCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  category: varchar("category", { length: 100 }),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type OpsAssetCatalog = typeof opsAssetCatalog.$inferSelect;
+export type InsertOpsAssetCatalog = typeof opsAssetCatalog.$inferInsert;
+
+/** Catalog of consumables (e.g., calibration ampoules). */
+export const opsConsumableCatalog = mysqlTable("ops_consumable_catalog", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  unit: varchar("unit", { length: 50 }).default("pcs").notNull(),
+  defaultCostPerUnit: decimal("defaultCostPerUnit", { precision: 12, scale: 2 }).default("0").notNull(),
+  category: varchar("category", { length: 100 }),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type OpsConsumableCatalog = typeof opsConsumableCatalog.$inferSelect;
+export type InsertOpsConsumableCatalog = typeof opsConsumableCatalog.$inferInsert;
+
+/** Quotation statuses. */
+export const opsQuotationStatuses = ["Draft", "Sent", "Approved", "Rejected", "Expired"] as const;
+
+/** Quotations — draft proposals before contract approval. */
+export const opsQuotations = mysqlTable("ops_quotations", {
+  id: int("id").autoincrement().primaryKey(),
+  quotationNumber: varchar("quotationNumber", { length: 50 }).notNull().unique(),
+  /** Links to existing AR customers table. */
+  customerId: int("customerId").notNull(),
+  status: mysqlEnum("status", opsQuotationStatuses).default("Draft").notNull(),
+  totalCost: decimal("totalCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  sellingPrice: decimal("sellingPrice", { precision: 12, scale: 2 }).default("0").notNull(),
+  margin: decimal("margin", { precision: 5, scale: 2 }).default("0").notNull(),
+  validUntil: bigint("validUntil", { mode: "number" }),
+  notes: text("notes"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_quotations_customerId").on(t.customerId),
+  index("idx_ops_quotations_status").on(t.status),
+]);
+export type OpsQuotation = typeof opsQuotations.$inferSelect;
+export type InsertOpsQuotation = typeof opsQuotations.$inferInsert;
+
+/** Line item types in a quotation. */
+export const opsQuotationItemTypes = ["Service", "Asset", "Consumable"] as const;
+
+/** Individual line items within a quotation. */
+export const opsQuotationItems = mysqlTable("ops_quotation_items", {
+  id: int("id").autoincrement().primaryKey(),
+  quotationId: int("quotationId").notNull(),
+  itemType: mysqlEnum("itemType", opsQuotationItemTypes).notNull(),
+  /** References the respective catalog (ops_services, ops_asset_catalog, or ops_consumable_catalog). */
+  catalogId: int("catalogId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  quantity: int("quantity").default(1).notNull(),
+  unitCost: decimal("unitCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  sellingPrice: decimal("sellingPrice", { precision: 12, scale: 2 }).default("0").notNull(),
+  notes: text("notes"),
+}, t => [index("idx_ops_quotation_items_quotationId").on(t.quotationId)]);
+export type OpsQuotationItem = typeof opsQuotationItems.$inferSelect;
+export type InsertOpsQuotationItem = typeof opsQuotationItems.$inferInsert;
+
+/** Operations contract statuses. */
+export const opsContractStatuses = ["Draft", "Active", "Expired", "Terminated"] as const;
+
+/** Operations contracts — umbrella agreements created from approved quotations. */
+export const opsContracts = mysqlTable("ops_contracts", {
+  id: int("id").autoincrement().primaryKey(),
+  contractNumber: varchar("contractNumber", { length: 50 }).notNull().unique(),
+  quotationId: int("quotationId"),
+  /** Links to existing AR customers table. */
+  customerId: int("customerId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  status: mysqlEnum("status", opsContractStatuses).default("Draft").notNull(),
+  totalValue: decimal("totalValue", { precision: 12, scale: 2 }).default("0").notNull(),
+  startDate: bigint("startDate", { mode: "number" }).notNull(),
+  endDate: bigint("endDate", { mode: "number" }).notNull(),
+  notes: text("notes"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_contracts_customerId").on(t.customerId),
+  index("idx_ops_contracts_status").on(t.status),
+]);
+export type OpsContract = typeof opsContracts.$inferSelect;
+export type InsertOpsContract = typeof opsContracts.$inferInsert;
+
+/** Contract library item types. */
+export const opsLibraryItemTypes = ["Service", "Asset", "Consumable"] as const;
+/** Quota types for consumables. */
+export const opsQuotaTypes = ["Annual", "ContractLife"] as const;
+
+/** Contract Library — blueprint of agreed services, assets, and consumable quotas. */
+export const opsContractLibrary = mysqlTable("ops_contract_library", {
+  id: int("id").autoincrement().primaryKey(),
+  contractId: int("contractId").notNull(),
+  itemType: mysqlEnum("itemType", opsLibraryItemTypes).notNull(),
+  catalogId: int("catalogId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  quantity: int("quantity").default(1).notNull(),
+  /** For consumables: Annual or ContractLife limit type. */
+  quotaType: mysqlEnum("quotaType", opsQuotaTypes),
+  /** Maximum quantity allowed under the quota. */
+  quotaLimit: int("quotaLimit"),
+  notes: text("notes"),
+}, t => [index("idx_ops_contract_library_contractId").on(t.contractId)]);
+export type OpsContractLibrary = typeof opsContractLibrary.$inferSelect;
+export type InsertOpsContractLibrary = typeof opsContractLibrary.$inferInsert;
+
+/** Payment schedule statuses. */
+export const opsPaymentStatuses = ["Pending", "Invoiced", "Paid"] as const;
+
+/** Payment Schedule — auto-generated billing installments. */
+export const opsPaymentSchedule = mysqlTable("ops_payment_schedule", {
+  id: int("id").autoincrement().primaryKey(),
+  contractId: int("contractId").notNull(),
+  installmentNumber: int("installmentNumber").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  dueDate: bigint("dueDate", { mode: "number" }).notNull(),
+  status: mysqlEnum("status", opsPaymentStatuses).default("Pending").notNull(),
+  invoiceNumber: varchar("invoiceNumber", { length: 50 }),
+  paidDate: bigint("paidDate", { mode: "number" }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_payment_schedule_contractId").on(t.contractId),
+  index("idx_ops_payment_schedule_status").on(t.status),
+]);
+export type OpsPaymentSchedule = typeof opsPaymentSchedule.$inferSelect;
+export type InsertOpsPaymentSchedule = typeof opsPaymentSchedule.$inferInsert;
+
+/** Vessel assignment to an operations contract. */
+export const opsVesselAssignments = mysqlTable("ops_vessel_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Links to existing AR vessels table. */
+  vesselId: int("vesselId").notNull(),
+  contractId: int("contractId").notNull(),
+  assignedDate: bigint("assignedDate", { mode: "number" }).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [
+  index("idx_ops_vessel_assignments_vesselId").on(t.vesselId),
+  index("idx_ops_vessel_assignments_contractId").on(t.contractId),
+]);
+export type OpsVesselAssignment = typeof opsVesselAssignments.$inferSelect;
+export type InsertOpsVesselAssignment = typeof opsVesselAssignments.$inferInsert;
+
+/** Asset status workflow. */
+export const opsAssetStatuses = ["Not Supplied", "In Transit", "Active", "Pending Return", "Returned"] as const;
+
+/** Physical assets (equipment/gas meters) tracked per vessel. */
+export const opsAssets = mysqlTable("ops_assets", {
+  id: int("id").autoincrement().primaryKey(),
+  serialNumber: varchar("serialNumber", { length: 100 }).notNull().unique(),
+  catalogItemId: int("catalogItemId"),
+  name: varchar("name", { length: 255 }).notNull(),
+  /** Links to existing AR vessels table. */
+  vesselId: int("vesselId"),
+  contractId: int("contractId"),
+  status: mysqlEnum("status", opsAssetStatuses).default("Not Supplied").notNull(),
+  targetReturnPort: varchar("targetReturnPort", { length: 255 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_assets_vesselId").on(t.vesselId),
+  index("idx_ops_assets_contractId").on(t.contractId),
+  index("idx_ops_assets_status").on(t.status),
+]);
+export type OpsAsset = typeof opsAssets.$inferSelect;
+export type InsertOpsAsset = typeof opsAssets.$inferInsert;
+
+/** Certificates linked to assets. */
+export const opsCertificates = mysqlTable("ops_certificates", {
+  id: int("id").autoincrement().primaryKey(),
+  assetId: int("assetId").notNull(),
+  certificateNumber: varchar("certificateNumber", { length: 100 }).notNull(),
+  issueDate: bigint("issueDate", { mode: "number" }).notNull(),
+  expiryDate: bigint("expiryDate", { mode: "number" }).notNull(),
+  fileUrl: text("fileUrl"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_certificates_assetId").on(t.assetId),
+  index("idx_ops_certificates_expiryDate").on(t.expiryDate),
+]);
+export type OpsCertificate = typeof opsCertificates.$inferSelect;
+export type InsertOpsCertificate = typeof opsCertificates.$inferInsert;
+
+/** Consumable order statuses. */
+export const opsOrderStatuses = ["Pending", "Shipped", "Delivered"] as const;
+
+/** Consumable orders — fulfillment deducting from contract quota. */
+export const opsConsumableOrders = mysqlTable("ops_consumable_orders", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Links to existing AR vessels table. */
+  vesselId: int("vesselId").notNull(),
+  contractId: int("contractId").notNull(),
+  libraryItemId: int("libraryItemId").notNull(),
+  quantity: int("quantity").notNull(),
+  status: mysqlEnum("status", opsOrderStatuses).default("Pending").notNull(),
+  orderDate: bigint("orderDate", { mode: "number" }).notNull(),
+  shippedDate: bigint("shippedDate", { mode: "number" }),
+  deliveredDate: bigint("deliveredDate", { mode: "number" }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_consumable_orders_vesselId").on(t.vesselId),
+  index("idx_ops_consumable_orders_contractId").on(t.contractId),
+  index("idx_ops_consumable_orders_status").on(t.status),
+]);
+export type OpsConsumableOrder = typeof opsConsumableOrders.$inferSelect;
+export type InsertOpsConsumableOrder = typeof opsConsumableOrders.$inferInsert;
+
+/** Vessel history event types. */
+export const opsVesselEventTypes = ["StatusChange", "Shipment", "AssetAssigned", "AssetRemoved", "Comment", "OrderFulfilled"] as const;
+
+/** Vessel history — audit log for vessel operations. */
+export const opsVesselHistory = mysqlTable("ops_vessel_history", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Links to existing AR vessels table. */
+  vesselId: int("vesselId").notNull(),
+  eventType: mysqlEnum("eventType", opsVesselEventTypes).notNull(),
+  description: text("description").notNull(),
+  /** JSON metadata for structured event data. */
+  metadata: text("metadata"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [
+  index("idx_ops_vessel_history_vesselId").on(t.vesselId),
+  index("idx_ops_vessel_history_eventType").on(t.eventType),
+]);
+export type OpsVesselHistory = typeof opsVesselHistory.$inferSelect;
+export type InsertOpsVesselHistory = typeof opsVesselHistory.$inferInsert;
