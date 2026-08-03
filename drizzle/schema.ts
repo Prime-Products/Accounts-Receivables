@@ -701,7 +701,7 @@ export const wireTransfers = mysqlTable("wire_transfers", {
   // How the customer remitted the money. The table is a REMITTANCE ledger: a bank
   // wire is the common case, but a cheque or a credit-card payment is recorded the
   // same way and allocated against invoices with the same flow.
-  method: mysqlEnum("method", ["Wire transfer", "Cheque", "Credit card"]).default("Wire transfer").notNull(),
+  method: mysqlEnum("method", ["Transfer", "Cheque", "Credit Card"]).default("Transfer").notNull(),
   
   // Status tracking: Pending (waiting to receive) or Received
   status: mysqlEnum("status", ["Pending", "Received"]).default("Pending").notNull(),

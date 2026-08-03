@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import { normalizeRemittanceMethod } from "@shared/remittanceMethods";
 import { ArrowLeftRight, Banknote, Building2, FileText, ListChecks, Loader2, Mail, Search, Ship, StickyNote, Users, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -241,8 +242,10 @@ export default function GlobalSearch() {
                         {t.isInternal ? "Internal · " : ""}
                         {t.customerName}
                       </span>
-                      {!t.isInternal && t.method && t.method !== "Wire transfer" && (
-                        <span className="text-[10px] text-muted-foreground shrink-0">{t.method}</span>
+                      {!t.isInternal && t.method && normalizeRemittanceMethod(t.method) !== "Transfer" && (
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          {normalizeRemittanceMethod(t.method)}
+                        </span>
                       )}
                       <span className="font-mono text-xs shrink-0">
                         {Number(t.amount).toLocaleString()} {t.currency}

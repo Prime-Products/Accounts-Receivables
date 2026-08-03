@@ -80,4 +80,22 @@ describe("buildTimeline", () => {
     });
     expect(out).toHaveLength(2);
   });
+
+  it("shows a note once even though writing it also logs a 'Note added' activity", () => {
+    // addGroupNote stores the note row AND an activity line; the timeline must
+    // keep only the note row, because that is the entry the user can edit.
+    const out = buildTimeline({
+      activityLogs: [{ id: 1, activityType: "note", title: "Note added", description: "this a test for testing", createdAt: AUG, authorName: "Kostas Vanos" }],
+      notes: [{ id: 3, content: "this a test for testing", createdAt: AUG, authorName: "Kostas Vanos" }],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ id: "note-3", noteId: 3, title: "Note" });
+  });
+
+  it("still shows other note-kind activity lines, e.g. collection notes updates", () => {
+    const out = buildTimeline({
+      activityLogs: [{ id: 1, activityType: "note", title: "Collection notes updated", createdAt: AUG }],
+    });
+    expect(out.map(e => e.title)).toEqual(["Collection notes updated"]);
+  });
 });

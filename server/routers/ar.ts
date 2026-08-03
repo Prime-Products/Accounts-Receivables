@@ -476,9 +476,9 @@ async function listGroupWireTransfers(customerIds: Set<number>, customerNames: M
         currency: t.currency ?? "EUR",
         transferDate: t.transferDate,
         status: t.status,
-        // Wire transfer / Cheque / Credit card — the collector needs to know
+        // Transfer / Cheque / Credit Card — the collector needs to know
         // which instrument the money arrived on, not just that it arrived.
-        method: (t as any).method ?? "Wire transfer",
+        method: (t as any).method ?? "Transfer",
         referenceNumber: t.referenceNumber ?? null,
         branch: t.branch ?? null,
         notes: t.notes ?? null,
@@ -2211,7 +2211,7 @@ export const customersRouter = router({
         branch: z.string().optional().nullable(),
         // How the customer remitted the money. Bank wire is the common case, so
         // it stays the default for existing callers and ERP imports.
-        method: z.enum(["Wire transfer", "Cheque", "Credit card"]).default("Wire transfer"),
+        method: z.enum(["Transfer", "Cheque", "Credit Card"]).default("Transfer"),
         status: z.enum(["Pending", "Received"]).default("Pending"),
         receivedDate: z.number().optional().nullable(),
         referenceNumber: z.string().optional().nullable(),
@@ -2228,7 +2228,7 @@ export const customersRouter = router({
         "Create Remittance",
         "customer",
         input.customerId,
-        `${input.method ?? "Wire transfer"} · ${input.currency ?? "EUR"} ${input.amount}${input.branch ? ` @ ${input.branch}` : ""}`,
+        `${input.method ?? "Transfer"} · ${input.currency ?? "EUR"} ${input.amount}${input.branch ? ` @ ${input.branch}` : ""}`,
       );
       return { id, success: true };
     }),
@@ -2239,7 +2239,7 @@ export const customersRouter = router({
         id: z.number(),
         customerId: z.number(),
         branch: z.string().optional().nullable(),
-        method: z.enum(["Wire transfer", "Cheque", "Credit card"]).optional(),
+        method: z.enum(["Transfer", "Cheque", "Credit Card"]).optional(),
         status: z.enum(["Pending", "Received"]).optional(),
         receivedDate: z.number().optional().nullable(),
         referenceNumber: z.string().optional().nullable(),
@@ -2426,7 +2426,7 @@ export const customersRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const wt = await db.getWireTransfer(input.wireTransferId);
-      if (!wt) throw new TRPCError({ code: "NOT_FOUND", message: "Wire transfer not found" });
+      if (!wt) throw new TRPCError({ code: "NOT_FOUND", message: "Remittance not found" });
       if (wt.status !== "Received")
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Only received wire transfers can be allocated" });
 

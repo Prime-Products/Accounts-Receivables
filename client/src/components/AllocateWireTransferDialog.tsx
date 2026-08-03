@@ -27,7 +27,7 @@ export function AllocateWireTransferDialog({
     currency: string;
     status: "Pending" | "Received";
     allocatedAmount?: number;
-    /** Wire transfer / Cheque / Credit card — shown in the title for context. */
+    /** Transfer / Cheque / Credit Card — shown in the title for context. */
     method?: string | null;
   };
   trigger?: React.ReactNode;

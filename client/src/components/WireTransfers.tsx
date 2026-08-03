@@ -9,6 +9,12 @@ import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtCur, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import {
+  DEFAULT_REMITTANCE_METHOD,
+  REMITTANCE_METHODS,
+  normalizeRemittanceMethod,
+  type RemittanceMethod,
+} from "@shared/remittanceMethods";
 import { Building2, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -21,15 +27,15 @@ interface WireTransfersProps {
 
 const CURRENCIES = ["EUR", "USD", "AED", "SGD", "GBP", "NOK", "JPY"];
 /** Instruments a customer can remit with — same list as the Remittances page. */
-const METHODS = ["Wire transfer", "Cheque", "Credit card"] as const;
-type Method = (typeof METHODS)[number];
+const METHODS = REMITTANCE_METHODS;
+type Method = RemittanceMethod;
 const METHOD_STYLES: Record<Method, string> = {
-  "Wire transfer": "bg-sky-50 text-sky-700 border-sky-200",
+  Transfer: "bg-sky-50 text-sky-700 border-sky-200",
   Cheque: "bg-amber-50 text-amber-800 border-amber-200",
-  "Credit card": "bg-violet-50 text-violet-700 border-violet-200",
+  "Credit Card": "bg-violet-50 text-violet-700 border-violet-200",
 };
 function MethodBadge({ method }: { method?: string | null }) {
-  const m = (METHODS as readonly string[]).includes(method ?? "") ? (method as Method) : "Wire transfer";
+  const m = normalizeRemittanceMethod(method);
   return (
     <span className={cn("inline-block rounded border px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap", METHOD_STYLES[m])}>
       {m}
@@ -81,7 +87,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
     amount: "",
     currency: "EUR",
     branch: "none",
-    method: "Wire transfer" as Method,
+    method: DEFAULT_REMITTANCE_METHOD as Method,
     transferDate: new Date().toISOString().split("T")[0],
     status: "Pending",
     referenceNumber: "",
@@ -97,7 +103,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
         amount: "",
         currency: "EUR",
         branch: "none",
-        method: "Wire transfer",
+        method: DEFAULT_REMITTANCE_METHOD,
         transferDate: new Date().toISOString().split("T")[0],
         status: "Pending",
         referenceNumber: "",
@@ -289,7 +295,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                   placeholder={
                     form.method === "Cheque"
                       ? "Cheque number"
-                      : form.method === "Credit card"
+                      : form.method === "Credit Card"
                         ? "Card authorisation / transaction ID"
                         : "Bank reference or transaction ID"
                   }

@@ -176,7 +176,7 @@ describe("Wire Transfers", () => {
    * A remittance can arrive as a bank wire, a cheque or a card payment. Callers
    * that do not say (ERP imports, older code) must keep behaving as bank wires.
    */
-  it("defaults the remittance method to Wire transfer and persists cheque/card", async () => {
+  it("defaults the remittance method to Transfer and persists cheque/card", async () => {
     const wire = await caller.customers.createWireTransfer({
       customerId: testCustomerId,
       amount: 400,
@@ -199,14 +199,14 @@ describe("Wire Transfers", () => {
       currency: "EUR",
       transferDate: Date.now(),
       status: "Pending",
-      method: "Credit card",
+      method: "Credit Card",
     });
 
     const rows = await caller.customers.listWireTransfers({ customerId: testCustomerId });
     const byId = new Map(rows.map((r: any) => [r.id, r]));
-    expect((byId.get(wire.id) as any).method).toBe("Wire transfer");
+    expect((byId.get(wire.id) as any).method).toBe("Transfer");
     expect((byId.get(cheque.id) as any).method).toBe("Cheque");
-    expect((byId.get(card.id) as any).method).toBe("Credit card");
+    expect((byId.get(card.id) as any).method).toBe("Credit Card");
 
     // The method can be corrected later (e.g. a cheque logged as a wire).
     await caller.customers.updateWireTransfer({
@@ -219,7 +219,7 @@ describe("Wire Transfers", () => {
 
     // The method reaches the global list too, which is what the page renders.
     const all = await caller.customers.getAllWireTransfers();
-    expect((all.find((r: any) => r.id === card.id) as any).method).toBe("Credit card");
+    expect((all.find((r: any) => r.id === card.id) as any).method).toBe("Credit Card");
   });
 
   it("should count received wire transfers as collected in groupForecast", async () => {
