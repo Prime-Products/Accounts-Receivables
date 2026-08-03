@@ -2,7 +2,10 @@ import "dotenv/config";
 import { inspectSoftOnePaidInvoices } from "../server/lib/softoneInvoices";
 
 try {
-  const result = await inspectSoftOnePaidInvoices();
+  console.log("[SoftOne] Starting paid invoice diagnostic...");
+  const result = await inspectSoftOnePaidInvoices(stage => {
+    console.log(`[SoftOne] ${stage}...`);
+  });
   console.log(`SoftOne paid invoice diagnostic (${result.year}):
   Paid invoice candidates: ${result.total}
   Total source amount: ${result.amount.toFixed(2)}

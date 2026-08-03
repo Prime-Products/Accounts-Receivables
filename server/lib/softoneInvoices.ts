@@ -15,8 +15,12 @@ const MAX_PAID_INVOICES = 50_000;
 // FINDOC, so reducing this value changes only the number of read-only queries.
 const SOFTONE_INVOICE_PAGE_SIZE = 25;
 const MAX_SOFTONE_INVOICE_PAGES = 500;
-const SOFTONE_PAID_INVOICE_PAGE_SIZE = 25;
-const MAX_SOFTONE_PAID_INVOICE_PAGES = 2_000;
+// Paid invoice rows are already constrained to one fixed-width payment-term
+// record, so they can safely use a larger page than the open-invoice query.
+// This avoids opening hundreds of short-lived ODBC connections for a full
+// year while retaining keyset pagination and fresh-pool HY010 protection.
+const SOFTONE_PAID_INVOICE_PAGE_SIZE = 100;
+const MAX_SOFTONE_PAID_INVOICE_PAGES = 500;
 const SOFTONE_DOCUMENT_LOOKUP_BATCH_SIZE = 250;
 const SOFTONE_CUSTOMER_LOOKUP_BATCH_SIZE = 250;
 const SOFTONE_INSTALLMENT_LOOKUP_BATCH_SIZE = 250;
@@ -983,12 +987,15 @@ export async function syncSoftOneOpenInvoices() {
   }
 }
 
-export async function inspectSoftOnePaidInvoices() {
+export async function inspectSoftOnePaidInvoices(
+  onProgress: (stage: string) => void = () => undefined,
+) {
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
   let stage = "connect";
   try {
     const records = await loadSoftOnePaidInvoices(stageName => {
       stage = stageName;
+      onProgress(stageName);
     });
     const counts = new Map<string, number>();
     for (const record of records) {
@@ -1009,7 +1016,9 @@ export async function inspectSoftOnePaidInvoices() {
   }
 }
 
-export async function syncSoftOnePaidInvoices() {
+export async function syncSoftOnePaidInvoices(
+  onProgress: (stage: string) => void = () => undefined,
+) {
   if (process.env.SOFTONE_SQL_PAID_INVOICE_SYNC_ENABLED !== "true") {
     throw new Error("SoftOne SQL paid invoice synchronization is disabled.");
   }
@@ -1019,6 +1028,7 @@ export async function syncSoftOnePaidInvoices() {
     stage = "query and normalize paid invoices";
     const records = await loadSoftOnePaidInvoices(stageName => {
       stage = stageName;
+      onProgress(stageName);
     });
     stage = "resolve paid invoice customers";
     const insertedCustomers = await ensureInvoiceCustomers(records);

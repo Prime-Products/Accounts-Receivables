@@ -3,7 +3,12 @@ import { syncSoftOnePaidInvoices } from "../server/lib/softoneInvoices";
 import { withSoftOneSyncLock } from "../server/lib/softoneSyncLock";
 
 try {
-  const execution = await withSoftOneSyncLock(() => syncSoftOnePaidInvoices());
+  console.log("[SoftOne] Starting paid invoice synchronization...");
+  const execution = await withSoftOneSyncLock(() =>
+    syncSoftOnePaidInvoices(stage => {
+      console.log(`[SoftOne] ${stage}...`);
+    }),
+  );
   if (!execution.acquired) throw new Error("SoftOne synchronization is already running.");
   console.log(
     `SoftOne paid invoice sync completed: ${execution.result.synced} record(s) for ${execution.result.year}.`,
