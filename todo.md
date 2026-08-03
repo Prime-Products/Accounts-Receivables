@@ -1812,6 +1812,11 @@ a member company, which read as "this company's promise" when it is the group's 
 - [x] Remove the Companies tab from the Collections Desk (group list only)
 - [x] Delete the dead company table, paging state, sorting and totals from the Desk page
 - [x] Tests: deskGroupOnly.test.ts pins that the Companies tab cannot come back
+
+## BUG: aging cards zeroed under the Installments filter (reported 3/8)
+- [ ] BUG: Invoices page — with the Installments filter active, every aging bucket shows 0 although 6 overdue installments exist
+- [ ] Fix the aging scoping so installments-only buckets are populated
+- [ ] Test pinning non-zero installment buckets
 - [x] BUG: Log Call proposes "reschedule" for a group the desk shows as Not Contacted (REEDEREI NORD) — duplicate Pending promise rows exist for the same customer/date
 - [x] Open-promise lookup and the desk's Not Contacted status must agree on what counts as an open promise
 - [x] Sweep orphaned Pending promise rows (no live task + group carries no commitment) to Broken
@@ -1827,3 +1832,11 @@ destination of the record is group-level.
 - [x] Keep New Task on the company card
 - [x] Tests: company-card promise routes to the group's single commitment
 - [x] Group-first tracking recorded as a standing rule in the ar-pro-design-system skill
+
+## Invoices aging strip under the Installments filter (user request 3/8)
+- [x] Investigate "aging filter does not work, all tabs show 0" with Installments active
+- [x] Confirmed the server does scope aging by installmentsOnly (buckets 5/0/1/0/0 of 6 installments) — the numbers were real, the interaction was the problem
+- [x] Zero-count buckets are no longer clickable (dashed, dimmed, tooltip) so they cannot empty the table
+- [x] Empty result now names the empty bucket ("No contract installments are 31-60 days overdue.") and offers "Clear N filters"
+- [x] Removed the temporary aging diagnostic console logging
+- [x] Tests: installmentsAgingStrip.test.ts pins the scoping, disabled empty buckets and the escape action
