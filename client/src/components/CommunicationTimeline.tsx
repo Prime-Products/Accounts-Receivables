@@ -4,6 +4,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import MentionText from "@/components/MentionText";
+import MentionTextarea from "@/components/MentionTextarea";
+import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import { stripMentionMarkup } from "@shared/mentions";
 import {
   MessageSquare,
@@ -16,6 +19,8 @@ import {
   ChevronDown,
   ChevronRight,
   Search,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 
 /** One entry on the unified communication timeline, whatever its origin table. */
@@ -33,6 +38,12 @@ export interface TimelineEntry {
   company?: string | null;
   /** Optional right-aligned figure, e.g. a promise or payment amount. */
   amount?: number | null;
+  /**
+   * Set on entries that came from a group note, so the timeline can offer edit
+   * and delete in place. Everything else on the timeline is a record of
+   * something that happened and stays read-only.
+   */
+  noteId?: number | null;
 }
 
 const KIND_CONFIG: Record<
@@ -131,6 +142,17 @@ interface CommunicationTimelineProps {
   embedded?: boolean;
   /** Height cap of the scrollable list. Defaults to the standalone-card height. */
   maxHeightClass?: string;
+  /**
+   * Note composer (or anything else) pinned above the entry list. Kept as a slot
+   * so the timeline stays presentational and the caller decides which group the
+   * note belongs to.
+   */
+  composer?: React.ReactNode;
+  /**
+   * Group whose notes can be edited in place. Without it, note entries render
+   * read-only — a timeline shown outside a group context has nothing to write to.
+   */
+  editableNotesGroup?: string;
 }
 
 /**
@@ -147,10 +169,36 @@ export function CommunicationTimeline({
   actions,
   embedded = false,
   maxHeightClass = "max-h-[560px]",
+  composer,
+  editableNotesGroup,
 }: CommunicationTimelineProps) {
   const [filter, setFilter] = useState<"all" | TimelineEntry["kind"]>("all");
   const [q, setQ] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  /** Which note is being edited inline, and its working text. */
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const utils = trpc.useUtils();
+  const refreshNotes = () => {
+    if (editableNotesGroup) utils.customers.groupNotes.invalidate({ group: editableNotesGroup });
+    utils.customers.groupDetail.invalidate();
+    utils.customers.get360.invalidate();
+  };
+  const updateNote = trpc.customers.updateGroupNote.useMutation({
+    onSuccess: () => {
+      setEditingNoteId(null);
+      toast.success("Note updated");
+      refreshNotes();
+    },
+    onError: e => toast.error(e.message),
+  });
+  const deleteNote = trpc.customers.deleteGroupNote.useMutation({
+    onSuccess: () => {
+      toast.success("Note deleted");
+      refreshNotes();
+    },
+    onError: e => toast.error(e.message),
+  });
 
   const currentMonth = useMemo(() => monthKey(Date.now()), []);
 
@@ -225,6 +273,7 @@ export function CommunicationTimeline({
 
   const list = (
     <>
+        {composer && <div className="pb-3">{composer}</div>}
         {isLoading ? (
           <div className="space-y-3">
             {[...Array(3)].map((_, i) => (
@@ -271,6 +320,8 @@ export function CommunicationTimeline({
                     <div className="space-y-3 pl-1">
                       {list.map(e => {
                         const cfg = KIND_CONFIG[e.kind];
+                        const editable = Boolean(editableNotesGroup) && e.kind === "note" && typeof e.noteId === "number";
+                        const isEditing = editable && editingNoteId === e.noteId;
                         return (
                           <div key={e.id} className="flex gap-3 pb-3 border-b last:border-b-0">
                             <div className="flex-shrink-0 pt-0.5">
@@ -283,12 +334,77 @@ export function CommunicationTimeline({
                                   {e.amount != null && e.amount > 0 && (
                                     <span className="text-sm font-mono font-semibold">{fmtAmount(e.amount)}</span>
                                   )}
+                                  {editable && !isEditing && (
+                                    <div className="flex items-center gap-0.5">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 w-6 p-0 text-muted-foreground"
+                                        title="Edit note"
+                                        onClick={() => {
+                                          setEditingNoteId(e.noteId as number);
+                                          setEditDraft(e.body ?? "");
+                                        }}
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 w-6 p-0 text-muted-foreground hover:text-red-600"
+                                        title="Delete note"
+                                        disabled={deleteNote.isPending}
+                                        onClick={() => deleteNote.mutate({ id: e.noteId as number })}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  )}
                                   <Badge variant="outline" className={`text-[10px] whitespace-nowrap ${cfg.color}`}>
                                     {cfg.label}
                                   </Badge>
                                 </div>
                               </div>
-                              {e.body && <EntryBody text={e.body} />}
+                              {isEditing ? (
+                                <div className="mt-1.5 space-y-2">
+                                  <MentionTextarea
+                                    value={editDraft}
+                                    onChange={setEditDraft}
+                                    rows={3}
+                                    maxLength={5000}
+                                    autoFocus
+                                    hint={false}
+                                    className="bg-background text-sm"
+                                  />
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-xs"
+                                      onClick={() => setEditingNoteId(null)}
+                                      disabled={updateNote.isPending}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      className="h-7 text-xs"
+                                      disabled={!editDraft.trim() || updateNote.isPending}
+                                      onClick={() =>
+                                        updateNote.mutate({ id: e.noteId as number, content: editDraft.trim() })
+                                      }
+                                    >
+                                      {updateNote.isPending ? "Saving…" : "Save"}
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                e.body && <EntryBody text={e.body} />
+                              )}
                               <div className="flex items-center gap-1.5 mt-1.5 text-xs text-muted-foreground flex-wrap">
                                 <span>{fmtDateTime(e.at)}</span>
                                 {e.author && (

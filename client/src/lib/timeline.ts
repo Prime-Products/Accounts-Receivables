@@ -110,6 +110,8 @@ export function buildTimeline(sources: TimelineSources): TimelineEntry[] {
       title: "Note",
       body: n.content ?? null,
       author: n.authorName ?? null,
+      // Row id travels with the entry so the timeline can edit/delete in place.
+      noteId: n.id,
     });
   }
 
