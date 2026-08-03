@@ -2036,6 +2036,13 @@ export const customersRouter = router({
     const groupKey = (customer.customerGroup ?? "").trim() || customer.name;
     const eomTs = endOfCurrentMonth();
     const overdueEomBalance = openInv.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
+    // Open amount falling due within the NEXT calendar month — shown on the
+    // company card's Open Balance KPI, mirroring the group card.
+    const nmStart360 = Date.UTC(new Date(eomTs).getUTCFullYear(), new Date(eomTs).getUTCMonth() + 1, 1);
+    const nmEnd360 = Date.UTC(new Date(eomTs).getUTCFullYear(), new Date(eomTs).getUTCMonth() + 2, 0, 23, 59, 59, 999);
+    const dueNextMonth360 = openInv
+      .filter(i => i.dueDate > eomTs && i.dueDate >= nmStart360 && i.dueDate <= nmEnd360)
+      .reduce((s, i) => s + outstanding(i), 0);
     const todayD = new Date();
     const [watchRow, forecastRows] = await Promise.all([
       db.getGroupWatchStatus(groupKey).catch(() => null),
@@ -2115,9 +2122,10 @@ export const customersRouter = router({
      aging,
       rating: ratingResult,
       behavior: behaviorRow,
-      groupKey,
-      overdueEomBalance,
-      watchStatus,
+     groupKey,
+     overdueEomBalance,
+      dueNextMonth: dueNextMonth360,
+     watchStatus,
       watchOverride,
       autoProblematic,
       forecastExpected: groupForecast,

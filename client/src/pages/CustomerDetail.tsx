@@ -334,7 +334,24 @@ export default function CustomerDetail() {
         <Card>
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Open Balance</div>
-            <div className="text-xl font-bold font-mono">
+            <div
+              className="text-xl font-bold font-mono"
+              title={[
+                `Open invoices: ${fmtEur(aging.current + aging.totalOverdue)}`,
+                ((data as any).unallocatedPayments ?? 0) > 0.005
+                  ? `Payments on account (unmatched): −${fmtEur((data as any).unallocatedPayments)}`
+                  : null,
+                ((data as any).openCreditNotesTotal ?? 0) > 0.005
+                  ? `Open credit notes: −${fmtEur((data as any).openCreditNotesTotal)}`
+                  : null,
+                fmtByCurrency(agingAny.totalByCurrency, { skipEurOnly: true })
+                  ? `By currency: ${fmtByCurrency(agingAny.totalByCurrency, { skipEurOnly: true })}`
+                  : null,
+                `${openInvoices.length} open invoice(s)`,
+              ]
+                .filter(Boolean)
+                .join("\n")}
+            >
               {fmtEur(
                 aging.current +
                   aging.totalOverdue -
@@ -342,21 +359,13 @@ export default function CustomerDetail() {
                   ((data as any).openCreditNotesTotal ?? 0),
               )}
             </div>
-            {(((data as any).unallocatedPayments ?? 0) > 0.005 ||
-              ((data as any).openCreditNotesTotal ?? 0) > 0.005) && (
-              <div
-                className="text-[11px] font-mono mt-0.5 text-emerald-600"
-                title="Open invoices minus payments on account and credit notes that are not yet matched"
-              >
-                {fmtEur(aging.current + aging.totalOverdue)} inv
-                {((data as any).unallocatedPayments ?? 0) > 0.005 && ` − ${fmtEur((data as any).unallocatedPayments)} on acct`}
-                {((data as any).openCreditNotesTotal ?? 0) > 0.005 && (
-                  <span className="text-sky-600"> − {fmtEur((data as any).openCreditNotesTotal)} credit</span>
-                )}
-              </div>
-            )}
-            <div className="text-[11px] text-muted-foreground mt-0.5">
-              {fmtByCurrency(agingAny.totalByCurrency, { skipEurOnly: true }) || `${openInvoices.length} open invoice(s)`}
+            {/* Same reading as the group card: balance plus next month's
+                exposure, with the breakdown moved into the tooltip. */}
+            <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+              <span className="text-[11px] text-muted-foreground">Due next month</span>
+              <span className="text-[11px] font-mono font-medium" title="Open invoices falling due within the next calendar month">
+                {fmtEur((data as any).dueNextMonth ?? 0)}
+              </span>
             </div>
           </CardContent>
         </Card>
