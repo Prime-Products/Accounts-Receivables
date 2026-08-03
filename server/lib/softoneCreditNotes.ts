@@ -10,8 +10,11 @@ import {
 import { isSoftOneSqlConfigured, querySoftOneWithFreshPool, softOneSqlError } from "./softoneSql";
 
 type SourceRow = Record<string, unknown>;
-const PAGE_SIZE = 100;
-const MAX_PAGES = 500;
+// The production unixODBC driver can raise HY010/Function sequence errors on
+// result sets of 100 rows even when every selected value is fixed-width. Keep
+// credit-note pages deliberately small and retain fresh-connection keyset reads.
+const PAGE_SIZE = 25;
+const MAX_PAGES = 2_000;
 const LOOKUP_BATCH = 250;
 
 function yearSetting() {

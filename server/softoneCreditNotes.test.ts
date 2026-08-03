@@ -4,6 +4,7 @@ import { buildSoftOneCreditNotesQuery, normalizeSoftOneCreditNotes } from "./lib
 describe("SoftOne credit-note synchronization", () => {
   it("covers the full configured year and every approved standard/special series", () => {
     const query = buildSoftOneCreditNotesQuery(0, 2026);
+    expect(query).toContain("SELECT TOP (25)");
     expect(query).toContain("document.[TRNDATE] >= '20260101'");
     expect(query).toContain("document.[TRNDATE] < '20270101'");
     expect(query).toContain("7062, 7063, 7064, 7066");
