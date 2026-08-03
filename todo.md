@@ -1863,3 +1863,10 @@ destination of the record is group-level.
 - [x] Keep the picker usable with the full customer list (3,409 rows) — filter over the whole list, render top 60 hits
 - [x] Same fix applied to the New Task group picker and the Log Call contact picker
 - [x] Test covering the search filter behaviour
+
+## Quick note directly inside the Communication window (user request 3/8)
+- [x] Add an inline note composer at the top of the Communication window (group + company card)
+- [x] Support @mentions in the composer, same as the group notes dialog
+- [x] Note appears immediately in the timeline after saving, without reopening the window
+- [x] Allow editing/deleting a note straight from its timeline entry
+- [x] Tests for the composer wiring and note edit/delete from the timeline
