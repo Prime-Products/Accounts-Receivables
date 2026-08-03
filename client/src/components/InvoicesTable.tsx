@@ -13,7 +13,7 @@ import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDia
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { invoiceDisplayStatus } from "@/lib/invoiceFilters";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, Link2, Send, Ship, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, HelpCircle, Link2, Ship, Undo2, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -364,6 +364,7 @@ export function InvoicesTable({
   disableVesselDialog = false,
   enableSelection = true,
   maxHeight,
+  group,
 }: {
   rows: InvoiceRowData[];
   /** Open credit notes to merge into the same list (ordered by issue date). */
@@ -378,6 +379,12 @@ export function InvoicesTable({
   disableVesselDialog?: boolean;
   /** Enable row selection + "Send to colleague" bulk action. */
   enableSelection?: boolean;
+  /**
+   * Group these invoices belong to. When set, the bulk bar also offers "Ask a
+   * colleague": a question needs no due date and creates no task, unlike
+   * "Send to colleague".
+   */
+  group?: string;
   /**
    * Vertical scroll height for the list (e.g. "480px"). When set, the table
    * scrolls inside its own container and the column header stays pinned to the
@@ -756,8 +763,8 @@ export function InvoicesTable({
       {enableSelection && selectedIds.size > 0 && (
         <div className="sticky bottom-3 z-20 mx-auto w-fit flex items-center gap-3 rounded-full border bg-background shadow-lg px-4 py-2">
           <span className="text-sm font-medium">{selectedIds.size} invoice(s) selected</span>
-          <Button size="sm" className="gap-1.5 rounded-full" onClick={() => setSendOpen(true)}>
-            <Send className="h-3.5 w-3.5" /> Send to colleague
+        <Button size="sm" className="gap-1.5 rounded-full" onClick={() => setSendOpen(true)}>
+            <HelpCircle className="h-3.5 w-3.5" /> Ask for help
           </Button>
           <Button size="sm" variant="ghost" className="gap-1 rounded-full text-muted-foreground" onClick={() => setSelectedIds(new Set())}>
             <X className="h-3.5 w-3.5" /> Clear
@@ -773,6 +780,7 @@ export function InvoicesTable({
             if (!o) setSelectedIds(new Set());
           }}
           defaultCustomerId={sendDefaultCustomerId}
+          defaultType="Help"
           defaultTitle={`Help needed: review ${selectedIds.size} invoice(s)`}
           defaultDescription={`Please take a look at the attached invoice(s):\n${selectedRows.map(r => `• ${r.invoiceNumber} — ${r.customerName ?? ""} (${r.currency && r.currency !== "EUR" ? r.currency + " " : "€"}${Number(r.amount).toLocaleString()})`).join("\n")}`}
           attachInvoices={selectedRows.map(r => ({ id: r.id, invoiceNumber: r.invoiceNumber, amount: r.amount, currency: r.currency }))}

@@ -1,5 +1,5 @@
 /**
- * Task watchers — add/remove/list, tasks.list inclusion, and escalate carry-over.
+ * Task watchers — add/remove/list and tasks.list inclusion.
  * Uses ONLY fixture data (see testFixtures.ts) — never touches real customers.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -21,7 +21,6 @@ describe("Task Watchers", () => {
   let memberA: number;
   let memberB: number;
   let taskId: number;
-  let escalatedTaskId = 0;
   const caller = makeCaller();
 
   beforeAll(async () => {
@@ -52,7 +51,7 @@ describe("Task Watchers", () => {
   afterAll(async () => {
     const d = await getDb();
     if (d) {
-      for (const tid of [taskId, escalatedTaskId].filter(Boolean)) {
+      for (const tid of [taskId].filter(Boolean)) {
         await d.delete(taskWatchers).where(eq(taskWatchers.taskId, tid));
       }
       await d.delete(teamMembers).where(eq(teamMembers.id, memberA));
@@ -83,17 +82,5 @@ describe("Task Watchers", () => {
     const watchers = await caller.tasks.watchers({ taskId });
     expect(watchers.length).toBe(1);
     expect(watchers[0].memberId).toBe(memberA);
-  });
-
-  it("escalate carries watchers to the new task, excluding the new assignee", async () => {
-    const res = await caller.tasks.escalate({
-      taskId,
-      assigneeId: memberB,
-      note: "test escalation with watchers",
-      watcherIds: [memberB], // memberB is the assignee — must be excluded
-    });
-    escalatedTaskId = res.newTaskId;
-    const newWatchers = await caller.tasks.watchers({ taskId: res.newTaskId });
-    expect(newWatchers.map(w => w.memberId)).toEqual([memberA]);
   });
 });

@@ -23,7 +23,7 @@ const instStatusColor: Record<string, string> = {
 
 export default function Contracts() {
   const { data: contracts, isLoading } = trpc.contracts.list.useQuery();
-  const { data: customers } = trpc.customers.list.useQuery();
+  const { data: customers } = trpc.customers.options.useQuery();
   const utils = trpc.useUtils();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const { data: detail } = trpc.contracts.get.useQuery({ id: selectedId! }, { enabled: selectedId !== null });

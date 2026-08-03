@@ -52,13 +52,13 @@ describe("follow-up task cleanup across status sequences", () => {
     await cleanupSince(__snap);
   });
 
-  it("Pending Follow-up → Confirmed → Broken leaves no open follow-up task (regression: MSC case)", async () => {
+  it("Pending Follow-up → Confirmed → Broken never produces a follow-up task (regression: MSC case)", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const cust = await getFixtureCustomer();
     expect(cust).toBeTruthy();
     const group = (cust.customerGroup ?? "").trim() || cust.name;
 
-    // 1) Pending Follow-up with a date → creates an open follow-up task
+    // 1) Pending Follow-up with a date → status only, no task
     await caller.calls.logCall({
       group,
       customerId: cust.id,
@@ -67,9 +67,9 @@ describe("follow-up task cleanup across status sequences", () => {
       confirmationAmount: 1000,
       followUpDate: Date.now() + 4 * 24 * 60 * 60 * 1000,
     });
-    expect((await openFollowUpTasks(group)).length).toBeGreaterThan(0);
+    expect((await openFollowUpTasks(group)).length).toBe(0);
 
-    // 2) Confirmed (Promise to Pay) → the follow-up task must be cancelled
+    // 2) Confirmed (Promise to Pay) → still no task
     await caller.calls.logCall({
       group,
       customerId: cust.id,

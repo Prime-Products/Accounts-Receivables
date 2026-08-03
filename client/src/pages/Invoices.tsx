@@ -15,7 +15,7 @@ import InstallmentToggle from "@/components/InstallmentToggle";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { matchesAllTokens } from "@shared/textMatch";
-import { ChevronRight, FileDown, FileText, HandCoins, Ship, Users } from "lucide-react";
+import { ChevronRight, FileDown, FileMinus2, FileText, Filter, HandCoins, Ship, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -25,7 +25,7 @@ const METHODS = ["Cash", "Bank Transfer", "Cheque", "Card"] as const;
 
 export default function Invoices() {
   const { data: invoices, isLoading } = trpc.invoices.list.useQuery();
-  const { data: customers } = trpc.customers.list.useQuery();
+  const { data: customers } = trpc.customers.options.useQuery();
   const utils = trpc.useUtils();
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -67,6 +67,16 @@ export default function Invoices() {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("q") ?? "";
   });
+  /**
+   * Credit-note view: the open credits we have issued and the customer has not
+   * used yet. It lives on this page because it is the only place that looks at the
+   * whole book — inside a group card you only ever see that group's credits.
+   */
+  const [creditView, setCreditView] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("view") === "credits";
+  });
+  const { data: openCreditNotes } = trpc.invoices.openCreditNotes.useQuery();
 
   // Receipt dialog
   const [rcOpen, setRcOpen] = useState(false);
@@ -145,6 +155,56 @@ export default function Invoices() {
     });
   }, [invoices, statusFilter, bucketFilter, branchFilter, vesselFilter, contractFilter, search, groupDrill]);
 
+  /**
+   * How many filters are narrowing the list right now. Shown next to a Clear
+   * button so a forgotten filter never silently hides invoices.
+   */
+  /**
+   * Contract installments across all invoices, plus how many of them the other
+   * filters currently hide. The toggle uses this to show a count and to disable
+   * itself when there is nothing to switch to.
+   */
+  const installmentCounts = useMemo(() => {
+    const all = ((invoices ?? []) as any[]).filter(i => i.isContractInstallment);
+    if (all.length === 0) return { total: 0, hidden: 0 };
+    const shown = all.filter(i => {
+      if (!matchesStatusFilter(i, statusFilter)) return false;
+      if (branchFilter !== "all" && i.company !== branchFilter) return false;
+      if (vesselFilter === "none") {
+        if (i.vesselId != null) return false;
+      } else if (vesselFilter !== "all" && String(i.vesselId ?? "") !== vesselFilter) {
+        return false;
+      }
+      if (groupDrill && (i.customerGroup ?? i.customerName) !== groupDrill) return false;
+      if (bucketFilter !== "all") {
+        if (i.daysOverdue <= 0) return false;
+        const b =
+          i.daysOverdue <= 30 ? "0-30" : i.daysOverdue <= 60 ? "31-60" : i.daysOverdue <= 90 ? "61-90" : i.daysOverdue <= 120 ? "91-120" : "120+";
+        if (b !== bucketFilter) return false;
+      }
+      if (search) {
+        const vessel = (i.vesselName ?? "") as string;
+        const group = (i.customerGroup ?? "") as string;
+        if (!matchesAllTokens(search, [i.invoiceNumber, i.customerName, vessel, group])) return false;
+      }
+      return true;
+    });
+    return { total: all.length, hidden: all.length - shown.length };
+  }, [invoices, statusFilter, branchFilter, vesselFilter, bucketFilter, search, groupDrill]);
+
+  const activeFilterCount = useMemo(
+    () =>
+      [
+        search.trim() !== "",
+        branchFilter !== "all",
+        statusFilter !== "all",
+        vesselFilter !== "all",
+        contractFilter === "installments",
+        bucketFilter !== "all",
+      ].filter(Boolean).length,
+    [search, branchFilter, statusFilter, vesselFilter, contractFilter, bucketFilter],
+  );
+
   // Incremental rendering: mounting 5000+ table rows freezes the browser for
   // seconds. Render a window and grow it on demand.
   const [visibleCount, setVisibleCount] = useState(100);
@@ -165,6 +225,38 @@ export default function Invoices() {
     }
     return { eurTotal, byCur, count: filtered.length };
   }, [filtered]);
+
+  /**
+   * Credit notes matching the free-text search and the branch/vessel/group filters
+   * that also make sense for them. Status, aging bucket and installments describe
+   * invoices only, so they are ignored here instead of emptying the list.
+   */
+  const filteredCreditNotes = useMemo(() => {
+    const rows = (openCreditNotes ?? []) as any[];
+    return rows.filter(c => {
+      if (branchFilter !== "all" && c.branch !== branchFilter) return false;
+      if (vesselFilter === "none") {
+        if (c.vesselId != null) return false;
+      } else if (vesselFilter !== "all" && String(c.vesselId ?? "") !== vesselFilter) {
+        return false;
+      }
+      if (groupDrill && c.customerGroup !== groupDrill) return false;
+      if (search && !matchesAllTokens(search, [c.docNumber, c.customerName, c.vesselName ?? "", c.customerGroup ?? ""]))
+        return false;
+      return true;
+    });
+  }, [openCreditNotes, branchFilter, vesselFilter, groupDrill, search]);
+
+  const creditTotals = useMemo(() => {
+    let eurTotal = 0;
+    const byCur: Record<string, number> = {};
+    for (const c of filteredCreditNotes) {
+      eurTotal += Number(c.openEur ?? 0);
+      const cur = (c.currency ?? "EUR").toUpperCase();
+      byCur[cur] = (byCur[cur] ?? 0) + Number(c.open ?? 0);
+    }
+    return { eurTotal, byCur, count: filteredCreditNotes.length };
+  }, [filteredCreditNotes]);
 
   /** Per-group aggregation of the currently filtered invoices (e.g. all 120+ invoices grouped by customer group). */
   const byGroup = useMemo(() => {
@@ -227,16 +319,12 @@ export default function Invoices() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">Aging report, status filters and receipt reconciliation</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => exportReport.mutate({ report: "aging", format: "xlsx" })} disabled={exportReport.isPending}>
-            <FileDown className="h-4 w-4" /> Aging (Excel)
-          </Button>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => exportReport.mutate({ report: "aging", format: "pdf" })} disabled={exportReport.isPending}>
-            <FileDown className="h-4 w-4" /> Aging (PDF)
-          </Button>
+        {/* Same clusters as the customer cards: what I DO, then what I TAKE AWAY. */}
+        <div className="flex items-start gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
           <Dialog open={rcOpen} onOpenChange={setRcOpen}>
             <DialogTrigger asChild>
-              <Button variant="secondary" size="sm" className="gap-1.5">
+              <Button size="sm" className="gap-1.5">
                 <HandCoins className="h-4 w-4" /> Record Receipt
               </Button>
             </DialogTrigger>
@@ -347,6 +435,15 @@ export default function Invoices() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
+          <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
+            <Button variant="outline" size="sm" className="gap-1.5 bg-background" onClick={() => exportReport.mutate({ report: "aging", format: "xlsx" })} disabled={exportReport.isPending}>
+              <FileDown className="h-4 w-4" /> Aging Excel
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1.5 bg-background" onClick={() => exportReport.mutate({ report: "aging", format: "pdf" })} disabled={exportReport.isPending}>
+              <FileDown className="h-4 w-4" /> Aging PDF
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -381,10 +478,17 @@ export default function Invoices() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3">
-        <Input className="flex-1 min-w-52" placeholder="Search invoice number or customer…" value={search} onChange={e => setSearch(e.target.value)} />
+      {/* Filters cluster — boxed and labelled, same idiom as the group card. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 p-2">
+        <Filter className="h-4 w-4 text-muted-foreground shrink-0 ml-0.5" />
+        <Input
+          className="flex-1 min-w-52 h-9 bg-background"
+          placeholder="Search invoice number or customer…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
         <Select value={branchFilter} onValueChange={setBranchFilter}>
-          <SelectTrigger className="w-52">
+          <SelectTrigger className="w-48 h-9 bg-background">
             <SelectValue placeholder="All branches" />
           </SelectTrigger>
           <SelectContent>
@@ -397,7 +501,7 @@ export default function Invoices() {
           </SelectContent>
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger className="w-40 h-9 bg-background">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -411,7 +515,7 @@ export default function Invoices() {
         </Select>
         {vesselOptions.length > 0 && (
           <Select value={vesselFilter} onValueChange={setVesselFilter}>
-            <SelectTrigger className="w-52">
+            <SelectTrigger className="w-44 h-9 bg-background">
               <SelectValue placeholder="All vessels" />
             </SelectTrigger>
             <SelectContent>
@@ -428,13 +532,36 @@ export default function Invoices() {
         <InstallmentToggle
           value={contractFilter === "installments" ? "installments" : "all"}
           onChange={v => setContractFilter(v)}
+          count={installmentCounts.total}
+          hiddenCount={installmentCounts.hidden}
         />
+        {activeFilterCount > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 gap-1.5 text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              setSearch("");
+              setBranchFilter("all");
+              setStatusFilter("all");
+              setVesselFilter("all");
+              setContractFilter("all");
+              setBucketFilter("all");
+            }}
+          >
+            <X className="h-3.5 w-3.5" /> Clear {activeFilterCount}
+          </Button>
+        )}
       </div>
 
       {/* Filtered totals: EUR + per-currency */}
-      {!isLoading && filtered.length > 0 && (
+      {!isLoading && (filtered.length > 0 || creditView) && (
         <div className="rounded-lg border bg-muted/30 px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-          <span className="text-muted-foreground">{filteredTotals.count} invoice(s) shown</span>
+          <span className="text-muted-foreground">
+            {creditView
+              ? `${creditTotals.count} open credit note(s)`
+              : `${filteredTotals.count} invoice(s) shown`}
+          </span>
           {groupDrill && (
             <Badge variant="outline" className="gap-1 bg-primary/5 border-primary/30 max-w-64">
               <span className="truncate" title={groupDrill}>{groupDrill}</span>
@@ -450,13 +577,28 @@ export default function Invoices() {
               </button>
             </Badge>
           )}
-          <span>
-            Outstanding total: <span className="font-mono font-semibold">{fmtEur(filteredTotals.eurTotal)}</span>
-          </span>
-          {fmtByCurrency(filteredTotals.byCur, { skipEurOnly: true }) && (
-            <span className="text-muted-foreground">
-              Per currency: <span className="font-mono">{fmtByCurrency(filteredTotals.byCur)}</span>
-            </span>
+          {creditView ? (
+            <>
+              <span className="text-sky-700 dark:text-sky-300">
+                Unused credit: <span className="font-mono font-semibold">−{fmtEur(creditTotals.eurTotal)}</span>
+              </span>
+              {fmtByCurrency(creditTotals.byCur, { skipEurOnly: true }) && (
+                <span className="text-muted-foreground">
+                  Per currency: <span className="font-mono">{fmtByCurrency(creditTotals.byCur)}</span>
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <span>
+                Outstanding total: <span className="font-mono font-semibold">{fmtEur(filteredTotals.eurTotal)}</span>
+              </span>
+              {fmtByCurrency(filteredTotals.byCur, { skipEurOnly: true }) && (
+                <span className="text-muted-foreground">
+                  Per currency: <span className="font-mono">{fmtByCurrency(filteredTotals.byCur)}</span>
+                </span>
+              )}
+            </>
           )}
           <Button
             variant={groupView ? "default" : "outline"}
@@ -465,6 +607,7 @@ export default function Invoices() {
             onClick={() => {
               setGroupView(v => !v);
               setVesselView(false);
+              setCreditView(false);
             }}
           >
             <Users className="h-3.5 w-3.5" /> By group
@@ -476,9 +619,24 @@ export default function Invoices() {
             onClick={() => {
               setVesselView(v => !v);
               setGroupView(false);
+              setCreditView(false);
             }}
           >
             <Ship className="h-3.5 w-3.5" /> By vessel
+          </Button>
+          {/* Permanent entry point to the credits the customer has not used yet. */}
+          <Button
+            variant={creditView ? "default" : "outline"}
+            size="sm"
+            className="gap-1.5 h-7"
+            onClick={() => {
+              setCreditView(v => !v);
+              setGroupView(false);
+              setVesselView(false);
+            }}
+            title="Show every open credit note across all groups"
+          >
+            <FileMinus2 className="h-3.5 w-3.5" /> Credit notes ({(openCreditNotes ?? []).length})
           </Button>
         </div>
       )}
@@ -491,6 +649,74 @@ export default function Invoices() {
                 <Skeleton key={i} className="h-10" />
               ))}
             </div>
+          ) : creditView ? (
+            filteredCreditNotes.length === 0 ? (
+              <div className="p-10 text-center text-muted-foreground">
+                No open credit notes{activeFilterCount > 0 ? " match the current filters" : ""}.
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Issue Date</TableHead>
+                    <TableHead>Credit Note</TableHead>
+                    <TableHead>Company</TableHead>
+                    <TableHead>Group</TableHead>
+                    <TableHead>Vessel</TableHead>
+                    <TableHead>Branch</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Matched</TableHead>
+                    <TableHead className="text-right">Still open</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredCreditNotes.map((c: any) => (
+                    <TableRow key={c.id} className="bg-sky-50/40 dark:bg-sky-950/10">
+                      <TableCell className="text-xs whitespace-nowrap">{fmtDate(c.docDate)}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        <span className="inline-flex items-center gap-1">
+                          <FileMinus2 className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                          {c.docNumber}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        <Link href={`/customers/${c.customerId}`} className="hover:underline">
+                          {c.customerName}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        <Link
+                          href={`/groups/${encodeURIComponent(c.customerGroup ?? "")}`}
+                          className="text-muted-foreground hover:underline"
+                        >
+                          {c.customerGroup}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{c.vesselName ?? "—"}</TableCell>
+                      <TableCell>
+                        {c.branch ? (
+                          <Badge variant="outline" className={branchColors[c.branch] ?? ""}>
+                            {branchShort(c.branch)}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm">{fmtCur(c.amount, c.currency)}</TableCell>
+                      <TableCell className="text-right font-mono text-sm text-muted-foreground">
+                        {Number(c.allocated) > 0.005 ? fmtCur(c.allocated, c.currency) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm font-semibold text-sky-700 dark:text-sky-300">
+                        −{fmtCur(c.open, c.currency)}
+                        {(c.currency ?? "EUR").toUpperCase() !== "EUR" && (
+                          <div className="text-[11px] text-muted-foreground">≈ {fmtEur(c.openEur)}</div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )
           ) : filtered.length === 0 ? (
             <div className="p-10 text-center text-muted-foreground">No invoices match the current filters.</div>
           ) : vesselView ? (
@@ -618,7 +844,7 @@ export default function Invoices() {
           ) : (
             <InvoicesTable rows={visibleRows as any} />
           )}
-          {!isLoading && !groupView && !vesselView && filtered.length > visibleCount && (
+          {!isLoading && !groupView && !vesselView && !creditView && filtered.length > visibleCount && (
             <div className="flex items-center justify-center gap-3 py-4 border-t">
               <span className="text-sm text-muted-foreground">
                 Showing {visibleCount.toLocaleString()} of {filtered.length.toLocaleString()} invoices

@@ -460,10 +460,11 @@ export const addressBookRouter = router({
         vessels: r.vessels,
         primaryEmail: Array.from(r.emails)[0] ?? null,
         codes: r.codes.slice(0, 6).join(", "),
-        // Hidden haystack: company names, people and vessels of this group, so
-        // the list search box finds a group by anything inside it.
+        // Hidden haystack: only what is NOT already in a visible column, so the
+        // search box still finds a group by a company, person or vessel inside it
+        // without shipping the visible text twice. The client searches every
+        // column plus this field.
         searchText: [
-          r.group,
           ...(companyNamesByGroup.get(r.group) ?? []),
           ...(contactNamesByGroup.get(r.group) ?? []),
           ...(vesselNamesByGroup.get(r.group) ?? []),
@@ -500,10 +501,9 @@ export const addressBookRouter = router({
         tier: c.tier,
         paymentTermsDays: c.paymentTermsDays,
         contacts: contactCount.get(c.id) ?? 0,
-        // Hidden haystack so searching a person's name finds their company.
-        searchText: [c.name, c.code, groupKeyOf(c), c.contactPerson, ...(contactNames.get(c.id) ?? [])]
-          .filter(Boolean)
-          .join(" "),
+        // Hidden haystack: only the contact names, which are not a column here.
+        // Name, code, group and contact person are already searched as columns.
+        searchText: (contactNames.get(c.id) ?? []).join(" "),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
     return withCustomValues("customer", rows);
@@ -525,10 +525,9 @@ export const addressBookRouter = router({
           flag: v.flag ?? null,
           ownerName: owner?.name ?? null,
           ownerGroup: owner ? groupKeyOf(owner) : null,
-          // Hidden haystack so a vessel is findable by its owner or group too.
-          searchText: [v.name, v.imo, v.vesselType, v.flag, owner?.name, owner ? groupKeyOf(owner) : null]
-            .filter(Boolean)
-            .join(" "),
+          // Every searchable value for a vessel is already a visible column
+          // (name, IMO, type, flag, owner, group), so no extra haystack is needed.
+          searchText: "",
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -588,18 +587,11 @@ export const addressBookRouter = router({
             giftTier: giftHistory[0]?.tier ?? null,
             giftYear: giftHistory[0]?.year ?? null,
             giftHistory,
-            // Hidden haystack: the person plus their company, group and vessels.
-            searchText: [
-              ct.name,
-              ct.email,
-              ct.phone,
-              ct.title,
-              cust?.name,
-              cust ? groupKeyOf(cust) : null,
-              ...(vesselNamesByCustomer.get(ct.customerId) ?? []),
-            ]
-              .filter(Boolean)
-              .join(" "),
+            // Hidden haystack: only the vessels of the person's company. The
+            // person, their company and their group are visible columns and the
+            // client already searches those, so repeating them here would double
+            // the payload for no extra matches.
+            searchText: (vesselNamesByCustomer.get(ct.customerId) ?? []).join(" "),
           };
         });
       // The same person is registered on every company of a group, so the raw
@@ -633,17 +625,22 @@ export const addressBookRouter = router({
         if (seen.contactType !== "Department" && r.contactType === "Department") seen.contactType = "Department";
         if (!seen.title && r.title) seen.title = r.title;
         if (!seen.phone && r.phone) seen.phone = r.phone;
-        seen.searchText = `${seen.searchText} ${r.searchText}`;
+        // Merge the duplicates' vessel names without repeating the same vessel
+        // once per company the person is registered on.
+        seen.searchText = r.searchText && !seen.searchText.includes(r.searchText)
+          ? `${seen.searchText} ${r.searchText}`.trim()
+          : seen.searchText;
       }
       const rows = Array.from(merged.values())
-        .map(r => ({
+        .map(({ companyNames, groupNames, ...r }) => ({
           ...r,
-          // Exports and sorting read the joined list; the table renders the first
-          // name plus a "+n" badge from companyNames.
-          companyName: r.companyNames.join(", "),
-          companyCount: r.companyNames.length,
-          group: r.groupNames.join(", "),
-          groupCount: r.groupNames.length,
+          // Exports and sorting read the joined list; the table splits it back on
+          // ", " to render the first name plus a "+n" badge. Only the joined
+          // strings are sent — shipping the arrays as well doubled this payload.
+          companyName: companyNames.join(", "),
+          companyCount: companyNames.length,
+          group: groupNames.join(", "),
+          groupCount: groupNames.length,
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return withCustomValues("contact", rows);
@@ -846,12 +843,6 @@ export const addressBookRouter = router({
       return { ok: true, updated } as const;
     }),
 
-  /** Years that have a gift list, newest first, so the UI can offer a year picker. */
-  giftYears: protectedProcedure.query(async () => {
-    const gifts = await db.listContactGifts();
-    const years = Array.from(new Set(gifts.map(g => g.year))).sort((a, b) => b - a);
-    return { years, tiers: giftTiers } as const;
-  }),
 
   /** Put a contact on a year's gift list, or change the tier of an existing entry. */
   setContactGift: protectedProcedure
@@ -1170,30 +1161,6 @@ export const addressBookRouter = router({
         createdBy: ctx.user.id,
       });
       return { id, fieldKey };
-    }),
-
-  updateField: protectedProcedure
-    .input(
-      z.object({
-        id: z.number(),
-        label: z.string().min(1).max(128).optional(),
-        options: z.array(z.string().min(1).max(128)).optional(),
-        helpText: z.string().max(255).nullable().optional(),
-        required: z.boolean().optional(),
-        sortOrder: z.number().optional(),
-      }),
-    )
-    .mutation(async ({ input }) => {
-      const def = await db.getCustomFieldDef(input.id);
-      if (!def) throw new TRPCError({ code: "NOT_FOUND", message: "Field not found" });
-      await db.updateCustomFieldDef(input.id, {
-        ...(input.label !== undefined && { label: input.label }),
-        ...(input.options !== undefined && { options: input.options.length > 0 ? JSON.stringify(input.options) : null }),
-        ...(input.helpText !== undefined && { helpText: input.helpText }),
-        ...(input.required !== undefined && { required: input.required ? 1 : 0 }),
-        ...(input.sortOrder !== undefined && { sortOrder: input.sortOrder }),
-      });
-      return { ok: true } as const;
     }),
 
   /** Archive keeps stored values, so the field can come back without data loss. */

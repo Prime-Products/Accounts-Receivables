@@ -41,6 +41,7 @@ import {
   taskComments,
   taskInvoices,
   taskWatchers,
+  customerWatchers,
   userProfiles,
   users,
 } from "../drizzle/schema";
@@ -56,6 +57,7 @@ import {
   InsertCreditNoteAllocation,
 } from "../drizzle/schema";
 import { teamMembers, InsertTeamMember } from "../drizzle/schema";
+import { noteMentions, InsertNoteMention } from "../drizzle/schema";
 import { contactGifts, giftImportReview, type GiftTier } from "../drizzle/schema";
 import { queryTokens } from "../shared/textMatch";
 import {
@@ -333,7 +335,6 @@ export async function createCustomersBulk(rows: InsertCustomer[], chunkSize = 20
   invalidateCache("customers:");
   return inserted;
 }
-
 // ---------- Invoices ----------
 export async function listInvoices(filter?: { customerId?: number; statuses?: string[] }) {
   const cacheable = !filter?.customerId && (!filter?.statuses || filter.statuses.length === 0);
@@ -512,15 +513,7 @@ export async function addAllocation(receiptId: number, invoiceId: number, amount
   await db.insert(receiptAllocations).values({ receiptId, invoiceId, amount });
 }
 
-export async function listAllocationsForReceipt(receiptId: number) {
-  const db = await requireDb();
-  return db.select().from(receiptAllocations).where(eq(receiptAllocations.receiptId, receiptId));
-}
 
-export async function listAllocationsForInvoice(invoiceId: number) {
-  const db = await requireDb();
-  return db.select().from(receiptAllocations).where(eq(receiptAllocations.invoiceId, invoiceId));
-}
 
 // ---------- Contracts & installments ----------
 export async function listContracts(customerId?: number) {
@@ -679,6 +672,43 @@ export async function removeTaskWatcher(taskId: number, memberId: number) {
     .delete(taskWatchers)
     .where(and(eq(taskWatchers.taskId, taskId), eq(taskWatchers.memberId, memberId)));
 }
+// ---------- Customer-group watchers ----------
+/**
+ * Watchers follow a group's receivables card without owning it: they see the
+ * account in their watch list, but the account manager and the collector remain
+ * the responsible people.
+ */
+export async function listCustomerWatchers(groupName: string) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: customerWatchers.id,
+      groupName: customerWatchers.groupName,
+      memberId: customerWatchers.memberId,
+      name: teamMembers.name,
+      title: teamMembers.title,
+    })
+    .from(customerWatchers)
+    .innerJoin(teamMembers, eq(customerWatchers.memberId, teamMembers.id))
+    .where(eq(customerWatchers.groupName, groupName))
+    .orderBy(customerWatchers.createdAt);
+}
+export async function addCustomerWatcher(groupName: string, memberId: number) {
+  const db = await requireDb();
+  const existing = await db
+    .select({ id: customerWatchers.id })
+    .from(customerWatchers)
+    .where(and(eq(customerWatchers.groupName, groupName), eq(customerWatchers.memberId, memberId)));
+  if (existing.length > 0) return existing[0].id;
+  const res = await db.insert(customerWatchers).values({ groupName, memberId });
+  return Number((res as any)[0].insertId);
+}
+export async function removeCustomerWatcher(groupName: string, memberId: number) {
+  const db = await requireDb();
+  await db
+    .delete(customerWatchers)
+    .where(and(eq(customerWatchers.groupName, groupName), eq(customerWatchers.memberId, memberId)));
+}
 
 // ---------- Task ↔ invoice attachments ----------
 export async function listTaskInvoices(taskId: number) {
@@ -701,32 +731,8 @@ export async function addTaskInvoices(taskId: number, invoiceIds: number[]) {
 }
 
 
-// ---------- Collection plans & promises ----------
-export async function getPlan(year: number, month: number) {
-  const db = await requireDb();
-  const r = await db
-    .select()
-    .from(collectionPlans)
-    .where(and(eq(collectionPlans.year, year), eq(collectionPlans.month, month)))
-    .limit(1);
-  return r[0];
-}
 
-export async function upsertPlan(year: number, month: number, targetAmount: string, createdBy?: number, notes?: string) {
-  const db = await requireDb();
-  const existing = await getPlan(year, month);
-  if (existing) {
-    await db.update(collectionPlans).set({ targetAmount, notes }).where(eq(collectionPlans.id, existing.id));
-    return existing.id;
-  }
-  const res = await db.insert(collectionPlans).values({ year, month, targetAmount, createdBy, notes });
-  return Number((res as any)[0].insertId);
-}
 
-export async function listPlans() {
-  const db = await requireDb();
-  return db.select().from(collectionPlans).orderBy(desc(collectionPlans.year), desc(collectionPlans.month));
-}
 
 // ---------- Forecast entries (per-customer monthly collection forecast) ----------
 export async function listForecastEntries(year: number, month: number) {
@@ -821,11 +827,6 @@ export async function getSetting(key: string) {
   return r[0]?.value;
 }
 
-// ---------- Payment behavior (historical days-to-pay stats) ----------
-export async function listPaymentBehavior() {
-  const db = await requireDb();
-  return db.select().from(paymentBehavior);
-}
 
 export async function getPaymentBehavior(customerId: number) {
   const db = await requireDb();
@@ -978,29 +979,6 @@ export async function setGroupWatchStatus(
     .values({ groupName, status, problematicSince, updatedBy, updatedAt: Date.now() })
     .onDuplicateKeyUpdate({ set: { status, problematicSince, updatedBy, updatedAt: Date.now() } });
 }
-/**
- * Ensure the escalation clock is running for a group flagged Problematic by the
- * automatic forecast rule (row may not exist yet). Never overwrites an existing
- * manual status other than "Auto"; only stamps problematicSince when missing.
- */
-export async function ensureProblematicSince(groupName: string, now = Date.now()) {
-  const db = await requireDb();
-  const existing = await getGroupWatchStatus(groupName);
-  if (!existing) {
-    await db.insert(groupWatchStatus).values({ groupName, status: "Auto", problematicSince: now, updatedBy: null, updatedAt: now });
-    return now;
-  }
-  if (existing.problematicSince == null) {
-    await db.update(groupWatchStatus).set({ problematicSince: now, updatedAt: now }).where(eq(groupWatchStatus.groupName, groupName));
-    return now;
-  }
-  return existing.problematicSince;
-}
-/** Clear the escalation clock when a group is no longer problematic (rule stopped firing under Auto). */
-export async function clearProblematicSince(groupName: string) {
-  const db = await requireDb();
-  await db.update(groupWatchStatus).set({ problematicSince: null, updatedAt: Date.now() }).where(eq(groupWatchStatus.groupName, groupName));
-}
 
 // ---------- Audit & sync logs ----------
 export async function addAudit(entry: typeof auditLogs.$inferInsert) {
@@ -1052,6 +1030,55 @@ export async function addActivityLog(entry: InsertActivityLog) {
   return Number((res as any)[0].insertId);
 }
 
+/**
+ * Record @mentions found in a note. Mentions are references, not work items:
+ * nothing here creates or touches a task.
+ */
+export async function addNoteMentions(rows: InsertNoteMention[]) {
+  if (rows.length === 0) return 0;
+  const db = await requireDb();
+  await db.insert(noteMentions).values(rows);
+  return rows.length;
+}
+
+/** Mentions addressed to one team member, newest first. */
+export async function listMentionsForMember(memberId: number, opts?: { unreadOnly?: boolean; limit?: number }) {
+  const db = await requireDb();
+  const where = opts?.unreadOnly
+    ? and(eq(noteMentions.memberId, memberId), sql`${noteMentions.readAt} is null`)
+    : eq(noteMentions.memberId, memberId);
+  return db
+    .select()
+    .from(noteMentions)
+    .where(where)
+    .orderBy(desc(noteMentions.createdAt))
+    .limit(opts?.limit ?? 100);
+}
+
+export async function countUnreadMentions(memberId: number) {
+  const rows = await listMentionsForMember(memberId, { unreadOnly: true, limit: 500 });
+  return rows.length;
+}
+
+/** Mark one mention, or every mention of a member, as seen. */
+export async function markMentionsRead(memberId: number, mentionId?: number) {
+  const db = await requireDb();
+  const where = mentionId
+    ? and(eq(noteMentions.memberId, memberId), eq(noteMentions.id, mentionId))
+    : eq(noteMentions.memberId, memberId);
+  await db.update(noteMentions).set({ readAt: new Date() }).where(where);
+}
+
+/** Every mention written on a group's notes, for the group card. */
+export async function listMentionsByGroup(groupName: string, limit = 100) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(noteMentions)
+    .where(eq(noteMentions.groupName, groupName))
+    .orderBy(desc(noteMentions.createdAt))
+    .limit(limit);
+}
 export async function listActivityLog(groupName: string, limit = 100) {
   const db = await requireDb();
   return db
@@ -1062,9 +1089,74 @@ export async function listActivityLog(groupName: string, limit = 100) {
     .limit(limit);
 }
 
-export async function getActivityLog(id: number) {
+/**
+ * Activity log for a group with the author's display name resolved, so the
+ * communication timeline can show "who did this" without a second round-trip.
+ */
+export async function listActivityLogWithAuthors(groupName: string, limit = 200) {
+  const rows = await listActivityLog(groupName, limit);
+  if (rows.length === 0) return [] as (typeof rows[number] & { authorName: string | null })[];
+  const users = await listUsersWithProfiles().catch(() => []);
+  const names = new Map(users.map(u => [u.id, u.name ?? null]));
+  return rows.map(r => ({ ...r, authorName: r.createdBy ? (names.get(r.createdBy) ?? null) : null }));
+}
+
+/**
+ * Per-group call summary in a single query: when the group was last called, by
+ * whom, and how many calls were logged. Used by the Collections Desk so contact
+ * activity is visible without opening each card. `No Answer` attempts are counted
+ * separately, because a run of unanswered calls is itself the signal.
+ *
+ * A logged call is stored with the activity type of its *outcome* — a call that ends
+ * in a confirmed promise is written as `promise`, not `call`. Filtering on the type
+ * alone therefore lost real calls and the card claimed "Never contacted" while the
+ * same call had just set a Promise to Pay. The call log is identified by its title
+ * prefix instead, which every logCall entry carries.
+ */
+export async function callSummaryByGroup() {
   const db = await requireDb();
-  return db.select().from(activityLog).where(eq(activityLog.id, id)).limit(1);
+  const rows = await db
+    .select({
+      groupName: activityLog.groupName,
+      title: activityLog.title,
+      description: activityLog.description,
+      createdAt: activityLog.createdAt,
+      createdBy: activityLog.createdBy,
+    })
+    .from(activityLog)
+    .where(or(eq(activityLog.activityType, "call"), like(activityLog.title, "Call %")))
+    .orderBy(desc(activityLog.createdAt));
+  const out = new Map<
+    string,
+    {
+      lastCallAt: Date;
+      lastCallBy: number | null;
+      lastCallTitle: string;
+      lastCallNote: string | null;
+      calls: number;
+      noAnswer: number;
+    }
+  >();
+  for (const r of rows) {
+    const key = r.groupName;
+    const entry = out.get(key);
+    const isNoAnswer = (r.title ?? "").includes("No Answer");
+    if (!entry) {
+      // Rows arrive newest first, so the first row per group is the latest call.
+      out.set(key, {
+        lastCallAt: r.createdAt,
+        lastCallBy: r.createdBy ?? null,
+        lastCallTitle: r.title ?? "",
+        lastCallNote: r.description ?? null,
+        calls: 1,
+        noAnswer: isNoAnswer ? 1 : 0,
+      });
+    } else {
+      entry.calls++;
+      if (isNoAnswer) entry.noAnswer++;
+    }
+  }
+  return out;
 }
 
 // ---------- Group Confirmation Status ----------
@@ -1105,21 +1197,6 @@ export async function addPaymentContact(contact: InsertPaymentContact) {
   return result[0].insertId;
 }
 
-/**
- * Insert many payment contacts in chunks. Used by the ERP contact import, where
- * inserting one row at a time would mean thousands of round trips.
- */
-export async function addPaymentContactsBulk(contacts: InsertPaymentContact[], chunkSize = 200) {
-  if (contacts.length === 0) return 0;
-  const db = await requireDb();
-  let inserted = 0;
-  for (let i = 0; i < contacts.length; i += chunkSize) {
-    const chunk = contacts.slice(i, i + chunkSize);
-    await db.insert(paymentContacts).values(chunk);
-    inserted += chunk.length;
-  }
-  return inserted;
-}
 
 export async function listPaymentContacts(customerId: number) {
   const db = await requireDb();
@@ -1691,10 +1768,6 @@ export async function listAllWireTransfers() {
   return db.select().from(wireTransfers).orderBy(desc(wireTransfers.transferDate));
 }
 
-export async function listWireTransfersByStatus(status: "Pending" | "Received") {
-  const db = await requireDb();
-  return db.select().from(wireTransfers).where(eq(wireTransfers.status, status)).orderBy(desc(wireTransfers.transferDate));
-}
 
 /**
  * Received wire transfers whose effective date (receivedDate, falling back to
@@ -1859,21 +1932,7 @@ export async function listIncomingAllocationsByCustomer(customerId: number) {
  * Credit notes (πιστωτικά) — open documents not yet matched to invoices
  * ------------------------------------------------------------------ */
 
-/** All credit notes, newest document first. */
-export async function listCreditNotes() {
-  const db = await requireDb();
-  return db.select().from(creditNotes).orderBy(desc(creditNotes.docDate));
-}
 
-/** Credit notes of one customer, newest document first. */
-export async function listCreditNotesByCustomerId(customerId: number) {
-  const db = await requireDb();
-  return db
-    .select()
-    .from(creditNotes)
-    .where(eq(creditNotes.customerId, customerId))
-    .orderBy(desc(creditNotes.docDate));
-}
 
 /** Credit notes of several customers (a group), newest document first. */
 export async function listCreditNotesByCustomerIds(customerIds: number[]) {
@@ -1898,10 +1957,6 @@ export async function createCreditNote(data: InsertCreditNote) {
   return Number((res as any)[0].insertId);
 }
 
-export async function updateCreditNote(id: number, data: Partial<InsertCreditNote>) {
-  const db = await requireDb();
-  await db.update(creditNotes).set(data).where(eq(creditNotes.id, id));
-}
 
 export async function deleteCreditNote(id: number) {
   const db = await requireDb();

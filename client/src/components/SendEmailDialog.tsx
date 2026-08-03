@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { downloadBase64 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { FileDown, Mail, Plus } from "lucide-react";
+import { matchesAllTokens } from "@shared/textMatch";
+import { Mail, Plus, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -47,9 +48,14 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
     }
   };
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
-  const [selectedContactId, setSelectedContactId] = useState<number | null>(null);
-  const [recipientEmail, setRecipientEmail] = useState("");
-  const [recipientName, setRecipientName] = useState("");
+  /**
+   * Recipients as chips: a chase usually goes to the accounts mailbox AND the person
+   * who signs off. The first chip is the To: address (recorded in history and the
+   * activity log as before); the rest are sent as cc.
+   */
+  const [recipients, setRecipients] = useState<{ id: number | null; name: string; email: string }[]>([]);
+  const recipientEmail = recipients[0]?.email ?? "";
+  const recipientName = recipients[0]?.name ?? "";
   const [templateType, setTemplateType] = useState<
     "SOA" | "Payment Reminder" | "Overdue Notice" | "Friendly Reminder" | "Final Notice" | "Statement" | "Custom"
   >("SOA");
@@ -65,6 +71,17 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
   const [newContactTitle, setNewContactTitle] = useState("");
   /** New contacts default to Person; departments are shared mailboxes. */
   const [newContactType, setNewContactType] = useState<"Person" | "Department">("Person");
+  /**
+   * Big groups carry dozens of mailboxes; typing a name, a department or part of an
+   * address narrows the list instead of forcing the user to scroll the dialog.
+   */
+  const [contactSearch, setContactSearch] = useState("");
+  /**
+   * The contact list is collapsed by default: showing a dozen names before the
+   * user has asked for anyone made the dialog tall enough to hide the subject
+   * and body. Clicking (or typing in) the search box drops the list down.
+   */
+  const [contactListOpen, setContactListOpen] = useState(false);
 
   // Contacts belong to the group, not to a single legal entity, so the picker
   // lists everyone in the group and falls back to the company when the dialog is
@@ -92,6 +109,19 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
       return a.name.localeCompare(b.name);
     });
   }, [paymentContacts]);
+
+  /** The ordered list narrowed by the search box (name, email, title, company). */
+  const shownContacts = useMemo(() => {
+    if (!contactSearch.trim()) return orderedContacts;
+    return orderedContacts.filter(c =>
+      matchesAllTokens(contactSearch, [
+        c.name,
+        c.email,
+        (c as { title?: string | null }).title ?? "",
+        (c as { customerName?: string | null }).customerName ?? "",
+      ]),
+    );
+  }, [orderedContacts, contactSearch]);
 
   const isSmart = (smartTemplates as readonly string[]).includes(templateType);
   const { data: prefill, isFetching: prefillLoading } = trpc.calls.emailPrefill.useQuery(
@@ -136,13 +166,13 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
 
   const resetForm = () => {
     setCustomerId(defaultCustomerId ?? null);
-    setSelectedContactId(null);
-    setRecipientEmail("");
-    setRecipientName("");
+    setRecipients([]);
     setTemplateType("SOA");
     setSubject("");
     setBody("");
     setDirty(false);
+    setContactSearch("");
+    setContactListOpen(false);
   };
 
   const handleTemplateChange = (template: string) => {
@@ -157,23 +187,30 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
 
   const handleCustomerChange = (id: number) => {
     setCustomerId(id);
-    setSelectedContactId(null);
     setDirty(false);
+    // Switching company resets the chips to that company's own address (if any), so a
+    // list built for the previous company is never carried over by accident.
     const company = companies.find(c => c.id === id);
-    if (company) {
-      setRecipientEmail(company.email || "");
-      setRecipientName(company.contactPerson || company.name);
-    }
+    setRecipients(
+      company?.email ? [{ id: null, name: company.contactPerson || company.name, email: company.email }] : [],
+    );
   };
 
-  const handleSelectContact = (contactId: number) => {
+  /** Clicking a contact adds it as a chip; clicking it again removes it. */
+  const toggleContact = (contactId: number) => {
     const contact = paymentContacts?.find(c => c.id === contactId);
-    if (contact) {
-      setSelectedContactId(contactId);
-      setRecipientEmail(contact.email);
-      setRecipientName(contact.name);
-    }
+    if (!contact) return;
+    setRecipients(prev =>
+      prev.some(r => r.email.toLowerCase() === contact.email.toLowerCase())
+        ? prev.filter(r => r.email.toLowerCase() !== contact.email.toLowerCase())
+        : [...prev, { id: contact.id, name: contact.name, email: contact.email }],
+    );
   };
+
+  const removeRecipient = (email: string) =>
+    setRecipients(prev => prev.filter(r => r.email.toLowerCase() !== email.toLowerCase()));
+
+  const isSelected = (email: string) => recipients.some(r => r.email.toLowerCase() === email.toLowerCase());
 
   const handleAddContact = () => {
     if (!customerId || !newContactName || !newContactEmail) {
@@ -212,14 +249,18 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
         // toast already shown by onError; continue to open the email anyway
       }
     }
-    // Open the default mail client (Outlook) with everything prefilled.
-    const mailto = `mailto:${encodeURIComponent(recipientEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    // Open the default mail client (Outlook) with everything prefilled. Extra chips go
+    // to cc so the To: line still names the primary contact.
+    const cc = recipients.slice(1).map(r => r.email);
+    const ccPart = cc.length > 0 ? `cc=${encodeURIComponent(cc.join(","))}&` : "";
+    const mailto = `mailto:${encodeURIComponent(recipientEmail)}?${ccPart}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailto;
     toast.success("Opening Outlook…");
     sendEmail.mutate({
       customerId,
       recipientEmail,
       recipientName: recipientName || undefined,
+      ccEmails: cc,
       templateType,
       subject,
       body,
@@ -345,37 +386,103 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
                 </div>
               )}
 
-              {/* Contacts List — group-wide when a group is in context */}
-              {orderedContacts.length > 0 ? (
-                <div className="space-y-1">
-                  {orderedContacts.map(contact => (
-                    <button
-                      key={contact.id}
-                      onClick={() => handleSelectContact(contact.id)}
-                      className={`w-full text-left p-2 rounded text-sm transition-colors ${
-                        selectedContactId === contact.id
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-background hover:bg-muted"
-                      }`}
+              {/* Selected recipients — removable chips. First chip is the To: address. */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {recipients.length === 0 ? (
+                  <span className="text-xs text-muted-foreground">
+                    No recipient yet — pick a contact below
+                  </span>
+                ) : (
+                  recipients.map((r, idx) => (
+                    <span
+                      key={r.email}
+                      className="inline-flex items-center gap-1 rounded-full border bg-background pl-2 pr-1 py-0.5 text-xs"
+                      title={idx === 0 ? `To: ${r.email}` : `Cc: ${r.email}`}
                     >
-                      <div className="flex items-center gap-1.5 font-medium">
-                        <span className="truncate">{contact.name}</span>
-                        {(contact as { contactType?: string }).contactType === "Department" && (
-                          <span
-                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                              selectedContactId === contact.id
-                                ? "bg-primary-foreground/20 text-primary-foreground"
-                                : "bg-violet-100 text-violet-700"
-                            }`}
-                          >
-                            Dept
-                          </span>
+                      <span className="font-medium truncate max-w-44">{r.name}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {idx === 0 ? "To" : "Cc"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeRecipient(r.email)}
+                        className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                        title="Remove recipient"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))
+                )}
+              </div>
+
+              {/*
+               * Search box + dropdown: nothing is listed until the box is clicked,
+               * so the dialog opens compact and the subject/body stay in view.
+               */}
+              {orderedContacts.length > 0 ? (
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder={`Search ${orderedContacts.length} contacts…`}
+                    value={contactSearch}
+                    onChange={e => {
+                      setContactSearch(e.target.value);
+                      setContactListOpen(true);
+                    }}
+                    onFocus={() => setContactListOpen(true)}
+                    onKeyDown={e => {
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setContactListOpen(false);
+                      }
+                    }}
+                    className="h-8 pl-7 text-sm bg-background"
+                  />
+                  {contactListOpen && (
+                    <>
+                      {/* Click-away layer: closes the list without touching the form. */}
+                      <div className="fixed inset-0 z-10" onClick={() => setContactListOpen(false)} />
+                      <div className="absolute left-0 right-0 top-9 z-20 max-h-56 space-y-1 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-lg">
+                        {shownContacts.length === 0 ? (
+                          <div className="p-2 text-xs text-muted-foreground">
+                            No contact matches “{contactSearch}”
+                          </div>
+                        ) : (
+                          shownContacts.map(contact => (
+                            <button
+                              key={contact.id}
+                              onClick={() => toggleContact(contact.id)}
+                              className={`w-full text-left p-2 rounded text-sm transition-colors ${
+                                isSelected(contact.email)
+                                  ? "bg-primary text-primary-foreground"
+                                  : "hover:bg-muted"
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5 font-medium">
+                                <span className="truncate">{contact.name}</span>
+                                {(contact as { contactType?: string }).contactType === "Department" && (
+                                  <span
+                                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                      isSelected(contact.email)
+                                        ? "bg-primary-foreground/20 text-primary-foreground"
+                                        : "bg-violet-100 text-violet-700"
+                                    }`}
+                                  >
+                                    Dept
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs opacity-75">
+                                {contact.email}
+                                {contact.title ? ` · ${contact.title}` : ""}
+                              </div>
+                            </button>
+                          ))
                         )}
                       </div>
-                      <div className="text-xs opacity-75">{contact.email}</div>
-                      {contact.title && <div className="text-xs opacity-75">{contact.title}</div>}
-                    </button>
-                  ))}
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground p-2">No payment contacts yet</div>
@@ -403,28 +510,12 @@ export default function SendEmailDialog({ companies, defaultCustomerId, groupNam
             {isSmart && prefillLoading && (
               <div className="text-xs text-muted-foreground">Preparing content from live figures…</div>
             )}
-            {isSmart && !prefillLoading && (
-              <div className="text-xs text-muted-foreground">
-                Wording comes from Settings → Email Templates; figures are filled in automatically.
-              </div>
-            )}
-            {isSmart && prefill && (
-              <div className="text-xs text-muted-foreground">
-                {prefill.openCount} open invoice{prefill.openCount === 1 ? "" : "s"} · outstanding €
-                {prefill.openTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                {prefill.overdueCount > 0 &&
-                  ` · overdue €${prefill.overdueTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-              </div>
-            )}
-            {templateType === "SOA" && (
-              <div className="text-xs rounded-md border border-blue-200 bg-blue-50 text-blue-900 p-2 flex items-start gap-1.5">
-                <FileDown className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>
-                  On Send, the SOA (PDF) downloads automatically and Outlook opens with the text ready — just attach
-                  the downloaded file and press Send in Outlook.
-                </span>
-              </div>
-            )}
+            {/*
+              Removed on request: the template-source note, the invoice/outstanding
+              recap and the SOA "how it works" banner. The same figures are already in
+              the email body the collector is looking at, so they only made the dialog
+              taller and pushed subject/body out of view.
+            */}
           </div>
 
           {/* Subject */}

@@ -156,6 +156,15 @@ describe("address book UI contract", () => {
     expect(page).toContain("<AddressBookRecordDialog");
   });
 
+  it("opens the same card page as the Collections Desk for groups and companies", () => {
+    // A group/company row lands on its receivables card — the very same card the
+    // Collections Desk opens, so both entry points share one screen. There is no
+    // longer a Details tab to deep-link into.
+    expect(page).toMatch(/navigate\(`\/groups\/\$\{encodeURIComponent\(any\.group\)\}`\)/);
+    expect(page).toMatch(/navigate\(`\/customers\/\$\{any\.id\}`\)/);
+    expect(page).not.toContain("?tab=details");
+  });
+
   it("marks ERP-owned columns read-only so the field picker can flag them", () => {
     expect(page).toContain("readOnly: true");
   });
@@ -168,12 +177,26 @@ describe("address book UI contract", () => {
   });
 
   it("uses one card template for every entity, including relationships and custom fields", () => {
-    const dialog = read("client/src/components/AddressBookRecordDialog.tsx");
-    expect(dialog).toContain("<CustomFieldsBlock");
-    expect(dialog).toContain("relatedCompanies");
-    expect(dialog).toContain("relatedVessels");
-    expect(dialog).toContain("relatedContacts");
-    expect(dialog).toContain("Open in Collections Desk");
+    // One body, two hosts: the Address Book modal and the group/company card tab.
+    const panel = read("client/src/components/RecordDetailsPanel.tsx");
+    expect(panel).toContain("<CustomFieldsBlock");
+    expect(panel).toContain("relatedCompanies");
+    expect(panel).toContain("relatedVessels");
+    expect(panel).toContain("relatedContacts");
+    expect(panel).toContain("Open in Collections Desk");
+    expect(read("client/src/components/AddressBookRecordDialog.tsx")).toContain("<RecordDetailsPanel");
+  });
+
+  it("the directory record lives in the Address Book, not as a tab on the cards", () => {
+    // The group/company pages are receivables cards only: the details panel is
+    // reached through the Address Book modal, which keeps the money view free of
+    // competing tabs.
+    expect(read("client/src/components/AddressBookRecordDialog.tsx")).toContain("<RecordDetailsPanel");
+    for (const p of ["client/src/pages/GroupDetail.tsx", "client/src/pages/CustomerDetail.tsx"]) {
+      const src = read(p);
+      expect(src).not.toContain("RecordDetailsPanel");
+      expect(src).not.toContain('<TabsTrigger value="details">Details</TabsTrigger>');
+    }
   });
 
   it("keeps the list header sticky and loads the first 100 rows only", () => {

@@ -1416,6 +1416,26 @@
 - [x] Multi-token search: each word may match a different field (e.g. surname + company)
 - [x] Address Book "Search this list" searches across related entities — contact name, company, group and vessel — on every tab
 - [x] Per-list search boxes on Collections Desk and Invoices use the same accent-insensitive multi-token matcher (Address Book + Vessels already did); Invoices search also covers vessel and group
+
+## Promises without a stated amount (user clarification)
+
+Customers often promise to pay without naming a figure. Such a promise IS valid and
+must be recorded and tracked as a task; only the amount is unknown.
+
+- [x] Root cause: closing/escalating a promise-check task leaves the promise row Pending forever, so the stale promise keeps firing the "Open promise exists" banner (DYNACOM 6270001, MINERVA 7260001)
+- [x] Settle the linked promise when its check task is Completed (Kept) or Cancelled/superseded (Broken)
+- [x] Treat a promise whose every linked task is closed as no longer open in findOpenGroupPromise
+- [x] Never render an amount-less promise as "€0" — show "amount not stated" everywhere (Log Call banner, Collections Desk, task titles, group card)
+- [x] Keep the promised date mandatory even when the amount is unknown
+- [x] Backfill the missing follow-up tasks for the two existing amount-less promises
+- [x] Add regression tests: amount-less promise creates a task, and is never displayed as €0
+
+## Unified customer/group card (user approved)
+
+The Collections Desk drill-in is the receivables view; the Address Book holds the
+master record. Same company, two screens. Unify them.
+
+(tracked in the "Unified customer/group card (user request 1/8)" section at the bottom of this file)
 - [x] Vitest coverage for accent-insensitive matching, multi-token queries and cross-entity list search
 
 ## Group-shared contacts must not be double counted (user note)
@@ -1445,3 +1465,365 @@
 - [x] Group contact counts count unique people, not one row per member company
 - [x] Record card related-contacts list shows each person once per group
 - [x] Contacts list collapses the same person into one row, carrying every company and group they sit on (7,491 people vs 7,762 raw rows); Contacts tab badge counts people
+
+## Promise lifecycle & amount-less promises (user request 1/8)
+- [x] A Pending promise counts as open only while a linked check task is still live; completed/cancelled/escalated tasks settle it, so the false "Open promise exists" banner is gone (DYNACOM, MINERVA, MSC, TMS, CAPITAL GAS repaired)
+- [x] Vitest coverage for the open/settled rule, incl. escalated copies and promise ids sharing a prefix
+- [x] Promise without a stated amount shows "amount not stated" instead of €0 (Log Call banner, Collections Desk, task detail, forecast promises list)
+- [x] Amount field is optional in every promise form (Log Call, task detail next-step/convert, customer card, group card) and on the matching server procedures
+- [x] Vitest coverage for amount-less promises (server/promiseNoAmount.test.ts)
+- [x] Backfill historical promise activity-log lines that printed "— €0" (3 rows repaired; no task titles affected)
+
+## Unified customer/group card (user request 1/8)
+- [x] One card per company/group with two tabs: "Receivables" (balances, aging, transactions, promises, tasks, activity) and "Details" (identity, related companies/vessels/contacts, custom fields)
+- [x] Collections Desk row click and Address Book row click open the same card (group/company rows and `?record=` deep links land on `/groups/:name?tab=details` / `/customers/:id?tab=details`)
+- [x] Shared `RecordDetailsPanel` renders the Details body in both the Address Book modal (vessels/contacts) and the card pages, so the two cannot drift apart
+- [x] Contacts on the Details tab deduped per person, departments marked "· dept", gift tier/history editable from the card
+- [x] Active tab addressable via `?tab=details`, synced with history.replaceState (no page re-mount)
+- [x] Tests covering the unified card routing and tab content (addressBook, styling, dedup, card-size and contactType assertions repointed at the shared panel)
+
+## Address Book visual alignment with the rest of AR Pro (user request 1/8)
+- [x] Entity switcher uses the stock segmented control (`TabsList h-10`) with plain muted mono counts, dropping the bespoke muted panel and the sky count pills
+- [x] Filters moved onto an open row (switcher + search + selects) instead of the boxed `rounded-lg border bg-card p-3` toolbar — that box was the main reason the page looked foreign
+- [x] Secondary tools collapsed into one row (Filters, Import, Data quality, Gift review, Fields, Save current view; Columns + Export right-aligned), so the page reads header → filters → tools → summary → table like Invoices
+- [x] Page header matched to the other list pages: neutral title icon (was sky-600), one-line subtitle, contacts actions kept on the title row
+- [x] Table header/rows verified as already shared via `AddressBookTable` (card wrapper, sticky muted header, hover rows, footer inside the card) — same treatment as Vessels/Invoices
+- [x] Route-level `PageFallback` renders a title + filters + table skeleton instead of the bare "Loading…" line (applies to every lazy page, not just the Address Book)
+- [x] Vitest coverage for the aligned styling contract (`addressBookStyling.test.ts` asserts the stock switcher, no boxed toolbar, row order and the skeleton shell) — 555 tests pass
+
+## Log Call → task → status tracking is unreliable (user request 1/8)
+- [x] BUG: `(Follow-up: <group>)` marker parsed with non-greedy `(.+?)\)` truncates group names containing a `)` — fixed in `server/taskMarkers.ts` (greedy `(.*)`)
+- [x] Fix every marker parse to capture the full group name (greedy/anchored) and add a shared parse helper instead of 12 duplicated regexes — all 13 call sites in `ar.ts` use `parseFollowUpGroup`, no raw regex remains
+- [x] Repair the orphaned status rows already in the database — verified 0 orphan rows in `group_confirmation_status` (audit 2/8)
+- [x] Store the group on the task (real `tasks.customerGroup` + `tasks.promiseId` columns, migration 0046, backfilled); all 30 read sites now use `taskGroup`/`taskPromiseId`/`isTaskOfGroup` with the text marker only as a legacy fallback (`server/taskGroupColumn.test.ts`, 5 tests)
+- [x] Every logged call leaves a trace: a no-answer call is written as an explicit "Contact attempt — no one answered; status unchanged" timeline line
+- [x] Log Call forces an explicit next step (status + date), and every called group now carries a status row (7 called groups / 7 status rows)
+- [x] Per-user call tracking: every timeline entry stores `createdBy`, and the Desk shows call counts / no-answer counts per group
+- [x] Vitest coverage for group names with parentheses across the call→task→status flow (`server/taskMarkers.test.ts`)
+
+## Review statuses without creating tasks (user request 1/8)
+- [x] Inline status editing on the Collections Desk: change a group's communication status straight from the row, no dialog, no task
+- [x] Quick "no next step needed" statuses so a review can be recorded without a follow-up task (calls.reviewStatus — Kept / Broken / Not Contacted only)
+- [x] Show when the status was last reviewed and by whom, so stale statuses are visible at a glance
+- [~] Bulk status review — cancelled: superseded by the later decision that a confirmation status may only come out of a real conversation, so it is written only by Log Call (`server/statusOnlyViaLogCall.test.ts` pins that no bulk/inline setter comes back)
+- [x] Review freshness is visible instead: the Desk badge shows "Last reviewed"/"Never reviewed" (who + when), and the "Action due" filter (Any / Due today or earlier / Past due only) with due-first ordering is the daily review list
+
+## Operating model — how the team should work in the hub (user request)
+- [x] Link team members to their login accounts so the @mentions inbox works (Kostas → user 1, Faye → user 40680029; Theofilos has no login yet)
+- [x] Make the link visible/manageable in the Team screen instead of only in the database (Sign-in account column, one-to-one guard)
+- [x] Group Notes now support @mentions too (was the only note field without them)
+
+## Bug: "Not Confirmed" outcome is lost from the Activity Log
+- [x] Root cause: the "Choose next action" buttons in LogCallDialog OVERWROTE `confirmationStatus`, so the server never learned the call started as "Did not confirm"
+- [x] `logCall` accepts a `customerResponse` field carrying what the customer actually answered
+- [x] Timeline title now reads "Call — Reached · Did not confirm → Pending Follow-up" (or → Promise to Pay), and the body records "Customer response: Did not confirm"
+- [x] No duplication when the call ends on the same status it started on
+- [x] Dialog shows an amber notice "Recorded as Did not confirm → …" with a link back, so the collector sees what will be logged
+- [x] Tests: server/notConfirmedInTimeline.test.ts covers all three cases
+
+## Sidebar restructure into sections
+- [x] Grouped the navigation: Dashboard (ungrouped), COLLECTIONS (Collections Desk, Invoices, Wire Transfers), CRM (Address Book, Vessels, Contracts), MANAGEMENT (Reports, Tasks, Team, Settings)
+- [x] CRM section added, holding the who/what data: Address Book, Vessels, Contracts
+- [x] Vessels and Contracts kept reachable under CRM instead of being orphaned
+- [x] Section headers are non-clickable uppercase muted labels, hidden when the sidebar collapses to icons (tooltips carry the meaning there)
+- [x] Active-route highlight verified on every item
+- [x] Test server/sidebarSections.test.ts pins the section order, the item-to-section mapping, and fails if any routed page becomes unreachable from the sidebar
+- [x] Section headers are CLICKABLE buttons: clicking COLLECTIONS / CRM / MANAGEMENT expands or collapses that section's items
+- [x] Chevron rotates to indicate open/closed state (200ms)
+- [x] The section containing the current page is always kept open, so the user can never hide where they are
+- [x] Open/closed state persisted per section in localStorage (sidebar-open-sections), unknown labels dropped on read
+- [x] Keyboard accessible (native button = Enter/Space) with aria-expanded and aria-controls
+- [x] When the sidebar is collapsed to icons, all items stay visible since there is no header to click
+- [x] Test coverage extended in server/sidebarSections.test.ts (5 tests)
+
+## Bug: "Open promise exists" reschedule choice does nothing
+- [x] The radio ("Reschedule this promise" / "Create a separate new promise") sent `promiseMode`, but logCall's input schema accepts `reschedulePromiseId` and ignored `promiseMode` entirely — so BOTH options created a duplicate promise row and the reschedule counter never incremented
+- [x] Decision: keep the radio (both cases are real business events) and wire it properly — the dialog now sends `reschedulePromiseId` when "reschedule" is chosen
+- [x] Kept the warning line itself (open promise + reschedule count is real, useful information)
+- [x] Test added in server/promiseRescheduleWiring.test.ts (2 tests): reschedule updates in place and increments the counter; "separate promise" adds a row
+- [x] Evidence found in live data: EVALEND (TANKERS) has 2 identical open promises (ids 8520001 / 8550001, same date, reschedule count 0), created 65 seconds apart — exactly the duplicate the radio was meant to prevent
+- [x] Audit trail cleaned: 53,147 of 53,781 rows were written by vitest users; only 634 real rows remained. Snapshot cleanup now sweeps audit rows, a global vitest teardown sweeps the rest, and `dataIntegrity.test.ts` fails if rows from earlier runs survive
+- [x] Audit every screen as built today: 13 pages / 45 components inventoried in `docs/usage-measurement-2026-08.md` (Dashboard, Desk with Groups+Companies, Group detail, Customer detail, Address Book, Invoices, Vessels, Contracts, Tasks, Wire Transfers, Reports, Team, Settings)
+- [x] Audit the data model behind collaboration: two identity lists coexist — `team_members` (3, none linked to a login) and `users` (7 real logins, 1 admin); notes/mentions/comments UI is fully built but carries 0 rows
+- [x] Measure real usage: 634 real audit actions (Log Call 117, Create Task 79, Promise 48, Wire allocation 22, SoA export 21, AI summary 16); empty tables: notes, mentions, task comments, receipts, bank details, collection plans, email templates
+- [x] Document the intended daily and weekly workflow per role — written in `docs/operating-model.md` (Credit Manager works the Desk by action date; Account Manager intervenes only commercially on own groups; Director reads the Dashboard)
+- [x] Identify the gaps between the built app and that workflow — no "my list" (1 of 3,409 customers has a collector), team members not linked to logins, tasks used as a second queue, unused collaboration surface, unscheduled taskEngine, Outlook-only email wording
+- [x] Decide where internal team communication belongs: customer-specific talk becomes a group note with @mention; everything else stays in Teams/email. Do NOT build chat, messaging or email notifications; re-evaluate the mentions inbox and task comments in a month and remove if still unused
+- [x] Decide the fate of the GitHub-side ActivityFeed/@mentions commit (f781da7): leave abandoned — `CommunicationTimeline` + `MentionTextarea` + mentions inbox already supersede everything in it
+- [x] Deliver a written operating model document to Kostas for agreement before building — `docs/operating-model.md` plus the measured basis in `docs/usage-measurement-2026-08.md`
+
+## Call Back schedule + visible call notes (agreed 2 Aug 2026)
+- [x] Server: `customers.callBackList` builds a date-ordered schedule from promise dates, follow-up dates and never-contacted overdue groups
+- [x] Each row carries the last call note, who called, the amount and the reason it is due
+- [x] New "Call Back" page in the sidebar, grouped into Overdue / Today / Scheduled / Never contacted (collapsed)
+- [x] Log Call opens straight from a Call Back row, and the row disappears once the date moves
+- [x] Show the full call note (expandable) instead of the 2-line clamp — done in the unified timeline
+- [x] Add the activity timeline to the company card (CustomerDetail) — done with the unified timeline
+- [x] Make call notes searchable — search box inside the timeline card
+- [x] Vitest coverage for the note visibility (`client/src/lib/timeline.test.ts`, `server/groupLastContact.test.ts`); the Call Back page itself was replaced by the due-date filter on the Desk
+- [x] Vitest: server/statusReviewNoTask.test.ts pins that the review path never creates a task or promise
+
+## Wipe the test promise/task data (user request 2/8: "ολα ηταν τεστ")
+- [x] Confirm the exact delete scope with Kostas before touching the database
+- [x] Delete all 284 rows from `promises_to_pay`
+- [x] Delete all 324 tasks (318 auto-generated + 6 manual — user asked for a clean slate)
+- [x] Delete the full activity log (1908 rows incl. 193 calls, 375 promise entries)
+- [x] Delete the 170 group notes
+- [x] Clear the 14 `group_confirmation_status` rows
+- [x] Clear dependent rows: group_watch_status 85, task_watchers 51, task_invoices 10, on_hold_proposals 2, group_collection_profile 1
+- [x] Verify master data untouched: customers 3620, invoices 5635, vessels 184, contacts 7762, behavior 614, forecast 721
+- [x] Verify Call Back, Collections Desk, Tasks and Forecast render on the empty data
+- [x] Re-run the full vitest suite after the cleanup (87 files, 588 tests passing)
+
+## Make the communication flow visible on the card (user: "η ροή στην καρτέλα να φαίνεται εύκολα")
+- [x] Show last contact in the card header: when, by whom, outcome, note preview
+- [x] Move the communication history above the Transactions table on the group card
+- [x] Merge the two split history blocks (Activity Log + Group activity tabs) into one timeline
+- [x] Add type filters to the unified timeline (calls, notes, promises, emails, tasks, status)
+- [x] Expand long notes instead of clamping at 2 lines
+- [x] Add the same timeline to the company card (currently has none)
+- [x] Frame the card around the current month cycle (Aug 2026) with previous months collapsed
+- [x] Surface the existing `carriedOver` flag so a status set last month is visibly distinct (group header + Collections Desk badge)
+- [x] Never let a promise write into forecast_entries (forecast is run separately by the user)
+- [x] Make call notes searchable (search box inside the timeline card)
+- [x] Vitest coverage: client/src/lib/timeline.test.ts (9 tests) + server/groupLastContact.test.ts (2 tests)
+- [x] Decided: the "Group activity" tabs card stays. It is not a duplicate of the timeline — it is the tabular ledger view (payment history, contracts, tasks, emails) that the chronological timeline cannot replace.
+
+## Log Call must be fully independent of tasks (user request 2/8)
+- [x] Log Call never creates a task (no follow-up task, no promise-check task)
+- [x] Log Call never cancels or edits an existing task
+- [x] Status badges always open Log Call — never redirect to a linked task
+- [x] Remove the "active case → open its task instead" gate (LogCallLauncher deleted)
+- [x] Keep the call itself recorded (activity log + status + amount + promise) with no task side effects
+- [x] Remove "Assigned to" from the Log Call dialog (a call assigns no work)
+- [x] Vitest: server/logCallNoTasks.test.ts (7 tests) — task list byte-identical before/after a call
+- [x] Update/remove obsolete tests that asserted calls create tasks (logCallAssignee, followUpContact removed; confirmationStatus, confirmationTaskLink, followUpCleanup, followUpActions, activeCommunication updated)
+
+## Track who spoke to which customer (user request 1/8)
+- [x] "No Answer" is a real outcome: records a contact attempt, leaves the status alone, creates no task
+- [x] Groups payload exposes lastCallAt / lastCallBy / callCount / noAnswerCount
+- [x] "Last Contact" column on the Collections Desk: who called, when, and unanswered attempts
+- [x] Filter the desk by "not called in X days" / never called / unanswered / called today
+- [x] Vitest: server/contactTracking.test.ts (17 tests) covers the no-answer path, aggregation and desk column
+
+## Everything from the Collections Desk — delete Call Back (user request 2/8)
+- [x] Delete the Call Back page, its route and the sidebar entry (`/call-back` now redirects to the Desk)
+- [x] Collections Desk shows when a promise / follow-up date has arrived: `actionDate` / `actionDue` on the groups payload, rendered as a red/amber date line under the status badge
+- [x] "Needs action" banner removed at the user's request (2/8) — the row marker and the "Action due" filter cover it
+- [x] "Last Contact" column removed from the Collections Desk at the user's request (2/8); contact history stays on the group card timeline
+
+## Status changes only through Log Call (user request 2/8)
+- [x] Remove the review caret / dropdown from the confirmation badge in the group list
+- [x] Badge becomes a plain "log a call" button; no inline status setting anywhere in the list
+- [x] Remove the quick-review status setters from the backend (`calls.reviewStatus` / `reviewStatusBulk`) and any bulk review UI
+- [x] Remove the "Next action" dialog (broken promise → follow-up / new promise / escalate) so no status is set outside Log Call
+- [x] Vitest: `statusOnlyViaLogCall.test.ts` (7 tests) pins Log Call as the only status path
+- [x] Remove the "no task created" wording from every toast / hint after logging a call
+
+## Timeline duplication bug (reported 2/8)
+- [x] One logged call with a promise shows two timeline rows ("Call logged" + "Promise-to-Pay") — merged into a single entry that names the call and its outcome
+- [x] Vitest: `logCallSingleEntry.test.ts` (4 tests) — a call that records a promise produces exactly one timeline entry
+
+## Collection Status column (user request 2/8)
+- [x] Renamed the Desk "Confirmation" column header to "Collection Status" (filter now reads "All collection statuses")
+- [x] Column is sortable by collection urgency (Broken → Escalated → Pending Follow-up → Promise → Not Contacted → Kept)
+- [x] Vitest: `collectionStatusSort.test.ts` (5 tests) covers the urgency ranking
+
+## Timeline entry must carry the full Log Call information (reported 2/8)
+- [x] Root cause: the dialog sent `contactId` but `calls.logCall` had no such input, so the contact was dropped; follow-up amount was never written either
+- [x] Timeline entry now includes company, contact (resolved from the saved contact list), collection status, amount, promised/follow-up date and the note
+- [x] Removed the duplicated outcome sentence from the entry body (it already leads the title)
+- [x] Vitest: `logCallTimelineDetail.test.ts` (5 tests) asserts every field entered in Log Call appears in the single entry
+
+## @mention of internal team members in notes (requested 2/8)
+- [x] Typing `@` in a note field opens a picker listing our own Team members (not customer contacts)
+- [x] Mention is stored in a structured way (member id) so it survives renames and can be queried
+- [x] Mentioned names render highlighted in the communication timeline entry
+- [x] Mentioned member gets a visible notification/badge (no email spam), with a list of their mentions
+- [x] Available in Log Call notes and in Collection Notes
+- [x] Mentioning must NOT create a task (keeps the Log-Call-creates-no-work rule)
+- [x] Vitest: parsing, storage and retrieval of mentions (`shared/mentions.test.ts` 9, `server/noteMentions.test.ts` 5)
+
+## Collections Desk: load all groups + date-driven sort (requested 2/8)
+- [x] Groups list loads every group by default (no 100-row cap / "Show all" step); companies list too
+- [x] Collection Status sort orders by action date: overdue (oldest first) → today → future (soonest first) → no date → Not Contacted last
+- [x] Vitest for the date-driven ordering (`collectionStatusSort.test.ts`, 8 tests)
+- [~] Virtual scrolling for the Desk tables — cancelled by user (no measured slowdown)
+
+## Rename "Broken" to "Did not confirm" (requested 2/8)
+- [x] Log Call status option and every UI label read "Did not confirm" instead of "Broken" (badge, Desk filter, timeline lines); the task promise button reads "Did not pay"
+- [x] Stored value stays `Broken` (no migration), only the display label changes
+- [x] Vitest pinning the label mapping (`confirmationStatusLabels.test.ts`, 4 tests)
+- [x] "Action due" filter in the filter row (Any due date / Due today or earlier / Past due only)
+- [x] Default Desk ordering puts due rows first (past due, then due today, oldest date first), and due rows are tinted red/amber
+- [x] Removed the `customers.callBackList` procedure
+- [x] Vitest coverage for the due flags (`server/deskActionDue.test.ts`, 5 tests)
+
+## Full application audit (requested 2/8)
+- [x] TypeScript typecheck clean (`tsc --noEmit`)
+- [x] Full vitest suite green (96 files / 643 tests) — fixed 2 stale suites (contactTracking, contactsImport)
+- [x] Test residue purged from the live DB (69 fake calls on a real group, 12 fake promises, 293 orphan timeline rows, 244 fixture invoices, ~250 fixture customers/contacts)
+- [x] Test isolation hardened: fixtures now delete contacts/timeline/notes/mentions/status; `logCallNoTasks` no longer writes on a real customer
+- [x] New guard `server/dataIntegrity.test.ts` fails if orphan rows or test residue reappear
+- [x] Dead code sweep: orphan pages/components removed (Forecast, ComponentShowcase, AIChatBox, Map, unused shadcn primitives)
+- [x] Unused tRPC procedures removed (escalationStory 167 lines, callList, myMember, updateField, giftYears, syncPushReceipt, runEngine) and unused `server/db.ts` helpers
+- [x] Junk files removed (`vite.config.ts.bak`, `server/routers/ar.ts.new_calls`, one-off scripts) and unused deps (streamdown, framer-motion)
+- [x] `.manus-logs` reviewed — no runtime errors; stale email TODO comment corrected
+- [x] Performance: 5 missing indexes added (migration 0045); payloads trimmed (customers.list 4.0→2.6 MB, contacts 4.3→3.0 MB); new light `customers.options` (420 KB) + `customers.groupMembers` for the 5 pickers and the Log Call dialog
+- [x] Recharts moved to a lazy chunk (initial JS ~1.2 MB → 808 KB); Desk Companies tab now pages 200 rows instead of 3,409
+- [x] Vitest raised to a 30s timeout (remote DB latency was causing flaky failures); suite 97 files / 656 tests green
+- [x] Key pages verified rendering (Dashboard, Collections Desk, Address Book, Invoices, Reports, Contracts, Vessels, Tasks, Team, Settings, Group/Customer detail)
+- [x] Written audit report delivered (`docs/audit-2026-08.md`)
+
+## Log Call: drop the open-promise question (requested 2/8)
+- [x] Remove the "Open promise exists" banner and the reschedule/new radio from the Log Call dialog (replaced by a one-line "Moving the open promise of … due …" notice)
+- [x] Server: a Promise to Pay logged for a group with an open promise always moves that promise (no duplicate row), without needing a client flag; legacy `reschedulePromiseId` still accepted
+- [x] Tests rewritten (`server/promiseRescheduleWiring.test.ts`, 3 tests): auto-move without a flag, legacy flag honoured, first promise still created. Suite 103 files / 678 tests green
+
+## Remove escalation, use Critical instead (requested 2/8)
+- [x] Remove the Escalate action + form from TaskDetailDialog (both the promise "Did not pay" and the follow-up branches) — replaced by a hint pointing at the Critical status
+- [x] Delete EscalationPanel and the escalated-task slim layout in TaskDetailDialog
+- [x] Remove the `tasks.escalate`, `tasks.escalationSummary` and `tasks.escalationDecision` procedures and the escalationHistory/story helpers
+- [x] Drop the `Escalated` collection status from the Desk filter, badges and labels (no rows used it)
+- [x] Remove `escalate_account_manager` from nextAction suggestions; it now suggests `mark_critical`
+- [x] Critical is the documented hand-over path (docs/escalation-guide.md); the Account Status dropdown on the group card is the single control
+- [x] Management queue already available: Desk `All statuses` filter + Dashboard Critical/On Hold counters
+- [x] Deleted the 5 escalation test files and updated the tests that asserted escalation behaviour — suite 98 files / 640 tests green
+
+## Ask a colleague — internal questions about a customer (requested 2/8)
+- [x] Schema: reshape the unused `requests` tables into person-targeted questions (askedToMemberId, optional department, invoice link, answeredAt/closedAt) and apply the migration
+- [x] Server: `questions.ask` — question about a group/customer sent to a colleague, no due date, optional attached invoices
+- [x] Server: `questions.answer` — the colleague replies; status Open → Answered; asker notified
+- [x] Server: `questions.list` (inbox: asked to me / asked by me, open-only filter) and `questions.close`
+- [x] Server: both the question and the answer are written to the group's Activity Log so they stay in the customer's history
+- [x] UI: "Ask a colleague" button on the group card and the customer card (question + recipient only, no mandatory date)
+- [x] UI: `Questions` page — two tabs (To me / From me), answer inline, close when resolved
+- [x] UI: sidebar counters — questions waiting for my answer, and my questions still unanswered
+- [x] UI: questions/answers appear in the group Activity Log and communication timeline with a distinct icon
+- [x] Tests: ask → answer → close lifecycle, activity-log entries, inbox filtering, counters
+- [x] UI: "Ask a colleague" also on the invoice selection bar, attaching the selected invoices
+- [x] UI: open questions box on the group card, answerable inline
+- [x] Tests: server/questions.test.ts — ask/answer/close, inbox sides, activity-log write, no task created
+
+## Revert the separate questions flow — one path only: a Help task (requested 2/8)
+- [x] Remove the `Questions` page, its route and the sidebar entry with its counter
+- [x] Remove `AskColleagueDialog`, `GroupOpenQuestions` and every mount of them (group card, customer card, invoice bar)
+- [x] Remove the `questions` tRPC router, the db helpers and the `question` timeline/activity kind
+- [x] Remove server/questions.test.ts and the questions/questionInvoices schema tables
+- [x] Add a `Help` task type to the task type enum (help request to a colleague)
+- [x] The Ask button on the group and customer cards opens the normal New Task dialog, prefilled as a Help task
+- [x] A Help task assigned to a colleague is written to the customer's Activity Log
+- [x] Tests: creating a Help task from a group logs it in the activity log and appears in the assignee's task list
+
+## Card toolbar grouping (requested 2/8)
+- [x] Log Call, Send Email, New Task and Ask for help are standalone buttons on the group card — no Actions menu
+- [x] Add Note removed from both cards — notes belong in Collection Notes
+- [x] Group card toolbar split into visual clusters: Actions / Export & summary / Filters
+- [x] Company card toolbar uses the same clusters (Actions incl. Promise-to-Pay, Export & summary)
+
+## Toolbar consistency across pages (requested 2/8)
+- [x] Invoices: header split into Actions cluster (Record Receipt) and Export cluster (Aging Excel/PDF)
+- [x] Invoices: filter row wrapped in a Filters cluster with the funnel icon, matching the group card
+- [x] Collections Desk: filter row wrapped in a Filters cluster, view tabs kept separate from filters
+- [x] Collections Desk: Run Forecast kept as the single primary action in an Actions cluster
+- [x] Active-filter indicator with a Clear button on Invoices and Collections Desk
+- [x] Remove AI Summary: button + dialog on both cards, groupAiSummary procedure, its test file
+- [x] Fix "Never contacted" shown while a Promise to Pay exists: callSummaryByGroup now counts every logged call (a call whose outcome is a confirmed promise is stored as activityType "promise")
+- [x] Move the invoice status filter from the group-card scope filters into the Transactions toolbar (it filters invoices, not the card)
+## Credit notes visibility (requested 2/8)
+- [x] Credit notes and Payments buttons are ALWAYS rendered in the Transactions toolbar on the group card, even with zero rows (disabled, count 0)
+- [x] Same on the company card — button never disappears
+- [x] Turning on Credit notes / Payments clears the invoice-only filters instead of returning an empty list
+- [x] The buttons show how many rows are currently hidden by other filters and clicking them reveals them
+- [x] Invoices page: a Credit notes filter listing every open credit note across all groups, with its own total
+- [x] Tests: toolbar buttons render with zero counts; the Invoices credit-note list returns open credit notes group-wide
+## Send Email recipients (requested 2/8)
+- [x] Send Email opens with a searchable recipient list instead of a flat list of every contact (search matches name, email, title, company; list is scroll-bounded)
+- [x] Selected recipients shown as removable chips — multi-select contacts, first chip is To and the rest go to Cc (mailto + history + activity log), plus an ad-hoc "Other email address" box
+## Communication as a side panel (requested 2/8)
+- [x] Communication timeline moved out of the middle of the card into a right-hand side panel
+- [x] Toggle button in the card header showing the entry count; open/closed choice remembered per user (localStorage)
+- [x] Panel is sticky and independently scrollable so the money flow (KPI → Aging → Transactions) stays continuous
+- [x] On small screens the panel opens as a slide-over sheet instead of taking column width (closed by default there)
+- [x] Same behaviour on the company card (Customer 360)
+- [x] Tests for the panel toggle, persistence and both hosts
+
+## Ask for help — creator + colleague search (requested 2/8)
+- [x] Help request is created by me automatically (requester shown, no "Unassigned" wording)
+- [x] Colleague field is a searchable list (type to filter by name/title) instead of a plain dropdown
+- [x] Falls back to myself when no colleague is picked, and I cannot pick myself as the colleague being asked
+- [x] Same searchable picker used wherever team members are assigned (task detail, account manager)
+- [x] Tests for the search picker and the creator default
+
+## Receivables-only card + floating Communication window (requested 2/8)
+- [x] Remove the Receivables/Details tab bar from the group card and the company card
+- [x] Address Book deep links land on the card without the removed Details tab
+- [x] Communication opens as a floating window instead of a column, so the figures layout never reflows
+- [x] Window can be dragged by its title bar and resized from the corner; position/size remembered
+- [x] Window stays within the viewport and can be closed from its own header or the toolbar button
+- [x] Tests for the removed tabs and the floating window behaviour
+- [x] Send Email contact list collapsed by default — names appear only as a dropdown when the search box is clicked
+- [x] Sidebar: Tasks moved from Management into the Collections section
+- [x] New Task: "Assigned to" is mandatory, pre-filled with the logged-in user, and Help requests require naming the colleague
+- [x] Manager / collector chips on group and company cards show the job title next to the name (e.g. "Kostas Vanos · Credit Controller")
+- [x] Log Call: add "Paid" customer response — sets the group collection status to Paid, closes the open promise as kept, and resets to Not Contacted at the start of the next month
+- [x] Send Email: removed the template-source note, the invoice/outstanding recap and the SOA how-it-works banner to keep the dialog compact
+- [x] Team data: added Evaggelia Theologou, Maria Theologou, Tsouflias Konstantinos, Lena Varsami (titles left blank for the user to fill) and fixed the "Credid Controller" typo
+- [x] Group/company card: show responsible people as an avatar People row (Team-list style) with Controller/Account Manager titles
+- [x] Group/company card: add removable Watchers (team members following the receivables card), stored per group
+- [x] Installments toggle: show the installment count and go disabled at zero, matching the Payments / Credit notes buttons on group, company and Invoices pages
+- [x] Log Call: contact person picker is a searchable combobox (visible typed text, matches name/title/email, keeps Other and Add new)
+
+## AI summary on the Communication window (requested 3/8)
+- [x] `customers.communicationSummary` procedure: last 30 days of group activity (calls, promises, emails, notes, tasks, payments) + open exposure + collection status → short Greek LLM recap ending with one next step; skips the LLM when the window is empty
+- [x] "AI summary" button in the Communication floating window (and mobile sheet), rendering the recap inside the window — collapsible, refreshable, dismissible
+- [x] Greek output: one lead line for the period, 2-4 bullets, closing `**Επόμενο βήμα:**` with a concrete action for the current month
+- [x] Vitest coverage: `server/communicationAiSummary.test.ts` (panel wiring, window filtering, empty-window short circuit, audit)
+- [x] Same button available on the company card's Communication window (Customer 360 passes its group to the window)
+- [x] Tests: the procedure only reads the last 30 days and answers gracefully when nothing happened (no LLM call, fixed Greek line)
+
+## Compact ownership strip (requested 3/8)
+- [x] Shrink the people row: 24px avatars + FIRST NAME only, no job-title second line, no bordered container
+- [x] Move it inline into the title row, right after the "Promise to Pay" badge (group card + Customer 360)
+- [x] Watchers: dropped the "WATCHERS / none" label and the "+ Watcher" text button — 20px avatar stack plus a bare "+"
+- [x] Full name + role + job title on hover (tooltip); click still opens the re-assignment picker
+- [x] Tests updated for the compact layout (`server/peopleRowWatchers.test.ts`)
+
+## Send Email — contacts only (requested 3/8)
+- [x] Removed the "Other email address… / Add" free-typed recipient field; recipients come from the contact list only
+- [x] Empty-state hint updated to "No recipient yet — pick a contact below"; Add Contact remains the way to introduce a new address
+- [x] Test flipped to guard that no free-typed address can be entered
+
+## Transactions toolbar overflow (reported 3/8)
+- [x] "By vessel" was cut off at the card edge — the group card's Transactions toolbar now wraps (`flex-wrap` + `min-w-0`) instead of overflowing
+- [x] Test guards the wrapping classes so the row cannot regress to a single no-wrap line
+
+## Promises are group-level only (decided 3/8)
+Rule confirmed by Kostas: a promise (and its check task) belongs to the GROUP. Companies never
+carry their own promise or task. The REEDEREI NORD confusion came from the Log Call banner naming
+a member company, which read as "this company's promise" when it is the group's single commitment.
+- [x] Log Call banner: drop the member-company name, say the promise belongs to the group
+- [x] Make the reschedule wording explicit ("the group's open promise moves to the new date")
+- [x] Promise rows created from Log Call must not be attributed to a single company in the UI
+- [x] Company-card promise routes through the group commitment (nothing removed from either card)
+- [x] Tests for the group-level wording and attribution
+- [x] Watcher "+" opens a searchable colleague list directly (no explanatory text)
+- [x] Tests for the direct watcher search picker
+- [x] Remove the Companies tab from the Collections Desk (group list only)
+- [x] Delete the dead company table, paging state, sorting and totals from the Desk page
+- [x] Tests: deskGroupOnly.test.ts pins that the Companies tab cannot come back
+- [x] BUG: Log Call proposes "reschedule" for a group the desk shows as Not Contacted (REEDEREI NORD) — duplicate Pending promise rows exist for the same customer/date
+- [x] Open-promise lookup and the desk's Not Contacted status must agree on what counts as an open promise
+- [x] Sweep orphaned Pending promise rows (no live task + group carries no commitment) to Broken
+- [x] Tests: orphanPromiseSweep.test.ts pins the task-first ordering and the sweep
+
+## Company-card actions record against the group (decided 3/8, corrected)
+Kostas: nothing is to be removed from either card — whether a call/promise is logged from a company
+or from the group, it is RECORDED on the group. The company card keeps every button; only the
+destination of the record is group-level.
+- [x] Restore the "Promise-to-Pay" dialog on the company card (it was briefly removed)
+- [x] A promise saved from the company card moves the group's open promise instead of adding a second one
+- [x] Company-card promise dialog states that the record lands on the group
+- [x] Keep New Task on the company card
+- [x] Tests: company-card promise routes to the group's single commitment
+- [x] Group-first tracking recorded as a standing rule in the ar-pro-design-system skill

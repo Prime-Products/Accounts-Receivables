@@ -41,7 +41,7 @@ describe("follow-up task actions", () => {
       caller.calls.logCall({ group, outcome: "Reached", confirmationStatus: "Confirmed" }),
     ).rejects.toThrow(/promised payment date/i);
 
-    // No amount + a date → promise and check task are created
+    // No amount + a date → the promise is created (a call never creates a task)
     const promisedDate = Date.now() + 3 * 24 * 3600 * 1000;
     const res = await caller.calls.logCall({
       group,
@@ -56,16 +56,14 @@ describe("follow-up task actions", () => {
     expect(conf?.status).toBe("Confirmed");
     expect(Number(conf?.amount)).toBe(0);
 
-    // A promise record with amount 0 exists and a linked check task was created
+    // A promise record with amount 0 exists, and no task was generated for it
     const promises = await db.listPromises();
     const open = promises
       .filter(p => p.status === "Pending" && Number(p.amount) === 0)
       .sort((a, b) => b.id - a.id);
     expect(open.length).toBeGreaterThan(0);
     const tasksAfter = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-    const ptpTask = tasksAfter.find(t => t.description?.includes(`(Promise #${open[0].id})`));
-    expect(ptpTask).toBeTruthy();
-    expect(ptpTask?.title).toContain("Promise to Pay");
+    expect(tasksAfter.some(t => t.description?.includes(`(Promise #${open[0].id})`))).toBe(false);
   });
 
   it("converts a follow-up task to a Promise to Pay (new task, status change, old task cancelled)", async () => {
@@ -132,42 +130,6 @@ describe("follow-up task actions", () => {
         promisedDate: Date.now() + 24 * 3600 * 1000,
       })
     ).rejects.toThrow(/not a follow-up task/i);
-  });
-
-  it("escalates a follow-up task to a chosen team member", async () => {
-    const caller = makeCaller();
-    const cust = await getFixtureCustomer();
-    const group = (cust!.customerGroup ?? "").trim() || cust!.name;
-
-    await caller.calls.updateConfirmationStatus({
-      group,
-      status: "Pending Follow-up",
-      followUpDate: Date.now() + 3 * 24 * 3600 * 1000,
-    });
-    const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-    const fuTask = openTasks.find(t => t.description?.includes(`(Follow-up: ${group})`));
-    expect(fuTask).toBeTruthy();
-
-    const members = await db.listTeamMembers(false);
-    expect(members.length).toBeGreaterThan(0);
-    const target = members[0];
-
-    const res = await caller.tasks.escalate({
-      taskId: fuTask!.id,
-      assigneeId: target.id,
-      note: "test escalation",
-    });
-    expect(res.success).toBe(true);
-    expect(res.newTaskId).toBeDefined();
-
-    // Original task should be Completed
-    const originalAfter = await db.getTask(fuTask!.id);
-    expect(originalAfter?.status).toBe("Completed");
-
-    // New task should be created with the target assignee
-    const newTask = await db.getTask(res.newTaskId);
-    expect(newTask?.assigneeId).toBe(target.id);
-    expect(newTask?.description).toContain("Escalated");
   });
 
   it("reschedules an open promise from its check task (new date/amount, badge in sync)", async () => {

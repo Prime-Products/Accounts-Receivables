@@ -14,7 +14,24 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+    include: [
+      "server/**/*.test.ts",
+      "server/**/*.spec.ts",
+      // Pure helper modules shared by the UI (formatting, timeline building, filters).
+      "client/src/lib/**/*.test.ts",
+      // Contracts shared by client and server (mention markup, text matching).
+      "shared/**/*.test.ts",
+    ],
     fileParallelism: false,
+    /**
+     * Almost every suite talks to the remote TiDB instance, where a single
+     * round-trip can take a few hundred ms. The 5s default made DB-backed tests
+     * flake when the whole suite runs back to back; 30s is still short enough to
+     * catch a genuine hang.
+     */
+    testTimeout: 30000,
+    hookTimeout: 30000,
+    /** Sweeps audit rows written by the fake test users (see the module docs). */
+    globalSetup: ["server/testGlobalTeardown.ts"],
   },
 });

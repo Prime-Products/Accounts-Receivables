@@ -3,8 +3,9 @@ import { appRouter } from "./routers";
 import { createTestCustomer, cleanupTestCustomer, TestCustomerFixture } from "./testFixtures";
 
 /**
- * calls.getActiveCommunication — used by the Log Call button to decide whether
- * to show the "open the task or log a new call" choice step.
+ * calls.getActiveCommunication used to gate the Log Call button behind an open
+ * task. Log Call is now fully independent of tasks, so logging calls must never
+ * produce a task to be redirected into.
  */
 
 function makeCaller() {
@@ -30,7 +31,7 @@ describe("calls.getActiveCommunication", () => {
     expect(res).toBeNull();
   });
 
-  it("returns the follow-up task when status is Pending Follow-up", async () => {
+  it("stays null after a Pending Follow-up call — no task is created to open", async () => {
     const due = Date.now() + 3 * 24 * 3600 * 1000;
     await caller.calls.logCall({
       group: fx.group,
@@ -39,14 +40,12 @@ describe("calls.getActiveCommunication", () => {
       confirmationStatus: "Pending Follow-up",
       followUpDate: due,
     } as any);
-    const res = await caller.calls.getActiveCommunication({ group: fx.group });
-    expect(res).not.toBeNull();
-    expect(res!.status).toBe("Pending Follow-up");
-    expect(res!.taskId).toBeGreaterThan(0);
-    expect(res!.title).toContain(fx.group);
+    expect(await caller.calls.getActiveCommunication({ group: fx.group })).toBeNull();
+    const status = await caller.calls.getConfirmationStatus({ group: fx.group });
+    expect(status?.status).toBe("Pending Follow-up");
   });
 
-  it("returns the promise-check task when status is Promise to Pay (Confirmed)", async () => {
+  it("stays null after a Promise to Pay call — the promise exists without a task", async () => {
     const promisedDate = Date.now() + 7 * 24 * 3600 * 1000;
     await caller.calls.logCall({
       group: fx.group,
@@ -56,10 +55,9 @@ describe("calls.getActiveCommunication", () => {
       confirmationAmount: 1500,
       promisedDate,
     } as any);
-    const res = await caller.calls.getActiveCommunication({ group: fx.group });
-    expect(res).not.toBeNull();
-    expect(res!.status).toBe("Confirmed");
-    expect(res!.taskId).toBeGreaterThan(0);
-    expect(Number(res!.amount)).toBe(1500);
+    expect(await caller.calls.getActiveCommunication({ group: fx.group })).toBeNull();
+    const open = await caller.calls.getOpenPromise({ group: fx.group });
+    expect(open).toBeTruthy();
+    expect(Number(open!.amount)).toBe(1500);
   });
 });

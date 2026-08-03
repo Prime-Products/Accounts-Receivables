@@ -11,9 +11,18 @@ import {
   taskTypes,
 } from "../../drizzle/schema";
 import { matchScore, matchesAllTokens } from "../../shared/textMatch";
+import { parseMentions, stripMentionMarkup } from "../../shared/mentions";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveGroupStatus, normalizeStoredStatus } from "../lib/statusWorkflow";
+import {
+  confirmationStatusLabel,
+  followUpMarker,
+  promiseMarker,
+  taskGroup,
+  taskPromiseId,
+  isTaskOfGroup,
+} from "../taskMarkers";
 import {
   buildForecast,
   computeAging,
@@ -50,18 +59,6 @@ import * as softoneInvoices from "../lib/softoneInvoices";
 import * as softoneVessels from "../lib/softoneVessels";
 import { isSoftOneSyncRunning, withSoftOneSyncLock } from "../lib/softoneSyncLock";
 import { invokeLLM } from "../_core/llm";
-import {
-  buildTimeline,
-  eventsFromActivity,
-  eventsFromNotes,
-  eventsFromPromises,
-  eventsFromReceipts,
-  eventsFromTasks,
-  fallbackStory,
-  scopeToTask,
-  shortDate,
-  timelineStats,
-} from "../lib/escalationHistory";
 
 
 function exportFilenamePart(value: string) {
@@ -139,7 +136,7 @@ function isConfirmationStale(
   // Closed outcomes ("Kept" / "Broken") show for the rest of the month, then
   // reset to Not Contacted when a new month starts.
   if (status === "Kept" || status === "Broken") return isFromPreviousMonth(updatedAt ?? null, now);
-  // Active statuses (Confirmed, Pending Follow-up, Escalated) persist until explicitly
+  // Active statuses (Confirmed, Pending Follow-up) persist until explicitly
   // changed by a human — no date-based auto-reset, no monthly reset.
   return false;
 }
@@ -215,7 +212,9 @@ async function createGroupPromise(
     customerId: cust.id,
     activityType: "promise",
     title: amt > 0 ? `Promise-to-Pay: ${amtLabel} by ${dateStr}` : `Promise-to-Pay by ${dateStr}`,
-    description: `${cust.name} — confirmed by phone${input.notes ? ` — ${input.notes}` : ""}`,
+    // The commitment is the group's; the company is only who happened to be on the
+    // phone, so it is phrased as the contact, never as the owner of the promise.
+    description: `${groupKey} — confirmed by phone via ${cust.name}${input.notes ? ` — ${input.notes}` : ""}`,
     createdBy: ctx.user.id,
     createdAt: new Date(),
   }).catch(() => {});
@@ -223,11 +222,15 @@ async function createGroupPromise(
     customerId: cust.id,
     type: "Manual",
     title: amt > 0 ? `Promise to Pay — ${amtLabel}` : `Promise to Pay — ${groupKey}`,
-    description: `Verify that ${cust.name} paid ${amt > 0 ? `the promised amount of ${amtLabel}` : "the promised payment"} due ${dateStr}.${input.contactName ? ` Contact: ${input.contactName}.` : ""}${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
+    description: `Verify that ${groupKey} paid ${amt > 0 ? `the promised amount of ${amtLabel}` : "the promised payment"} due ${dateStr}. Confirmed via ${cust.name}.${input.contactName ? ` Contact: ${input.contactName}.` : ""}${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
     dueDate: input.promisedDate,
     status: "Pending",
     assignedTo: ctx.user.id,
     assigneeId: await resolveTaskAssignee(ctx, input.assigneeId),
+    // Real columns: the description marker above is only kept so the text still
+    // reads well in the task list and for rows written before these columns.
+    customerGroup: groupKey,
+    promiseId: id,
   } as any);
   await audit(ctx, "Create Task", "task", taskId, `Auto follow-up for promise #${id} (${cust.name})`);
   return id;
@@ -238,6 +241,119 @@ async function createGroupPromise(
  * assignee always wins; otherwise the task stays with the colleague who logged
  * the call (their own team-member record), so nothing is silently unassigned.
  */
+/**
+ * Record a Promise-to-Pay WITHOUT touching the task list.
+ *
+ * Logging a call must never create work items (user requirement 2/8), but the
+ * promise itself is part of what was said on the phone, so it is still stored and
+ * written to the timeline. Any follow-up task is created by the user, if wanted.
+ */
+async function createPromiseRecord(
+  ctx: { user: { id: number; name: string | null } },
+  input: {
+    group: string;
+    customerId?: number;
+    amount?: number;
+    promisedDate: number;
+    notes?: string;
+    contactName?: string;
+    /** Skip the promise activity-log line (the caller already logs the same event). */
+    skipActivityLog?: boolean;
+  }
+) {
+  let cust = input.customerId ? await db.getCustomer(input.customerId) : null;
+  if (!cust) {
+    const customers = await db.listCustomers();
+    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+    if (members.length === 0) return null;
+    cust = members[0];
+  }
+  const amt = input.amount && input.amount > 0 ? input.amount : 0;
+  const amtLabel = amt > 0 ? `€${Number(eur(amt)).toLocaleString()}` : "";
+  const id = await db.createPromise({
+    customerId: cust.id,
+    promisedDate: input.promisedDate,
+    amount: eur(amt),
+    notes: input.notes,
+    createdBy: ctx.user.id,
+  });
+  await audit(
+    ctx,
+    "Record Promise-to-Pay",
+    "promiseToPay",
+    id,
+    `Customer #${cust.id} promised ${amt > 0 ? `€${eur(amt)}` : "payment (no amount)"} by ${new Date(input.promisedDate).toISOString().slice(0, 10)} (from logged call, no task created)`
+  );
+  const groupKey = cust.customerGroup?.trim() ? cust.customerGroup.trim() : cust.name;
+  const dateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
+  // A promise recorded during a call is already described by that call's own log
+  // line, so a second entry here would show the same event twice in the timeline.
+  if (!input.skipActivityLog) {
+    await db.addActivityLog({
+      groupName: groupKey,
+      customerId: cust.id,
+      activityType: "promise",
+      title: amt > 0 ? `Promise-to-Pay: ${amtLabel} by ${dateStr}` : `Promise-to-Pay by ${dateStr}`,
+      description: `${groupKey} — confirmed by phone via ${cust.name}${input.contactName ? ` (${input.contactName})` : ""}${input.notes ? ` — ${input.notes}` : ""}`,
+      createdBy: ctx.user.id,
+      createdAt: new Date(),
+    }).catch(() => {});
+  }
+  return id;
+}
+
+/**
+ * Move an existing open promise to a new date/amount, again without touching any
+ * task: the customer rescheduled, which is a fact about the promise, not work.
+ */
+async function reschedulePromiseRecord(
+  ctx: { user: { id: number; name: string | null } },
+  input: {
+    group: string;
+    promiseId: number;
+    amount: number;
+    promisedDate: number;
+    notes?: string;
+    /** Skip the reschedule activity-log line (the caller already logs the same event). */
+    skipActivityLog?: boolean;
+  }
+) {
+  const promise = await db.getPromise(input.promiseId);
+  if (!promise || promise.status !== "Pending") return null;
+  const cust = await db.getCustomer(promise.customerId);
+  const effAmount = input.amount > 0 ? input.amount : Number(promise.amount ?? 0);
+  const rLabel = effAmount > 0 ? `€${Number(eur(effAmount)).toLocaleString()}` : "payment";
+  const oldDateStr = new Date(promise.promisedDate).toLocaleDateString("en-GB");
+  const newDateStr = new Date(input.promisedDate).toLocaleDateString("en-GB");
+  const newRescheduleCount = (promise.rescheduleCount ?? 0) + 1;
+  const attemptOrdinal = getOrdinalSuffix(newRescheduleCount + 1);
+  await db.updatePromise(input.promiseId, {
+    promisedDate: input.promisedDate,
+    amount: eur(effAmount),
+    notes: input.notes ?? promise.notes,
+    rescheduleCount: newRescheduleCount,
+  });
+  await audit(
+    ctx,
+    "Reschedule Promise-to-Pay",
+    "promiseToPay",
+    input.promiseId,
+    `${input.group}: ${rLabel} moved ${oldDateStr} → ${newDateStr} (${attemptOrdinal} attempt, no task touched)`
+  );
+  if (!input.skipActivityLog) {
+    await db.addActivityLog({
+      groupName: input.group,
+      customerId: promise.customerId,
+      activityType: "promise",
+      title: `Payment rescheduled: ${rLabel} — ${oldDateStr} → ${newDateStr} (${attemptOrdinal} attempt)`,
+      description: `${cust?.name ?? "—"} moved the promised payment${input.notes ? ` — ${input.notes}` : ""}`,
+      createdBy: ctx.user.id,
+      createdAt: new Date(),
+    }).catch(() => {});
+  }
+  return input.promiseId;
+}
+
 async function resolveTaskAssignee(
   ctx: { user: { id: number } },
   assigneeId?: number | null
@@ -264,8 +380,25 @@ async function handOverTask(taskId: number, previousAssigneeId: number | null, n
 }
 
 /**
- * Find the most recent open (Pending) promise for any customer that belongs to a group.
- * Returns the promise row (with customer name) or null.
+ * Find the most recent genuinely open promise for any customer of a group.
+ *
+ * A promise counts as open only while it still has a live check task. Closing or
+ * escalating that task used to leave the promise row `Pending` forever, which made
+ * the Log Call dialog claim "an open promise exists" for a group the collector had
+ * already dealt with. Promises whose every linked task is Completed/Cancelled are
+ * therefore treated as settled, and the stale row is repaired in the background.
+ *
+ * The group's own collection status is the second gate. The Desk decides whether a
+ * group carries a live commitment from `group_confirmation_status`; when that says
+ * "Not Contacted" (or the row is stale / closed as Kept or Broken) the group shows
+ * no promise anywhere in the UI, so a leftover `Pending` row must not resurrect one.
+ * Without this gate a group whose status was reset kept offering "saving moves it to
+ * the new date" for a promise the collector could not see.
+ *
+ * The two gates are deliberately ordered task-first: a promise that still owns a live
+ * check task is real work in the collector's queue (the Promises page can create one
+ * without touching the status row), so it stays open regardless of the status. Only
+ * promises with no live task are cross-checked against the group status.
  */
 async function findOpenGroupPromise(group: string) {
   const customers = await db.listCustomers();
@@ -274,12 +407,42 @@ async function findOpenGroupPromise(group: string) {
   const memberIds = new Set(members.map(m => m.id));
   const byId = new Map(members.map(m => [m.id, m]));
   const all = await db.listPromises();
-  const open = all
+  const pending = all
     .filter(p => p.status === "Pending" && memberIds.has(p.customerId))
     .sort((a, b) => b.id - a.id);
-  if (open.length === 0) return null;
-  const p = open[0];
-  return { ...p, customerName: byId.get(p.customerId)?.name ?? "—" };
+  if (pending.length === 0) return null;
+
+  const allTasks = await db.listTasks().catch(() => [] as any[]);
+  const isLive = (t: { status: string }) => t.status !== "Completed" && t.status !== "Cancelled";
+
+  // A promise with no live task is only open while the group is genuinely carrying a
+  // commitment. "Not Contacted" (including stale rows and month-reset Kept/Broken)
+  // means the Desk shows nothing, so such rows are orphans → repair them.
+  let groupCarriesCommitment: boolean | null = null;
+  const carriesCommitment = async () => {
+    if (groupCarriesCommitment === null) {
+      const confRow = await db.getGroupConfirmationStatus(group).catch(() => null);
+      const status = effectiveConfirmation(confRow).status;
+      groupCarriesCommitment = status !== "Not Contacted" && status !== "Kept" && status !== "Broken";
+    }
+    return groupCarriesCommitment;
+  };
+
+  for (const p of pending) {
+    const linked = allTasks.filter(t => taskPromiseId(t) === p.id);
+    if (linked.some(isLive)) {
+      return { ...p, customerName: byId.get(p.customerId)?.name ?? "—" };
+    }
+    if (linked.length === 0 && (await carriesCommitment())) {
+      // Legacy row from before check tasks existed, on a group that is still
+      // carrying a commitment — keep honouring it.
+      return { ...p, customerName: byId.get(p.customerId)?.name ?? "—" };
+    }
+    // Stale: either the check task was closed/escalated without settling the promise,
+    // or the row is an orphan on a group that carries no commitment.
+    await db.updatePromise(p.id, { status: "Broken" }).catch(() => {});
+  }
+  return null;
 }
 
 /**
@@ -401,18 +564,18 @@ async function rescheduleGroupPromise(
     customerId: promise.customerId,
     activityType: "promise",
     title: `Payment rescheduled: ${rLabel} — ${oldDateStr} → ${newDateStr} (${attemptOrdinal} attempt)`,
-    description: `${cust?.name ?? "—"} moved the promised payment${input.notes ? ` — ${input.notes}` : ""}`,
+    description: `${input.group}'s open promise moved to ${newDateStr}${cust?.name ? ` — agreed via ${cust.name}` : ""}${input.notes ? ` — ${input.notes}` : ""}`,
     createdBy: ctx.user.id,
     createdAt: new Date(),
   }).catch(() => {});
   // Move the linked follow-up task (identified by "(Promise #id)" marker) to the new date.
-  const marker = `(Promise #${input.promiseId})`;
+  const marker = promiseMarker(input.promiseId);
   const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-  const linked = openTasks.find(t => t.description?.includes(marker));
+  const linked = openTasks.find(t => taskPromiseId(t) === input.promiseId);
   if (linked) {
     await db.updateTask(linked.id, {
       title: effAmount > 0 ? `Promise to Pay — ${rLabel}` : `Promise to Pay — ${input.group}`,
-      description: `Verify that ${cust?.name ?? "the customer"} paid ${effAmount > 0 ? `the promised amount of ${rLabel}` : "the promised payment"} due ${newDateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`,
+      description: `Verify that ${input.group} paid ${effAmount > 0 ? `the promised amount of ${rLabel}` : "the promised payment"} due ${newDateStr}.${cust?.name ? ` Agreed via ${cust.name}.` : ""}${input.notes ? ` Notes: ${input.notes}` : ""} ${marker}`,
       dueDate: input.promisedDate,
     });
     if (input.assigneeId != null) {
@@ -448,7 +611,7 @@ async function upsertFollowUpTask(
     if (members.length === 0) return null;
     cust = members[0];
   }
-  const marker = `(Follow-up: ${input.group})`;
+  const marker = followUpMarker(input.group);
   const dateStr = new Date(input.followUpDate).toLocaleDateString("en-GB");
   const amountStr = input.amount && input.amount > 0 ? ` — expected €${Number(eur(input.amount)).toLocaleString()}` : "";
   const title = `Follow-up call — ${input.group}${amountStr}`;
@@ -457,7 +620,7 @@ async function upsertFollowUpTask(
 
   // Reuse an existing open follow-up task for this group (avoid duplicates)
   const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-  const existing = openTasks.find(t => t.description?.includes(marker));
+  const existing = openTasks.find(t => isTaskOfGroup(t, input.group));
   if (existing) {
     // Only count it as a reschedule when the date actually moved.
     const dateChanged = existing.dueDate !== input.followUpDate;
@@ -490,6 +653,7 @@ async function upsertFollowUpTask(
     status: "Pending",
     assignedTo: ctx.user.id,
     assigneeId: await resolveTaskAssignee(ctx, input.assigneeId),
+    customerGroup: input.group,
   } as any);
   await audit(ctx, "Create Task", "task", taskId, `Auto follow-up call task for ${input.group} on ${dateStr}`);
   return taskId;
@@ -518,8 +682,7 @@ async function cleanupStatusArtifacts(
   // regardless of what the recorded previous status was (covers Confirmed→Broken sequences
   // where a follow-up task from an earlier Pending state was left open).
   if (input.newStatus !== "Pending Follow-up") {
-    const marker = `(Follow-up: ${input.group})`;
-    const linked = openTasks.filter(t => t.description?.includes(marker));
+    const linked = openTasks.filter(t => isTaskOfGroup(t, input.group));
     for (const t of linked) {
       await db.updateTask(t.id, {
         status: "Cancelled",
@@ -545,8 +708,7 @@ async function cleanupStatusArtifacts(
       if (!open) break;
       await db.updatePromise(open.id, { status: "Broken" });
       await audit(ctx, "Cancel Promise-to-Pay", "promiseToPay", open.id, `${input.group}: promise cancelled (status → ${input.newStatus})`);
-      const marker = `(Promise #${open.id})`;
-      const linked = openTasks.filter(t => t.description?.includes(marker));
+      const linked = openTasks.filter(t => taskPromiseId(t) === open.id);
       for (const t of linked) {
         await db.updateTask(t.id, {
           status: "Cancelled",
@@ -564,6 +726,44 @@ async function cleanupStatusArtifacts(
         createdAt: new Date(),
       }).catch(() => {});
     }
+  }
+}
+
+/**
+ * Settle a group's open payment commitment because the customer PAID.
+ *
+ * Distinct from `cleanupStatusArtifacts`, which cancels promises that became
+ * obsolete (Not Contacted / Did not confirm). Here the customer honoured the
+ * commitment, so the promise is closed as **Kept** — that is what feeds the
+ * kept/broken reliability statistics and the collector's hit rate. The tasks that
+ * existed only to chase the money (follow-up call, promise check) are cancelled,
+ * because there is nothing left to chase this month.
+ */
+async function settleGroupPromiseAsPaid(
+  ctx: { user: { id: number; name: string | null } },
+  input: { group: string; amount?: number | null },
+) {
+  const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => []);
+  for (let guard = 0; guard < 20; guard++) {
+    const open = await findOpenGroupPromise(input.group).catch(() => null);
+    if (!open) break;
+    await db.updatePromise(open.id, { status: "Kept" });
+    await audit(ctx, "Promise Kept", "promiseToPay", open.id, `${input.group}: customer paid`);
+    for (const t of openTasks.filter(t => taskPromiseId(t) === open.id)) {
+      await db.updateTask(t.id, {
+        status: "Cancelled",
+        completionNotes: "Customer paid — promise check task no longer needed",
+      });
+      await audit(ctx, "Cancel Task", "task", t.id, "Promise check task cancelled (customer paid)");
+    }
+  }
+  // A follow-up call task only exists to chase the payment.
+  for (const t of openTasks.filter(t => isTaskOfGroup(t, input.group))) {
+    await db.updateTask(t.id, {
+      status: "Cancelled",
+      completionNotes: "Customer paid — follow-up call no longer needed",
+    });
+    await audit(ctx, "Cancel Task", "task", t.id, "Follow-up task cancelled (customer paid)");
   }
 }
 
@@ -753,9 +953,49 @@ export const customersRouter = router({
         hasLedger: custInvoices.length > 0,
         rating: ratingResult.rating,
         ratingScore: ratingResult.score,
-        ratingFactors: ratingResult.factors,
+        /**
+         * Compact score breakdown for the Companies-tab tooltip: "label points/max"
+         * per factor, one string per row. The structured objects with per-factor
+         * detail sentences added ~2 MB to this response; the full explanation
+         * stays on the group detail page.
+         */
+        ratingBreakdown: ratingResult.factors.map(f => `${f.label} ${f.points}/${f.max}`).join(" · "),
       };
     });
+  }),
+  /**
+   * Minimal customer list for dropdown pickers (contract, report, receipt, task
+   * dialogs). `list` computes balances and a credit-score breakdown for every
+   * company — several megabytes — which a picker never reads.
+   */
+  options: protectedProcedure.query(async () => {
+    const customers = await db.listCustomers();
+    return customers
+      .map(c => ({
+        id: c.id,
+        code: c.code,
+        name: c.name,
+        customerGroup: c.customerGroup,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }),
+  /**
+   * The companies of one group with their open balance — what the Log Call
+   * dialog needs to pick which entity a call is about. Scoped to the group so
+   * the dialog never pulls the whole customer ledger.
+   */
+  groupMembers: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
+    const [customers, invoices] = await Promise.all([db.listCustomers(), db.listInvoices()]);
+    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+    const ids = new Set(members.map(c => c.id));
+    const openByCustomer = new Map<number, number>();
+    for (const i of invoices) {
+      if (!ids.has(i.customerId) || !isOpenInvoice(i)) continue;
+      openByCustomer.set(i.customerId, (openByCustomer.get(i.customerId) ?? 0) + outstanding(i));
+    }
+    return members
+      .map(c => ({ id: c.id, name: c.name, openBalance: openByCustomer.get(c.id) ?? 0 }))
+      .sort((a, b) => b.openBalance - a.openBalance);
   }),
   /** Group-level view: aggregated totals per customer group. */
   groups: protectedProcedure.query(async () => {
@@ -763,6 +1003,9 @@ export const customersRouter = router({
     const today = new Date();
     const monthStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1);
     const monthEnd = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1);
+    // Day boundaries for "due today" detection (dates are stored at UTC midnight).
+    const startOfToday = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+    const endOfToday = startOfToday + 24 * 60 * 60 * 1000 - 1;
     const [customers, invoices, forecastRows, behavior, allPromises, watchRows, receipts, confirmationStatuses, monthWires] = await Promise.all([
       db.listCustomers(),
       db.listInvoices(),
@@ -778,30 +1021,15 @@ export const customersRouter = router({
     // "Pending Follow-up" → task with "(Follow-up: <group>)" marker;
     // "Promise to Pay" → promise-check task with "(Promise #<id>)" marker.
     const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] })).filter(
-      t => t.description?.includes("(Follow-up: ") || t.description?.includes("(Promise #"),
+      t => taskGroup(t) !== null || taskPromiseId(t) !== null,
     );
     const followUpTaskByGroup = new Map<string, { id: number; status: string; dueDate: number | null }>();
     const promiseTaskByPromiseId = new Map<number, { id: number; status: string; dueDate: number | null }>();
     for (const t of openAutoTasks) {
-      const fm = t.description?.match(/\(Follow-up: (.+)\)/);
-      if (fm && !followUpTaskByGroup.has(fm[1])) followUpTaskByGroup.set(fm[1], { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
+      const fg = taskGroup(t);
+      if (fg && !followUpTaskByGroup.has(fg)) followUpTaskByGroup.set(fg, { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
       const pm = t.description?.match(/\(Promise #(\d+)\)/);
       if (pm && !promiseTaskByPromiseId.has(Number(pm[1]))) promiseTaskByPromiseId.set(Number(pm[1]), { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
-    }
-    // Escalated badge → the open "Escalated: ..." task, mapped by the copied
-    // "(Follow-up: <group>)" marker or by the task's customer group.
-    const escalatedTaskByGroup = new Map<string, { id: number; status: string; dueDate: number | null }>();
-    {
-      const openEscalated = (await db.listTasks({ statuses: ["Pending", "In Progress"] })).filter(t => t.title.startsWith("Escalated:"));
-      for (const t of openEscalated) {
-        const fm = t.description?.match(/\(Follow-up: (.+?)\)/);
-        let g = fm?.[1] ?? null;
-        if (!g && t.customerId) {
-          const c = customers.find(c => c.id === t.customerId);
-          if (c) g = (c.customerGroup ?? "").trim() || c.name;
-        }
-        if (g && !escalatedTaskByGroup.has(g)) escalatedTaskByGroup.set(g, { id: t.id, status: t.status, dueDate: t.dueDate ?? null });
-      }
     }
     const eom = endOfCurrentMonth();
     const collectedByCustomer = new Map<number, number>();
@@ -863,8 +1091,28 @@ export const customersRouter = router({
     }
     const day90 = 90 * 24 * 60 * 60 * 1000;
     const teamById = new Map((await db.listTeamMembers(true)).map(m => [m.id, m]));
-    const managerByGroup = new Map<string, { id: number; name: string } | null>();
-    const collectorByGroup = new Map<string, { id: number; name: string } | null>();
+    // Who last touched each confirmation status — shown in the list so a stale
+    // review is visible without opening the card. Team members are matched by
+    // their linked user account; unmatched updaters fall back to the user table.
+    const teamByUserId = new Map(
+      Array.from(teamById.values())
+        .filter(m => (m as any).userId != null)
+        .map(m => [(m as any).userId as number, m])
+    );
+    const userNameById = new Map(
+      (await db.listUsers().catch(() => [] as any[])).map((u: any) => [u.id as number, (u.name ?? u.email ?? null) as string | null])
+    );
+    const reviewerName = (userId: number | null | undefined): string | null => {
+      if (userId == null) return null;
+      const member = teamByUserId.get(userId);
+      if (member) return member.name;
+      return userNameById.get(userId) ?? null;
+    };
+    // Contact activity per group: last call, who made it, how many attempts went
+    // unanswered. This is what makes "who has been called" answerable from the list.
+    const callSummary = await db.callSummaryByGroup().catch(() => new Map());
+    const managerByGroup = new Map<string, { id: number; name: string; title: string | null } | null>();
+    const collectorByGroup = new Map<string, { id: number; name: string; title: string | null } | null>();
     const groups = new Map<
       string,
       {
@@ -908,10 +1156,18 @@ export const customersRouter = router({
       }
       g.companyCount += 1;
       if (!managerByGroup.get(key) && c.accountManagerId && teamById.has(c.accountManagerId)) {
-        managerByGroup.set(key, { id: c.accountManagerId, name: teamById.get(c.accountManagerId)!.name });
+        managerByGroup.set(key, {
+          id: c.accountManagerId,
+          name: teamById.get(c.accountManagerId)!.name,
+          title: teamById.get(c.accountManagerId)!.title ?? null,
+        });
       }
       if (!collectorByGroup.get(key) && (c as any).collectorId && teamById.has((c as any).collectorId)) {
-        collectorByGroup.set(key, { id: (c as any).collectorId as number, name: teamById.get((c as any).collectorId)!.name });
+        collectorByGroup.set(key, {
+          id: (c as any).collectorId as number,
+          name: teamById.get((c as any).collectorId)!.name,
+          title: teamById.get((c as any).collectorId)!.title ?? null,
+        });
       }
       g.turnoverYtd += c.turnoverYtd ? Number(c.turnoverYtd) : 0;
       g.turnoverLastYear += c.turnoverLastYear ? Number(c.turnoverLastYear) : 0;
@@ -995,17 +1251,26 @@ export const customersRouter = router({
             ? (followUpTaskByGroup.get(g.group) ?? null)
             : confStatus === "Confirmed"
               ? (openPromiseId !== null ? (promiseTaskByPromiseId.get(openPromiseId) ?? null) : null)
-              : confStatus === "Escalated"
-                ? (escalatedTaskByGroup.get(g.group) ?? null)
-                : null;
+              : null;
         const confirmationTaskId = confirmationTask?.id ?? null;
         // Red badge: the linked task is still open and past its due date.
         // Fallback: no linked open task found but the status target date has passed.
         const confirmationTaskOverdue =
-          (confStatus === "Pending Follow-up" || confStatus === "Confirmed" || confStatus === "Escalated") &&
+          (confStatus === "Pending Follow-up" || confStatus === "Confirmed") &&
           (confirmationTask
             ? isTaskOverdue(confirmationTask, now)
             : ((confirmation?.followUpDate ?? null) !== null && (confirmation!.followUpDate as number) < now));
+        // The date this group is waiting on: an open promise date (Promise to Pay)
+        // or the status follow-up date. Used by the Desk to say "act on this today"
+        // without any task involved.
+        const actionDate =
+          confStatus === "Confirmed"
+            ? openPromiseDate
+            : (confirmation?.followUpDate ?? null);
+        const actionDue =
+          actionDate !== null && actionDate <= endOfToday
+            ? (actionDate < startOfToday ? "overdue" : "today")
+            : null;
         return {
           ...rest,
           turnoverYtd,
@@ -1032,6 +1297,24 @@ export const customersRouter = router({
           confirmationCarriedOver: conf.carriedOver,
           confirmationTaskId,
           confirmationTaskOverdue,
+          /**
+           * Attention signal for the Collections Desk: the date this group is
+           * waiting on (promise date or follow-up date) and whether it has come
+           * due. Derived live from dates — nothing is generated or cancelled.
+           */
+          actionDate,
+          actionDue,
+          /** When this status was last set, and by whom (review freshness). */
+          confirmationUpdatedAt: confirmation?.updatedAt ? new Date(confirmation.updatedAt).getTime() : null,
+          confirmationUpdatedBy: reviewerName(confirmation?.updatedBy ?? null),
+          /** Contact activity — last logged call, its author, and attempt counts. */
+          lastCallAt: callSummary.get(g.group)?.lastCallAt ? new Date(callSummary.get(g.group)!.lastCallAt).getTime() : null,
+          lastCallBy: reviewerName(callSummary.get(g.group)?.lastCallBy ?? null),
+          /** Outcome and free-text note of the most recent call — context before dialling. */
+          lastCallOutcome: callSummary.get(g.group)?.lastCallTitle ?? null,
+          lastCallNote: callSummary.get(g.group)?.lastCallNote ?? null,
+          callCount: callSummary.get(g.group)?.calls ?? 0,
+          noAnswerCount: callSummary.get(g.group)?.noAnswer ?? 0,
           accountManager: managerByGroup.get(g.group) ?? null,
           collector: collectorByGroup.get(g.group) ?? null,
           // Earliest open promise date — shown under the "Promise to Pay" badge.
@@ -1040,186 +1323,6 @@ export const customersRouter = router({
       })
       // Default order: highest overdue first (user request 29/7); ties → open balance.
       .sort((a, b) => (b.overdueBalance - a.overdueBalance) || (b.openBalance - a.openBalance));
-  }),
-  /**
-   * Prioritized collection call list: which groups to phone first.
-   * Score = overdue amount (61-90d weighted extra, 120+ reduced) × rating multiplier
-   * + broken-promise boost + low-forecast-coverage boost + stale-payment boost.
-   */
-  callList: protectedProcedure.query(async () => {
-    const now = Date.now();
-    const today = new Date();
-    const [customers, invoices, forecastRows, behavior, allPromises, receipts, openTasks, watchRowsCl] = await Promise.all([
-      db.listCustomers(),
-      db.listInvoices(),
-      db.listForecastEntries(today.getUTCFullYear(), today.getUTCMonth() + 1),
-      db.listPaymentBehaviorWithGroup().catch(() => []),
-      db.listPromises(),
-      db.listReceipts(),
-      db.listTasks({ statuses: ["Pending", "In Progress"] }),
-      db.listGroupWatchStatuses().catch(() => []),
-    ]);
-    const eom = endOfCurrentMonth();
-    const day61 = 61 * 24 * 60 * 60 * 1000;
-    const day90 = 90 * 24 * 60 * 60 * 1000;
-    const watchByGroupCl = new Map<string, { status: string; problematicSince: number | null }>();
-    for (const w of watchRowsCl) {
-      watchByGroupCl.set(w.groupName, { status: w.status, problematicSince: w.problematicSince ?? null });
-    }
-    const forecastByGroup = new Map<string, number>();
-    const forecastGroups = new Set<string>();
-    for (const f of forecastRows) {
-      const key = (f.customerGroup ?? "").trim();
-      if (!key) continue;
-      forecastGroups.add(key);
-      forecastByGroup.set(key, (forecastByGroup.get(key) ?? 0) + Number(f.expectedAmount));
-    }
-    const groupBehavior = aggregateGroupBehavior(behavior as BehaviorRow[]);
-    const custById = new Map(customers.map(c => [c.id, c]));
-    const groupKeyOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
-
-    type Agg = {
-      group: string;
-      openBalance: number;
-      overdueBalance: number;
-      overdueEom: number;
-      overdue6190: number;
-      overdue90Plus: number;
-      overdueCount: number;
-      promisesKept: number;
-      promisesBroken: number;
-      promisesOverduePending: number;
-      pendingPromiseAmount: number;
-      lastPaymentTs: number | null;
-      followUpTs: number | null;
-      turnoverYtd: number;
-      turnoverLastYear: number;
-      // (per-company on-hold removed — unified status is resolved per group below)
-      contacts: { name: string; phone: string | null; email: string | null; contactPerson: string | null }[];
-      memberIds: number[];
-    };
-
-    const aggs = new Map<string, Agg>();
-    for (const c of customers) {
-      const key = groupKeyOf(c);
-      let g = aggs.get(key);
-      if (!g) {
-        g = { group: key, openBalance: 0, overdueBalance: 0, overdueEom: 0, overdue6190: 0, overdue90Plus: 0, overdueCount: 0, promisesKept: 0, promisesBroken: 0, promisesOverduePending: 0, pendingPromiseAmount: 0, lastPaymentTs: null, followUpTs: null, turnoverYtd: 0, turnoverLastYear: 0, contacts: [], memberIds: [] };
-        aggs.set(key, g);
-      }
-      g.memberIds.push(c.id);
-      g.turnoverYtd += c.turnoverYtd ? Number(c.turnoverYtd) : 0;
-      g.turnoverLastYear += c.turnoverLastYear ? Number(c.turnoverLastYear) : 0;
-      if (c.phone || c.email || c.contactPerson) {
-        g.contacts.push({ name: c.name, phone: c.phone, email: c.email, contactPerson: c.contactPerson });
-      }
-    }
-    for (const inv of invoices) {
-      const cust = custById.get(inv.customerId);
-      if (!cust || !isOpenInvoice(inv)) continue;
-      const g = aggs.get(groupKeyOf(cust))!;
-      const out = outstanding(inv);
-      g.openBalance += out;
-      if (inv.dueDate <= eom) g.overdueEom += out;
-      if (now > inv.dueDate) {
-        g.overdueBalance += out;
-        g.overdueCount += 1;
-        const age = now - inv.dueDate;
-        if (age > day61 && age <= day90) g.overdue6190 += out;
-        if (age > day90) g.overdue90Plus += out;
-      }
-    }
-    for (const p of allPromises) {
-      const cust = custById.get(p.customerId);
-      if (!cust) continue;
-      const g = aggs.get(groupKeyOf(cust))!;
-      if (p.status === "Kept") g.promisesKept += 1;
-      else if (p.status === "Broken") g.promisesBroken += 1;
-      else if (p.status === "Pending") {
-        if (p.promisedDate < now) g.promisesOverduePending += 1;
-        g.pendingPromiseAmount += Number(p.amount);
-        if (g.followUpTs === null || p.promisedDate < g.followUpTs) g.followUpTs = p.promisedDate;
-      }
-    }
-    for (const t of openTasks) {
-      if (!t.customerId) continue;
-      const cust = custById.get(t.customerId);
-      if (!cust) continue;
-      const g = aggs.get(groupKeyOf(cust));
-      if (!g) continue;
-      const due = t.dueDate ?? now;
-      if (g.followUpTs === null || due < g.followUpTs) g.followUpTs = due;
-    }
-    for (const r of receipts) {
-      const cust = custById.get(r.customerId);
-      if (!cust) continue;
-      const g = aggs.get(groupKeyOf(cust))!;
-      if (g.lastPaymentTs === null || r.receiptDate > g.lastPaymentTs) g.lastPaymentTs = r.receiptDate;
-    }
-
-    const rows = Array.from(aggs.values())
-      .filter(g => g.overdueBalance > 0.005)
-      .map(g => {
-        const beh = groupBehavior.get(g.group);
-        const expected = forecastByGroup.get(g.group) ?? 0;
-        const coverage = forecastGroups.has(g.group) && g.overdueEom > 0 ? expected / g.overdueEom : null;
-        const daysSinceLastPayment = g.lastPaymentTs !== null ? Math.floor((now - g.lastPaymentTs) / (24 * 60 * 60 * 1000)) : null;
-        // Unified status: manual/auto Problematic → Critical after 30 days; drives the tier.
-        const expectedForRule = forecastGroups.has(g.group) ? expected : 0;
-        const autoProblematic = g.overdueEom > 0 && expectedForRule < 0.8 * g.overdueEom;
-        const resolvedStatus = resolveGroupStatus(watchByGroupCl.get(g.group) ?? null, autoProblematic, now);
-        // Rating uses the group's unified account status.
-        const rating = computeCreditRating({
-          daysLate: beh?.medianDaysLate ?? beh?.avgDaysLate ?? null,
-          openBalance: g.openBalance,
-          overdueBalance: g.overdueBalance,
-          overdue90Plus: g.overdue90Plus,
-          promisesKept: g.promisesKept,
-          promisesBroken: g.promisesBroken,
-          onHoldStatus: resolvedStatus.status,
-          turnoverYtd: g.turnoverYtd,
-          turnoverLastYear: g.turnoverLastYear,
-        });
-        const priority = computeCallPriority({
-          overdueBalance: g.overdueBalance,
-          overdue6190: g.overdue6190,
-          overdue90Plus: g.overdue90Plus,
-          rating: rating.rating,
-          promisesBroken: g.promisesBroken,
-          promisesOverduePending: g.promisesOverduePending,
-          forecastCoverage: coverage,
-          daysSinceLastPayment,
-          groupStatus: resolvedStatus.status,
-        });
-        return {
-          group: g.group,
-          score: priority.score,
-          reasons: priority.reasons,
-          tier: priority.tier,
-          watchStatus: resolvedStatus.status,
-         rating: rating.rating,
-         ratingScore: rating.score,
-         overdueBalance: g.overdueBalance,
-          overdueEomBalance: g.overdueEom,
-         overdue6190: g.overdue6190,
-         overdue90Plus: g.overdue90Plus,
-         overdueCount: g.overdueCount,
-         openBalance: g.openBalance,
-         forecastExpected: expected,
-          forecastCoverage: coverage,
-          promisesBroken: g.promisesBroken,
-          promisesOverduePending: g.promisesOverduePending,
-          pendingPromiseAmount: g.pendingPromiseAmount,
-          daysSinceLastPayment,
-          contacts: g.contacts.slice(0, 3),
-          memberIds: g.memberIds,
-          contacted: g.followUpTs !== null,
-          followUpDate: g.followUpTs,
-        };
-      })
-      // Critical/Legal first; everyone else (incl. Problematic) ordered purely by risk score.
-      .sort((a, b) => (b.tier - a.tier) || (b.score - a.score));
-    return rows;
   }),
   /** Group card: aggregates + invoices, scoped by optional member company and/or Prime Branch. */
   groupDetail: protectedProcedure
@@ -1338,7 +1441,20 @@ export const customersRouter = router({
       const openCreditNotesEur = openCreditNotes.reduce((s, c) => s + c.openEur, 0);
       // Unified: the group's account status IS the hold status (companies inherit it).
       const groupHoldStatus = watchStatus;
-      const activityLogs = await db.listActivityLog(input.group, 200).catch(() => []);
+      const activityLogs = await db.listActivityLogWithAuthors(input.group, 200).catch(() => []);
+      // Last contact attempt for the card header: when, who, outcome and the note.
+      const gCallSummary = (await db.callSummaryByGroup().catch(() => new Map())).get(input.group) ?? null;
+      /** Team member name preferred, falling back to the user account. */
+      const gCallerName = await (async (): Promise<string | null> => {
+        const uid = gCallSummary?.lastCallBy ?? null;
+        if (uid == null) return null;
+        const members = await db.listTeamMembers(true).catch(() => [] as any[]);
+        const member = members.find((m: any) => m.userId === uid);
+        if (member) return member.name as string;
+        const users = await db.listUsers().catch(() => [] as any[]);
+        const u = users.find((x: any) => x.id === uid);
+        return (u?.name ?? u?.email ?? null) as string | null;
+      })();
       // Statuses persist until a human changes them; the red badge flags an overdue linked task.
       const gConf = effectiveConfirmation(confirmation);
       const gConfStatus = gConf.status;
@@ -1348,17 +1464,17 @@ export const customersRouter = router({
       let gConfirmationTask: { id: number; status: string; dueDate: number | null } | null = null;
       if (gConfStatus === "Pending Follow-up" || gConfStatus === "Confirmed") {
         const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => [])).filter(
-          t => t.description?.includes("(Follow-up: ") || t.description?.includes("(Promise #"),
+          t => taskGroup(t) !== null || taskPromiseId(t) !== null,
         );
         if (gConfStatus === "Pending Follow-up") {
-          const t = openAutoTasks.find(t => t.description?.includes(`(Follow-up: ${input.group})`));
+          const t = openAutoTasks.find(t => isTaskOfGroup(t, input.group));
           gConfirmationTask = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
         } else {
           const openPromise = (await db.listPromises().catch(() => []))
             .filter(p => p.status === "Pending" && memberIds.has(p.customerId))
             .sort((a, b) => b.id - a.id)[0];
           if (openPromise) {
-            const t = openAutoTasks.find(t => t.description?.includes(`(Promise #${openPromise.id})`));
+            const t = openAutoTasks.find(t => taskPromiseId(t) === openPromise.id);
             gConfirmationTask = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
           }
         }
@@ -1380,12 +1496,25 @@ export const customersRouter = router({
       const teamMap = new Map(teamAll.map(m => [m.id, m]));
       const managerMember = members.find(m => (m as any).accountManagerId && teamMap.has((m as any).accountManagerId));
       const accountManager = managerMember
-        ? { id: (managerMember as any).accountManagerId as number, name: teamMap.get((managerMember as any).accountManagerId)!.name }
+        ? {
+            id: (managerMember as any).accountManagerId as number,
+            name: teamMap.get((managerMember as any).accountManagerId)!.name,
+            // The job title is shown next to the name on the card, so a reader
+            // knows whether they are looking at a Controller or a Manager.
+            title: teamMap.get((managerMember as any).accountManagerId)!.title ?? null,
+          }
         : null;
       const collectorMember = members.find(m => (m as any).collectorId && teamMap.has((m as any).collectorId));
       const collector = collectorMember
-        ? { id: (collectorMember as any).collectorId as number, name: teamMap.get((collectorMember as any).collectorId)!.name }
+        ? {
+            id: (collectorMember as any).collectorId as number,
+            name: teamMap.get((collectorMember as any).collectorId)!.name,
+            title: teamMap.get((collectorMember as any).collectorId)!.title ?? null,
+          }
         : null;
+      // Watchers follow the account without owning it — shown as a small avatar
+      // stack next to the two responsible people.
+      const watchers = await db.listCustomerWatchers(input.group).catch(() => []);
       return {
         group: input.group,
         companies,
@@ -1393,6 +1522,7 @@ export const customersRouter = router({
         aging,
         accountManager,
         collector,
+        watchers,
         behavior: groupBehavior,
         rating: ratingResult,
         holdStatus: groupHoldStatus,
@@ -1412,6 +1542,12 @@ export const customersRouter = router({
         confirmationFollowUpDate: confirmation?.followUpDate ?? null,
         confirmationCarriedOver: gConf.carriedOver,
         confirmationNotes: confirmation?.notes ?? null,
+        lastCallAt: gCallSummary?.lastCallAt ? new Date(gCallSummary.lastCallAt).getTime() : null,
+        lastCallBy: gCallerName,
+        lastCallOutcome: gCallSummary?.lastCallTitle ?? null,
+        lastCallNote: gCallSummary?.lastCallNote ?? null,
+        callCount: gCallSummary?.calls ?? 0,
+        noAnswerCount: gCallSummary?.noAnswer ?? 0,
         totals: {
           openBalance: open.reduce((s, i) => s + outstanding(i), 0),
           overdueBalance: overdue.reduce((s, i) => s + outstanding(i), 0),
@@ -1491,6 +1627,209 @@ export const customersRouter = router({
     const names = new Map(users.map(u => [u.id, u.name ?? "—"]));
     return notes.map(n => ({ ...n, authorName: names.get(n.createdBy) ?? "—" }));
   }),
+  /**
+   * Short AI recap of the LAST 30 DAYS of communication for a group.
+   *
+   * Deliberately narrow: the collector opens the Communication window to answer
+   * "what happened here recently and what do I do next?", not to read a full
+   * account analysis. So the model only receives the recent activity (calls,
+   * promises, emails, notes, tasks, money received) plus the exposure needed to
+   * judge urgency, and must answer in a few short Greek lines ending with one
+   * concrete next step.
+   */
+  communicationSummary: protectedProcedure
+    .input(z.object({ group: z.string().min(1), days: z.number().int().min(7).max(120).default(30) }))
+    .mutation(async ({ ctx, input }) => {
+      const customers = await db.listCustomers();
+      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
+      if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
+      const memberIds = new Set(members.map(m => m.id));
+      const names = new Map(members.map(m => [m.id, m.name]));
+      const now = Date.now();
+      const cutoff = now - input.days * 24 * 60 * 60 * 1000;
+      const day = (v: Date | number | null | undefined): string | null => {
+        if (v == null) return null;
+        const t = v instanceof Date ? v.getTime() : v;
+        return Number.isFinite(t) && t > 0 ? new Date(t).toISOString().slice(0, 10) : null;
+      };
+      const inWindow = (v: Date | number | null | undefined): boolean => {
+        if (v == null) return false;
+        const t = v instanceof Date ? v.getTime() : v;
+        return Number.isFinite(t) && t >= cutoff && t <= now;
+      };
+
+      const [activity, notes, allTasks, allPromises, allReceipts, allInvoices, confirmation, profile] = await Promise.all([
+        db.listActivityLogWithAuthors(input.group, 300).catch(() => []),
+        db.listGroupNotes(input.group).catch(() => []),
+        db.listTasks({}).catch(() => []),
+        db.listPromises().catch(() => []),
+        db.listReceipts().catch(() => []),
+        db.listInvoices(),
+        db.getGroupConfirmationStatus(input.group).catch(() => null),
+        db.getGroupCollectionProfile(input.group).catch(() => null),
+      ]);
+      const emails = (
+        await Promise.all(Array.from(memberIds).map(id => db.listEmailHistory(id, 100).catch(() => [])))
+      ).flat();
+      const wires = await db.listReceivedWireTransfersInRange(cutoff, now + 1).catch(() => []);
+
+      // --- What happened inside the window ---------------------------------
+      const recentActivity = activity
+        .filter(a => inWindow(a.createdAt))
+        .slice(0, 40)
+        .map(a => ({
+          date: day(a.createdAt),
+          type: a.activityType,
+          title: a.title,
+          detail: stripMentionMarkup(a.description ?? "").slice(0, 220) || null,
+          by: a.authorName ?? null,
+        }));
+      const recentNotes = notes
+        .filter(n => inWindow(n.createdAt))
+        .slice(0, 15)
+        .map(n => ({ date: day(n.createdAt), content: stripMentionMarkup(n.content).slice(0, 220) }));
+      const recentEmails = emails
+        .filter(e => inWindow(e.sentAt ?? e.createdAt))
+        .slice(0, 20)
+        .map(e => ({
+          date: day(e.sentAt ?? e.createdAt),
+          company: names.get(e.customerId) ?? null,
+          subject: e.subject,
+          status: e.status,
+        }));
+      const groupTasks = allTasks.filter(t => memberIds.has(t.customerId) || taskGroup(t) === input.group);
+      const recentTasks = groupTasks
+        .filter(t => inWindow(t.createdAt) || inWindow(t.dueDate) || t.status === "Pending" || t.status === "In Progress")
+        .slice(0, 25)
+        .map(t => ({
+          company: names.get(t.customerId) ?? null,
+          type: t.type,
+          title: t.title,
+          dueDate: day(t.dueDate),
+          status: t.status,
+          overdue: (t.status === "Pending" || t.status === "In Progress") && !!t.dueDate && t.dueDate < now,
+        }));
+      const groupPromises = allPromises.filter(p => memberIds.has(p.customerId));
+      const recentPromises = groupPromises
+        .filter(p => inWindow(p.createdAt) || inWindow(p.promisedDate) || p.status === "Pending")
+        .slice(0, 15)
+        .map(p => ({
+          company: names.get(p.customerId) ?? null,
+          amountEur: eur(Number(p.amount)),
+          promisedDate: day(p.promisedDate),
+          status: p.status,
+          notes: (p.notes ?? "").slice(0, 160) || null,
+        }));
+      const windowReceipts = allReceipts.filter(r => memberIds.has(r.customerId) && inWindow(r.receiptDate));
+      const windowWires = wires.filter(w => memberIds.has(w.customerId));
+      const receivedInWindow =
+        windowReceipts.reduce((s, r) => s + Number(r.amount), 0) + windowWires.reduce((s, w) => s + Number(w.amount), 0);
+      const payments = [
+        ...windowReceipts.map(r => ({ date: day(r.receiptDate), company: names.get(r.customerId) ?? null, amountEur: eur(Number(r.amount)) })),
+        ...windowWires.map(w => ({
+          date: day(w.receivedDate ?? w.transferDate),
+          company: names.get(w.customerId) ?? null,
+          amountEur: eur(Number(w.amount)),
+        })),
+      ].slice(0, 20);
+
+      const entryCount =
+        recentActivity.length + recentNotes.length + recentEmails.length + payments.length;
+
+      // --- Exposure & month pace, so "what next" can be prioritised ---------
+      const invs = allInvoices.filter(i => memberIds.has(i.customerId));
+      const open = invs.filter(isOpenInvoice);
+      const overdueInvs = open.filter(i => now > i.dueDate);
+      const eomTs = endOfCurrentMonth();
+      const overdueEom = open.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
+      const today = new Date();
+      const curYear = today.getUTCFullYear();
+      const curMonth = today.getUTCMonth() + 1;
+      const { start: mStart, end: mEnd } = monthRange(curYear, curMonth);
+      const [forecastRows, monthReceipts, monthWires] = await Promise.all([
+        db.listForecastEntries(curYear, curMonth).catch(() => []),
+        db.listReceiptsInRange(mStart, mEnd).catch(() => []),
+        db.listReceivedWireTransfersInRange(mStart, mEnd).catch(() => []),
+      ]);
+      const forecastExpected = forecastRows
+        .filter(f => (f.customerGroup ?? "").trim() === input.group)
+        .reduce((s, f) => s + Number(f.expectedAmount), 0);
+      const collectedThisMonth =
+        monthReceipts.filter(r => memberIds.has(r.customerId)).reduce((s, r) => s + Number(r.amount), 0) +
+        monthWires.filter(w => memberIds.has(w.customerId)).reduce((s, w) => s + Number(w.amount), 0);
+      const conf = effectiveConfirmation(confirmation);
+      const biggestOverdue = [...overdueInvs]
+        .sort((a, b) => outstanding(b) - outstanding(a))
+        .slice(0, 3)
+        .map(i => ({
+          invoice: i.invoiceNumber,
+          company: names.get(i.customerId) ?? null,
+          outstandingEur: eur(outstanding(i)),
+          daysOverdue: daysOverdue(i.dueDate, now),
+        }));
+
+      // Nothing to summarise: answer instantly instead of paying for an LLM call
+      // that would only produce a paraphrase of "no activity".
+      if (entryCount === 0 && recentPromises.length === 0 && recentTasks.length === 0) {
+        return {
+          summary: `Καμία καταγεγραμμένη επικοινωνία τις τελευταίες ${input.days} ημέρες.\n\n**Επόμενο βήμα:** τηλεφώνησε και κατέγραψε την κλήση, ώστε να αρχίσει το ιστορικό του λογαριασμού.`,
+          generatedAt: Date.now(),
+          entryCount: 0,
+          days: input.days,
+          hadActivity: false,
+        };
+      }
+
+      const facts = {
+        windowDays: input.days,
+        today: day(now),
+        companies: members.length,
+        openBalanceEur: eur(open.reduce((s, i) => s + outstanding(i), 0)),
+        overdueEur: eur(overdueInvs.reduce((s, i) => s + outstanding(i), 0)),
+        overdueInvoices: overdueInvs.length,
+        overdueEndOfMonthEur: eur(overdueEom),
+        collectionStatus: confirmationStatusLabel(conf.status),
+        committedAmountEur: conf.amount ? eur(conf.amount) : null,
+        monthlyForecastEur: eur(forecastExpected),
+        collectedThisMonthEur: eur(collectedThisMonth),
+        remainingToCollectThisMonthEur: eur(Math.max(0, forecastExpected - collectedThisMonth)),
+        receivedInWindowEur: eur(receivedInWindow),
+        biggestOverdueInvoices: biggestOverdue,
+        recentActivity,
+        recentNotes,
+        recentEmails,
+        openOrRecentTasks: recentTasks,
+        promises: recentPromises,
+        paymentsReceived: payments,
+        collectionNotes: profile?.notes ? profile.notes.slice(0, 600) : null,
+      };
+
+      const response = await invokeLLM({
+        model: "gemini-2.5-flash",
+        messages: [
+          {
+            role: "system",
+            content:
+              `Είσαι έμπειρος credit controller. Ο χρήστης άνοιξε το παράθυρο επικοινωνίας ενός πελάτη και θέλει να καταλάβει σε 10 δευτερόλεπτα ΤΙ ΕΓΙΝΕ τις τελευταίες ${input.days} ημέρες και ΤΙ ΠΡΕΠΕΙ ΝΑ ΚΑΝΕΙ. Γράψε στα ΕΛΛΗΝΙΚΑ, μέγιστο ~80 λέξεις, με αυτή τη δομή:\n` +
+              `Γραμμή 1: **Τελευταίες ${input.days} ημέρες:** μία πρόταση με το ουσιαστικό γεγονός (π.χ. πόσες κλήσεις/emails, τι δεσμεύτηκε ο πελάτης, τι εισπράχθηκε).\n` +
+              `Μετά 2-4 bullets (με «- ») μόνο για ό,τι έχει σημασία: δεσμεύσεις και αν τηρήθηκαν, εισπράξεις μέσα στο διάστημα, ανοιχτά/εκπρόθεσμα tasks, και το πού συγκεντρώνεται το ληξιπρόθεσμο (τιμολόγιο + ποσό) αν είναι κρίσιμο.\n` +
+              `Τελευταία γραμμή: **Επόμενο βήμα:** μία συγκεκριμένη ενέργεια για τον τρέχοντα μήνα, ώστε να βγει το forecast ή να κλείσει το ληξιπρόθεσμο (ποιον καλώ, για ποιο ποσό, μέχρι πότε).\n` +
+              `Κανόνες: μόνο ό,τι στηρίζεται στα δεδομένα — αν κάτι λείπει, το παραλείπεις σιωπηλά (μη γράφεις «δεν υπάρχουν στοιχεία»). Χωρίς ωμά στατιστικά, χωρίς διάμεσους, χωρίς επανάληψη του ονόματος του πελάτη (φαίνεται στην καρτέλα). Ποσά σε ευρώ με διαχωριστικό χιλιάδων (€156,999). Αν υπάρχει πεδίο collectionNotes (ιδιαιτερότητες, π.χ. πότε τηλεφωνούμε), λάβε το υπόψη στο επόμενο βήμα χωρίς να το αντιγράφεις.`,
+          },
+          { role: "user", content: JSON.stringify(facts) },
+        ],
+      });
+      const raw = response.choices?.[0]?.message?.content;
+      const summary =
+        typeof raw === "string"
+          ? raw
+          : Array.isArray(raw)
+            ? raw.map((c: any) => (c?.type === "text" ? c.text : "")).join("")
+            : "";
+      if (!summary.trim()) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI summary unavailable, please try again" });
+      await audit(ctx, "Generate Communication Summary", "group", input.group, `last ${input.days} days`);
+      return { summary: summary.trim(), generatedAt: Date.now(), entryCount, days: input.days, hadActivity: true };
+    }),
   /** Per-group collection profile: call preferences & particularities, always visible on the group card. */
   getCollectionProfile: protectedProcedure.input(z.object({ group: z.string().min(1) })).query(async ({ input }) => {
     const row = await db.getGroupCollectionProfile(input.group);
@@ -1503,13 +1842,29 @@ export const customersRouter = router({
     .input(z.object({ group: z.string().min(1), notes: z.string().max(2000) }))
     .mutation(async ({ ctx, input }) => {
       await db.upsertGroupCollectionProfile(input.group, input.notes.trim(), ctx.user.id);
-      await db.addActivityLog({
+      const noteActivityId = await db.addActivityLog({
         groupName: input.group,
         activityType: "note",
         title: "Collection notes updated",
         description: input.notes.trim().slice(0, 300) || "(cleared)",
         createdBy: ctx.user.id,
       });
+      // Colleagues named with @ are notified through the mentions inbox; no task is created.
+      const notedMentions = parseMentions(input.notes);
+      if (notedMentions.length > 0) {
+        await db
+          .addNoteMentions(
+            notedMentions.map(m => ({
+              memberId: m.memberId,
+              groupName: input.group,
+              source: "collectionNotes" as const,
+              activityId: noteActivityId,
+              excerpt: input.notes.trim().slice(0, 500),
+              createdBy: ctx.user.id,
+            })),
+          )
+          .catch(() => 0);
+      }
       await audit(ctx, "Update Collection Notes", "group", input.group);
       return { success: true };
     }),
@@ -1577,14 +1932,30 @@ export const customersRouter = router({
         createdAt: Date.now(),
       });
       await audit(ctx, "Add Group Note", "groupNote", id, `Group ${input.group}`);
-      await db.addActivityLog({
+      const noteActivityId = await db.addActivityLog({
         groupName: input.group,
         activityType: "note",
         title: "Note added",
         description: input.content.substring(0, 200),
         createdBy: ctx.user.id,
         createdAt: new Date(),
-      }).catch(() => {});
+      }).catch(() => undefined);
+      // Colleagues named with @ are notified through the mentions inbox; no task is created.
+      const mentioned = parseMentions(input.content);
+      if (mentioned.length > 0) {
+        await db
+          .addNoteMentions(
+            mentioned.map(m => ({
+              memberId: m.memberId,
+              groupName: input.group,
+              source: "groupNote" as const,
+              activityId: typeof noteActivityId === "number" ? noteActivityId : undefined,
+              excerpt: input.content.trim().slice(0, 500),
+              createdBy: ctx.user.id,
+            })),
+          )
+          .catch(() => 0);
+      }
       return { id };
     }),
   deleteGroupNote: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
@@ -1613,150 +1984,6 @@ export const customersRouter = router({
       });
       return { success: true };
     }),
-  /** AI-generated snapshot of the group: balances, behavior, promises, tasks, notes. */
-  groupAiSummary: protectedProcedure.input(z.object({ group: z.string().min(1) })).mutation(async ({ ctx, input }) => {
-    const customers = await db.listCustomers();
-    const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === input.group);
-    if (members.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
-    const memberIds = new Set(members.map(m => m.id));
-    const names = new Map(members.map(m => [m.id, m.name]));
-    const now = Date.now();
-    const [allInvoices, allBehavior, allPromises, allTasks, notes] = await Promise.all([
-      db.listInvoices(),
-      db.listPaymentBehaviorWithGroup().catch(() => []),
-      db.listPromises(),
-      db.listTasks({}),
-      db.listGroupNotes(input.group),
-    ]);
-    const invs = allInvoices.filter(i => memberIds.has(i.customerId));
-    const open = invs.filter(isOpenInvoice);
-    const overdue = open.filter(i => now > i.dueDate);
-    const aging = computeAging(invs, now);
-    const behavior = allBehavior.filter(b => memberIds.has(b.customerId));
-    const promises = allPromises.filter(p => memberIds.has(p.customerId));
-    const pendingTasks = allTasks.filter(t => memberIds.has(t.customerId) && (t.status === "Pending" || t.status === "In Progress"));
-    // Current-month forecast & collection status
-    const todayD = new Date();
-    const curYear = todayD.getUTCFullYear();
-    const curMonth = todayD.getUTCMonth() + 1;
-    const { start: mStart, end: mEnd } = monthRange(curYear, curMonth);
-    const [forecastRows, monthReceipts] = await Promise.all([
-      db.listForecastEntries(curYear, curMonth),
-      db.listReceiptsInRange(mStart, mEnd).catch(() => []),
-    ]);
-    const groupForecastRows = forecastRows.filter(f => (f.customerGroup ?? "").trim() === input.group);
-    const forecastExpected = groupForecastRows.reduce((s, f) => s + Number(f.expectedAmount), 0);
-    const aiMonthWires = await db.listReceivedWireTransfersInRange(mStart, mEnd).catch(() => []);
-    const collectedThisMonth = aiMonthWires.filter(w => memberIds.has(w.customerId)).reduce((s, w) => s + Number(w.amount), 0) + monthReceipts
-      .filter(r => memberIds.has(r.customerId))
-      .reduce((s, r) => s + Number(r.amount), 0);
-    const remainingToCollect = Math.max(0, forecastExpected - collectedThisMonth);
-    // --- Payment-behavior profile from full receipt history (pattern & trend) ---
-    const allReceipts = await db.listReceipts().catch(() => []);
-    const groupReceipts = allReceipts.filter(r => memberIds.has(r.customerId)).sort((a, b) => a.receiptDate - b.receiptDate);
-    const monthMs = 30 * 24 * 60 * 60 * 1000;
-    const last6mReceipts = groupReceipts.filter(r => r.receiptDate >= now - 6 * monthMs);
-    // Payments per month over the last 6 months (rhythm) and typical day-of-month of payments
-    const paymentsByMonth = new Map<string, { count: number; amount: number }>();
-    const dayOfMonthCounts = new Map<number, number>();
-    for (const r of last6mReceipts) {
-      const d = new Date(r.receiptDate);
-      const k = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-      const cur = paymentsByMonth.get(k) ?? { count: 0, amount: 0 };
-      cur.count += 1;
-      cur.amount += Number(r.amount);
-      paymentsByMonth.set(k, cur);
-      const dom = d.getUTCDate();
-      const bucket = dom <= 10 ? 5 : dom <= 20 ? 15 : 25;
-      dayOfMonthCounts.set(bucket, (dayOfMonthCounts.get(bucket) ?? 0) + 1);
-    }
-    const timingBucket = Array.from(dayOfMonthCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
-    const paymentTiming = timingBucket === 5 ? "early in the month" : timingBucket === 15 ? "mid-month" : timingBucket === 25 ? "towards month end" : "no clear pattern";
-    // Promise reliability
-    const kept = promises.filter(p => p.status === "Kept").length;
-    const broken = promises.filter(p => p.status === "Broken").length;
-    // Delay trend: avg days late of recent receipts vs older ones (when invoice link data exists in behavior rows)
-    const weighted = (rows: typeof behavior) => {
-      const tot = rows.reduce((s, b) => s + (b.payments ?? 0), 0);
-      if (!tot) return null;
-      return Math.round(rows.reduce((s, b) => s + (b.avgDaysLate ?? 0) * (b.payments ?? 0), 0) / tot);
-    };
-    const avgDaysLateGroup = weighted(behavior);
-    // Recent communication from the group activity log (calls, notes, emails, promises)
-    const activity = await db.listActivityLog(input.group, 15).catch(() => []);
-    // Invoices due within the current month (collection targets for the forecast)
-    const dueThisMonth = open
-      .filter(i => i.dueDate <= mEnd)
-      .sort((a, b) => outstanding(b) - outstanding(a))
-      .slice(0, 40)
-      .map(i => ({
-        company: names.get(i.customerId),
-        invoice: i.invoiceNumber,
-        dueDate: new Date(i.dueDate).toISOString().slice(0, 10),
-        outstandingEur: eur(outstanding(i)),
-        daysOverdue: now > i.dueDate ? Math.floor((now - i.dueDate) / (24 * 60 * 60 * 1000)) : 0,
-      }));
-    const facts = {
-      group: input.group,
-      companies: members.length,
-      totalOpenBalanceEur: eur(open.reduce((s, i) => s + outstanding(i), 0)),
-      totalOverdueEur: eur(overdue.reduce((s, i) => s + outstanding(i), 0)),
-      overdueInvoices: overdue.length,
-      openInvoices: open.length,
-      aging,
-      currentMonth: `${curYear}-${String(curMonth).padStart(2, "0")}`,
-      monthlyForecastEur: eur(forecastExpected),
-      collectedThisMonthEur: eur(collectedThisMonth),
-      remainingToCollectEur: eur(remainingToCollect),
-      monthProgressPct: forecastExpected > 0 ? Math.round((collectedThisMonth / forecastExpected) * 100) : null,
-      dayOfMonth: todayD.getUTCDate(),
-      invoicesDueOrOverdueThisMonth: dueThisMonth,
-      topDebtors: [...members]
-        .map(m => ({ name: m.name, overdueEur: invs.filter(i => i.customerId === m.id && isOpenInvoice(i) && now > i.dueDate).reduce((s, i) => s + outstanding(i), 0) }))
-        .sort((a, b) => b.overdueEur - a.overdueEur)
-        .slice(0, 5)
-        .map(d => ({ name: d.name, overdueEur: eur(d.overdueEur) })),
-      paymentBehavior: behavior.slice(0, 10).map(b => ({ company: names.get(b.customerId), avgDaysLate: b.avgDaysLate, medianDaysLate: b.medianDaysLate, payments: b.payments })),
-      paymentProfile: {
-        avgDaysLateGroup,
-        typicalPaymentTiming: paymentTiming,
-        paymentsLast6Months: Array.from(paymentsByMonth.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([month, v]) => ({ month, payments: v.count, amountEur: eur(v.amount) })),
-        promisesKept: kept,
-        promisesBroken: broken,
-      },
-      promises: promises.slice(0, 20).map(p => ({ company: names.get(p.customerId), amountEur: Number(p.amount), promisedDate: new Date(p.promisedDate).toISOString().slice(0, 10), status: p.status, notes: p.notes })),
-      pendingTasks: pendingTasks.slice(0, 20).map(t => ({ company: names.get(t.customerId), type: t.type, title: t.title, dueDate: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : null })),
-      recentNotes: notes.slice(0, 10).map(n => ({ date: new Date(n.createdAt).toISOString().slice(0, 10), content: n.content })),
-      recentActivity: activity.map(a => ({ date: new Date(a.createdAt).toISOString().slice(0, 10), type: a.activityType, title: a.title, detail: (a.description ?? "").slice(0, 200) })),
-    };
-    // Collector particularities (call preferences etc.) — used as context for the recommended action
-    const profile = await db.getGroupCollectionProfile(input.group).catch(() => null);
-    if (profile?.notes) (facts as any).collectionNotes = profile.notes.slice(0, 800);
-    const response = await invokeLLM({
-      model: "gemini-2.5-flash",
-      messages: [
-        {
-          role: "system",
-          content:
-            `Είσαι έμπειρος αναλυτής credit control. Γράψε μια ΠΟΛΥ ΣΥΝΤΟΜΗ σύνοψη στα ΕΛΛΗΝΙΚΑ (μέγιστο ~90 λέξεις συνολικά) για τον χρήστη που ανοίγει την καρτέλα αυτού του ομίλου. Ακολούθησε ΑΚΡΙΒΩΣ αυτή τη δομή:
-
-Γραμμή 1 (header): **Open Balance: €X | Overdue: €Y (N τιμολόγια)** — με συντομογραφία χιλιάδων όπου βολεύει (π.χ. €615.6k).
-
-Παράγραφος (3-4 σύντομες προτάσεις): πορεία μήνα (τι % του forecast έχει εισπραχθεί και πόσο απομένει), πώς πληρώνει γενικά (μέση καθυστέρηση σε μέρες, αξιοπιστία υποσχέσεων σε απλά λόγια π.χ. «τήρησε μόνο 2 από 8 promises»), και πού συγκεντρώνεται το overdue — αν 1-3 τιμολόγια καλύπτουν μεγάλο μέρος του, ανάφερέ τα σε λίστα με αριθμό τιμολογίου και ποσό και πες τι ποσοστό του overdue αντιπροσωπεύουν.
-
-Τελευταία γραμμή: **Προτεινόμενη ενέργεια:** μία πρόταση με το πιο σημαντικό επόμενο βήμα (π.χ. follow-up σε αθετημένη/ανοιχτή υπόσχεση, στοχευμένη διεκδίκηση των μεγάλων τιμολογίων, ή παλιό υπόλοιπο 120+ ημερών).
-
-Κανόνες: Μην αναφέρεις ΠΟΤΕ ωμά στατιστικά (διάμεσοι, αρνητικοί αριθμοί, αναλογίες «2:6»). Παράλειψε σιωπηλά ό,τι δεν υποστηρίζεται από τα δεδομένα — μη γράφεις «δεν υπάρχουν στοιχεία». Μην περιγράφεις τη δραστηριότητα ή το μέγεθος της εταιρείας. Ποσά με διαχωριστικό χιλιάδων (€156,999). Μη γράφεις το όνομα του ομίλου μέσα στο κείμενο — φαίνεται ήδη στην καρτέλα. Αν υπάρχει πεδίο collectionNotes (ιδιαιτερότητες πελάτη, π.χ. πότε να τηλεφωνούμε), λάβε το υπόψη στην προτεινόμενη ενέργεια (π.χ. προτίμησε τη σωστή μέρα/ώρα) χωρίς να το επαναλαμβάνεις αυτούσιο.`,
-        },
-        { role: "user", content: JSON.stringify(facts) },
-      ],
-    });
-    const raw = response.choices?.[0]?.message?.content;
-    const summary = typeof raw === "string" ? raw : Array.isArray(raw) ? raw.map((c: any) => (c?.type === "text" ? c.text : "")).join("") : "";
-    if (!summary) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI summary unavailable, please try again" });
-    await audit(ctx, "Generate Group AI Summary", "group", input.group);
-    return { summary, generatedAt: Date.now() };
-  }),
   get360: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
     const customer = await db.getCustomer(input.id);
     if (!customer) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
@@ -1815,19 +2042,33 @@ export const customersRouter = router({
     const team360 = await db.listTeamMembers(true);
     const teamMap360 = new Map(team360.map(m => [m.id, m]));
     const accountManager = (customer as any).accountManagerId && teamMap360.has((customer as any).accountManagerId)
-      ? { id: (customer as any).accountManagerId as number, name: teamMap360.get((customer as any).accountManagerId)!.name }
+      ? {
+          id: (customer as any).accountManagerId as number,
+          name: teamMap360.get((customer as any).accountManagerId)!.name,
+          title: teamMap360.get((customer as any).accountManagerId)!.title ?? null,
+        }
       : null;
    const collector = (customer as any).collectorId && teamMap360.has((customer as any).collectorId)
-     ? { id: (customer as any).collectorId as number, name: teamMap360.get((customer as any).collectorId)!.name }
+     ? {
+         id: (customer as any).collectorId as number,
+         name: teamMap360.get((customer as any).collectorId)!.name,
+         title: teamMap360.get((customer as any).collectorId)!.title ?? null,
+       }
      : null;
     const openTransfers360 = await listOpenWireTransfers(new Set([input.id]), new Map([[input.id, customer.name]]));
     const unallocatedPayments360 = openTransfers360.reduce((s, t) => s + t.unallocatedEur, 0);
     const openCreditNotes360 = await listOpenCreditNotes(new Set([input.id]), new Map([[input.id, customer.name]]));
     const openCreditNotesEur360 = openCreditNotes360.reduce((s, c) => s + c.openEur, 0);
+    // Watchers are kept per group, so the company card shows the same people as
+    // its group card — one list of interested colleagues per account.
+    const watcherGroupKey = (customer.customerGroup ?? "").trim() || customer.name;
+    const watchers360 = await db.listCustomerWatchers(watcherGroupKey).catch(() => []);
    return {
      customer,
      accountManager,
      collector,
+     watchers: watchers360,
+     watcherGroupKey,
       invoices: invoices.map(i => ({
         ...i,
         vesselName: i.vesselId ? (vesselName360.get(i.vesselId) ?? null) : null,
@@ -2456,6 +2697,34 @@ export const customersRouter = router({
       }
       return { success: true, collectorName };
     }),
+  /**
+   * Watchers of a group's receivables card — colleagues who need visibility on
+   * the account (sales, accounting, management) without owning the collection.
+   * Ownership stays with the account manager and the collector.
+   */
+  watchers: protectedProcedure
+    .input(z.object({ groupName: z.string().min(1) }))
+    .query(async ({ input }) => db.listCustomerWatchers(input.groupName)),
+  addWatcher: protectedProcedure
+    .input(z.object({ groupName: z.string().min(1), memberId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await db.getTeamMemberById(input.memberId);
+      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+      if (!member.active) throw new TRPCError({ code: "BAD_REQUEST", message: "Team member is inactive" });
+      const id = await db.addCustomerWatcher(input.groupName, input.memberId);
+      await audit(ctx, "Add Watcher", "customerGroup", undefined,
+        `${member.name} now watches "${input.groupName}"`);
+      return { id, name: member.name };
+    }),
+  removeWatcher: protectedProcedure
+    .input(z.object({ groupName: z.string().min(1), memberId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await db.getTeamMemberById(input.memberId).catch(() => null);
+      await db.removeCustomerWatcher(input.groupName, input.memberId);
+      await audit(ctx, "Remove Watcher", "customerGroup", undefined,
+        `${member?.name ?? `#${input.memberId}`} no longer watches "${input.groupName}"`);
+      return { ok: true };
+    }),
 });
 
 export const invoicesRouter = router({
@@ -2523,6 +2792,22 @@ export const invoicesRouter = router({
         : invoices;
       return computeAging(scoped, Date.now());
     }),
+
+  /**
+   * Every open (unmatched) credit note across the whole book, so the Invoices page
+   * can answer "which credits have we issued that the customer has not used yet?"
+   * without walking group by group. Each row carries its group and company so the
+   * list can be filtered and drilled into like the invoice list.
+   */
+  openCreditNotes: protectedProcedure.query(async () => {
+    const customers = await db.listCustomers();
+    const names = new Map(customers.map(c => [c.id, c.name]));
+    const rows = await listOpenCreditNotes(new Set(customers.map(c => c.id)), names);
+    const groupOf = new Map(
+      customers.map(c => [c.id, ((c.customerGroup ?? "").trim() || c.name) as string]),
+    );
+    return rows.map(r => ({ ...r, customerGroup: groupOf.get(r.customerId) ?? r.customerName }));
+  }),
 
   /**
    * Cancel the payment of an invoice: reverts ALL wire-transfer allocations that
@@ -3012,7 +3297,10 @@ export const tasksRouter = router({
         assigneeId: input.assigneeId ?? null,
         status: "Pending",
         assignedTo: ctx.user.id,
-      });
+        // Every task belongs to a collections group, so the Desk can count open
+        // work per group without parsing anything out of the description.
+        customerGroup: (customer.customerGroup ?? "").trim() || customer.name,
+      } as any);
       if (input.invoiceIds && input.invoiceIds.length > 0) {
         await db.addTaskInvoices(id, input.invoiceIds);
       }
@@ -3024,6 +3312,31 @@ export const tasksRouter = router({
           await db.addTaskWatcher(id, creatorMember.id).catch(() => {});
         }
       }
+      // A manual task — above all a "Help" request to a colleague — belongs in the
+      // customer's history: months later you must be able to see that help was
+      // asked for without hunting through the task list.
+      const taskGroupName = (customer.customerGroup ?? "").trim() || customer.name;
+      const assigneeMember =
+        input.assigneeId != null ? await db.getTeamMemberById(input.assigneeId).catch(() => null) : null;
+      const assigneeLabel = assigneeMember?.name ?? "myself";
+      await db.addActivityLog({
+        groupName: taskGroupName,
+        customerId: input.customerId,
+        activityType: "task",
+        title:
+          input.type === "Help"
+            ? `Help requested from ${assigneeLabel} — ${input.title}`
+            : `Task created — ${input.title}`,
+        description: [
+          input.description?.trim() || null,
+          `Assigned to: ${assigneeLabel}`,
+          `Due: ${new Date(input.dueDate).toLocaleDateString("en-GB")}`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        createdBy: ctx.user.id,
+        createdAt: new Date(),
+      }).catch(() => {});
       await audit(ctx, "Create Task", "task", id, `Manual task "${input.title}" for ${customer.name}`);
       return { id };
     }),
@@ -3158,9 +3471,9 @@ export const tasksRouter = router({
       // auto-task must not leave a stale "Pending Follow-up" / "Promise to Pay" badge
       // with no open task behind it (badge click would have nothing to open).
       if ((input.status === "Cancelled" || input.status === "Completed") && existing?.description) {
-        const followUpMatch = existing.description.match(/\(Follow-up: (.+?)\)/);
+        const followUpGroup = taskGroup(existing);
         const promiseMatch = existing.description.match(/\(Promise #(\d+)\)/);
-        let group: string | null = followUpMatch?.[1] ?? null;
+        let group: string | null = followUpGroup;
         if (!group && promiseMatch && existing.customerId) {
           const cust = await db.getCustomer(existing.customerId);
           if (cust) group = (cust.customerGroup ?? "").trim() || cust.name;
@@ -3168,7 +3481,7 @@ export const tasksRouter = router({
         if (group) {
           const conf = await db.getGroupConfirmationStatus(group);
           const stale =
-            (followUpMatch && conf?.status === "Pending Follow-up") ||
+            (followUpGroup && conf?.status === "Pending Follow-up") ||
             (promiseMatch && conf?.status === "Confirmed");
           if (stale) {
             // Cancelling an open promise's check task also breaks the promise cycle.
@@ -3213,9 +3526,9 @@ export const tasksRouter = router({
       const newCount = (task.rescheduleCount ?? 0) + 1;
       await db.updateTask(input.id, { dueDate: input.dueDate, rescheduleCount: newCount });
       // Keep the group's confirmation-status follow-up date in sync for auto follow-up tasks.
-      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
-      if (followUpMatch) {
-        const group = followUpMatch[1];
+      const followUpGroup = taskGroup(task);
+      if (followUpGroup) {
+        const group = followUpGroup;
         const conf = await db.getGroupConfirmationStatus(group);
         if (conf && conf.status === "Pending Follow-up") {
           await db.upsertGroupConfirmationStatus(group, { followUpDate: input.dueDate, updatedBy: ctx.user.id });
@@ -3230,11 +3543,6 @@ export const tasksRouter = router({
       );
       return { success: true, rescheduleCount: newCount };
     }),
-  runEngine: protectedProcedure.mutation(async ({ ctx }) => {
-    const res = await runTaskEngine();
-    await audit(ctx, "Run Task Engine", "system", undefined, `Generated ${res.created} task(s)`);
-    return res;
-  }),
   /**
    * Convert an open Follow-up task into a Promise to Pay:
    * 1. Creates the promise record + auto "Promise to Pay" check task (createGroupPromise)
@@ -3245,7 +3553,9 @@ export const tasksRouter = router({
     .input(
       z.object({
         taskId: z.number(),
-        amount: z.number().positive(),
+        // A promise may be made without naming a figure ("I'll pay") — 0/omitted
+        // means "amount not stated", never a zero-value promise.
+        amount: z.number().nonnegative().optional(),
         promisedDate: z.number(),
         notes: z.string().max(2000).optional(),
       })
@@ -3256,17 +3566,20 @@ export const tasksRouter = router({
       if (task.status === "Completed" || task.status === "Cancelled") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can be converted" });
       }
-      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
-      if (!followUpMatch) {
+      const followUpGroup = taskGroup(task);
+      if (!followUpGroup) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "This task is not a follow-up task" });
       }
-      const group = followUpMatch[1];
+      const group = followUpGroup;
+      // "amount not stated" promises are stored as 0 and labelled without a figure.
+      const cvAmt = input.amount && input.amount > 0 ? input.amount : 0;
+      const cvLabel = cvAmt > 0 ? `€${Number(eur(cvAmt)).toLocaleString()}` : "amount not stated";
 
       // 1. Create the promise + its check task
       const promiseId = await createGroupPromise(ctx, {
         group,
         customerId: task.customerId ?? undefined,
-        amount: input.amount,
+        amount: cvAmt,
         promisedDate: input.promisedDate,
         notes: input.notes,
       });
@@ -3275,7 +3588,7 @@ export const tasksRouter = router({
       // 2. Update the group's confirmation status to Confirmed (Promise to Pay)
       await db.upsertGroupConfirmationStatus(group, {
         status: "Confirmed",
-        amount: eur(input.amount),
+        amount: eur(cvAmt),
         followUpDate: input.promisedDate,
         notes: input.notes,
         updatedBy: ctx.user.id,
@@ -3284,14 +3597,14 @@ export const tasksRouter = router({
       // 3. Cancel the old follow-up task
       await db.updateTask(input.taskId, {
         status: "Cancelled",
-        completionNotes: `Converted to Promise to Pay #${promiseId} (€${Number(eur(input.amount)).toLocaleString()} by ${new Date(input.promisedDate).toLocaleDateString("en-GB")})`,
+        completionNotes: `Converted to Promise to Pay #${promiseId} (${cvLabel} by ${new Date(input.promisedDate).toLocaleDateString("en-GB")})`,
       });
 
       await db.addActivityLog({
         groupName: group,
         customerId: task.customerId ?? undefined,
         activityType: "status_change",
-        title: `Follow-up converted to Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
+        title: `Follow-up converted to Promise to Pay — ${cvLabel}`,
         description: `Follow-up task #${input.taskId} cancelled; promise #${promiseId} due ${new Date(input.promisedDate).toLocaleDateString("en-GB")}.`,
         createdBy: ctx.user.id,
         createdAt: new Date(),
@@ -3314,7 +3627,7 @@ export const tasksRouter = router({
         promiseId: z.number().optional(),
         // The next step
         nextType: z.enum(["promise", "follow-up"]),
-        amount: z.number().positive().optional(),
+        amount: z.number().nonnegative().optional(),
         date: z.number(),
         notes: z.string().max(2000).optional(),
       })
@@ -3325,12 +3638,9 @@ export const tasksRouter = router({
       if (task.status === "Completed" || task.status === "Cancelled") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can roll to a next task" });
       }
-      if (input.nextType === "promise" && (!input.amount || input.amount <= 0)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A Promise to Pay needs an amount" });
-      }
       // Resolve the group: follow-up marker, or the task's customer
-      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
-      let group = followUpMatch?.[1] ?? null;
+      const followUpGroup = taskGroup(task);
+      let group = followUpGroup;
       const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
       if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
       if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Could not resolve the task's group" });
@@ -3345,7 +3655,9 @@ export const tasksRouter = router({
             customerId: promise.customerId,
             activityType: "promise",
             title: `Promise marked ${input.resolvePromise}`,
-            description: `€${Number(promise.amount).toLocaleString()} promised for ${new Date(promise.promisedDate).toLocaleDateString("en-GB")}`,
+            description: `${
+              Number(promise.amount ?? 0) > 0 ? `€${Number(promise.amount).toLocaleString()}` : "Payment (amount not stated)"
+            } promised for ${new Date(promise.promisedDate).toLocaleDateString("en-GB")}`,
             createdBy: ctx.user.id,
             createdAt: new Date(),
           }).catch(() => {});
@@ -3355,29 +3667,29 @@ export const tasksRouter = router({
 
      // 2. Cancel the old task BEFORE creating the new one, so upsertFollowUpTask
      //    does not "reuse" the task we are replacing.
-      // Escalated tasks are closed as Completed (the escalation was handled);
-      // ordinary tasks are Cancelled (rolled into the next step).
-      const isEscalatedTask = task.title.startsWith("Escalated:");
      await db.updateTask(input.taskId, {
-        status: isEscalatedTask ? "Completed" : "Cancelled",
+        status: "Cancelled",
        completionNotes: `Rolled into a new ${input.nextType === "promise" ? "Promise to Pay" : "Pending Follow-up"} for ${new Date(input.date).toLocaleDateString("en-GB")}`,
      });
 
       // 3. Create the next step + update the group's confirmation badge
       let newPromiseId: number | null = null;
       let newTaskId: number | null = null;
+      // A next promise may carry no figure at all ("customer will pay, no amount given").
+      const nextAmt = input.amount && input.amount > 0 ? input.amount : 0;
+      const nextLabel = nextAmt > 0 ? `€${Number(eur(nextAmt)).toLocaleString()}` : "amount not stated";
       if (input.nextType === "promise") {
         newPromiseId = await createGroupPromise(ctx, {
           group,
           customerId: task.customerId ?? undefined,
-          amount: input.amount!,
+          amount: nextAmt,
           promisedDate: input.date,
           notes: input.notes,
         });
         if (!newPromiseId) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found" });
         await db.upsertGroupConfirmationStatus(group, {
           status: "Confirmed",
-          amount: eur(input.amount!),
+          amount: eur(nextAmt),
           followUpDate: input.date,
           notes: input.notes,
           updatedBy: ctx.user.id,
@@ -3406,7 +3718,7 @@ export const tasksRouter = router({
         activityType: "status_change",
         title:
           input.nextType === "promise"
-            ? `Next step: Promise to Pay — €${Number(eur(input.amount!)).toLocaleString()} by ${new Date(input.date).toLocaleDateString("en-GB")}`
+            ? `Next step: Promise to Pay — ${nextLabel} by ${new Date(input.date).toLocaleDateString("en-GB")}`
             : `Next step: Follow-up call on ${new Date(input.date).toLocaleDateString("en-GB")}`,
         description: `Task #${input.taskId} closed${input.resolvePromise ? ` (promise ${input.resolvePromise})` : ""} and rolled into the next step.`,
         createdBy: ctx.user.id,
@@ -3428,8 +3740,8 @@ export const tasksRouter = router({
     .query(async ({ input }) => {
       const task = await db.getTask(input.taskId);
       if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
-      let group = followUpMatch?.[1] ?? null;
+      const followUpGroup = taskGroup(task);
+      let group = followUpGroup;
       const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
       if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
       if (!group) return { group: null, invoices: [] };
@@ -3460,7 +3772,8 @@ export const tasksRouter = router({
       z.object({
         taskId: z.number(),
         promiseId: z.number(),
-        amount: z.number().positive(),
+        // 0 / omitted keeps the promise's existing amount (see rescheduleGroupPromise).
+        amount: z.number().nonnegative().optional(),
         promisedDate: z.number(),
         notes: z.string().max(2000).optional(),
       })
@@ -3475,10 +3788,13 @@ export const tasksRouter = router({
       const cust = await db.getCustomer(promise.customerId);
       const group = cust ? ((cust.customerGroup ?? "").trim() || cust.name) : null;
       if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
+      // No new figure entered → keep whatever the promise already carried (which may
+      // itself be "amount not stated" = 0).
+      const rsAmt = input.amount && input.amount > 0 ? input.amount : Number(promise.amount ?? 0);
       const res = await rescheduleGroupPromise(ctx, {
         group,
         promiseId: input.promiseId,
-        amount: input.amount,
+        amount: rsAmt,
         promisedDate: input.promisedDate,
         notes: input.notes,
       });
@@ -3487,480 +3803,12 @@ export const tasksRouter = router({
       const conf = await db.getGroupConfirmationStatus(group);
       if (conf && conf.status === "Confirmed") {
         await db.upsertGroupConfirmationStatus(group, {
-          amount: eur(input.amount),
+          amount: eur(rsAmt),
           followUpDate: input.promisedDate,
           updatedBy: ctx.user.id,
         });
       }
       return { success: true };
-    }),
-  /**
-   * Escalate a task: close the original task as Completed and create a new task for the assignee.
-   * The new task has a title prefixed with "Escalated: " and includes the original task details.
-   */
-  escalate: protectedProcedure
-    .input(
-      z.object({
-        taskId: z.number(),
-        assigneeId: z.number().optional(),
-        note: z.string().max(1000).optional(),
-        /** Team members who will watch the escalated task's progress (avatar stack). */
-        watcherIds: z.array(z.number()).optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const task = await db.getTask(input.taskId);
-      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      if (task.status === "Completed" || task.status === "Cancelled") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Only open tasks can be escalated" });
-      }
-      // Resolve the group from the follow-up marker or the customer
-      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
-      let group = followUpMatch?.[1] ?? null;
-      let cust = task.customerId ? await db.getCustomer(task.customerId) : null;
-      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
-
-      // Pick the target. Preference order:
-      //   1. explicit assignee picked in the dialog
-      //   2. the group's account manager (when one is set)
-      //   3. any manager/admin-level team member, then any active team member
-      // A missing account manager must never block an escalation — the collector
-      // decides where the case goes.
-      let targetId = input.assigneeId ?? null;
-      if (!targetId && group) {
-        const customers = await db.listCustomers();
-        const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === group);
-        const withManager = members.find(m => (m as any).accountManagerId);
-        targetId = withManager ? ((withManager as any).accountManagerId as number) : null;
-      }
-      if (!targetId) {
-        // Fall back to a sensible escalation target so the action always works.
-        const team = await db.listTeamMembers().catch(() => [] as any[]);
-        const active = (team as any[]).filter(m => m.active !== false && m.id !== undefined);
-        // Prefer senior titles, but any active member is an acceptable target.
-        const rank = (title?: string | null) => {
-          const t = (title ?? "").toLowerCase();
-          if (t.includes("director") || t.includes("cfo") || t.includes("chief")) return 0;
-          if (t.includes("manager") || t.includes("head")) return 1;
-          return 2;
-        };
-        const best = active.sort((a, b) => rank(a.title) - rank(b.title) || a.id - b.id)[0];
-        targetId = best ? (best.id as number) : null;
-      }
-      if (!targetId) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "No team member is available to escalate to — add a team member first." });
-      }
-      const member = await db.getTeamMemberById(targetId);
-      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
-
-     const escalationNote = `⬆ Escalated to ${member.name} by ${ctx.user.name ?? "user"} on ${new Date().toLocaleDateString("en-GB")}${input.note ? ` — ${input.note}` : ""}`;
-
-     // Close the original task as Completed
-     await db.updateTask(input.taskId, {
-       status: "Completed",
-       description: `${task.description ?? ""}\n${escalationNote}`.trim(),
-     } as any);
-
-      // Create a new task for the assignee
-      const newTaskTitle = `Escalated: ${task.title}`;
-      // The (Escalated-by: N) marker lets "Return to Collector" reliably find the
-      // original collector's team member id later.
-      const escalatorMember = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
-      const escalatedByMarker = escalatorMember ? `\n(Escalated-by: ${escalatorMember.id})` : "";
-      const newTaskDescription = `Original task: ${task.title}\n\n${task.description ?? ""}\n\n${escalationNote}${escalatedByMarker}`;
-     const newTaskId = await db.createTask({
-       customerId: task.customerId,
-       title: newTaskTitle,
-       description: newTaskDescription,
-       dueDate: task.dueDate,
-       status: "Pending",
-       type: task.type,
-       assigneeId: targetId,
-     } as any);
-
-      // Watchers: carry over the original task's watchers plus any newly picked ones.
-      const existingWatchers = await db.listTaskWatchers(input.taskId).catch(() => []);
-      const watcherIds = new Set<number>([
-        ...existingWatchers.map(w => w.memberId),
-        ...(input.watcherIds ?? []),
-      ]);
-      // The escalating collector automatically watches the escalated task so they
-      // can follow management's decision.
-      if (escalatorMember) watcherIds.add(escalatorMember.id);
-      watcherIds.delete(targetId); // The assignee doesn't need to watch their own task
-      for (const memberId of Array.from(watcherIds)) {
-        await db.addTaskWatcher(newTaskId, memberId).catch(() => {});
-      }
-
-     if (group) {
-        // The group's communication status becomes "Escalated" — the badge now
-        // points at the newly created escalated task.
-        const existingConf = await db.getGroupConfirmationStatus(group);
-        await db.upsertGroupConfirmationStatus(group, {
-          status: "Escalated",
-          amount: existingConf?.amount ?? "0.00",
-          followUpDate: task.dueDate ?? null,
-          notes: input.note ?? null,
-          updatedBy: ctx.user.id,
-        }).catch(() => {});
-       await db.addActivityLog({
-         groupName: group,
-         customerId: task.customerId ?? undefined,
-         activityType: "status_change",
-         title: `Task escalated to ${member.name}`,
-         description: `"${task.title}"${input.note ? ` — ${input.note}` : ""}`,
-         createdBy: ctx.user.id,
-         createdAt: new Date(),
-       }).catch(() => {});
-     }
-      await audit(ctx, "Escalate Task", "task", input.taskId, `Escalated to ${member.name} (new task: ${newTaskId})`);
-      return { success: true, assigneeName: member.name, newTaskId };
-    }),
-  /**
-   * Live snapshot shown on an escalated task so management can decide without
-   * digging: balances, promise history, recent activity and the escalation reason.
-   */
-  escalationSummary: protectedProcedure
-    .input(z.object({ taskId: z.number() }))
-    .query(async ({ input }) => {
-      const task = await db.getTask(input.taskId);
-      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
-      let group = followUpMatch?.[1] ?? null;
-      const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
-      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
-      if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found for this task" });
-
-      const customers = await db.listCustomers();
-      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === group);
-      const memberIds = new Set(members.map(m => m.id));
-      const now = Date.now();
-
-      const [allInvoices, allPromises, activity, notes, allTasks, allReceipts, teamMembers, profile, confirmation] =
-        await Promise.all([
-          db.listInvoices(),
-          db.listPromises(),
-          db.listActivityLog(group, 60).catch(() => []),
-          db.listGroupNotes(group).catch(() => []),
-          db.listTasks({}).catch(() => []),
-          db.listReceipts().catch(() => []),
-          db.listTeamMembers(true).catch(() => []),
-          db.getGroupCollectionProfile(group).catch(() => null),
-          db.getGroupConfirmationStatus(group).catch(() => null),
-        ]);
-      const invs = allInvoices.filter(i => memberIds.has(i.customerId) && isOpenInvoice(i));
-      let openBalanceEur = 0;
-      let overdueEur = 0;
-      let overdueCount = 0;
-      let oldestOverdueDays = 0;
-      for (const i of invs) {
-        const outEur = toEur(outstanding(i), i.currency ?? "EUR");
-        openBalanceEur += outEur;
-        if (i.dueDate != null && i.dueDate < now) {
-          overdueEur += outEur;
-          overdueCount += 1;
-          const days = Math.floor((now - i.dueDate) / 86400000);
-          if (days > oldestOverdueDays) oldestOverdueDays = days;
-        }
-      }
-
-      const proms = allPromises.filter(p => memberIds.has(p.customerId));
-      const promisesTotal = proms.length;
-      const promisesKept = proms.filter(p => p.status === "Kept").length;
-      const promisesBroken = proms.filter(p => p.status === "Broken").length;
-      const totalReschedules = proms.reduce((s, p) => s + (((p as any).rescheduleCount as number) ?? 0), 0);
-
-      // The escalation reason is the "⬆ Escalated to …" line recorded on the task.
-      const reasonLine = (task.description ?? "").split("\n").find(l => l.startsWith("⬆")) ?? null;
-      // Management decision already recorded on this task (if any).
-      const decisionLine = (task.description ?? "").split("\n").filter(l => l.startsWith("⚖")).pop() ?? null;
-
-      // --- The story ---------------------------------------------------------
-      // Management asked for a narrative, not tiles: assemble every trace of work
-      // on this group into one chronological timeline and let the writer tell it.
-      const memberNames = new Map(members.map(m => [m.id, m.name]));
-      const memberNameOf = (id: number) => memberNames.get(id) ?? null;
-      const userNames = new Map(teamMembers.map(m => [m.id, m.name]));
-      const groupTasks = allTasks.filter(t => t.customerId != null && memberIds.has(t.customerId));
-      const groupReceipts = allReceipts.filter(r => memberIds.has(r.customerId));
-      const timeline = buildTimeline([
-        eventsFromActivity(activity, id => (id != null ? userNames.get(id) ?? null : null)),
-        eventsFromPromises(proms, memberNameOf),
-        eventsFromTasks(groupTasks),
-        eventsFromReceipts(groupReceipts.slice(-20)),
-        eventsFromNotes(notes),
-      ]);
-      const stats = timelineStats(timeline);
-
-      return {
-        group,
-        openBalanceEur: Math.round(openBalanceEur * 100) / 100,
-        overdueEur: Math.round(overdueEur * 100) / 100,
-        overdueCount,
-        oldestOverdueDays,
-        promisesTotal,
-        promisesKept,
-        promisesBroken,
-        totalReschedules,
-        escalationReason: reasonLine,
-        decision: decisionLine,
-        /** Counters the narrative is built on (kept for tests and tooltips). */
-        stats,
-        /** Collector particularities, when recorded — context for the decision. */
-        collectionNotes: profile?.notes ? profile.notes.slice(0, 600) : null,
-        confirmationStatus: confirmation?.status ?? null,
-      };
-    }),
-  /**
-   * The escalation story: an AI-written narrative of the whole case — what was
-   * tried, what the customer answered, which promises broke, and why it landed on
-   * management's desk. This is what the escalation panel shows instead of tiles.
-   */
-  escalationStory: protectedProcedure
-    .input(z.object({ taskId: z.number() }))
-    .query(async ({ input }) => {
-      const task = await db.getTask(input.taskId);
-      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
-      let group = followUpMatch?.[1] ?? null;
-      const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
-      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
-      if (!group) throw new TRPCError({ code: "NOT_FOUND", message: "Group not found for this task" });
-
-      const customers = await db.listCustomers();
-      const members = customers.filter(c => ((c.customerGroup ?? "").trim() || c.name) === group);
-      const memberIds = new Set(members.map(m => m.id));
-      const now = Date.now();
-
-      const [allInvoices, allPromises, activity, notes, allTasks, allReceipts, teamMembers, profile, confirmation, comments] =
-        await Promise.all([
-          db.listInvoices(),
-          db.listPromises(),
-          db.listActivityLog(group, 60).catch(() => []),
-          db.listGroupNotes(group).catch(() => []),
-          db.listTasks({}).catch(() => []),
-          db.listReceipts().catch(() => []),
-          db.listTeamMembers(true).catch(() => []),
-          db.getGroupCollectionProfile(group).catch(() => null),
-          db.getGroupConfirmationStatus(group).catch(() => null),
-          db.listTaskComments(input.taskId).catch(() => []),
-        ]);
-
-      const invs = allInvoices.filter(i => memberIds.has(i.customerId) && isOpenInvoice(i));
-      let overdueEur = 0;
-      let overdueCount = 0;
-      let oldestOverdueDays = 0;
-      for (const i of invs) {
-        const outEur = toEur(outstanding(i), i.currency ?? "EUR");
-        if (i.dueDate != null && i.dueDate < now) {
-          overdueEur += outEur;
-          overdueCount += 1;
-          const days = Math.floor((now - i.dueDate) / 86400000);
-          if (days > oldestOverdueDays) oldestOverdueDays = days;
-        }
-      }
-      const proms = allPromises.filter(p => memberIds.has(p.customerId));
-      const memberNames = new Map(members.map(m => [m.id, m.name]));
-      const userNames = new Map(teamMembers.map(m => [m.id, m.name]));
-      const groupTasks = allTasks.filter(t => t.customerId != null && memberIds.has(t.customerId));
-      const groupReceipts = allReceipts.filter(r => memberIds.has(r.customerId));
-      const fullTimeline = buildTimeline([
-        eventsFromActivity(activity, id => (id != null ? userNames.get(id) ?? null : null)),
-        eventsFromPromises(proms, id => memberNames.get(id) ?? null),
-        eventsFromTasks(groupTasks),
-        eventsFromReceipts(groupReceipts.slice(-20)),
-        eventsFromNotes(notes),
-      ]);
-      const reasonLine = (task.description ?? "").split("\n").find(l => l.startsWith("⬆")) ?? null;
-
-      // ── Scope: this TASK, not the whole group relationship. ──────────────────
-      // Management reads this panel to understand one escalated task, so the story
-      // must cover only the work behind it: the original follow-up/promise task
-      // that was escalated, the calls and promises logged while it was open, and
-      // the handover itself. Older group history belongs to the group card.
-      const escalatedAt = task.createdAt instanceof Date ? task.createdAt.getTime() : Number(task.createdAt);
-      const originalTitle = (task.description ?? "").match(/Original task: (.+)/)?.[1]?.trim() ?? null;
-      const originalTask = originalTitle
-        ? groupTasks
-            .filter(t => t.title === originalTitle && t.id !== task.id)
-            .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0]
-        : undefined;
-      const startedAt = originalTask
-        ? originalTask.createdAt instanceof Date
-          ? originalTask.createdAt.getTime()
-          : Number(originalTask.createdAt)
-        : escalatedAt - 30 * 86400000; // no chain on file → last month of work
-
-      const timeline = scopeToTask(fullTimeline, { startedAt, escalatedAt });
-      const stats = timelineStats(timeline);
-
-      // Promises that belong to this task's window — the core of its story.
-      const scopedProms = proms.filter(p => {
-        const at = p.createdAt instanceof Date ? p.createdAt.getTime() : Number(p.createdAt);
-        return at >= startedAt - 3 * 86400000 && at <= escalatedAt + 86400000;
-      });
-
-      const facts = {
-        today: shortDate(now),
-        /** What was being chased and since when. */
-        task: {
-          escalatedTitle: task.title,
-          originalTask: originalTitle,
-          workStarted: shortDate(startedAt),
-          escalatedOn: shortDate(escalatedAt),
-          daysWorked: Math.max(0, Math.floor((escalatedAt - startedAt) / 86400000)),
-          postponedTimes: (originalTask as any)?.rescheduleCount ?? 0,
-        },
-        escalationLine: reasonLine,
-        promisesInThisCase: {
-          total: scopedProms.length,
-          kept: scopedProms.filter(p => p.status === "Kept").length,
-          broken: scopedProms.filter(p => p.status === "Broken").length,
-          pending: scopedProms.filter(p => p.status === "Pending").length,
-        },
-        activityCounters: stats,
-        internalComments: comments.slice(-3).map(c => ({ by: c.authorName, body: c.body.slice(0, 200) })),
-        timeline: timeline.map(e => ({
-          date: shortDate(e.at),
-          kind: e.kind,
-          what: e.what,
-          detail: e.detail ? e.detail.slice(0, 200) : null,
-          by: e.who ?? null,
-        })),
-      };
-
-      const escalatedByName = reasonLine?.match(/by (.+?) on /)?.[1] ?? null;
-      const fallback = () =>
-        fallbackStory({
-          group,
-          overdueEur,
-          overdueCount,
-          oldestOverdueDays,
-          promisesTotal: scopedProms.length,
-          promisesBroken: scopedProms.filter(p => p.status === "Broken").length,
-          stats,
-          escalatedBy: escalatedByName,
-        });
-
-      try {
-        const response = await invokeLLM({
-          model: "gemini-2.5-flash",
-          messages: [
-            {
-              role: "system",
-              content: `Είσαι έμπειρος credit manager. Σου δίνεται το ιστορικό ΕΝΟΣ συγκεκριμένου task που κλιμακώθηκε. Γράψε στα ΕΛΛΗΝΙΚΑ, σε ΜΙΑ παράγραφο 45-70 λέξεων, τι έγινε πάνω σε ΑΥΤΟ το task μέχρι να κλιμακωθεί.
-
-Περιεχόμενο: τι ζητούσε το task, τι έγινε στη διάρκειά του με ημερομηνίες (κλήσεις και τι απαντούσαν, υποσχέσεις με ποσό/ημερομηνία και τι απέγιναν, αναβολές, πληρωμές), και με μια τελευταία πρόταση γιατί κλιμακώθηκε.
-
-ΑΠΑΓΟΡΕΥΕΤΑΙ: bullets, τίτλοι, πίνακες, δεύτερη παράγραφος, γενικά στοιχεία για τον όμιλο (συνολικά υπόλοιπα, aging, λίστες τιμολογίων, ιστορικό άλλων tasks), προτάσεις ενεργειών, συστάσεις ή συμπεράσματα — η απόφαση ανήκει στον αναγνώστη.
-
-Κανόνες: Μόνο ό,τι στηρίζεται στα δεδομένα· αν λείπει κάτι, προσπέρασέ το σιωπηλά (μη γράφεις «δεν υπάρχουν στοιχεία»). ΠΟΣΑ πάντα με ΚΟΜΜΑ για χιλιάδες, χωρίς δεκαδικά (σωστό: €66,666 — λάθος: €66.666). Ημερομηνίες σε μορφή 06/08/2026. ΜΗΝ γράψεις το όνομα του ομίλου (φαίνεται στον τίτλο). Μην αναφέρεις ότι διάβασες JSON ή timeline.`,
-            },
-            { role: "user", content: JSON.stringify(facts) },
-          ],
-        });
-        const raw = response.choices?.[0]?.message?.content;
-        const story =
-          typeof raw === "string"
-            ? raw
-            : Array.isArray(raw)
-              ? raw.map((c: any) => (c?.type === "text" ? c.text : "")).join("")
-              : "";
-        return {
-          group,
-          story: story.trim() || fallback(),
-          generated: Boolean(story.trim()),
-          eventCount: stats.events,
-          generatedAt: Date.now(),
-        };
-      } catch {
-        // The panel must always tell the story — never fall back to raw tiles.
-        return { group, story: fallback(), generated: false, eventCount: stats.events, generatedAt: Date.now() };
-      }
-    }),
-  /**
-   * Management decision on an escalated task:
-   * - "On Hold"             → group account status becomes On Hold; task stays open.
-   * - "Legal Review"        → group account status becomes Legal; task stays open.
-   * - "Return to Collector" → task reassigned back to the escalating collector with instructions.
-   */
-  escalationDecision: protectedProcedure
-    .input(z.object({
-      taskId: z.number(),
-      decision: z.enum(["On Hold", "Legal Review", "Return to Collector"]),
-      note: z.string().max(1000).optional(),
-      /** Explicit collector to return the task to (falls back to the Escalated-by marker). */
-      returnToMemberId: z.number().optional(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      const task = await db.getTask(input.taskId);
-      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "Task not found" });
-      if (task.status === "Completed" || task.status === "Cancelled") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This task is already closed" });
-      }
-      const followUpMatch = task.description?.match(/\(Follow-up: (.+?)\)/);
-      let group = followUpMatch?.[1] ?? null;
-      const cust = task.customerId ? await db.getCustomer(task.customerId) : null;
-      if (!group && cust) group = (cust.customerGroup ?? "").trim() || cust.name;
-
-      const when = new Date().toLocaleDateString("en-GB");
-      const by = ctx.user.name ?? "user";
-      const decisionNote = `⚖ Decision: ${input.decision} by ${by} on ${when}${input.note ? ` — ${input.note}` : ""}`;
-
-      let returnedToName: string | null = null;
-      if (input.decision === "Return to Collector") {
-        // Find the original collector: explicit pick → Escalated-by marker → error.
-        let collectorId = input.returnToMemberId ?? null;
-        if (!collectorId) {
-          const m = task.description?.match(/\(Escalated-by: (\d+)\)/);
-          collectorId = m ? Number(m[1]) : null;
-        }
-        if (!collectorId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Could not identify the original collector — pick a team member to return the task to." });
-        }
-        const collector = await db.getTeamMemberById(collectorId);
-        if (!collector) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
-        returnedToName = collector.name;
-        await db.updateTask(input.taskId, {
-          assigneeId: collectorId,
-          dueDate: Date.now(),
-          description: `${task.description ?? ""}\n${decisionNote}`.trim(),
-        } as any);
-        // Management (the decider) keeps watching the returned task.
-        const deciderMember = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
-        if (deciderMember && deciderMember.id !== collectorId) {
-          await db.addTaskWatcher(input.taskId, deciderMember.id).catch(() => {});
-        }
-      } else {
-        // On Hold / Legal Review: record the decision and flag the group.
-        await db.updateTask(input.taskId, {
-          description: `${task.description ?? ""}\n${decisionNote}`.trim(),
-        } as any);
-        if (group) {
-          const watch = input.decision === "On Hold" ? "On Hold" : "Legal";
-          await db.setGroupWatchStatus(group, watch as any, ctx.user.id);
-          await db.createGroupNote({
-            groupName: group,
-            content: `${decisionNote} (escalation decision on task #${input.taskId})`,
-            createdBy: ctx.user.id,
-            createdAt: Date.now(),
-          }).catch(() => {});
-        }
-      }
-
-      if (group) {
-        await db.addActivityLog({
-          groupName: group,
-          customerId: task.customerId ?? undefined,
-          activityType: "status_change",
-          title: `Escalation decision: ${input.decision}${returnedToName ? ` → ${returnedToName}` : ""}`,
-          description: input.note ?? null,
-          createdBy: ctx.user.id,
-          createdAt: new Date(),
-        }).catch(() => {});
-      }
-      await audit(ctx, "Escalation Decision", "task", input.taskId, `${input.decision}${returnedToName ? ` → ${returnedToName}` : ""}${input.note ? ` — ${input.note}` : ""}`);
-      return { success: true, decision: input.decision, returnedToName };
     }),
 });
 
@@ -3973,12 +3821,63 @@ export const teamRouter = router({
     .input(z.object({ includeInactive: z.boolean().optional() }).optional())
     .query(async ({ input }) => db.listTeamMembers(input?.includeInactive ?? false)),
   /**
-   * The caller's own team-member record (or null when their login is not linked
-   * to one). Used to default assignee pickers to "me".
+   * The caller's own team-member record. Help requests are always created by the
+   * logged-in user, so the UI needs to name them and keep them out of the
+   * "ask a colleague" list.
    */
-  myMember: protectedProcedure.query(async ({ ctx }) => {
-    return db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+  me: protectedProcedure.query(async ({ ctx }) => {
+    const me = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+    return {
+      memberId: me ? me.id : null,
+      name: me?.name ?? ctx.user.name ?? "me",
+      title: me?.title ?? null,
+    };
   }),
+  /**
+   * The caller's @mentions inbox. A mention is a reference written by a colleague
+   * inside a note — it carries no due date and never becomes a task.
+   */
+  myMentions: protectedProcedure
+    .input(z.object({ unreadOnly: z.boolean().optional(), limit: z.number().min(1).max(200).optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const me = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+      if (!me) return { memberId: null as number | null, unread: 0, items: [] as any[] };
+      const rows = await db
+        .listMentionsForMember(me.id, { unreadOnly: input?.unreadOnly, limit: input?.limit ?? 50 })
+        .catch(() => [] as any[]);
+      const unread = await db.countUnreadMentions(me.id).catch(() => 0);
+      const authors = await db.listTeamMembers(true).catch(() => [] as any[]);
+      const users = await db.listUsers().catch(() => [] as any[]);
+      const authorName = (userId: number | null) => {
+        if (!userId) return null;
+        const viaTeam = authors.find((a: any) => a.userId === userId);
+        if (viaTeam?.name) return viaTeam.name as string;
+        const u = (users ?? []).find((x: any) => x.id === userId);
+        return (u?.name as string) ?? null;
+      };
+      return {
+        memberId: me.id,
+        unread,
+        items: rows.map((r: any) => ({
+          id: r.id,
+          group: r.groupName,
+          source: r.source as "call" | "collectionNotes" | "groupNote",
+          excerpt: r.excerpt as string | null,
+          createdAt: r.createdAt as Date,
+          readAt: r.readAt as Date | null,
+          byName: authorName(r.createdBy ?? null),
+        })),
+      };
+    }),
+  /** Mark one mention (or all of mine) as seen. */
+  markMentionsRead: protectedProcedure
+    .input(z.object({ mentionId: z.number().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const me = await db.getTeamMemberByUserId(ctx.user.id).catch(() => null);
+      if (!me) return { success: false as const };
+      await db.markMentionsRead(me.id, input?.mentionId);
+      return { success: true as const };
+    }),
   create: protectedProcedure
     .input(z.object({
       name: z.string().min(1).max(191),
@@ -4045,6 +3944,69 @@ export const teamRouter = router({
       };
     });
   }),
+  /**
+   * Sign-in accounts a team member can be linked to. Without a link, "@Name" has
+   * no inbox to reach, so the Team screen has to be able to offer this list.
+   * `linkedToMemberId` marks accounts already taken by another member.
+   */
+  linkableUsers: protectedProcedure.query(async () => {
+    const [allUsers, members] = await Promise.all([
+      db.listUsers().catch(() => [] as any[]),
+      db.listTeamMembers(true).catch(() => [] as any[]),
+    ]);
+    const takenBy = new Map<number, { id: number; name: string }>();
+    for (const m of members as any[]) {
+      if (m.userId) takenBy.set(Number(m.userId), { id: Number(m.id), name: String(m.name) });
+    }
+    return (allUsers as any[])
+      .map(u => ({
+        id: Number(u.id),
+        name: String(u.name ?? u.email ?? `User ${u.id}`),
+        email: (u.email ?? null) as string | null,
+        lastSignedIn: (u.lastSignedIn ?? null) as Date | null,
+        linkedToMemberId: takenBy.get(Number(u.id))?.id ?? null,
+        linkedToMemberName: takenBy.get(Number(u.id))?.name ?? null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }),
+  /**
+   * Link (or unlink) a team member to a sign-in account. The relationship is
+   * one-to-one: an account already linked to somebody else is rejected rather
+   * than silently moved, so two members can never share one inbox.
+   */
+  setUserLink: protectedProcedure
+    .input(z.object({ id: z.number(), userId: z.number().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const member = await db.getTeamMemberById(input.id);
+      if (!member) throw new TRPCError({ code: "NOT_FOUND", message: "Team member not found" });
+      if (input.userId !== null) {
+        const allUsers = await db.listUsers().catch(() => [] as any[]);
+        if (!(allUsers as any[]).some(u => Number(u.id) === input.userId)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Sign-in account not found" });
+        }
+        const members = await db.listTeamMembers(true).catch(() => [] as any[]);
+        const clash = (members as any[]).find(
+          m => Number(m.userId) === input.userId && Number(m.id) !== input.id,
+        );
+        if (clash) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `That sign-in account is already linked to ${clash.name}`,
+          });
+        }
+      }
+      await db.updateTeamMember(input.id, { userId: input.userId } as any);
+      await audit(
+        ctx,
+        "Link Team Member Login",
+        "teamMember",
+        input.id,
+        input.userId === null
+          ? `"${member.name}" unlinked from its sign-in account`
+          : `"${member.name}" linked to sign-in account #${input.userId}`,
+      );
+      return { success: true as const };
+    }),
 });
 
 export const forecastRouter = router({
@@ -4081,7 +4043,6 @@ export const forecastRouter = router({
     const last90Sales = await db.sumInvoicedInRange(now - 90 * 24 * 60 * 60 * 1000, now);
     const dso = computeDso(arBalance, last90Sales, 90);
     const forecast = buildForecast(invoices, installments, now, 6);
-    const escalations = tasksPending.filter(t => t.type === "Escalation +30").length;
     // Contract installments are "must pay on time" invoices — even 1 day overdue is a red flag.
     const overdueContractInvoices = invoices.filter(i => i.isContractInstallment && isOpenInvoice(i) && daysOverdue(i.dueDate, now) > 0);
     const overdueContractCount = overdueContractInvoices.length;
@@ -4172,7 +4133,6 @@ export const forecastRouter = router({
       aging,
       forecast,
       pendingTasks: tasksPending.length,
-      escalations,
       overdueContractCount,
       overdueContractAmount,
       onHoldPending: criticalGroups,
@@ -4199,10 +4159,13 @@ export const forecastRouter = router({
     return rows.map(p => ({ ...p, customerName: byId.get(p.customerId)?.name ?? "—" }));
   }),
   addPromise: protectedProcedure
-    .input(z.object({ customerId: z.number(), invoiceId: z.number().optional(), promisedDate: z.number(), amount: z.number().positive(), notes: z.string().optional() }))
+    .input(z.object({ customerId: z.number(), invoiceId: z.number().optional(), promisedDate: z.number(), amount: z.number().nonnegative().optional(), notes: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
-      const id = await db.createPromise({ ...input, amount: eur(input.amount), createdBy: ctx.user.id });
-      await audit(ctx, "Record Promise-to-Pay", "promiseToPay", id, `Customer #${input.customerId} promised €${eur(input.amount)} by ${new Date(input.promisedDate).toISOString().slice(0, 10)}`);
+      // 0 / omitted = "amount not stated" (the customer promised to pay without a figure).
+      const amt = input.amount && input.amount > 0 ? input.amount : 0;
+      const amtLabel = amt > 0 ? `€${Number(eur(amt)).toLocaleString()}` : "amount not stated";
+      const id = await db.createPromise({ ...input, amount: eur(amt), createdBy: ctx.user.id });
+      await audit(ctx, "Record Promise-to-Pay", "promiseToPay", id, `Customer #${input.customerId} promised ${amtLabel} by ${new Date(input.promisedDate).toISOString().slice(0, 10)}`);
       const cust = await db.getCustomer(input.customerId);
       if (cust) {
         const groupKey = cust.customerGroup || cust.name;
@@ -4212,8 +4175,8 @@ export const forecastRouter = router({
           groupName: groupKey,
           customerId: input.customerId,
           activityType: "promise",
-          title: `Promise-to-Pay: €${Number(eur(input.amount)).toLocaleString()} by ${dateStr}`,
-          description: `${cust.name}${input.notes ? ` — ${input.notes}` : ""}`,
+          title: `Promise-to-Pay: ${amtLabel} by ${dateStr}`,
+          description: `${groupKey} — via ${cust.name}${input.notes ? ` — ${input.notes}` : ""}`,
           createdBy: ctx.user.id,
           createdAt: new Date(),
         }).catch(() => {});
@@ -4221,13 +4184,15 @@ export const forecastRouter = router({
         const taskId = await db.createTask({
           customerId: input.customerId,
           type: "Manual",
-          title: `Promise to Pay — €${Number(eur(input.amount)).toLocaleString()}`,
-          description: `Verify that ${cust.name} paid the promised amount of €${Number(eur(input.amount)).toLocaleString()} due ${dateStr}.${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
+          title: amt > 0 ? `Promise to Pay — ${amtLabel}` : `Promise to Pay — ${groupKey}`,
+          description: `Verify that ${groupKey} paid ${amt > 0 ? `the promised amount of ${amtLabel}` : "the promised payment"} due ${dateStr}. Agreed via ${cust.name}.${input.notes ? ` Notes: ${input.notes}` : ""} (Promise #${id})`,
           dueDate: input.promisedDate,
           invoiceId: input.invoiceId,
           status: "Pending",
           assignedTo: ctx.user.id,
-        });
+          customerGroup: groupKey,
+          promiseId: id,
+        } as any);
         await audit(ctx, "Create Task", "task", taskId, `Auto follow-up for promise #${id} (${cust.name})`);
       }
       return { id };
@@ -4262,14 +4227,16 @@ export const forecastRouter = router({
             customerId: promise.customerId,
             activityType: "promise",
             title: `Promise marked ${input.status}`,
-            description: `${cust.name} — €${Number(promise.amount).toLocaleString()}`,
+            description: `${cust.name} — ${
+              Number(promise.amount ?? 0) > 0 ? `€${Number(promise.amount).toLocaleString()}` : "amount not stated"
+            }`,
             createdBy: ctx.user.id,
             createdAt: new Date(),
           }).catch(() => {});
           // Auto-complete the follow-up task linked to this promise, if still open.
           const tasks = await db.listTasks({ customerId: promise.customerId });
           const followUp = tasks.find(
-            t => (t.status === "Pending" || t.status === "In Progress") && t.description?.includes(`(Promise #${input.id})`),
+            t => (t.status === "Pending" || t.status === "In Progress") && taskPromiseId(t) === input.id,
           );
           if (followUp) {
             await db.updateTask(followUp.id, {
@@ -4997,23 +4964,14 @@ export const callsRouter = router({
     .input(z.object({ group: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const conf = await db.getGroupConfirmationStatus(input.group);
-      if (!conf || (conf.status !== "Pending Follow-up" && conf.status !== "Confirmed" && conf.status !== "Escalated")) {
+      if (!conf || (conf.status !== "Pending Follow-up" && conf.status !== "Confirmed")) {
         return { reset: false };
       }
       const allTasks = await db.listTasks({});
       const open = allTasks.filter(t => t.status === "Pending" || t.status === "In Progress");
       let hasOpenLinked = false;
       if (conf.status === "Pending Follow-up") {
-        hasOpenLinked = open.some(t => t.description?.includes(`(Follow-up: ${input.group})`));
-      } else if (conf.status === "Escalated") {
-        // Escalated → any open escalated task for one of the group's customers.
-        const customers = await db.listCustomers();
-        const memberIds = new Set(
-          customers.filter(c => (((c.customerGroup ?? "").trim() || c.name) === input.group)).map(c => c.id)
-        );
-        hasOpenLinked = open.some(
-          t => t.customerId != null && memberIds.has(t.customerId) && t.title.startsWith("Escalated:")
-        );
+        hasOpenLinked = open.some(t => isTaskOfGroup(t, input.group));
       } else {
         // Confirmed → any open promise-check task for one of the group's customers.
         const customers = await db.listCustomers();
@@ -5109,6 +5067,13 @@ export const callsRouter = router({
         customerId: z.number(),
         recipientEmail: z.string().email(),
         recipientName: z.string().optional(),
+        /**
+         * Extra recipients picked in the dialog (the chips after the first one).
+         * The first chip stays in `recipientEmail` so old history rows and the
+         * activity log keep the same shape; the rest travel here and are appended
+         * to the log line so the team can see everyone who was written to.
+         */
+        ccEmails: z.array(z.string().email()).max(20).optional(),
         templateType: z.enum(["SOA", "Payment Reminder", "Overdue Notice", "Friendly Reminder", "Final Notice", "Statement", "Custom"]),
         subject: z.string().min(1).max(255),
         body: z.string().min(1),
@@ -5122,10 +5087,13 @@ export const callsRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found" });
         }
 
+        const cc = (input.ccEmails ?? []).filter(e => e !== input.recipientEmail);
+        const allRecipients = [input.recipientEmail, ...cc];
+
         // Record email in history with "Pending" status
         const emailRecord = await db.addEmailHistory({
           customerId: input.customerId,
-          recipientEmail: input.recipientEmail,
+          recipientEmail: allRecipients.join(", ").slice(0, 255),
           recipientName: input.recipientName,
           templateType: input.templateType,
           subject: input.subject,
@@ -5134,9 +5102,10 @@ export const callsRouter = router({
           createdBy: ctx.user.id,
         });
 
-        // TODO: Integrate with actual email sending service (e.g., SendGrid, AWS SES)
-        // For now, we'll just mark it as sent and log it
-        // In production, you would call the email service here and handle errors
+        // By design the app does not send mail itself: the dialog hands the drafted
+        // message to the collector's own Outlook, so replies come back to them and
+        // the company signature is preserved. The row above records the draft; the
+        // activity-log line below is what the team reads as "we contacted them".
 
         // Audit the email send action
         await audit(
@@ -5144,7 +5113,7 @@ export const callsRouter = router({
           "Send Email",
           "email",
           input.customerId,
-          `To: ${input.recipientEmail}, Template: ${input.templateType}`
+          `To: ${allRecipients.join(", ")}, Template: ${input.templateType}`
         );
 
         // Log to activity log
@@ -5154,7 +5123,7 @@ export const callsRouter = router({
           customerId: input.customerId,
           activityType: "email",
           title: `Email sent: ${input.subject}`,
-          description: `To: ${input.recipientEmail} (${input.templateType})`,
+          description: `To: ${allRecipients.join(", ")} (${input.templateType})`,
           createdBy: ctx.user.id,
           createdAt: new Date(),
         }).catch(() => {});
@@ -5184,22 +5153,43 @@ export const callsRouter = router({
         group: z.string().min(1).max(255),
         customerId: z.number().optional(),
         contactName: z.string().max(255).optional(),
+        /** Saved payment contact picked from the list; resolved to a name for the log line. */
+        contactId: z.number().optional(),
         outcome: z.enum(["Reached", "No Answer"]),
         notes: z.string().max(2000).optional(),
         confirmationStatus: z.enum(confirmationStatuses).optional(),
+        /**
+         * What the customer actually answered, when it differs from the status the
+         * call ends on. A refusal followed by a new call-back date used to be
+         * invisible: only the resulting status was logged, so the timeline read as
+         * if the customer had cooperated. The dialog now sends the original
+         * response here and the timeline records both.
+         */
+        customerResponse: z.enum(confirmationStatuses).optional(),
         confirmationAmount: z.number().optional(),
         followUpDate: z.number().optional(),
         promisedDate: z.number().optional(),
-        // When Confirmed and an open promise already exists: reschedule it instead of creating a new one.
+        /**
+         * Deprecated. A group carries at most one open promise, so a newly logged
+         * Promise to Pay always moves the existing open promise; the collector is no
+         * longer asked to choose. Still accepted so older clients keep working.
+         */
         reschedulePromiseId: z.number().optional(),
         /**
-         * Team member who should own the auto-created follow-up / promise-check task.
-         * Omitted → the task stays with the colleague who logged the call.
+         * Accepted for backwards compatibility with existing clients. Logging a call
+         * no longer touches tasks, so nothing is assigned here.
          */
         assigneeId: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      /*
+       * Logging a call is a pure record of a conversation (user requirement 2/8):
+       * it must neither create/modify/cancel any task, nor be blocked by one.
+       * The call therefore writes an activity-log line, and — when the collector
+       * picked one — the group's confirmation status and promise record. Tasks stay
+       * entirely in the user's hands via the Tasks page / New Task.
+       */
       // Promise to Pay must always carry a target date — it stays active until that date passes.
       if (input.confirmationStatus === "Confirmed" && !input.promisedDate) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A promised payment date is required for Promise to Pay." });
@@ -5209,21 +5199,110 @@ export const callsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "A follow-up date is required for Pending Follow-up." });
       }
       const parts: string[] = [];
-      if (input.contactName) parts.push(`Contact: ${input.contactName}`);
+      /*
+       * The timeline entry has to stand on its own: months later the collector must
+       * be able to read one line and know who was called, at which company, what
+       * they answered and for how much. The dialog sends a contactId when a saved
+       * contact is picked from the list, so resolve it to a name here — otherwise
+       * the person we spoke to disappears from the record.
+       */
+      let contactLabel = input.contactName?.trim() || null;
+      if (!contactLabel && input.contactId) {
+        const rows = await db.getPaymentContact(input.contactId).catch(() => []);
+        const picked = Array.isArray(rows) ? rows[0] : rows;
+        if (picked) contactLabel = [picked.name, (picked as any).title].filter(Boolean).join(", ");
+      }
+      let companyLabel: string | null = null;
+      if (input.customerId) {
+        const cust = await db.getCustomer(input.customerId).catch(() => null);
+        const name = cust?.name?.trim();
+        // Only worth showing when it adds something beyond the group name.
+        if (name && name.toUpperCase() !== input.group.trim().toUpperCase()) companyLabel = name;
+      }
+      if (companyLabel) parts.push(companyLabel);
+      if (contactLabel) parts.push(`Contact: ${contactLabel}`);
       if (input.notes) parts.push(input.notes);
-      await db.addActivityLog({
+      // A no-answer call is a contact attempt: it changes no status and creates no
+      // task, so the log line is the only trace. Spell that out, otherwise the
+      // entry is indistinguishable from a conversation that simply went nowhere.
+      if (input.outcome === "No Answer" && !input.confirmationStatus) {
+        parts.push("Contact attempt — no one answered; status unchanged");
+      }
+      /*
+       * One call = one timeline entry. The outcome the collector picked (promise,
+       * follow-up, broken...) is folded into this single line instead of being
+       * logged again by the promise helpers, which used to make one call appear
+       * twice in the communication timeline.
+       */
+      const outcomeLabel = (() => {
+        if (!input.confirmationStatus) return null;
+        const label = confirmationStatusLabel(input.confirmationStatus);
+        if (input.confirmationStatus === "Confirmed") {
+          const amt = input.confirmationAmount && input.confirmationAmount > 0
+            ? `€${Number(eur(input.confirmationAmount)).toLocaleString()}`
+            : "amount not stated";
+          const dateStr = input.promisedDate ? new Date(input.promisedDate).toLocaleDateString("en-GB") : "—";
+          return `${label}: ${amt} by ${dateStr}`;
+        }
+        if (input.confirmationStatus === "Pending Follow-up" && input.followUpDate) {
+          const amt =
+            input.confirmationAmount && input.confirmationAmount > 0
+              ? `€${Number(eur(input.confirmationAmount)).toLocaleString()} · `
+              : "";
+          return `${label}: ${amt}call back on ${new Date(input.followUpDate).toLocaleDateString("en-GB")}`;
+        }
+        return label;
+      })();
+      /*
+       * A call can start with a refusal and still end with a new date: the collector
+       * picks "Did not confirm" and then chooses Pending Follow-up or Reschedule
+       * Promise as the way forward. Both facts belong in the record — the refusal is
+       * the collections signal, the new date is only the plan. Without this line the
+       * timeline showed just the plan and the refusal was lost.
+       */
+      const responseLabel =
+        input.customerResponse && input.customerResponse !== input.confirmationStatus
+          ? confirmationStatusLabel(input.customerResponse)
+          : null;
+      if (responseLabel) parts.unshift(`Customer response: ${responseLabel}`);
+      // The outcome already leads the title, so repeating it in the body would show
+      // the same sentence twice in the timeline entry.
+      const activityId = await db.addActivityLog({
         groupName: input.group,
         customerId: input.customerId,
-        activityType: "call",
-        title: `Call logged — ${input.outcome}`,
+        activityType: input.confirmationStatus === "Confirmed" ? "promise" : "call",
+        title: outcomeLabel
+          ? responseLabel
+            ? `Call — ${input.outcome} · ${responseLabel} → ${outcomeLabel}`
+            : `Call — ${input.outcome} · ${outcomeLabel}`
+          : `Call logged — ${input.outcome}`,
         description: parts.length > 0 ? parts.join(" · ") : undefined,
         createdBy: ctx.user.id,
         createdAt: new Date(),
       });
 
+      /*
+       * @mentions in the call note are references to colleagues ("I informed X"),
+       * so they are recorded for the mentions inbox only — deliberately no task.
+       */
+      const mentioned = parseMentions(input.notes);
+      if (mentioned.length > 0) {
+        await db
+          .addNoteMentions(
+            mentioned.map(m => ({
+              memberId: m.memberId,
+              groupName: input.group,
+              source: "call" as const,
+              activityId,
+              excerpt: (input.notes ?? "").slice(0, 500),
+              createdBy: ctx.user.id,
+            })),
+          )
+          .catch(() => 0);
+      }
+
       // Update confirmation status if provided
       if (input.confirmationStatus) {
-        const previous = await db.getGroupConfirmationStatus(input.group);
         await db.upsertGroupConfirmationStatus(input.group, {
           status: input.confirmationStatus,
           // Amount always follows the new status: reset to 0 for Not Contacted / Broken,
@@ -5243,50 +5322,57 @@ export const callsRouter = router({
           updatedBy: ctx.user.id,
         });
 
-        // Cancel stale auto-created tasks/promises from the previous status
-        await cleanupStatusArtifacts(ctx, {
-          group: input.group,
-          previousStatus: previous?.status ?? null,
-          newStatus: input.confirmationStatus,
-        });
-
-        // "Confirmed" is effectively a Promise-to-Pay: auto-create the promise record
-        // (with follow-up task + activity log) via the shared helper.
+        // A promise to pay is part of the conversation, so it is still recorded —
+        // but only as a promise row + activity log, with no check task attached.
         if (input.confirmationStatus === "Confirmed") {
           let rescheduled: number | null = null;
-          if (input.reschedulePromiseId) {
-            rescheduled = await rescheduleGroupPromise(ctx, {
+          /*
+           * A group has one payment commitment at a time: when the customer names a
+           * new date, that is the same promise moving, not an extra one. The collector
+           * used to be asked "reschedule or create a new promise?", which added a step
+           * without adding information — and answering "new" produced two open promises
+           * for the same money, inflating the Desk's promised figures and the
+           * kept/broken statistics. The existing open promise is now always moved.
+           */
+          const existing = input.reschedulePromiseId
+            ? input.reschedulePromiseId
+            : (await findOpenGroupPromise(input.group).catch(() => null))?.id ?? null;
+          if (existing) {
+            rescheduled = await reschedulePromiseRecord(ctx, {
               group: input.group,
-              promiseId: input.reschedulePromiseId,
+              promiseId: existing,
               amount: input.confirmationAmount ?? 0,
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
-              assigneeId: input.assigneeId ?? null,
+              // Already covered by this call's single log line.
+              skipActivityLog: true,
             });
           }
           if (!rescheduled) {
-            await createGroupPromise(ctx, {
+            await createPromiseRecord(ctx, {
               group: input.group,
               customerId: input.customerId,
               amount: input.confirmationAmount,
               promisedDate: input.promisedDate ?? endOfCurrentMonth(),
               notes: input.notes,
-              contactName: input.contactName,
-              assigneeId: input.assigneeId ?? null,
+              contactName: contactLabel ?? undefined,
+              skipActivityLog: true,
             });
           }
         }
-
-        // "Pending Follow-up" with a date: create/reschedule a follow-up-call task
-        if (input.confirmationStatus === "Pending Follow-up" && input.followUpDate) {
-          await upsertFollowUpTask(ctx, {
+        /*
+         * "Paid": the money is in, so the collections cycle for this group is closed
+         * for the current month. Any open promise is settled as KEPT (not cancelled —
+         * the customer did what they said, and the kept/broken statistics must show
+         * it), and the follow-up / promise-check tasks that were chasing the money are
+         * cancelled. The status itself expires with the month: `isConfirmationStale`
+         * treats "Kept" as a closed outcome, so the group reappears as "Not Contacted"
+         * as soon as the next month starts.
+         */
+        if (input.confirmationStatus === "Kept") {
+          await settleGroupPromiseAsPaid(ctx, {
             group: input.group,
-            customerId: input.customerId,
-            followUpDate: input.followUpDate,
             amount: input.confirmationAmount,
-            notes: input.notes,
-            contactName: input.contactName,
-            assigneeId: input.assigneeId ?? null,
           });
         }
       }
@@ -5310,16 +5396,16 @@ export const callsRouter = router({
       if (row.status === "Pending Follow-up" || row.status === "Confirmed") {
         const nowTs = Date.now();
         const openAutoTasks = (await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => [])).filter(
-          t => t.description?.includes("(Follow-up: ") || t.description?.includes("(Promise #"),
+          t => taskGroup(t) !== null || taskPromiseId(t) !== null,
         );
         let linked: { id: number; status: string; dueDate: number | null } | null = null;
         if (row.status === "Pending Follow-up") {
-          const t = openAutoTasks.find(t => t.description?.includes(`(Follow-up: ${input.group})`));
+          const t = openAutoTasks.find(t => isTaskOfGroup(t, input.group));
           linked = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
         } else {
           const openPromise = await findOpenGroupPromise(input.group).catch(() => null);
           if (openPromise) {
-            const t = openAutoTasks.find(t => t.description?.includes(`(Promise #${openPromise.id})`));
+            const t = openAutoTasks.find(t => taskPromiseId(t) === openPromise.id);
             linked = t ? { id: t.id, status: t.status, dueDate: t.dueDate ?? null } : null;
           }
         }
@@ -5331,6 +5417,65 @@ export const callsRouter = router({
     }),
 
   /** Most recent open (Pending) promise for a group — used by Log Call to offer rescheduling. */
+  /**
+   * Record a Promise-to-Pay for a GROUP, from wherever the collector happens to be.
+   *
+   * Collection is tracked per group: a group carries one open payment commitment at a
+   * time. So this is the single entry point used by both the group card and a member
+   * company's card — when a commitment already exists it is MOVED to the new date
+   * (never duplicated), and when there is none a fresh promise plus its check task is
+   * created. `customerId` only records which company was on the phone.
+   */
+  recordGroupPromise: protectedProcedure
+    .input(
+      z.object({
+        group: z.string().min(1).max(255),
+        customerId: z.number().optional(),
+        amount: z.number().nonnegative().optional(),
+        promisedDate: z.number(),
+        notes: z.string().max(2000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await findOpenGroupPromise(input.group).catch(() => null);
+      if (existing) {
+        const moved = await rescheduleGroupPromise(ctx, {
+          group: input.group,
+          promiseId: existing.id,
+          amount: input.amount ?? 0,
+          promisedDate: input.promisedDate,
+          notes: input.notes,
+        });
+        if (moved) {
+          // The badge must follow the commitment, otherwise the Desk shows a stale date.
+          await db.upsertGroupConfirmationStatus(input.group, {
+            status: "Confirmed",
+            amount: String(input.amount ?? Number(existing.amount ?? 0)),
+            followUpDate: input.promisedDate,
+            notes: input.notes,
+            updatedBy: ctx.user.id,
+          });
+          return { promiseId: moved, moved: true };
+        }
+      }
+      const promiseId = await createGroupPromise(ctx, {
+        group: input.group,
+        customerId: input.customerId,
+        amount: input.amount,
+        promisedDate: input.promisedDate,
+        notes: input.notes,
+      });
+      if (!promiseId) throw new TRPCError({ code: "NOT_FOUND", message: "Group has no companies" });
+      await db.upsertGroupConfirmationStatus(input.group, {
+        status: "Confirmed",
+        amount: String(input.amount ?? 0),
+        followUpDate: input.promisedDate,
+        notes: input.notes,
+        updatedBy: ctx.user.id,
+      });
+      return { promiseId, moved: false };
+    }),
+
   getOpenPromise: protectedProcedure
     .input(z.object({ group: z.string().min(1).max(255) }))
     .query(async ({ input }) => {
@@ -5339,8 +5484,8 @@ export const callsRouter = router({
 
   /**
    * Active communication ("case") for a group — the single open promise-check,
-   * follow-up-call or escalated task. Used by the Log Call button to first ask
-   * whether to open the existing task or just log another call.
+   * or follow-up-call task. Used by the Log Call button to first ask
+    * whether to open the existing task or just log another call.
    */
   getActiveCommunication: protectedProcedure
     .input(z.object({ group: z.string().min(1).max(255) }))
@@ -5349,31 +5494,18 @@ export const callsRouter = router({
       const status = row?.status ?? null;
       if (!row || !status) return null;
       if (isConfirmationStale(status, row.followUpDate, new Date(), (row as any).updatedAt ?? null)) return null;
-      if (status !== "Pending Follow-up" && status !== "Confirmed" && status !== "Escalated") return null;
+      if (status !== "Pending Follow-up" && status !== "Confirmed") return null;
       const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] }).catch(() => []);
       if (status === "Pending Follow-up") {
-        const t = openTasks.find(t => t.description?.includes(`(Follow-up: ${input.group})`));
+        const t = openTasks.find(t => isTaskOfGroup(t, input.group));
         if (!t) return null;
         return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: row.amount ?? null };
       }
-      if (status === "Confirmed") {
-        const openPromise = await findOpenGroupPromise(input.group).catch(() => null);
-        if (!openPromise) return null;
-        const t = openTasks.find(t => t.description?.includes(`(Promise #${openPromise.id})`));
-        if (!t) return null;
-        return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: String(openPromise.amount ?? row.amount ?? "") };
-      }
-      // Escalated: find the open "Escalated: ..." task by group marker or customer group.
-      const customers = await db.listCustomers().catch(() => []);
-      const t = openTasks.find(t => {
-        if (!t.title.startsWith("Escalated:")) return false;
-        const fm = t.description?.match(/\(Follow-up: (.+?)\)/);
-        if (fm?.[1] === input.group) return true;
-        const c = customers.find(c => c.id === t.customerId);
-        return !!c && (((c.customerGroup ?? "").trim()) || c.name) === input.group;
-      });
+      const openPromise = await findOpenGroupPromise(input.group).catch(() => null);
+      if (!openPromise) return null;
+      const t = openTasks.find(t => taskPromiseId(t) === openPromise.id);
       if (!t) return null;
-      return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: row.amount ?? null };
+      return { status, taskId: t.id, title: t.title, dueDate: t.dueDate ?? null, amount: String(openPromise.amount ?? row.amount ?? "") };
     }),
 
   /** Open follow-up-call task for a group — used by Log Call to show the current
@@ -5381,9 +5513,8 @@ export const callsRouter = router({
   getOpenFollowUpTask: protectedProcedure
     .input(z.object({ group: z.string().min(1).max(255) }))
     .query(async ({ input }) => {
-      const marker = `(Follow-up: ${input.group})`;
       const openTasks = await db.listTasks({ statuses: ["Pending", "In Progress"] });
-      const t = openTasks.find(task => task.description?.includes(marker));
+      const t = openTasks.find(task => isTaskOfGroup(task, input.group));
       if (!t) return null;
       return { id: t.id, dueDate: t.dueDate, rescheduleCount: t.rescheduleCount ?? 0, title: t.title };
     }),

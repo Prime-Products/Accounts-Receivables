@@ -7,20 +7,92 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fmtEur, ratingColors, confirmationStatusColors, confirmationStatusLabels, fmtDate } from "@/lib/format";
+import {
+  fmtEur,
+  ratingColors,
+  confirmationStatusColors,
+  confirmationStatusLabels,
+  fmtDate,
+  isPromiseAmountStated,
+  PROMISE_NO_AMOUNT_LABEL,
+} from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ExternalLink, Layers, Pencil, Phone, Search, Sparkles, Users } from "lucide-react";
+import { collectionActionSortValue } from "@/lib/collectionStatusSort";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BellRing, Filter, Pencil, Phone, Search, Sparkles, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
 import { useLocation, useSearch } from "wouter";
 import LogCallDialog from "@/components/LogCallDialog";
-import TaskDetailDialog from "@/components/TaskDetailDialog";
 import { matchesAllTokens } from "@shared/textMatch";
 
-type GroupSortKey = "companies" | "open" | "overdue" | "overdueEom" | "forecast" | "collected" | "remaining" | "overdueCount";
-type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
+type GroupSortKey =
+  | "companies"
+  | "collectionStatus"
+  | "open"
+  | "overdue"
+  | "overdueEom"
+  | "forecast"
+  | "collected"
+  | "remaining"
+  | "overdueCount";
+
+
+/** Age of the last logged call, in whole days. */
+function daysSince(ts: number): number {
+  return Math.floor((Date.now() - ts) / 86400000);
+}
+
+
+/**
+ * The date a group is waiting on, right under its status badge: the promised
+ * payment date for a Promise to Pay, or the follow-up date otherwise. When that
+ * date has arrived the line turns red/amber and says so — this is how the Desk
+ * tells you to act, instead of a separate call-back list.
+ */
+const DueDateLine = memo(function DueDateLine({
+  status,
+  followUpDate,
+  promiseDate,
+  actionDate,
+  actionDue,
+}: {
+  status: string | null;
+  followUpDate: number | null;
+  promiseDate: number | null;
+  actionDate: number | null;
+  actionDue: "today" | "overdue" | null;
+}) {
+  const isPromise = status === "Confirmed";
+  const date = actionDate ?? (isPromise ? promiseDate : followUpDate);
+  if (!date) return null;
+  const label = isPromise ? "Promised" : "Follow-up";
+  const days = actionDue === "overdue" ? daysSince(date) : 0;
+  return (
+    <div
+      className={`text-xs mt-1 flex items-center gap-1 whitespace-nowrap ${
+        actionDue === "overdue"
+          ? "font-semibold text-red-600"
+          : actionDue === "today"
+            ? "font-medium text-amber-600"
+            : "text-muted-foreground"
+      }`}
+      title={
+        actionDue === "overdue"
+          ? `${label} ${fmtDate(date)} — ${days} day(s) past due, log a call to move it forward`
+          : actionDue === "today"
+            ? `${label} ${fmtDate(date)} — due today`
+            : `${label} ${fmtDate(date)}`
+      }
+    >
+      {actionDue && <BellRing className="h-3 w-3 shrink-0" />}
+      <span>
+        {label}: {fmtDate(date)}
+        {actionDue === "overdue" ? ` · ${days}d late` : actionDue === "today" ? " · today" : ""}
+      </span>
+    </div>
+  );
+});
 
 /** Click-to-edit forecast cell. Saving corrects the month's forecast (expected + initial baseline). */
 const EditableForecastCell = memo(function EditableForecastCell({ group, value }: { group: string; value: number }) {
@@ -82,94 +154,66 @@ const EditableForecastCell = memo(function EditableForecastCell({ group, value }
 });
 
 /**
- * Clickable confirmation badge. "Promise to Pay" / "Pending Follow-up" badges with a
- * linked auto-created task open that task — never the Log Call dialog (logging a call
- * happens when resolving the task as Kept / Not paid). Statuses without a task
- * (Not Contacted / Broken / Kept) open the Log Call dialog to start a new cycle.
+ * Clickable confirmation badge. It only ever opens the Log Call dialog: a status is
+ * the outcome of a conversation, so it is never set straight from the list. The
+ * badge turns red once the promised / follow-up date has passed.
  */
 const ConfirmationBadgeButton = memo(function ConfirmationBadgeButton({
   group,
   status,
-  taskId,
   taskOverdue,
+  updatedAt,
+  updatedBy,
 }: {
   group: string;
   status: string;
-  taskId?: number | null;
   taskOverdue?: boolean;
+  updatedAt?: number | null;
+  updatedBy?: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [taskOpen, setTaskOpen] = useState(false);
   const [loadMembers, setLoadMembers] = useState(false);
-  const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: loadMembers });
-  const members = useMemo(
-    () =>
-      (allCustomers ?? [])
-        .filter(c => ((c.customerGroup ?? "").trim() || c.name) === group)
-        .map(c => ({ id: c.id, name: c.name, openBalance: c.openBalance })),
-    [allCustomers, group]
-  );
+  // Only this group's companies are fetched. The full scored customer list is
+  // several megabytes, and the dialog needs three fields per member.
+  const { data: groupMembers } = trpc.customers.groupMembers.useQuery({ group }, { enabled: loadMembers });
+  const members = useMemo(() => groupMembers ?? [], [groupMembers]);
   const defaultCustomerId = useMemo(
     () => (members.length > 0 ? [...members].sort((a, b) => b.openBalance - a.openBalance)[0].id : undefined),
     [members]
   );
-  const taskBackedStatuses = ["Confirmed", "Pending Follow-up", "Escalated"];
-  const hasLinkedTask = taskId != null && taskBackedStatuses.includes(status);
+  const taskBackedStatuses = ["Confirmed", "Pending Follow-up"];
   const isOverdue = !!taskOverdue && taskBackedStatuses.includes(status);
-  // Task-backed statuses must always open the task; a missing open task means the
-  // status is stale (e.g. the task was cancelled) → offer to reset it instead of
-  // silently opening the Log Call dialog.
-  const isTaskBacked = taskBackedStatuses.includes(status);
-  const utils = trpc.useUtils();
-  const resetStale = trpc.calls.resetStaleConfirmation.useMutation({
-    onSuccess: r => {
-      toast.success(
-        r.reset
-          ? "Status reset to Not Contacted — the linked task was no longer open."
-          : "Status refreshed."
-      );
-      utils.customers.groups.invalidate();
-      utils.customers.groupDetail.invalidate();
-    },
-    onError: e => toast.error(e.message),
-  });
+  const reviewedLabel = updatedAt
+    ? `Last reviewed ${new Date(updatedAt).toLocaleDateString("en-GB")}${updatedBy ? ` by ${updatedBy}` : ""}`
+    : "Never reviewed";
   return (
     <>
+      {/*
+        Clicking the badge always starts a call — the only place a confirmation
+        status can change, so every status carries a conversation behind it.
+      */}
       <button
         type="button"
-        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border cursor-pointer transition-transform hover:shadow-sm active:scale-[0.97] ${
+        className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs font-medium cursor-pointer transition-transform hover:shadow-sm active:scale-[0.97] ${
           isOverdue
             ? "bg-red-100 text-red-700 border-red-300"
             : confirmationStatusColors[status] || "bg-gray-100 text-gray-700 border-gray-200"
         }`}
         title={
           isOverdue
-            ? "Overdue task — the target date has passed and the linked task is still open. Click to open it."
-            : hasLinkedTask
-              ? "Click to open the linked follow-up task"
-              : isTaskBacked
-                ? "The linked task is no longer open — click to reset this stale status"
-                : "Click to log a call and change the confirmation status"
+            ? `The target date has passed. Click to log a call and update the status. ${reviewedLabel}.`
+            : `Click to log a call — the status changes from there. ${reviewedLabel}.`
         }
-        onClick={() => {
-          if (hasLinkedTask) {
-            setTaskOpen(true);
-            return;
-          }
-          if (isTaskBacked) {
-            // Stale badge (task cancelled/closed elsewhere) — sync the status.
-            if (!resetStale.isPending) resetStale.mutate({ group });
-            return;
-          }
+        onClick={e => {
+          e.stopPropagation();
           setLoadMembers(true);
           setOpen(true);
         }}
       >
         {isOverdue && <AlertTriangle className="h-3 w-3 text-red-600" />}
         {confirmationStatusLabels[status] ?? status}
-        {hasLinkedTask ? <ExternalLink className="h-3 w-3 opacity-40" /> : <Phone className="h-3 w-3 opacity-40" />}
+        <Phone className="h-3 w-3 opacity-40" />
       </button>
-      {taskOpen && <TaskDetailDialog taskId={taskId ?? null} open={taskOpen} onOpenChange={setTaskOpen} />}
       {open && (
         <LogCallDialog
           group={group}
@@ -227,9 +271,40 @@ function PlainHead({ label, col, cols, className }: { label?: string; col: strin
   );
 }
 
+/** Left-aligned sortable header cell (for text columns such as Collection Status). */
+function SortableTextHead({
+  label,
+  active,
+  dir,
+  onClick,
+  col,
+  cols,
+}: {
+  label: string;
+  active: boolean;
+  dir: "asc" | "desc";
+  onClick: () => void;
+  col: string;
+  cols: ResizableColumnsApi;
+}) {
+  return (
+    <TableHead className="relative" style={cols.style(col)}>
+      <button className="inline-flex items-center gap-1 hover:text-foreground w-full max-w-full pr-1" onClick={onClick}>
+        <span className="truncate">{label}</span>
+        {active ? (
+          dir === "desc" ? <ArrowDown className="h-3 w-3 shrink-0" /> : <ArrowUp className="h-3 w-3 shrink-0" />
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-40 shrink-0" />
+        )}
+      </button>
+      <ColResizer col={col} api={cols} />
+    </TableHead>
+  );
+}
+
 const GROUP_COL_DEFAULTS: Record<string, number> = {
   group: 240,
-  confirmation: 150,
+  confirmation: 175,
   promised: 100,
   open: 120,
   overdue: 120,
@@ -239,24 +314,10 @@ const GROUP_COL_DEFAULTS: Record<string, number> = {
   remaining: 105,
 };
 
-const COMPANY_COL_DEFAULTS: Record<string, number> = {
-  code: 90,
-  name: 300,
-  score: 80,
-  open: 130,
-  overdue: 130,
-  overdueEom: 130,
-  credit: 120,
-};
-
 export default function Customers() {
-  const [view, setView] = useState<"groups" | "companies">("groups");
-  const { data, isLoading } = trpc.customers.list.useQuery(undefined, {
-    enabled: view === "companies",
-  });
-  const { data: groups, isLoading: groupsLoading } = trpc.customers.groups.useQuery(undefined, {
-    enabled: view === "groups",
-  });
+  // Collections is tracked per group only. A single company is reached from its
+  // group's member list (Customer 360), never from a flat company list here.
+  const { data: groups, isLoading: groupsLoading } = trpc.customers.groups.useQuery();
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
   const searchStr = useSearch();
@@ -266,9 +327,20 @@ export default function Customers() {
     return p && ["problematic", "critical", "on-hold", "legal", "normal"].includes(p) ? p : "all";
   });
   const [ratingFilter, setRatingFilter] = useState<string>("all");
+  /**
+   * Contact recency filter: "all" | "never" | "unanswered" | "called-today" |
+   * a number of days meaning "not called in N days".
+   */
+  const [contactFilter, setContactFilter] = useState<string>("all");
+  /**
+   * Action-due filter: "all" | "due" (promise/follow-up date reached, i.e. today
+   * or earlier) | "overdue" (the date has already passed). This replaces the old
+   * separate Call Back page — the work surfaces here.
+   */
+  const [dueFilter, setDueFilter] = useState<"all" | "due" | "overdue">("all");
   const [confirmationFilter, setConfirmationFilter] = useState<string>(() => {
     const p = new URLSearchParams(window.location.search).get("conf");
-    return p && ["not-contacted", "confirmed", "pending", "broken", "escalated"].includes(p) ? p : "all";
+    return p && ["not-contacted", "confirmed", "pending", "broken"].includes(p) ? p : "all";
   });
   // Keep filters in sync with the URL — dashboard cards navigate here with ?status= / ?conf=
   // and the lazy useState initializers above only run on first mount.
@@ -279,7 +351,7 @@ export default function Customers() {
       setStatusFilter(s);
     }
     const c = params.get("conf");
-    if (c && ["not-contacted", "confirmed", "pending", "broken", "escalated"].includes(c)) {
+    if (c && ["not-contacted", "confirmed", "pending", "broken"].includes(c)) {
       setConfirmationFilter(c);
     }
   }, [searchStr]);
@@ -287,17 +359,10 @@ export default function Customers() {
   const [collectorFilter, setCollectorFilter] = useState<string>("all");
   const { data: teamMembers } = trpc.team.list.useQuery();
   const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
-  const [companySort, setCompanySort] = useState<{ key: CompanySortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
-  // Performance: render only the first 100 rows initially; "Show all" reveals the rest.
-  const [showAllGroups, setShowAllGroups] = useState(false);
-  const [showAllCompanies, setShowAllCompanies] = useState(false);
   const groupCols = useResizableColumns("customer-groups", GROUP_COL_DEFAULTS);
-  const companyCols = useResizableColumns("customer-companies", COMPANY_COL_DEFAULTS);
 
   const toggleGroupSort = (key: GroupSortKey) =>
     setGroupSort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
-  const toggleCompanySort = (key: CompanySortKey) =>
-    setCompanySort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
   const now = new Date();
   const { data: forecastStatus } = trpc.forecast.smartStatus.useQuery({
     year: now.getUTCFullYear(),
@@ -327,42 +392,6 @@ export default function Customers() {
     }
   };
 
-  const filtered = useMemo(() => {
-    if (!data) return [];
-    let rows = data.filter(c => {
-      // Contacts-only companies (never invoiced) belong to the directory, not to collections.
-      if ((c as { hasLedger?: boolean }).hasLedger === false) return false;
-      // Accents, letter case and word order are handled centrally, so a Greek
-      // query also finds a Latin-spelled record (and vice versa).
-      const matchesSearch = matchesAllTokens(search, [c.name, c.code, (c as { customerGroup?: string | null }).customerGroup]);
-      const matchesRating = ratingFilter === "all" || c.rating === ratingFilter;
-      return matchesSearch && matchesRating;
-    });
-    if (companySort.key) {
-      const getVal = (c: (typeof rows)[number]): number => {
-        switch (companySort.key) {
-          case "open":
-            return c.openBalance;
-          case "overdue":
-            return c.overdueBalance;
-          case "overdueEom":
-            return c.overdueEomBalance;
-          case "credit":
-            return Number(c.creditLimit);
-          case "score":
-            return c.ratingScore;
-          default:
-            return 0;
-        }
-      };
-      rows = [...rows].sort((a, b) => {
-        const diff = getVal(a) - getVal(b);
-        return companySort.dir === "asc" ? diff : -diff;
-      });
-    }
-    return rows;
-  }, [data, search, ratingFilter, companySort]);
-
   const filteredGroups = useMemo(() => {
     if (!groups) return [];
     let rows = groups.filter(g => {
@@ -381,7 +410,7 @@ export default function Customers() {
         (confirmationFilter === "confirmed" && g.confirmationStatus === "Confirmed") ||
         (confirmationFilter === "pending" && g.confirmationStatus === "Pending Follow-up") ||
         (confirmationFilter === "broken" && g.confirmationStatus === "Broken") ||
-        (confirmationFilter === "escalated" && g.confirmationStatus === "Escalated");
+        (confirmationFilter === "paid" && g.confirmationStatus === "Kept");
       const gManager = (g as any).accountManager as { id: number; name: string } | null;
       const matchesManager =
         managerFilter === "all" ||
@@ -392,13 +421,38 @@ export default function Customers() {
         collectorFilter === "all" ||
         (collectorFilter === "unassigned" && !gCollector) ||
         (collectorFilter !== "unassigned" && collectorFilter !== "all" && gCollector?.id === Number(collectorFilter));
-      return matchesSearch && matchesStatus && matchesRating && matchesConfirmation && matchesManager && matchesCollector;
+      const lastCallAt = (g as any).lastCallAt as number | null;
+      const noAnswerCount = ((g as any).noAnswerCount as number | undefined) ?? 0;
+      const ageDays = lastCallAt == null ? null : Math.floor((Date.now() - lastCallAt) / 86400000);
+      const matchesContact =
+        contactFilter === "all" ||
+        (contactFilter === "never" && lastCallAt == null) ||
+        (contactFilter === "unanswered" && noAnswerCount > 0) ||
+        (contactFilter === "called-today" && ageDays === 0) ||
+        // "Not called in N days" deliberately includes never-called groups: they are
+        // the most overdue for a call, not an edge case to hide.
+        (!Number.isNaN(Number(contactFilter)) &&
+          contactFilter !== "all" &&
+          !["never", "unanswered", "called-today"].includes(contactFilter) &&
+          (ageDays == null || ageDays >= Number(contactFilter)));
+      const actionDue = (g as any).actionDue as "today" | "overdue" | null;
+      const matchesDue =
+        dueFilter === "all" ||
+        (dueFilter === "due" && actionDue !== null) ||
+        (dueFilter === "overdue" && actionDue === "overdue");
+      return (
+        matchesSearch && matchesStatus && matchesRating && matchesConfirmation && matchesManager && matchesCollector && matchesContact && matchesDue
+      );
     });
     if (groupSort.key) {
       const getVal = (g: (typeof rows)[number]): number => {
         switch (groupSort.key) {
           case "companies":
             return g.companyCount;
+          case "collectionStatus":
+            // Sorted by the date the group is waiting on, not by status name:
+            // overdue → today → upcoming (soonest first) → Not Contacted.
+            return collectionActionSortValue(g as any);
           case "open":
             return g.openBalance;
           case "overdue":
@@ -417,13 +471,24 @@ export default function Customers() {
             return 0;
         }
       };
+      // The collection-status key is already "smaller = more urgent", so its
+      // first click must sort ascending; amount columns keep highest-first.
+      const urgencyKey = groupSort.key === "collectionStatus";
       rows = [...rows].sort((a, b) => {
         const diff = getVal(a) - getVal(b);
-        return groupSort.dir === "asc" ? diff : -diff;
+        const ascending = urgencyKey ? groupSort.dir === "desc" : groupSort.dir === "asc";
+        return ascending ? diff : -diff;
       });
+    } else {
+      // No explicit sort: same date-driven order, with the largest exposure first
+      // inside each date so equal-urgency rows are still ranked by money.
+      rows = [...rows].sort(
+        (a: any, b: any) =>
+          collectionActionSortValue(a) - collectionActionSortValue(b) || b.overdueBalance - a.overdueBalance
+      );
     }
     return rows;
-  }, [groups, search, statusFilter, ratingFilter, confirmationFilter, managerFilter, collectorFilter, groupSort]);
+  }, [groups, search, statusFilter, ratingFilter, confirmationFilter, managerFilter, collectorFilter, contactFilter, dueFilter, groupSort]);
 
   const groupTotals = useMemo(
     () =>
@@ -443,18 +508,23 @@ export default function Customers() {
     [filteredGroups]
   );
 
-  const companyTotals = useMemo(
+  /**
+   * Number of filters currently narrowing the desk. Surfaced with a Clear
+   * button, because a filter left on from yesterday hides real work.
+   */
+  const deskFilterCount = useMemo(
     () =>
-      filtered.reduce<{ open: number; overdue: number; overdueEom: number; credit: number }>(
-        (t, c) => ({
-          open: t.open + c.openBalance,
-          overdue: t.overdue + c.overdueBalance,
-          overdueEom: t.overdueEom + c.overdueEomBalance,
-          credit: t.credit + Number(c.creditLimit),
-        }),
-        { open: 0, overdue: 0, overdueEom: 0, credit: 0 }
-      ),
-    [filtered]
+      [
+        search.trim() !== "",
+        statusFilter !== "all",
+        confirmationFilter !== "all",
+        contactFilter !== "all",
+        dueFilter !== "all",
+        managerFilter !== "all",
+        collectorFilter !== "all",
+        ratingFilter !== "all",
+      ].filter(Boolean).length,
+    [search, statusFilter, confirmationFilter, contactFilter, dueFilter, managerFilter, collectorFilter, ratingFilter],
   );
 
   /** Overall summary across the filtered groups — same cards as the group view, but totals. */
@@ -510,19 +580,20 @@ export default function Customers() {
             <Users className="h-6 w-6" /> Collections Desk
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {view === "groups"
-              ? "Group tracking — click a group for its card with member companies"
-              : "Click a row for the Customer 360 View"}
+            Group tracking — click a group for its card with member companies
           </p>
         </div>
-        <Button
-          className="gap-2"
-          disabled={generate.isPending}
-          onClick={handleRunForecast}
-        >
-          <Sparkles className="h-4 w-4" />
-          {generate.isPending ? "Running…" : forecastStatus?.hasRun ? "Forecast (already run)" : "Run Forecast"}
-        </Button>
+        <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
+          <Button
+            size="sm"
+            className="gap-2"
+            disabled={generate.isPending}
+            onClick={handleRunForecast}
+          >
+            <Sparkles className="h-4 w-4" />
+            {generate.isPending ? "Running…" : forecastStatus?.hasRun ? "Forecast (already run)" : "Run Forecast"}
+          </Button>
+        </div>
       </div>
 
       {/* Strong re-run warning: the month's forecast already exists */}
@@ -572,30 +643,23 @@ export default function Customers() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex flex-wrap gap-3">
-        <Tabs value={view} onValueChange={v => setView(v as "groups" | "companies")}>
-          <TabsList className="h-10">
-            <TabsTrigger value="groups" className="gap-1.5">
-              <Layers className="h-4 w-4" /> Groups
-            </TabsTrigger>
-            <TabsTrigger value="companies" className="gap-1.5">
-              <Users className="h-4 w-4" /> Companies
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="relative flex-1 min-w-52">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder={view === "groups" ? "Search group…" : "Search by name or code…"}
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        {view === "groups" && (
+      {/* Collections is tracked per group only (the company card is reached from a
+          group's member list), so there is no view switch here — just the filters. */}
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="flex flex-1 flex-wrap items-center gap-2 rounded-lg border bg-muted/40 p-2 min-w-72">
+          <Filter className="h-4 w-4 text-muted-foreground shrink-0 ml-0.5" />
+          <div className="relative flex-1 min-w-48">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-9 h-9 bg-background"
+              placeholder="Search group…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
           <>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-40 h-9 bg-background">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -608,20 +672,53 @@ export default function Customers() {
               </SelectContent>
             </Select>
             <Select value={confirmationFilter} onValueChange={setConfirmationFilter}>
-              <SelectTrigger className="w-44">
-                <SelectValue placeholder="Confirmation" />
+              <SelectTrigger className="w-44 h-9 bg-background">
+                <SelectValue placeholder="Collection status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All confirmations</SelectItem>
+                <SelectItem value="all">All collection statuses</SelectItem>
                 <SelectItem value="not-contacted">Not Contacted</SelectItem>
                 <SelectItem value="confirmed">Promise to Pay</SelectItem>
                 <SelectItem value="pending">Pending Follow-up</SelectItem>
-                <SelectItem value="broken">Broken</SelectItem>
-                <SelectItem value="escalated">Escalated</SelectItem>
+                <SelectItem value="broken">Did not confirm</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
+              </SelectContent>
+            </Select>
+            {/*
+              Contact recency: the practical entry point for a day's calling —
+              "show me who nobody has called", rather than reading the whole list.
+            */}
+            <Select value={contactFilter} onValueChange={setContactFilter}>
+              <SelectTrigger className="w-44 h-9 bg-background">
+                <SelectValue placeholder="Contact" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any contact</SelectItem>
+                <SelectItem value="never">Never called</SelectItem>
+                <SelectItem value="7">Not called in 7 days</SelectItem>
+                <SelectItem value="14">Not called in 14 days</SelectItem>
+                <SelectItem value="30">Not called in 30 days</SelectItem>
+                <SelectItem value="unanswered">Has unanswered attempts</SelectItem>
+                <SelectItem value="called-today">Called today</SelectItem>
+              </SelectContent>
+            </Select>
+            {/*
+              Action due: replaces the old Call Back page. A promise date or
+              follow-up date that has arrived puts the group at the top of the
+              Desk; this filter narrows the list to exactly those rows.
+            */}
+            <Select value={dueFilter} onValueChange={v => setDueFilter(v as "all" | "due" | "overdue")}>
+              <SelectTrigger className="w-40 h-9 bg-background">
+                <SelectValue placeholder="Action due" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any due date</SelectItem>
+                <SelectItem value="due">Due today or earlier</SelectItem>
+                <SelectItem value="overdue">Past due only</SelectItem>
               </SelectContent>
             </Select>
             <Select value={managerFilter} onValueChange={setManagerFilter}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-40 h-9 bg-background">
                 <SelectValue placeholder="Manager" />
               </SelectTrigger>
               <SelectContent>
@@ -635,7 +732,7 @@ export default function Customers() {
               </SelectContent>
             </Select>
             <Select value={collectorFilter} onValueChange={setCollectorFilter}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-40 h-9 bg-background">
                 <SelectValue placeholder="Collector" />
               </SelectTrigger>
               <SelectContent>
@@ -649,23 +746,42 @@ export default function Customers() {
               </SelectContent>
             </Select>
           </>
-        )}
-        <Select value={ratingFilter} onValueChange={setRatingFilter}>
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="Rating" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All ratings</SelectItem>
-            {["A", "B", "C", "D", "E"].map(r => (
-              <SelectItem key={r} value={r}>
-                Rating {r}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <Select value={ratingFilter} onValueChange={setRatingFilter}>
+            <SelectTrigger className="w-32 h-9 bg-background">
+              <SelectValue placeholder="Rating" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All ratings</SelectItem>
+              {["A", "B", "C", "D", "E"].map(r => (
+                <SelectItem key={r} value={r}>
+                  Rating {r}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {deskFilterCount > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 gap-1.5 text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setSearch("");
+                setStatusFilter("all");
+                setConfirmationFilter("all");
+                setContactFilter("all");
+                setDueFilter("all");
+                setManagerFilter("all");
+                setCollectorFilter("all");
+                setRatingFilter("all");
+              }}
+            >
+              <X className="h-3.5 w-3.5" /> Clear {deskFilterCount}
+            </Button>
+          )}
+        </div>
       </div>
 
-      {view === "groups" && !groupsLoading && (
+      {!groupsLoading && (
         <>
           {/* Summary KPI cards — totals across the filtered groups (same layout as group view) */}
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
@@ -738,8 +854,7 @@ export default function Customers() {
 
       <Card>
         <CardContent className="p-0">
-          {view === "groups" ? (
-            groupsLoading ? (
+          {groupsLoading ? (
               <div className="p-4 space-y-2">
                 {[...Array(6)].map((_, i) => (
                   <Skeleton key={i} className="h-10" />
@@ -752,7 +867,14 @@ export default function Customers() {
                 <TableHeader>
                   <TableRow>
                     <PlainHead label="Group" col="group" cols={groupCols} />
-                    <PlainHead label="Confirmation" col="confirmation" cols={groupCols} />
+                    <SortableTextHead
+                      label="Collection Status"
+                      active={groupSort.key === "collectionStatus"}
+                      dir={groupSort.dir}
+                      onClick={() => toggleGroupSort("collectionStatus")}
+                      col="confirmation"
+                      cols={groupCols}
+                    />
                     <PlainHead label="Promised" col="promised" cols={groupCols} className="text-right" />
                     <SortableHead label="Open Balance" active={groupSort.key === "open"} dir={groupSort.dir} onClick={() => toggleGroupSort("open")} col="open" cols={groupCols} />
                     <SortableHead label="Overdue" active={groupSort.key === "overdue"} dir={groupSort.dir} onClick={() => toggleGroupSort("overdue")} col="overdue" cols={groupCols} />
@@ -784,10 +906,16 @@ export default function Customers() {
                       {fmtEur(groupTotals.remaining)}
                     </TableCell>
                   </TableRow>
-                  {(showAllGroups ? filteredGroups : filteredGroups.slice(0, 100)).map(g => (
+                  {filteredGroups.map(g => (
                     <TableRow
                       key={g.group}
-                      className="cursor-pointer"
+                      className={`cursor-pointer ${
+                        (g as any).actionDue === "overdue"
+                          ? "bg-red-50/70 hover:bg-red-50 dark:bg-red-500/5"
+                          : (g as any).actionDue === "today"
+                            ? "bg-amber-50/70 hover:bg-amber-50 dark:bg-amber-500/5"
+                            : ""
+                      }`}
                       onClick={() => navigate(`/groups/${encodeURIComponent(g.group)}`)}
                     >
                       <TableCell className="font-medium overflow-hidden">
@@ -821,7 +949,8 @@ export default function Customers() {
                         <ConfirmationBadgeButton
                           group={g.group}
                           status={g.confirmationStatus}
-                          taskId={(g as any).confirmationTaskId}
+                          updatedAt={(g as any).confirmationUpdatedAt ?? null}
+                          updatedBy={(g as any).confirmationUpdatedBy ?? null}
                           taskOverdue={(g as any).confirmationTaskOverdue}
                         />
                         {(g as any).confirmationCarriedOver && (
@@ -830,14 +959,31 @@ export default function Customers() {
                             <span>Carried over</span>
                           </div>
                         )}
-                        {g.confirmationFollowUpDate && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            Follow-up: {fmtDate(g.confirmationFollowUpDate)}
-                          </div>
-                        )}
+                        <DueDateLine
+                          status={g.confirmationStatus}
+                          followUpDate={g.confirmationFollowUpDate ?? null}
+                          promiseDate={(g as any).confirmationPromiseDate ?? null}
+                          actionDate={(g as any).actionDate ?? null}
+                          actionDue={(g as any).actionDue ?? null}
+                        />
                       </TableCell>
-                      <TableCell className={`text-right font-mono ${g.confirmationAmount > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
-                        {fmtEur(g.confirmationAmount)}
+                      {/*
+                        A promise / follow-up may legitimately carry no amount ("I'll pay",
+                        no figure given). Showing €0 there reads like a zero promise, so
+                        those rows say "amount not stated" instead.
+                      */}
+                      <TableCell
+                        className={`text-right ${
+                          isPromiseAmountStated(g.confirmationAmount)
+                            ? "font-mono text-emerald-700"
+                            : "text-[11px] italic text-muted-foreground"
+                        }`}
+                      >
+                        {isPromiseAmountStated(g.confirmationAmount)
+                          ? fmtEur(g.confirmationAmount)
+                          : g.confirmationStatus === "Confirmed" || g.confirmationStatus === "Pending Follow-up"
+                            ? PROMISE_NO_AMOUNT_LABEL
+                            : "—"}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {fmtEur(g.openBalance)}
@@ -854,100 +1000,13 @@ export default function Customers() {
                      <TableCell className={`text-right font-mono ${g.collected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                         {fmtEur(g.collected)}
                       </TableCell>
-                      <TableCell className={`text-right font-mono ${g.remaining > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
+                    <TableCell className={`text-right font-mono ${g.remaining > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
                         {fmtEur(g.remaining)}
                       </TableCell>
                     </TableRow>
                   ))}
-                  {!showAllGroups && filteredGroups.length > 100 && (
-                    <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={9} className="text-center py-4">
-                        <span className="text-sm text-muted-foreground mr-3">
-                          Showing 100 of {filteredGroups.length.toLocaleString()} groups
-                        </span>
-                        <Button variant="outline" size="sm" onClick={() => setShowAllGroups(true)}>
-                          Show all
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
-            )
-          ) : isLoading ? (
-            <div className="p-4 space-y-2">
-              {[...Array(6)].map((_, i) => (
-                <Skeleton key={i} className="h-10" />
-              ))}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="p-10 text-center text-muted-foreground">
-              No customers yet. Create one or pull them from Softone in Settings.
-            </div>
-          ) : (
-            <Table className="table-fixed" style={{ width: companyCols.totalWidth, minWidth: "100%" }}>
-              <TableHeader>
-                <TableRow>
-                  <PlainHead label="Code" col="code" cols={companyCols} />
-                  <PlainHead label="Name" col="name" cols={companyCols} />
-                  <SortableHead label="Rating" active={companySort.key === "score"} dir={companySort.dir} onClick={() => toggleCompanySort("score")} col="score" cols={companyCols} />
-                  <SortableHead label="Open Balance" active={companySort.key === "open"} dir={companySort.dir} onClick={() => toggleCompanySort("open")} col="open" cols={companyCols} />
-                  <SortableHead label="Overdue" active={companySort.key === "overdue"} dir={companySort.dir} onClick={() => toggleCompanySort("overdue")} col="overdue" cols={companyCols} />
-                  <SortableHead label="Overdue EOM" active={companySort.key === "overdueEom"} dir={companySort.dir} onClick={() => toggleCompanySort("overdueEom")} col="overdueEom" cols={companyCols} />
-                  <SortableHead label="Credit Limit" active={companySort.key === "credit"} dir={companySort.dir} onClick={() => toggleCompanySort("credit")} col="credit" cols={companyCols} />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
-                  <TableCell colSpan={3}>TOTAL ({filtered.length} companies)</TableCell>
-                  <TableCell className="text-right font-mono">{fmtEur(companyTotals.open)}</TableCell>
-                  <TableCell className={`text-right font-mono ${companyTotals.overdue > 0 ? "text-red-600" : ""}`}>
-                    {fmtEur(companyTotals.overdue)}
-                  </TableCell>
-                  <TableCell className={`text-right font-mono ${companyTotals.overdueEom > 0 ? "text-amber-600" : ""}`}>
-                    {fmtEur(companyTotals.overdueEom)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">{fmtEur(companyTotals.credit)}</TableCell>
-                </TableRow>
-                {(showAllCompanies ? filtered : filtered.slice(0, 100)).map(c => (
-                  <TableRow key={c.id} className="cursor-pointer" onClick={() => navigate(`/customers/${c.id}`)}>
-                    <TableCell className="font-mono text-sm">{c.code}</TableCell>
-                    <TableCell className="font-medium overflow-hidden">
-                      <span className="block truncate" title={c.name}>{c.name}</span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Badge
-                        variant="outline"
-                        className={`${ratingColors[c.rating] ?? ""} font-mono`}
-                        title={`Credit score ${c.ratingScore}/100${c.ratingFactors ? `\n${c.ratingFactors.map(f => `${f.label}: ${f.points}/${f.max} (${f.detail})`).join("\n")}` : ""}`}
-                      >
-                        {c.rating}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-mono">{fmtEur(c.openBalance)}</TableCell>
-                    <TableCell className={`text-right font-mono ${c.overdueBalance > 0 ? "text-red-600 font-semibold" : ""}`}>
-                      {fmtEur(c.overdueBalance)}
-                    </TableCell>
-                    <TableCell className={`text-right font-mono ${c.overdueEomBalance > 0 ? "text-amber-600" : ""}`}>
-                      {fmtEur(c.overdueEomBalance)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">{fmtEur(c.creditLimit)}</TableCell>
-                  </TableRow>
-                ))}
-                {!showAllCompanies && filtered.length > 100 && (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={8} className="text-center py-4">
-                      <span className="text-sm text-muted-foreground mr-3">
-                        Showing 100 of {filtered.length.toLocaleString()} companies
-                      </span>
-                      <Button variant="outline" size="sm" onClick={() => setShowAllCompanies(true)}>
-                        Show all
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
           )}
         </CardContent>
       </Card>

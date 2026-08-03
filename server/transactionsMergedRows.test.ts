@@ -51,10 +51,12 @@ describe("transactions list merges invoices, credit notes and payments", () => {
     for (const src of [customer, group]) {
       expect(src).toContain("const [paymentsOnly, setPaymentsOnly] = useState(false)");
       expect(src).toContain("Payments ({allTransfers.length})");
-      // Turning one filter on clears the other, so the list never shows an empty
-      // intersection of "only credit notes" and "only payments".
-      expect(src).toContain("setPaymentsOnly(v => !v); setCreditOnly(false)");
-      expect(src).toContain("setCreditOnly(v => !v); setPaymentsOnly(false)");
+      // Turning one filter on clears the other (and the invoice-only filters), so
+      // the list never shows an empty intersection of the two views.
+      expect(src).toContain("const toggleCreditOnly = () => {");
+      expect(src).toContain("const togglePaymentsOnly = () => {");
+      expect(src).toMatch(/const toggleCreditOnly[\s\S]{0,200}setPaymentsOnly\(false\)/);
+      expect(src).toMatch(/const togglePaymentsOnly[\s\S]{0,200}setCreditOnly\(false\)/);
     }
   });
 

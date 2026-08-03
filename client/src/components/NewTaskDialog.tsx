@@ -10,10 +10,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { TeamMemberSelect } from "@/components/TeamMemberSelect";
 import { trpc } from "@/lib/trpc";
 import { ChevronsUpDown, Plus } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
-export const TASK_TYPES = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual"] as const;
+export const TASK_TYPES = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual", "Help"] as const;
 
 /**
  * Reusable group-level task creation dialog. Tasks are always attached to a
@@ -35,6 +35,7 @@ export default function NewTaskDialog({
   attachInvoices,
   defaultTitle,
   defaultDescription,
+  defaultType,
 }: {
   defaultCustomerId?: number;
   customerIds?: number[];
@@ -45,6 +46,8 @@ export default function NewTaskDialog({
   attachInvoices?: { id: number; invoiceNumber: string; amount: number | string; currency?: string | null }[];
   defaultTitle?: string;
   defaultDescription?: string;
+  /** Preselected task type — e.g. "Help" when asking a colleague for help. */
+  defaultType?: (typeof TASK_TYPES)[number];
 }) {
   const utils = trpc.useUtils();
   const [internalOpen, setInternalOpen] = useState(false);
@@ -58,13 +61,38 @@ export default function NewTaskDialog({
   };
   const [customerOpen, setCustomerOpen] = useState(false);
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
-  const [type, setType] = useState<string>("Manual");
+  const [type, setType] = useState<string>(defaultType ?? "Manual");
   const [title, setTitle] = useState(defaultTitle ?? "");
   const [description, setDescription] = useState(defaultDescription ?? "");
-  const [dueDate, setDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  // A help request is rarely answered the same day, so it defaults to +3 days;
+  // ordinary tasks keep today's date.
+  const [dueDate, setDueDate] = useState(() =>
+    new Date(Date.now() + (defaultType === "Help" ? 3 * 86400000 : 0)).toISOString().slice(0, 10)
+  );
+  /**
+   * Every task has an owner: no work item is ever left hanging without a name on
+   * it. The field is pre-filled with the logged-in user (see the effect below) and
+   * can be changed to a colleague, but it cannot be emptied.
+   */
   const [assigneeId, setAssigneeId] = useState<number | null>(null);
+  const isHelp = defaultType === "Help";
 
-  const { data: allCustomers } = trpc.customers.list.useQuery(undefined, { enabled: open });
+  // A help request is always raised by the logged-in user: we name them in the
+  // dialog and exclude them from the colleague list.
+  const { data: me } = trpc.team.me.useQuery(undefined, { enabled: open });
+  const myMemberId = me?.memberId ?? null;
+  const myName = me?.name ?? "you";
+
+  /**
+   * Default owner = me. For a help request the point is to hand it to someone
+   * else, so that one starts empty and is validated on submit instead.
+   */
+  useEffect(() => {
+    if (!open || isHelp) return;
+    if (assigneeId == null && myMemberId != null) setAssigneeId(myMemberId);
+  }, [open, isHelp, assigneeId, myMemberId]);
+
+  const { data: allCustomers } = trpc.customers.options.useQuery(undefined, { enabled: open });
   const customers = customerIds ? (allCustomers ?? []).filter(c => customerIds.includes(c.id)) : (allCustomers ?? []);
   const groupKeyOf = (c: { customerGroup?: string | null; name: string }) =>
     (c.customerGroup ?? "").trim() || c.name;
@@ -84,7 +112,7 @@ export default function NewTaskDialog({
 
   const create = trpc.tasks.create.useMutation({
     onSuccess: () => {
-      toast.success("Task created");
+      toast.success(isHelp ? "Help request sent" : "Task created");
       utils.tasks.invalidate();
       utils.forecast.dashboard.invalidate();
       utils.customers.invalidate();
@@ -92,23 +120,29 @@ export default function NewTaskDialog({
       setCustomerId(defaultCustomerId ?? null);
       setTitle("");
       setDescription("");
-      setType("Manual");
-      setAssigneeId(null);
+      setType(defaultType ?? "Manual");
+      setAssigneeId(isHelp ? null : myMemberId);
     },
     onError: e => toast.error(e.message),
   });
 
   const submit = () => {
     if (!customerId) return toast.error("Select a group");
-    if (!title.trim()) return toast.error("Enter a task title");
+    if (!title.trim()) return toast.error(isHelp ? "Describe what you need" : "Enter a task title");
     if (!dueDate) return toast.error("Select a due date");
+    // Mandatory owner: for a normal task we fall back to the current user, for a
+    // help request the colleague must be chosen explicitly.
+    const owner = assigneeId ?? (isHelp ? null : myMemberId);
+    if (owner == null) {
+      return toast.error(isHelp ? "Pick the colleague you are asking" : "Assign the task to someone");
+    }
     create.mutate({
       customerId,
       type: type as (typeof TASK_TYPES)[number],
       title: title.trim(),
       description: description.trim() || undefined,
       dueDate: new Date(`${dueDate}T12:00:00`).getTime(),
-      assigneeId: assigneeId ?? undefined,
+      assigneeId: owner,
       invoiceIds: attachInvoices && attachInvoices.length > 0 ? attachInvoices.map(i => i.id) : undefined,
     });
   };
@@ -132,7 +166,12 @@ export default function NewTaskDialog({
       )}
       <ResizableDialogContent storageKey="new-task" className="sm:max-w-none w-[32rem] max-w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>New Task</DialogTitle>
+          <DialogTitle>{isHelp ? "Ask a colleague for help" : "New Task"}</DialogTitle>
+          {isHelp && (
+            <p className="text-xs text-muted-foreground">
+              This creates a Help task for your colleague and records the request in the customer's activity log.
+            </p>
+          )}
         </DialogHeader>
         <div className="space-y-4">
           <div className={hideCustomerPicker ? "hidden" : "space-y-1.5"}>
@@ -185,13 +224,37 @@ export default function NewTaskDialog({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Due date</Label>
+              <Label>{isHelp ? "Answer needed by" : "Due date"}</Label>
               <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Assigned to (optional)</Label>
-            <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} />
+            <Label>
+              {isHelp ? "Ask a colleague" : "Assigned to"} <span className="text-destructive">*</span>
+            </Label>
+            <TeamMemberSelect
+              value={assigneeId}
+              // The field cannot be cleared: clearing falls back to me (or, for a
+              // help request, leaves it empty so the validation asks for a name).
+              onChange={id => setAssigneeId(id ?? (isHelp ? null : myMemberId))}
+              // Asking yourself for help is not a thing: your own record is out.
+              excludeIds={isHelp && myMemberId != null ? [myMemberId] : undefined}
+              emptyLabel={isHelp ? "— Search a colleague… —" : "— Search a colleague… —"}
+            />
+            {isHelp ? (
+              <p className="text-[11px] text-muted-foreground">
+                Requested by <span className="font-medium text-foreground">{myName}</span>
+                {assigneeId == null
+                  ? " — pick the colleague you need an answer from."
+                  : " — you stay a watcher, so you see the answer."}
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                {assigneeId != null && assigneeId === myMemberId
+                  ? <>Assigned to <span className="font-medium text-foreground">{myName}</span> — pick a colleague to hand it over.</>
+                  : "Every task has an owner; pick yourself to keep it on your own list."}
+              </p>
+            )}
           </div>
           {attachInvoices && attachInvoices.length > 0 && (
             <div className="space-y-1.5">
@@ -211,12 +274,21 @@ export default function NewTaskDialog({
             </div>
           )}
           <div className="space-y-1.5">
-            <Label>Title</Label>
-            <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Call customer about overdue balance" />
+            <Label>{isHelp ? "What do you need?" : "Title"}</Label>
+            <Input
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder={isHelp ? "e.g. Was the delivery completed?" : "e.g. Call customer about overdue balance"}
+            />
           </div>
           <div className="space-y-1.5">
-            <Label>Description (optional)</Label>
-            <Textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} placeholder="Details, notes, agreed actions…" />
+            <Label>{isHelp ? "Details (optional)" : "Description (optional)"}</Label>
+            <Textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              rows={3}
+              placeholder={isHelp ? "What the customer claims, what you already checked…" : "Details, notes, agreed actions…"}
+            />
           </div>
         </div>
         <DialogFooter>
@@ -224,7 +296,7 @@ export default function NewTaskDialog({
             Cancel
           </Button>
           <Button onClick={submit} disabled={create.isPending}>
-            {create.isPending ? "Creating…" : "Create Task"}
+            {create.isPending ? (isHelp ? "Sending…" : "Creating…") : isHelp ? "Send request" : "Create Task"}
           </Button>
         </DialogFooter>
       </ResizableDialogContent>

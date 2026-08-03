@@ -1,28 +1,28 @@
 import { Badge } from "@/components/ui/badge";
 import NewTaskDialog from "@/components/NewTaskDialog";
-import GroupAiSummaryDialog from "@/components/GroupAiSummaryDialog";
-import GroupNotesDialog from "@/components/GroupNotesDialog";
 import { BankDetails } from "@/components/BankDetails";
 import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
-import { AccountManagerControl } from "@/components/AccountManagerControl";
+import { PeopleRow } from "@/components/PeopleRow";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+import { CommunicationPanel, CommunicationToggle, useCommunicationPanel } from "@/components/CommunicationPanel";
+import { buildTimeline } from "@/lib/timeline";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, HandCoins, Layers, Plus } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, HandCoins, HelpCircle, Layers, Plus } from "lucide-react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 
@@ -36,14 +36,48 @@ export default function CustomerDetail() {
     { group: (data as any)?.groupKey ?? "" },
     { enabled: !!(data as any)?.groupKey },
   );
+  /**
+   * Collections history lives at group level (that is how calls are logged), so
+   * the company card shows the same timeline for its group, plus this company's
+   * own tasks and payments.
+   */
+  const groupKey = ((data as any)?.groupKey ?? "") as string;
+  const { data: groupDetail, isLoading: historyLoading } = trpc.customers.groupDetail.useQuery(
+    { group: groupKey },
+    { enabled: !!groupKey },
+  );
+  const { data: groupNoteRows } = trpc.customers.groupNotes.useQuery({ group: groupKey }, { enabled: !!groupKey });
+  const timelineEntries = useMemo(
+    () =>
+      buildTimeline({
+        activityLogs: (groupDetail as any)?.activityLogs,
+        notes: groupNoteRows as any,
+        tasks: (data as any)?.tasks,
+        receipts: (data as any)?.receipts,
+      }),
+    [groupDetail, groupNoteRows, data],
+  );
 
+  /** Show/hide the communication side panel; shared with the group card. */
+  const commPanel = useCommunicationPanel();
+
+  const [askOpen, setAskOpen] = useState(false);
+  /*
+   * Promise-to-Pay is offered here as well as on the group card — the collector may be
+   * looking at one company when the customer commits. What it must NOT do is create a
+   * company-level commitment: the group is the unit of collection, so this saves through
+   * `recordGroupPromise`, which moves the group's existing open promise instead of
+   * opening a second one for the same money.
+   */
   const [promiseOpen, setPromiseOpen] = useState(false);
   const [promiseForm, setPromiseForm] = useState({ amount: "", date: "", notes: "" });
-  const addPromise = trpc.forecast.addPromise.useMutation({
-    onSuccess: () => {
-      toast.success("Promise-to-pay recorded");
-      utils.customers.get360.invalidate({ id });
+  const recordPromise = trpc.calls.recordGroupPromise.useMutation({
+    onSuccess: res => {
+      toast.success(res.moved ? "The group's open promise was moved to the new date" : "Promise-to-Pay recorded for the group");
+      utils.customers.invalidate();
+      utils.calls.invalidate();
       setPromiseOpen(false);
+      setPromiseForm({ amount: "", date: "", notes: "" });
     },
     onError: e => toast.error(e.message),
   });
@@ -87,19 +121,50 @@ export default function CustomerDetail() {
     return true;
   });
   const paidHiddenCount = countSettled(invoices as any);
+  /**
+   * Contract installments on this company and how many of them the other filters
+   * are hiding, so the toggle can show a count and disable itself at zero.
+   */
+  const allInstallmentInvoices = invoices.filter(i => (i as any).isContractInstallment);
+  const installmentHiddenCount = allInstallmentInvoices.filter(i => {
+    if (hideSettled(i as any, showPaid, statusFilter)) return true;
+    if (!matchesStatusFilter(i as any, statusFilter)) return true;
+    return false;
+  }).length;
   // Credit notes are part of the same list; the installment/status filters apply
   // to invoices only, so they are hidden while those filters are narrowing down.
   const allCreditNotes = ((data as any).openCreditNotes ?? []) as any[];
+  /** A filter that only invoices can satisfy (status, installments) is narrowing the list. */
+  const invoiceOnlyFilterActive = installmentFilter === "installments" || statusFilter !== "all";
   const visibleCreditNotes =
-    paymentsOnly || installmentFilter === "installments" || (statusFilter !== "all" && !creditOnly)
-      ? []
-      : allCreditNotes;
+    paymentsOnly || (invoiceOnlyFilterActive && !creditOnly) ? [] : allCreditNotes;
   // Payments (wire transfers with an unallocated remainder) live in the same list.
   const allTransfers = ((data as any).openTransfers ?? []) as any[];
   const visibleTransfers =
-    creditOnly || installmentFilter === "installments" || (statusFilter !== "all" && !paymentsOnly)
-      ? []
-      : allTransfers;
+    creditOnly || (invoiceOnlyFilterActive && !paymentsOnly) ? [] : allTransfers;
+
+  /**
+   * Turning on a credit-notes-only or payments-only view drops the invoice-only
+   * filters, so the toggle always reveals the rows instead of an empty table.
+   */
+  const clearInvoiceOnlyFilters = () => {
+    setStatusFilter("all");
+    setInstallmentFilter("all");
+  };
+  const toggleCreditOnly = () => {
+    setPaymentsOnly(false);
+    setCreditOnly(v => {
+      if (!v) clearInvoiceOnlyFilters();
+      return !v;
+    });
+  };
+  const togglePaymentsOnly = () => {
+    setCreditOnly(false);
+    setPaymentsOnly(v => {
+      if (!v) clearInvoiceOnlyFilters();
+      return !v;
+    });
+  };
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -131,98 +196,140 @@ export default function CustomerDetail() {
                 <Layers className="h-3 w-3" /> {customer.customerGroup}
               </Badge>
             )}
-            <AccountManagerControl
-              manager={(data as any).accountManager ?? null}
-              customerId={id}
-              onChanged={() => utils.customers.get360.invalidate({ id })}
-            />
-            <AccountManagerControl
-              role="collector"
-              manager={(data as any).collector ?? null}
-              customerId={id}
-              onChanged={() => utils.customers.get360.invalidate({ id })}
-            />
+            {/* Ownership inline after the badges, same compact strip as the group card. */}
+            <span className="border-l pl-2 text-base font-normal">
+              <PeopleRow
+                manager={(data as any).accountManager ?? null}
+                collector={(data as any).collector ?? null}
+                watchers={(data as any).watchers ?? []}
+                watcherGroupName={(data as any).watcherGroupKey ?? data.groupKey}
+                customerId={id}
+                onChanged={() => utils.customers.get360.invalidate({ id })}
+              />
+            </span>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             {customer.code} · VAT {customer.vatNumber || "—"} · {customer.email || "no email"} · terms{" "}
             {customer.paymentTermsDays} days
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        {/*
+         * Same two clusters as the group card: what I DO with this company, and
+         * what I TAKE AWAY. Notes live in Collection Notes, not in this bar.
+         */}
+        <div className="flex items-start gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
+            <NewTaskDialog
+              defaultCustomerId={id}
+              hideCustomerPicker
+              trigger={
+                <Button size="sm" variant="outline" className="gap-1.5 bg-background">
+                  <Plus className="h-4 w-4" /> New Task
+                </Button>
+              }
+            />
+            <Button variant="outline" size="sm" className="gap-1.5 bg-background" onClick={() => setAskOpen(true)}>
+              <HelpCircle className="h-4 w-4" /> Ask for help
+            </Button>
+            <Dialog open={promiseOpen} onOpenChange={setPromiseOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 bg-background">
+                  <HandCoins className="h-4 w-4" /> Promise-to-Pay
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Record Promise-to-Pay</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  {/* The record belongs to the group, so say so before anything is typed. */}
+                  <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    Recorded for <strong>{data.groupKey}</strong> — collection is tracked per group, so this is
+                    the group's single payment commitment, not a separate promise for {customer.name}.
+                  </p>
+                  <div className="space-y-1.5">
+                    <Label>Amount (€) — optional</Label>
+                    <Input
+                      type="number"
+                      placeholder="leave empty if not stated"
+                      value={promiseForm.amount}
+                      onChange={e => setPromiseForm({ ...promiseForm, amount: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Promised date</Label>
+                    <Input type="date" value={promiseForm.date} onChange={e => setPromiseForm({ ...promiseForm, date: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Notes</Label>
+                    <Textarea value={promiseForm.notes} onChange={e => setPromiseForm({ ...promiseForm, notes: e.target.value })} />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    disabled={!promiseForm.date || recordPromise.isPending}
+                    onClick={() =>
+                      recordPromise.mutate({
+                        group: data.groupKey,
+                        customerId: id,
+                        amount: promiseForm.amount ? Number(promiseForm.amount) : undefined,
+                        promisedDate: new Date(promiseForm.date).getTime(),
+                        notes: promiseForm.notes || undefined,
+                      })
+                    }
+                  >
+                    Save
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+          <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 bg-background"
+              onClick={() => exportSoa.mutate({ report: "soa", format: "pdf", customerId: id })}
+              disabled={exportSoa.isPending}
+            >
+              <FileDown className="h-4 w-4" /> SOA PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 bg-background"
+              onClick={() => exportSoa.mutate({ report: "soa", format: "xlsx", customerId: id })}
+              disabled={exportSoa.isPending}
+            >
+              <FileDown className="h-4 w-4" /> SOA Excel
+            </Button>
+            <CommunicationToggle open={commPanel.open} onToggle={commPanel.toggle} count={timelineEntries.length} />
+          </div>
+          {/* Same New Task dialog, pre-typed as Help — one flow for asking a colleague. */}
           <NewTaskDialog
             defaultCustomerId={id}
             hideCustomerPicker
-            trigger={
-              <Button size="sm" className="gap-1.5">
-                <Plus className="h-4 w-4" /> New Task
-              </Button>
-            }
+            defaultType="Help"
+            defaultTitle={`Help needed: ${data.customer.name}`}
+            trigger={<Button className="hidden">Hidden</Button>}
+            open={askOpen}
+            onOpenChange={setAskOpen}
           />
-          <GroupNotesDialog group={data.groupKey} />
-          <GroupAiSummaryDialog group={data.groupKey} />
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => exportSoa.mutate({ report: "soa", format: "pdf", customerId: id })}
-            disabled={exportSoa.isPending}
-          >
-            <FileDown className="h-4 w-4" /> SOA (PDF)
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => exportSoa.mutate({ report: "soa", format: "xlsx", customerId: id })}
-            disabled={exportSoa.isPending}
-          >
-            <FileDown className="h-4 w-4" /> SOA (Excel)
-          </Button>
-          <Dialog open={promiseOpen} onOpenChange={setPromiseOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5">
-                <HandCoins className="h-4 w-4" /> Promise-to-Pay
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Record Promise-to-Pay</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label>Amount (€)</Label>
-                  <Input type="number" value={promiseForm.amount} onChange={e => setPromiseForm({ ...promiseForm, amount: e.target.value })} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Promised date</Label>
-                  <Input type="date" value={promiseForm.date} onChange={e => setPromiseForm({ ...promiseForm, date: e.target.value })} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Notes</Label>
-                  <Textarea value={promiseForm.notes} onChange={e => setPromiseForm({ ...promiseForm, notes: e.target.value })} />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  disabled={!promiseForm.amount || !promiseForm.date || addPromise.isPending}
-                  onClick={() =>
-                    addPromise.mutate({
-                      customerId: id,
-                      amount: Number(promiseForm.amount),
-                      promisedDate: new Date(promiseForm.date).getTime(),
-                      notes: promiseForm.notes || undefined,
-                    })
-                  }
-                >
-                  Save
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 
       {/* Summary cards */}
+      {/*
+       * Receivables-only card: no top-level tabs. The directory record for this
+       * company is reached from the Address Book instead.
+       */}
+      <div className="mt-4 space-y-4">
+      {/*
+       * Money at full width in one uninterrupted flow (KPIs → aging →
+       * transactions); the communication history floats in a movable window
+       * above the page instead of taking a column here.
+       */}
+      <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <Card>
           <CardContent className="pt-4">
@@ -374,30 +481,51 @@ export default function CustomerDetail() {
                 )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-              {allTransfers.length > 0 && (
-                <Button
-                  size="sm"
-                  variant={paymentsOnly ? "secondary" : "ghost"}
-                  className={`h-8 px-2.5 text-xs gap-1.5 border ${paymentsOnly ? "border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : ""}`}
-                  onClick={() => { setPaymentsOnly(v => !v); setCreditOnly(false); }}
-                  title={paymentsOnly ? "Show invoices again" : "Show only payments on account"}
-                >
-                  <Banknote className="h-3.5 w-3.5" />
-                  Payments ({allTransfers.length})
-                </Button>
-              )}
-              {allCreditNotes.length > 0 && (
-                <Button
-                  size="sm"
-                  variant={creditOnly ? "secondary" : "ghost"}
-                  className={`h-8 px-2.5 text-xs gap-1.5 border ${creditOnly ? "border-sky-300 bg-sky-100 text-sky-800 hover:bg-sky-100" : ""}`}
-                  onClick={() => { setCreditOnly(v => !v); setPaymentsOnly(false); }}
-                  title={creditOnly ? "Show invoices again" : "Show only credit notes"}
-                >
-                  <FileMinus2 className="h-3.5 w-3.5" />
-                  Credit notes ({allCreditNotes.length})
-                </Button>
-              )}
+              {/* Always present, like on the group card: disabled at zero, never removed. */}
+              <Button
+                size="sm"
+                variant={paymentsOnly ? "secondary" : "ghost"}
+                disabled={allTransfers.length === 0}
+                className={`h-8 px-2.5 text-xs gap-1.5 border ${paymentsOnly ? "border-emerald-300 bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : ""}`}
+                onClick={togglePaymentsOnly}
+                title={
+                  allTransfers.length === 0
+                    ? "No payments on account for this company"
+                    : paymentsOnly
+                      ? "Show invoices again"
+                      : visibleTransfers.length === 0
+                        ? "Payments are hidden by the current filters — click to show them"
+                        : "Show only payments on account"
+                }
+              >
+                <Banknote className="h-3.5 w-3.5" />
+                Payments ({allTransfers.length})
+                {allTransfers.length > 0 && !paymentsOnly && visibleTransfers.length === 0 && (
+                  <span className="text-[10px] text-muted-foreground">hidden</span>
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant={creditOnly ? "secondary" : "ghost"}
+                disabled={allCreditNotes.length === 0}
+                className={`h-8 px-2.5 text-xs gap-1.5 border ${creditOnly ? "border-sky-300 bg-sky-100 text-sky-800 hover:bg-sky-100" : ""}`}
+                onClick={toggleCreditOnly}
+                title={
+                  allCreditNotes.length === 0
+                    ? "No open credit notes for this company"
+                    : creditOnly
+                      ? "Show invoices again"
+                      : visibleCreditNotes.length === 0
+                        ? "Credit notes are hidden by the current filters — click to show them"
+                        : "Show only credit notes"
+                }
+              >
+                <FileMinus2 className="h-3.5 w-3.5" />
+                Credit notes ({allCreditNotes.length})
+                {allCreditNotes.length > 0 && !creditOnly && visibleCreditNotes.length === 0 && (
+                  <span className="text-[10px] text-muted-foreground">hidden</span>
+                )}
+              </Button>
               <Button
                 size="sm"
                 variant={showPaid ? "secondary" : "ghost"}
@@ -408,7 +536,18 @@ export default function CustomerDetail() {
                 {showPaid ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 {showPaid ? "Hide paid" : `Show paid${paidHiddenCount > 0 ? ` (${paidHiddenCount})` : ""}`}
               </Button>
-              <InstallmentToggle value={installmentFilter} onChange={setInstallmentFilter} />
+              <InstallmentToggle
+                value={installmentFilter}
+                onChange={v => {
+                  if (v === "installments") {
+                    setCreditOnly(false);
+                    setPaymentsOnly(false);
+                  }
+                  setInstallmentFilter(v);
+                }}
+                count={allInstallmentInvoices.length}
+                hiddenCount={installmentHiddenCount}
+              />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-44 h-8 text-xs">
                   <SelectValue placeholder="Status" />
@@ -432,6 +571,7 @@ export default function CustomerDetail() {
                   rows={visibleInvoices as any}
                   creditNotes={visibleCreditNotes as any}
                   transfers={visibleTransfers as any}
+                  group={data.groupKey}
                   showCustomer={false}
                   maxHeight="480px"
                   onDisputeChanged={() => utils.customers.get360.invalidate()}
@@ -584,6 +724,18 @@ export default function CustomerDetail() {
           <WireTransfers customerId={customer.id} />
         </TabsContent>
       </Tabs>
+      </div>
+
+      {/* Collections history for the group this company belongs to */}
+      <CommunicationPanel
+        open={commPanel.open}
+        onClose={commPanel.toggle}
+        entries={timelineEntries}
+        isLoading={isLoading || historyLoading}
+        group={groupKey || undefined}
+        title={groupKey && groupKey !== customer.name ? `Communication — ${groupKey}` : "Communication"}
+      />
+      </div>
     </div>
   );
 }

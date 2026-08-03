@@ -1,3 +1,5 @@
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
@@ -26,8 +28,27 @@ const VesselDetail = lazy(() => import("./pages/VesselDetail"));
 
 function PageFallback() {
   return (
-    <div className="flex items-center justify-center py-24 text-muted-foreground text-sm">
-      Loading…
+    /*
+     * Route-level skeleton: mirrors the shared page shell (title block, filter
+     * row, table card) so switching pages does not flash a bare "Loading…".
+     */
+    <div className="p-2 sm:p-4 space-y-4" aria-busy="true" aria-label="Loading page">
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-56" />
+        <Skeleton className="h-4 w-80" />
+      </div>
+      <div className="flex flex-wrap gap-3">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="h-10 w-52" />
+        <Skeleton className="h-10 w-44" />
+      </div>
+      <Card>
+        <CardContent className="p-4 space-y-2">
+          {[...Array(8)].map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -49,6 +70,11 @@ function Router() {
           {/* Legacy path kept so old links and bookmarks still land somewhere useful. */}
           <Route path={"/contacts"} component={AddressBook} />
           <Route path={"/tasks"} component={Tasks} />
+          {/*
+            Call Back page removed — due promises and follow-ups now surface
+            directly on the Collections Desk, so old links land there.
+          */}
+          <Route path={"/call-back"}>{() => <Redirect to="/customers" />}</Route>
           <Route path={"/wire-transfers"} component={WireTransfersPage} />
           {/* Forecast page removed — everything happens on Customers now */}
           <Route path={"/forecast"}>{() => <Redirect to="/customers" />}</Route>

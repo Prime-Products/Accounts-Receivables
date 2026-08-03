@@ -8,7 +8,7 @@
 
 export type NextActionKey =
   | "legal_review"
-  | "escalate_account_manager"
+  | "mark_critical"
   | "request_payment_plan"
   | "send_soa"
   | "friendly_reminder"
@@ -50,7 +50,7 @@ export interface NextActionInput {
 
 const LABELS: Record<NextActionKey, string> = {
   legal_review: "Legal review",
-  escalate_account_manager: "Escalate to Account Manager",
+  mark_critical: "Set Account Status to Critical",
   request_payment_plan: "Request payment plan",
   send_soa: "Send SOA",
   friendly_reminder: "Friendly reminder",
@@ -79,22 +79,23 @@ export function suggestNextAction(d: NextActionInput): NextActionSuggestion {
     );
   }
 
-  // 3. Broken promise just recorded (or repeatedly) → escalate.
+  // 3. Broken promise just recorded (or repeatedly) → hand the case to management by
+  //    raising the account status; there is no separate escalation mechanism.
   if (d.confirmationStatus === "Broken" || d.promisesBroken >= 2) {
     return make(
-      "escalate_account_manager",
+      "mark_critical",
       d.confirmationStatus === "Broken"
-        ? "Η υπόσχεση πληρωμής αθετήθηκε — ενημέρωσε τον Account Manager για παρέμβαση."
-        : `${d.promisesBroken} αθετημένες υποσχέσεις στο ιστορικό — χρειάζεται παρέμβαση Account Manager.`,
+        ? "Η υπόσχεση πληρωμής αθετήθηκε — βάλε τον λογαριασμό σε Critical για να το αναλάβει η διεύθυνση."
+        : `${d.promisesBroken} αθετημένες υποσχέσεις στο ιστορικό — βάλε τον λογαριασμό σε Critical.`,
       "critical",
     );
   }
 
-  // 4. Unreachable repeatedly → escalate (someone else may have a contact).
+  // 4. Unreachable repeatedly → raise the status (someone else may have a contact).
   if (d.outcome === "No Answer" && d.consecutiveNoAnswer >= 3) {
     return make(
-      "escalate_account_manager",
-      `${d.consecutiveNoAnswer} συνεχόμενες κλήσεις χωρίς απάντηση — ζήτησε από τον Account Manager εναλλακτική επαφή.`,
+      "mark_critical",
+      `${d.consecutiveNoAnswer} συνεχόμενες κλήσεις χωρίς απάντηση — βάλε τον λογαριασμό σε Critical ώστε να το δει η διεύθυνση.`,
       "warning",
     );
   }

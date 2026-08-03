@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import MentionText from "@/components/MentionText";
+import MentionTextarea from "@/components/MentionTextarea";
 import { trpc } from "@/lib/trpc";
 import { Pencil, StickyNote, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -65,11 +67,12 @@ export default function GroupNotesDialog({ group, open: externalOpen, onOpenChan
         </DialogHeader>
         <div className="space-y-3">
           <div className="flex gap-2">
-            <Textarea
+            <MentionTextarea
               value={content}
-              onChange={e => setContent(e.target.value)}
-              placeholder="Add a note about this group (calls, agreements, context)…"
+              onChange={setContent}
+              placeholder="Add a note about this group (calls, agreements, context)… type @ to notify a colleague"
               className="min-h-16"
+              maxLength={5000}
             />
             <Button
               size="sm"
@@ -132,7 +135,7 @@ export default function GroupNotesDialog({ group, open: externalOpen, onOpenChan
                       </div>
                     </div>
                   ) : (
-                    <p className="whitespace-pre-wrap">{n.content}</p>
+                    <MentionText text={n.content} className="whitespace-pre-wrap" />
                   )}
                 </div>
               ))}

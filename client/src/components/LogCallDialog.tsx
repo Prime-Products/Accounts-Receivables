@@ -3,21 +3,38 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { TeamMemberSelect } from "@/components/TeamMemberSelect";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@/components/ui/command";
+import MentionText from "@/components/MentionText";
+import MentionTextarea from "@/components/MentionTextarea";
 import { trpc } from "@/lib/trpc";
-import { Building2, CheckCircle2, Info, Mail, Phone, Plus, User } from "lucide-react";
+import { fmtPromiseAmountShort } from "@/lib/format";
+import { Building2, CheckCircle2, ChevronsUpDown, Info, Mail, Phone, Plus, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 const OUTCOMES = ["Reached", "No Answer"] as const;
-const CONFIRMATION_STATUSES = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken"] as const;
+/*
+ * What the customer answered on the phone. "Kept" is shown as **Paid**: the money
+ * has arrived (or was just sent), so the collections cycle for this month is
+ * closed — the group leaves the calling list until the next month starts, when it
+ * returns as "Not Contacted".
+ */
+const CONFIRMATION_STATUSES = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken", "Kept"] as const;
 const STATUS_LABELS: Record<string, string> = {
   "Not Contacted": "Not Contacted",
   Confirmed: "Promise to Pay",
   "Pending Follow-up": "Pending Follow-up",
-  Broken: "Broken",
+  Broken: "Did not confirm",
+  Kept: "Paid",
 };
 
 
@@ -38,6 +55,7 @@ export default function LogCallDialog({
   const [customerId, setCustomerId] = useState<number | null>(defaultCustomerId ?? null);
   const [contactName, setContactName] = useState("");
   const [selectedContactId, setSelectedContactId] = useState<string>("");
+  const [contactPickerOpen, setContactPickerOpen] = useState(false);
   // Inline "add new contact" form state
   const [newContactName, setNewContactName] = useState("");
   const [newContactEmail, setNewContactEmail] = useState("");
@@ -57,28 +75,41 @@ export default function LogCallDialog({
       : "";
   };
   const [confirmationStatus, setConfirmationStatus] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">(initialResponse);
+  /*
+   * What the customer actually answered. A refusal ("Did not confirm") still
+   * requires the collector to pick a way forward, which overwrites
+   * `confirmationStatus`. Keeping the original answer here means the refusal
+   * reaches the server and stays in the timeline — it used to be lost, so the
+   * history read as if the customer had cooperated.
+   */
+  const [customerResponse, setCustomerResponse] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">("");
   const [confirmationAmount, setConfirmationAmount] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [promisedDate, setPromisedDate] = useState("");
-  const [promiseMode, setPromiseMode] = useState<"reschedule" | "new">("reschedule");
-  /** Team member who will own the auto-created follow-up / promise-check task. */
-  const [assigneeId, setAssigneeId] = useState<number | null>(null);
   const utils = trpc.useUtils();
 
-  // Existing open promise for this group (offered for rescheduling on Confirmed)
+  /*
+   * Existing open promise for this group. Shown only as context ("the customer
+   * already owes a promise for this date/amount") — the collector is not asked what
+   * to do with it: a group carries one payment commitment at a time, so the server
+   * always moves that promise to the new date.
+   */
   const { data: openPromise } = trpc.calls.getOpenPromise.useQuery({ group }, { enabled: open });
-  // Existing open follow-up task for this group (shown when rescheduling a Pending Follow-up)
-  const { data: openFollowUp } = trpc.calls.getOpenFollowUpTask.useQuery({ group }, { enabled: open });
   // Payment contacts across all companies of the group
   const { data: groupContacts } = trpc.paymentContacts.listByGroup.useQuery({ group }, { enabled: open });
   // Collection notes (call preferences & particularities) — shown as a reminder before logging the call
   const { data: collectionProfile } = trpc.customers.getCollectionProfile.useQuery({ group }, { enabled: open });
-  // Own team-member record — the default owner of the task created by this call.
-  const { data: myMember } = trpc.team.myMember.useQuery(undefined, { enabled: open });
   const selectedContact =
     selectedContactId && selectedContactId !== "other" && selectedContactId !== "add-new"
       ? groupContacts?.find(c => String(c.id) === selectedContactId)
       : undefined;
+  const selectedContactLabel = selectedContact
+    ? `${selectedContact.name}${selectedContact.title ? ` · ${selectedContact.title}` : ""}`
+    : selectedContactId === "other"
+      ? "Other (type a name)"
+      : selectedContactId === "add-new"
+        ? "Add new contact"
+        : "";
 
 
 
@@ -87,6 +118,7 @@ export default function LogCallDialog({
       setCustomerId(defaultCustomerId ?? null);
       setContactName("");
       setSelectedContactId("");
+      setContactPickerOpen(false);
       setNewContactName("");
       setNewContactEmail("");
       setNewContactPhone("");
@@ -95,26 +127,18 @@ export default function LogCallDialog({
       setOutcome("Reached");
       setNotes("");
       setConfirmationStatus(initialResponse());
+      setCustomerResponse("");
       setConfirmationAmount("");
       setFollowUpDate("");
       setPromisedDate("");
-      setPromiseMode("reschedule");
-      setAssigneeId(null);
     }
   }, [open, defaultCustomerId]);
 
-  // Default the assignee to the colleague logging the call (they keep the task
-  // unless they explicitly hand it to someone else).
-  useEffect(() => {
-    if (open && assigneeId == null && myMember?.id) setAssigneeId(myMember.id);
-  }, [open, myMember?.id, assigneeId]);
-
-    const logCall = trpc.calls.logCall.useMutation({
+  const logCall = trpc.calls.logCall.useMutation({
     onSuccess: (_data, variables) => {
       toast.success("Call logged");
       utils.customers.invalidate();
       utils.calls.invalidate();
-      utils.tasks.invalidate();
       onOpenChange(false);
     },
     onError: e => toast.error(e.message),
@@ -149,7 +173,9 @@ export default function LogCallDialog({
   };
 
   const handleSubmit = () => {
-    if (!confirmationStatus) {
+    // "No Answer" means nobody spoke to us: there is no customer response to give,
+    // so the call is recorded as a contact attempt and the status is left alone.
+    if (outcome === "Reached" && !confirmationStatus) {
       toast.error("Select a response");
       return;
     }
@@ -157,9 +183,14 @@ export default function LogCallDialog({
     const logData: any = {
       group,
       outcome,
-      confirmationStatus: confirmationStatus || "Not Contacted",
+      // On a no-answer attempt we deliberately send no status change.
+      confirmationStatus: outcome === "No Answer" ? undefined : confirmationStatus || "Not Contacted",
       notes: notes.trim() || undefined,
     };
+    // Only sent when the call ended somewhere other than where it started.
+    if (outcome === "Reached" && customerResponse && customerResponse !== confirmationStatus) {
+      logData.customerResponse = customerResponse;
+    }
 
     if (customerId) logData.customerId = customerId;
     if (selectedContactId && selectedContactId !== "other") {
@@ -168,15 +199,16 @@ export default function LogCallDialog({
       logData.contactName = contactName;
     }
 
-    if (confirmationStatus === "Confirmed") {
+    if (outcome === "Reached" && confirmationStatus === "Confirmed") {
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.promisedDate = promisedDate ? new Date(promisedDate).getTime() : undefined;
-      logData.promiseMode = promiseMode;
-      if (assigneeId) logData.assigneeId = assigneeId;
-    } else if (confirmationStatus === "Pending Follow-up") {
+    } else if (outcome === "Reached" && confirmationStatus === "Pending Follow-up") {
       logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
       logData.followUpDate = followUpDate ? new Date(followUpDate).getTime() : undefined;
-      if (assigneeId) logData.assigneeId = assigneeId;
+    } else if (outcome === "Reached" && confirmationStatus === "Kept") {
+      // The amount that was paid, when the customer named one. It is what the
+      // month's "expected to collect" then rests on.
+      logData.confirmationAmount = confirmationAmount ? parseFloat(confirmationAmount) : undefined;
     }
 
     logCall.mutate(logData);
@@ -204,9 +236,10 @@ export default function LogCallDialog({
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
                   Collection Notes
                 </div>
-                <div className="text-xs text-amber-900 dark:text-amber-100 whitespace-pre-wrap break-words line-clamp-3">
-                  {collectionProfile.notes.trim()}
-                </div>
+                <MentionText
+                  text={collectionProfile.notes.trim()}
+                  className="block text-xs text-amber-900 dark:text-amber-100 line-clamp-3"
+                />
               </div>
             </div>
           ) : null}
@@ -238,23 +271,91 @@ export default function LogCallDialog({
           {/* Contact person selection */}
           <div className="space-y-1">
             <Label className="text-xs">Contact person</Label>
-            <Select value={selectedContactId} onValueChange={setSelectedContactId}>
-              <SelectTrigger className="w-full h-9">
-                <SelectValue placeholder="Select contact…" />
-              </SelectTrigger>
-              <SelectContent>
-                {groupContacts?.map(c => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {(c as { contactType?: string }).contactType === "Department"
-                      ? `${c.name} · department`
-                      : c.name}
-                    {c.title ? ` (${c.title})` : ""}
-                  </SelectItem>
-                ))}
-                <SelectItem value="other">Other (type a name)</SelectItem>
-                <SelectItem value="add-new">+ Add new contact</SelectItem>
-              </SelectContent>
-            </Select>
+            {/*
+             * A group can carry dozens of payment contacts, so the picker is a
+             * search box first: the collector types what they remember (name,
+             * title or email) and always sees the text they typed, instead of a
+             * native select that swallows keystrokes.
+             */}
+            <Popover open={contactPickerOpen} onOpenChange={setContactPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={contactPickerOpen}
+                  className="w-full h-9 justify-between bg-background font-normal"
+                >
+                  <span className={selectedContactLabel ? "truncate" : "truncate text-muted-foreground"}>
+                    {selectedContactLabel || "Select contact…"}
+                  </span>
+                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Search contacts…" />
+                  <CommandList>
+                    <CommandEmpty>No contact found</CommandEmpty>
+                    <CommandGroup>
+                      {groupContacts?.map(c => {
+                        const isDept = (c as { contactType?: string }).contactType === "Department";
+                        return (
+                          <CommandItem
+                            key={c.id}
+                            value={`${c.name} ${c.title ?? ""} ${c.email ?? ""}`}
+                            onSelect={() => {
+                              setSelectedContactId(String(c.id));
+                              setContactPickerOpen(false);
+                            }}
+                          >
+                            {isDept ? (
+                              <Building2 className="mr-2 h-3.5 w-3.5 text-violet-600" />
+                            ) : (
+                              <User className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                            )}
+                            <span className="flex min-w-0 flex-col">
+                              <span className="truncate">
+                                {c.name}
+                                {isDept ? " · department" : ""}
+                              </span>
+                              {(c.title || c.email) && (
+                                <span className="truncate text-[11px] text-muted-foreground">
+                                  {[c.title, c.email].filter(Boolean).join(" · ")}
+                                </span>
+                              )}
+                            </span>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                    <CommandSeparator />
+                    <CommandGroup>
+                      <CommandItem
+                        value="other type a name"
+                        onSelect={() => {
+                          setSelectedContactId("other");
+                          setContactPickerOpen(false);
+                        }}
+                      >
+                        <User className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                        Other (type a name)
+                      </CommandItem>
+                      <CommandItem
+                        value="add new contact"
+                        onSelect={() => {
+                          setSelectedContactId("add-new");
+                          setContactPickerOpen(false);
+                        }}
+                      >
+                        <Plus className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                        Add new contact
+                      </CommandItem>
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
             {selectedContactId === "other" && (
               <Input
                 placeholder="Contact name"
@@ -329,10 +430,20 @@ export default function LogCallDialog({
 
           {/* Customer response sits next to Outcome — it drives the panel below */}
           <div className="space-y-1">
-            <Label className="text-xs font-semibold">Customer Response *</Label>
-            <Select value={confirmationStatus} onValueChange={(v) => setConfirmationStatus(v as (typeof CONFIRMATION_STATUSES)[number])}>
+            <Label className="text-xs font-semibold">
+              Customer Response {outcome === "Reached" ? "*" : <span className="font-normal text-muted-foreground">— n/a</span>}
+            </Label>
+            <Select
+              value={confirmationStatus}
+              onValueChange={(v) => {
+                setConfirmationStatus(v as (typeof CONFIRMATION_STATUSES)[number]);
+                // Choosing from this dropdown *is* the customer's answer.
+                setCustomerResponse(v as (typeof CONFIRMATION_STATUSES)[number]);
+              }}
+              disabled={outcome === "No Answer"}
+            >
               <SelectTrigger className="w-full h-9">
-                <SelectValue placeholder="Select response…" />
+                <SelectValue placeholder={outcome === "No Answer" ? "No one answered" : "Select response…"} />
               </SelectTrigger>
               <SelectContent>
                 {CONFIRMATION_STATUSES.map(status => (
@@ -345,45 +456,55 @@ export default function LogCallDialog({
           </div>
           </div>
 
+          {/*
+            No-answer attempts are the most common call result and used to vanish
+            from tracking entirely. Now they are recorded as an attempt: the status
+            is untouched, but the attempt is counted and shown on the group so
+            repeated silence becomes visible.
+          */}
+          {outcome === "No Answer" && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-900/40 dark:border-slate-700 px-3 py-2 flex items-start gap-2">
+              <Info className="h-4 w-4 text-slate-500 mt-0.5 shrink-0" />
+              <p className="text-xs text-slate-700 dark:text-slate-200">
+                Recorded as a <strong>contact attempt</strong>. The confirmation status stays as it is, and the attempt
+                still shows in the group history and in the contact log.
+              </p>
+            </div>
+          )}
+
           {/* Confirmed - show amount field */}
           {confirmationStatus === "Confirmed" && (
             <div className="space-y-2 rounded-lg border border-green-200 bg-green-50 p-2.5">
               {openPromise && (
-                <div className="rounded border border-amber-300 bg-amber-50 p-2 space-y-1.5">
-                  <p className="text-xs font-medium text-amber-900">
-                    Open promise exists: €{Number(openPromise.amount).toLocaleString()} due{" "}
-                    {openPromise.promisedDate ? new Date(openPromise.promisedDate).toLocaleDateString("en-GB") : "—"} ({openPromise.customerName})
+                <div className="rounded border border-amber-300 bg-amber-50 p-2">
+                  <p className="text-xs text-amber-900">
+                    {group} already has an open promise of {fmtPromiseAmountShort(openPromise.amount)} due{" "}
+                    {openPromise.promisedDate ? new Date(openPromise.promisedDate).toLocaleDateString("en-GB") : "—"} — saving
+                    moves it to the new date.
                     {(openPromise.rescheduleCount ?? 0) > 0 && (
                       <span className="ml-1.5 inline-flex items-center rounded bg-red-200 px-1.5 py-0.5 font-semibold text-red-900">
                         rescheduled ×{openPromise.rescheduleCount}
                       </span>
                     )}
                   </p>
-                  <RadioGroup value={promiseMode} onValueChange={v => setPromiseMode(v as "reschedule" | "new")} className="gap-1">
-                    <div className="flex items-center gap-2">
-                      <RadioGroupItem value="reschedule" id="pm-reschedule" />
-                      <Label htmlFor="pm-reschedule" className="text-xs font-normal cursor-pointer">
-                        Reschedule this promise (customer moved the payment)
-                      </Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <RadioGroupItem value="new" id="pm-new" />
-                      <Label htmlFor="pm-new" className="text-xs font-normal cursor-pointer">
-                        Create a separate new promise
-                      </Label>
-                    </div>
-                  </RadioGroup>
+                  {/*
+                   * A promise belongs to the group, never to one member company: the
+                   * group is what gets called and what pays. Naming a member company
+                   * here used to read as "that company's promise", which made a call
+                   * to a different company of the same group look like the wrong
+                   * record was being moved.
+                   */}
                 </div>
               )}
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <Label className="text-xs">Promised amount (EUR)</Label>
+                  <Label className="text-xs">Promised amount (EUR) — optional</Label>
                   <Input
                     className="h-9"
                     type="number"
                     value={confirmationAmount}
                     onChange={e => setConfirmationAmount(e.target.value)}
-                    placeholder="e.g., 50000"
+                    placeholder="leave empty if not stated"
                     step="0.01"
                   />
                 </div>
@@ -396,16 +517,12 @@ export default function LogCallDialog({
                     onChange={e => setPromisedDate(e.target.value)}
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Assigned to</Label>
-                  <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} placeholder="Unassigned" />
-                </div>
               </div>
               <p className="text-[11px] leading-snug text-muted-foreground">
-                {openPromise && promiseMode === "reschedule"
-                  ? "The existing promise and its follow-up task will be moved to the new date."
-                  : "A Promise-to-Pay record will be created automatically."}
-                {" "}The check task goes to the colleague selected above.
+                {openPromise
+                  ? "A group carries one payment commitment at a time, so the existing promise is moved to the new date instead of adding a second one."
+                  : "A Promise-to-Pay record is created for the group."}
+                {" "}Leave the amount empty when the customer promised to pay without naming a figure — the promise is recorded as “amount not stated”.
               </p>
             </div>
           )}
@@ -413,20 +530,7 @@ export default function LogCallDialog({
           {/* Pending Follow-up - show follow-up date and amount */}
           {confirmationStatus === "Pending Follow-up" && (
             <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-2.5">
-              {openFollowUp && (
-                <div className="rounded border border-blue-300 bg-blue-100/60 px-2 py-1.5 text-xs text-blue-900 space-y-0.5">
-                  <p className="font-medium">
-                    Open follow-up exists — currently due {openFollowUp.dueDate ? new Date(openFollowUp.dueDate).toLocaleDateString("en-GB") : "—"}
-                    {(openFollowUp.rescheduleCount ?? 0) > 0 && (
-                      <span className="ml-1.5 inline-flex items-center rounded bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-900">
-                        rescheduled ×{openFollowUp.rescheduleCount}
-                      </span>
-                    )}
-                  </p>
-                  <p>Saving with a new date moves this follow-up (no duplicate) and counts as a reschedule.</p>
-                </div>
-              )}
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label className="text-xs">Expected amount (EUR)</Label>
                   <Input
@@ -447,18 +551,42 @@ export default function LogCallDialog({
                     onChange={e => setFollowUpDate(e.target.value)}
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Assigned to</Label>
-                  <TeamMemberSelect value={assigneeId} onChange={setAssigneeId} placeholder="Unassigned" />
-                </div>
               </div>
               <p className="text-[11px] leading-snug text-muted-foreground">
-                The follow-up call task is created for the colleague selected above.
+                The follow-up date is kept on the group and shows on the Collections Desk when it arrives.
               </p>
             </div>
           )}
 
-          {/* Broken - show action options */}
+          {/*
+            "Paid" closes the month for this group: the promise is settled, any open
+            follow-up/check task is cancelled, and the group drops out of the calling
+            list — until the new month starts, when it comes back as Not Contacted.
+          */}
+          {confirmationStatus === "Kept" && (
+            <div className="space-y-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2.5">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Amount paid (EUR) — optional</Label>
+                  <Input
+                    className="h-9"
+                    type="number"
+                    value={confirmationAmount}
+                    onChange={e => setConfirmationAmount(e.target.value)}
+                    placeholder="leave empty if not stated"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] leading-snug text-emerald-900">
+                The group is marked <strong>Paid</strong> and leaves the calling list for the rest of the month. Any open
+                promise is closed as kept and its check task is cancelled. At the start of the next month the group
+                returns as <strong>Not Contacted</strong>.
+              </p>
+            </div>
+          )}
+
+          {/* "Did not confirm" (stored as Broken) — offer the two ways forward */}
           {confirmationStatus === "Broken" && (
             <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-2.5">
               <p className="text-xs font-medium text-red-900">Choose next action:</p>
@@ -479,6 +607,31 @@ export default function LogCallDialog({
                 </button>
 
               </div>
+              <p className="text-[11px] leading-snug text-red-800">
+                Either way, the refusal stays in the history: the timeline will read
+                <strong> "Did not confirm → …"</strong>.
+              </p>
+            </div>
+          )}
+
+          {/*
+            The status now differs from what the customer actually said, because a
+            way forward was chosen after a refusal. Make that explicit so the
+            collector can see — and undo — what will be recorded.
+          */}
+          {outcome === "Reached" && customerResponse === "Broken" && confirmationStatus !== "Broken" && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <Info className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+              <span>
+                Recorded as <strong>Did not confirm → {STATUS_LABELS[confirmationStatus] ?? confirmationStatus}</strong>
+              </span>
+              <button
+                type="button"
+                className="ml-auto underline hover:no-underline"
+                onClick={() => setConfirmationStatus("Broken")}
+              >
+                Back to Did not confirm
+              </button>
             </div>
           )}
 
@@ -486,10 +639,10 @@ export default function LogCallDialog({
             <Label className="text-xs">
               {confirmationStatus === "Broken" ? "Reason / notes (optional)" : "Additional notes (optional)"}
             </Label>
-            <Textarea
+            <MentionTextarea
               value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder={confirmationStatus === "Broken" ? "Why is the payment not confirmed?" : "What was discussed…"}
+              onChange={setNotes}
+              placeholder={confirmationStatus === "Broken" ? "Why did they not confirm?" : "What was discussed…"}
               rows={2}
               className="resize-y min-h-[56px]"
             />

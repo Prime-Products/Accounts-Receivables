@@ -111,7 +111,12 @@ export const customers = mysqlTable("customers", {
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, t => [
+  // Every group-level screen (Desk, Address Book, forecast) buckets customers by
+  // this column, so it must not be a full scan.
+  index("idx_customers_customerGroup").on(t.customerGroup),
+  index("idx_customers_name").on(t.name),
+]);
 
 export const invoiceStatuses = ["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const;
 
@@ -217,7 +222,11 @@ export const contractInstallments = mysqlTable("contract_installments", {
 });
 
 /** SOP follow-up offsets in days from invoice due date: +2, +15, +20, +30 */
-export const taskTypes = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual"] as const;
+/**
+ * `Help` is a request for help addressed to a colleague ("ask a colleague"):
+ * deliberately a normal task, so there is one queue and one place to look.
+ */
+export const taskTypes = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual", "Help"] as const;
 export const taskStatuses = ["Pending", "In Progress", "Completed", "Cancelled"] as const;
 
 export const tasks = mysqlTable("tasks", {
@@ -233,6 +242,18 @@ export const tasks = mysqlTable("tasks", {
   assignedTo: int("assignedTo"),
   /** Team member responsible for the task; FK to team_members.id. */
   assigneeId: int("assigneeId"),
+  /**
+   * Collections group this task belongs to, stored explicitly.
+   *
+   * Historically the link lived only inside `description` as a
+   * `(Follow-up: <group>)` marker, which broke for group names containing a
+   * closing parenthesis. The marker is still written for readability and for
+   * rows created before this column existed, but all new code should read this
+   * column (see `server/taskMarkers.ts` → `taskGroup()`).
+   */
+  customerGroup: varchar("customerGroup", { length: 255 }),
+  /** Promise this task checks on, when it is a promise-check task. */
+  promiseId: int("promiseId"),
   completedAt: bigint("completedAt", { mode: "number" }),
   completionNotes: text("completionNotes"),
   /** How many times the task's due date has been pushed back (follow-up reschedules). */
@@ -244,6 +265,8 @@ export const tasks = mysqlTable("tasks", {
   index("idx_tasks_status").on(t.status),
   index("idx_tasks_assigneeId").on(t.assigneeId),
   index("idx_tasks_dueDate").on(t.dueDate),
+  // The Desk resolves "does this group have an open call task?" on every load.
+  index("idx_tasks_customerGroup").on(t.customerGroup),
 ]);
 
 /** Free-form discussion thread on a task — used for internal collaboration between colleagues. */
@@ -279,7 +302,22 @@ export const taskWatchers = mysqlTable("task_watchers", {
 }, t => [index("idx_task_watchers_taskId").on(t.taskId)]);
 export type TaskWatcher = typeof taskWatchers.$inferSelect;
 export type InsertTaskWatcher = typeof taskWatchers.$inferInsert;
-
+/**
+ * Team members following a customer group's receivables card. Watchers are
+ * interested parties (sales, accounting, management) who want visibility on the
+ * account without owning it — ownership stays with the account manager and the
+ * collector. Stored per group name so it survives company-level churn.
+ */
+export const customerWatchers = mysqlTable("customer_watchers", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Group name (customers.group) the watcher follows. */
+  groupName: varchar("groupName", { length: 191 }).notNull(),
+  /** team_members.id of the watcher. */
+  memberId: int("memberId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [index("idx_customer_watchers_group").on(t.groupName)]);
+export type CustomerWatcher = typeof customerWatchers.$inferSelect;
+export type InsertCustomerWatcher = typeof customerWatchers.$inferInsert;
 export const onHoldStatuses = ["Under Review", "Eligible for On Hold", "On Hold", "Legal", "Rejected", "Resolved"] as const;
 
 export const onHoldProposals = mysqlTable("on_hold_proposals", {
@@ -362,7 +400,7 @@ export const groupNotes = mysqlTable("group_notes", {
   content: text("content").notNull(),
   createdBy: int("createdBy").notNull(),
   createdAt: bigint("createdAt", { mode: "number" }).notNull(),
-});
+}, t => [index("idx_group_notes_groupName").on(t.groupName)]);
 export type GroupNote = typeof groupNotes.$inferSelect;
 
 /**
@@ -418,7 +456,11 @@ export const promisesToPay = mysqlTable("promises_to_pay", {
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, t => [
+  index("idx_promises_customerId").on(t.customerId),
+  index("idx_promises_status").on(t.status),
+  index("idx_promises_promisedDate").on(t.promisedDate),
+]);
 
 export const auditLogs = mysqlTable("audit_logs", {
   id: int("id").autoincrement().primaryKey(),
@@ -471,9 +513,42 @@ export const activityLog = mysqlTable("activity_log", {
   metadata: text("metadata"),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, t => [
+  // Timeline reads are always "this group, newest first"; the call summary reads
+  // "all calls, newest first".
+  index("idx_activity_group_created").on(t.groupName, t.createdAt),
+  index("idx_activity_type_created").on(t.activityType, t.createdAt),
+]);
 
 export type UserProfile = typeof userProfiles.$inferSelect;
+
+/**
+ * @mentions of internal team members inside notes (call notes, collection notes).
+ *
+ * A mention is a reference — "I informed X" / "X should know" — not an assignment,
+ * so it deliberately carries no due date and no status: it never becomes work.
+ * Rows are keyed by the member so "what mentions me" is a single indexed lookup.
+ */
+export const noteMentions = mysqlTable("note_mentions", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Team member being referred to (team_members.id). */
+  memberId: int("memberId").notNull(),
+  /** Group the note belongs to, so the mention can link back to the card. */
+  groupName: varchar("groupName", { length: 255 }).notNull(),
+  /** Where the mention was written: a call/collection note is always tied to a group. */
+  source: mysqlEnum("source", ["call", "collectionNotes", "groupNote"]).notNull(),
+  /** Activity-log row that contains the note, when there is one. */
+  activityId: int("activityId"),
+  /** The note text (with markers) at the time of writing, for the mentions list. */
+  excerpt: varchar("excerpt", { length: 500 }),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  /** Set when the mentioned member marks it as seen. */
+  readAt: timestamp("readAt"),
+});
+
+export type NoteMention = typeof noteMentions.$inferSelect;
+export type InsertNoteMention = typeof noteMentions.$inferInsert;
 
 /**
  * Editable email templates used by the Send Email dialog. One row per template
@@ -545,7 +620,11 @@ export const paymentContacts = mysqlTable("payment_contacts", {
   mergedIntoId: int("mergedIntoId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, t => [
+  index("idx_payment_contacts_customerId").on(t.customerId),
+  index("idx_payment_contacts_email").on(t.email),
+  index("idx_payment_contacts_archived").on(t.archived),
+]);
 
 export type PaymentContact = typeof paymentContacts.$inferSelect;
 export type InsertPaymentContact = typeof paymentContacts.$inferInsert;
@@ -891,73 +970,6 @@ export const listLayouts = mysqlTable(
 
 export type ListLayout = typeof listLayouts.$inferSelect;
 export type InsertListLayout = typeof listLayouts.$inferInsert;
-
-export const requestStatuses = ["Open", "Answered", "Closed", "Cancelled"] as const;
-export type RequestStatus = (typeof requestStatuses)[number];
-
-export const departmentOptions = ["Contracts", "Logistics", "Operations", "Finance", "Legal", "Sales", "Other"] as const;
-export type Department = (typeof departmentOptions)[number];
-
-export const requests = mysqlTable(
-  "requests",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    customerId: int("customerId"),
-    groupName: varchar("groupName", { length: 255 }),
-    createdBy: int("createdBy").notNull(), // FK to users.id
-    requestedDepartment: mysqlEnum("requestedDepartment", departmentOptions).notNull(),
-    question: text("question").notNull(),
-    status: mysqlEnum("status", requestStatuses).default("Open").notNull(),
-    createdAt: bigint("createdAt", { mode: "number" }).notNull(),
-    updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),
-  },
-  t => [
-    index("idx_requests_customerId").on(t.customerId),
-    index("idx_requests_groupName").on(t.groupName),
-    index("idx_requests_createdBy").on(t.createdBy),
-    index("idx_requests_status").on(t.status),
-  ]
-);
-
-export type Request = typeof requests.$inferSelect;
-export type InsertRequest = typeof requests.$inferInsert;
-
-export const requestResponses = mysqlTable(
-  "request_responses",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    requestId: int("requestId").notNull(),
-    respondedBy: int("respondedBy").notNull(), // FK to users.id
-    response: text("response").notNull(),
-    respondedAt: bigint("respondedAt", { mode: "number" }).notNull(),
-  },
-  t => [
-    index("idx_requestResponses_requestId").on(t.requestId),
-    index("idx_requestResponses_respondedBy").on(t.respondedBy),
-  ]
-);
-
-export type RequestResponse = typeof requestResponses.$inferSelect;
-export type InsertRequestResponse = typeof requestResponses.$inferInsert;
-
-export const requestNotifications = mysqlTable(
-  "request_notifications",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    requestId: int("requestId").notNull(),
-    userId: int("userId").notNull(), // FK to users.id (recipient)
-    isRead: boolean("isRead").default(false).notNull(),
-    createdAt: bigint("createdAt", { mode: "number" }).notNull(),
-  },
-  t => [
-    index("idx_requestNotifications_requestId").on(t.requestId),
-    index("idx_requestNotifications_userId").on(t.userId),
-    index("idx_requestNotifications_isRead").on(t.isRead),
-  ]
-);
-
-export type RequestNotification = typeof requestNotifications.$inferSelect;
-export type InsertRequestNotification = typeof requestNotifications.$inferInsert;
 /**
  * Credit notes (πιστωτικά) that are still open, i.e. not yet matched against an
  * invoice. They reduce the customer's outstanding balance but are NEVER matched
