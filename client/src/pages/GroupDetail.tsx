@@ -435,7 +435,7 @@ export default function GroupDetail() {
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
   // Credit-note toggle: when on, the transactions list shows only credit notes.
   const [creditOnly, setCreditOnly] = useState(false);
-  // Payments toggle: when on, the transactions list shows only wire transfers.
+  // Payments toggle: when on, the transactions list shows only remittances.
   const [paymentsOnly, setPaymentsOnly] = useState(false);
   // The transactions list is a collection worklist, so settled invoices are hidden
   // by default; the toggle brings them back for reconciliation/history checks.
@@ -585,7 +585,7 @@ export default function GroupDetail() {
   }, [allCreditNotes, creditOnly, paymentsOnly, invoiceOnlyFilterActive, vesselDrill]);
 
   /**
-   * Payments (customer wire transfers) shown inside the same transactions list —
+   * Payments (customer remittances) shown inside the same transactions list —
    * including ones already matched in full, which appear as "Matched" so the group
    * card is a complete record of the money received. A payment has no vessel or
    * aging bucket, so the invoice-only filters hide them rather than showing a

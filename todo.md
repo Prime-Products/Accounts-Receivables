@@ -1851,8 +1851,8 @@ destination of the record is group-level.
 - [x] Tests: settled transfers reach the group card and totals stay unchanged
 
 ## Rename Wire Transfers to Remittances + payment method (user request 3/8)
-- [ ] Add a `method` field (Wire transfer / Cheque / Credit card) to the remittance table and migrate the DB
-- [ ] Rename "Wire Transfers" to "Remittances" in the sidebar, page titles and user-facing copy
-- [ ] New Remittance form lets the user choose the method, defaulting to Wire transfer
-- [ ] Method is visible in the remittances list and on the payment rows of the transactions list
-- [ ] Tests: method is persisted, defaulted and surfaced
+- [x] Add a `method` field (Wire transfer / Cheque / Credit card) to the remittance table and migrate the DB
+- [x] Rename "Wire Transfers" to "Remittances" in the sidebar, page titles and user-facing copy
+- [x] New Remittance form lets the user choose the method, defaulting to Wire transfer
+- [x] Method is visible in the remittances list and on the payment rows of the transactions list
+- [x] Tests: method is persisted, defaulted and surfaced

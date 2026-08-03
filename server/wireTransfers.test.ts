@@ -172,6 +172,56 @@ describe("Wire Transfers", () => {
     expect(branches.every((b) => typeof b === "string" && b.length > 0)).toBe(true);
   });
 
+  /**
+   * A remittance can arrive as a bank wire, a cheque or a card payment. Callers
+   * that do not say (ERP imports, older code) must keep behaving as bank wires.
+   */
+  it("defaults the remittance method to Wire transfer and persists cheque/card", async () => {
+    const wire = await caller.customers.createWireTransfer({
+      customerId: testCustomerId,
+      amount: 400,
+      currency: "EUR",
+      transferDate: Date.now(),
+      status: "Pending",
+    });
+    const cheque = await caller.customers.createWireTransfer({
+      customerId: testCustomerId,
+      amount: 410,
+      currency: "EUR",
+      transferDate: Date.now(),
+      status: "Pending",
+      method: "Cheque",
+      referenceNumber: "CHQ-0001",
+    });
+    const card = await caller.customers.createWireTransfer({
+      customerId: testCustomerId,
+      amount: 420,
+      currency: "EUR",
+      transferDate: Date.now(),
+      status: "Pending",
+      method: "Credit card",
+    });
+
+    const rows = await caller.customers.listWireTransfers({ customerId: testCustomerId });
+    const byId = new Map(rows.map((r: any) => [r.id, r]));
+    expect((byId.get(wire.id) as any).method).toBe("Wire transfer");
+    expect((byId.get(cheque.id) as any).method).toBe("Cheque");
+    expect((byId.get(card.id) as any).method).toBe("Credit card");
+
+    // The method can be corrected later (e.g. a cheque logged as a wire).
+    await caller.customers.updateWireTransfer({
+      id: wire.id,
+      customerId: testCustomerId,
+      method: "Cheque",
+    });
+    const after = await caller.customers.listWireTransfers({ customerId: testCustomerId });
+    expect((after.find((r: any) => r.id === wire.id) as any).method).toBe("Cheque");
+
+    // The method reaches the global list too, which is what the page renders.
+    const all = await caller.customers.getAllWireTransfers();
+    expect((all.find((r: any) => r.id === card.id) as any).method).toBe("Credit card");
+  });
+
   it("should count received wire transfers as collected in groupForecast", async () => {
     const cust = await db.getCustomer(testCustomerId);
     const groupKey = (cust?.customerGroup ?? "").trim() || cust?.name;

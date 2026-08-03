@@ -17,7 +17,7 @@ const app = readFileSync(join(root, "client/src/App.tsx"), "utf-8");
 const EXPECTED_SECTIONS: [string, string[]][] = [
   // Tasks sit with the daily chase: follow-ups, promises and help requests all
   // start from the Collections Desk.
-  ["Collections", ["Collections Desk", "Invoices", "Wire Transfers", "Tasks"]],
+  ["Collections", ["Collections Desk", "Invoices", "Remittances", "Tasks"]],
   ["CRM", ["Address Book", "Vessels", "Contracts"]],
   ["Management", ["Reports", "Team", "Settings"]],
 ];
@@ -61,13 +61,15 @@ describe("Sidebar sections", () => {
 
   it("leaves no top-level page unreachable from the sidebar", () => {
     // Routes that are intentionally not in the sidebar: detail views reached by
-    // clicking a row, and the catch-all.
+    // clicking a row, the catch-all, and legacy paths kept only as redirects.
     const allowedWithoutNav = ["/customers/", "/groups/", "/vessels/", "/contracts/", "/invoices/"];
+    const legacyRedirects = ["/contacts", "/call-back", "/forecast", "/wire-transfers"];
     const routePaths = Array.from(app.matchAll(/<Route\s+path="([^"]+)"/g)).map(m => m[1]);
     const navPaths = Array.from(layout.matchAll(/path:\s*"([^"]+)"/g)).map(m => m[1]);
     const unreachable = routePaths.filter(p => {
       if (p === "/" || p.includes(":")) return false;
       if (navPaths.includes(p)) return false;
+      if (legacyRedirects.includes(p)) return false;
       return !allowedWithoutNav.some(prefix => p.startsWith(prefix));
     });
     expect(unreachable).toEqual([]);

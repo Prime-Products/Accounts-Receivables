@@ -86,7 +86,7 @@ export default function CustomerDetail() {
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
   // Credit-note toggle: when on, the transactions list shows only credit notes.
   const [creditOnly, setCreditOnly] = useState(false);
-  // Payments toggle: when on, the transactions list shows only wire transfers.
+  // Payments toggle: when on, the transactions list shows only remittances.
   const [paymentsOnly, setPaymentsOnly] = useState(false);
   // Settled invoices are hidden by default (same rule as the group card).
   const [showPaid, setShowPaid] = useState(false);
@@ -138,7 +138,7 @@ export default function CustomerDetail() {
   const invoiceOnlyFilterActive = installmentFilter === "installments" || statusFilter !== "all";
   const visibleCreditNotes =
     paymentsOnly || (invoiceOnlyFilterActive && !creditOnly) ? [] : allCreditNotes;
-  // Payments (wire transfers with an unallocated remainder) live in the same list.
+  // Payments (customer remittances) live in the same list, matched ones included.
   const allTransfers = ((data as any).openTransfers ?? []) as any[];
   const visibleTransfers =
     creditOnly || (invoiceOnlyFilterActive && !paymentsOnly) ? [] : allTransfers;
@@ -463,7 +463,7 @@ export default function CustomerDetail() {
           <TabsTrigger value="contracts">Contracts ({contracts.length})</TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
           <TabsTrigger value="bankDetails">Bank Details</TabsTrigger>
-          <TabsTrigger value="wireTransfers">Wire Transfers</TabsTrigger>
+          <TabsTrigger value="wireTransfers">Remittances</TabsTrigger>
         </TabsList>
 
         <TabsContent value="invoices">
