@@ -1957,6 +1957,50 @@ export async function createCreditNote(data: InsertCreditNote) {
   return Number((res as any)[0].insertId);
 }
 
+export type SoftOneCreditNoteUpsert = Omit<InsertCreditNote, "customerId"> & {
+  customerSoftoneId: string;
+};
+
+/** Idempotently mirror SoftOne credit-note state into Hub only. */
+export async function upsertSoftOneCreditNotes(records: SoftOneCreditNoteUpsert[]) {
+  const database = await requireDb();
+  const customerRows = await database
+    .select({ id: customers.id, softoneId: customers.softoneId })
+    .from(customers);
+  const customerIdBySoftoneId = new Map(
+    customerRows.filter(row => row.softoneId).map(row => [row.softoneId!, row.id]),
+  );
+  const missingCustomers = Array.from(new Set(records
+    .filter(record => !customerIdBySoftoneId.has(record.customerSoftoneId))
+    .map(record => record.customerSoftoneId)));
+  if (missingCustomers.length > 0) {
+    throw new Error(`SoftOne credit notes reference ${missingCustomers.length} customers that are not synchronized.`);
+  }
+  const vesselRows = await database.select({ id: vessels.id }).from(vessels);
+  const vesselIds = new Set(vesselRows.map(row => row.id));
+  const values = records.map(({ customerSoftoneId, ...record }) => ({
+    ...record,
+    customerId: customerIdBySoftoneId.get(customerSoftoneId)!,
+    vesselId: record.vesselId && vesselIds.has(record.vesselId) ? record.vesselId : null,
+  }));
+  for (let index = 0; index < values.length; index += 250) {
+    await database.insert(creditNotes).values(values.slice(index, index + 250))
+      .onDuplicateKeyUpdate({ set: {
+        customerId: sql`VALUES(${creditNotes.customerId})`,
+        docNumber: sql`VALUES(${creditNotes.docNumber})`,
+        docDate: sql`VALUES(${creditNotes.docDate})`,
+        branch: sql`VALUES(${creditNotes.branch})`,
+        currency: sql`VALUES(${creditNotes.currency})`,
+        amount: sql`VALUES(${creditNotes.amount})`,
+        openAmount: sql`VALUES(${creditNotes.openAmount})`,
+        openAmountEur: sql`VALUES(${creditNotes.openAmountEur})`,
+        vesselId: sql`VALUES(${creditNotes.vesselId})`,
+        softoneId: sql`VALUES(${creditNotes.softoneId})`,
+      }});
+  }
+  return { synced: values.length };
+}
+
 
 export async function deleteCreditNote(id: number) {
   const db = await requireDb();

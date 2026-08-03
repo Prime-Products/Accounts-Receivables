@@ -982,6 +982,8 @@ export const creditNotes = mysqlTable(
     customerId: int("customerId").notNull(),
     /** Document number as issued by the ERP, e.g. "CNV-000035" or "ΠΦΠ-Γ02453". */
     docNumber: varchar("docNumber", { length: 64 }).notNull(),
+    /** Stable SoftOne FINDOC used for idempotent read-only synchronization. */
+    softoneId: varchar("softoneId", { length: 64 }).unique(),
     /** Issue date of the credit note (unix ms, UTC). */
     docDate: bigint("docDate", { mode: "number" }).notNull(),
     /** Our issuing branch, same values as invoice branches. */

@@ -487,7 +487,7 @@ async function listOpenWireTransfers(customerIds: Set<number>, customerNames: Ma
  * comes from the ERP and manual allocations are subtracted from it. Fully matched
  * credit notes disappear from the list (like paid invoices).
  */
-async function listOpenCreditNotes(customerIds: Set<number>, customerNames: Map<number, string>) {
+async function listCreditNotesWithStatus(customerIds: Set<number>, customerNames: Map<number, string>) {
   const ids = Array.from(customerIds);
   if (ids.length === 0) return [];
   const rows = await db.listCreditNotesByCustomerIds(ids).catch(() => []);
@@ -500,7 +500,13 @@ async function listOpenCreditNotes(customerIds: Set<number>, customerNames: Map<
   return rows
     .map(r => {
       const alloc = allocated.get(r.id) ?? 0;
-      const open = Number(r.openAmount) - alloc;
+      const open = Math.max(0, Number(r.openAmount) - alloc);
+      const amount = Number(r.amount);
+      const creditStatus = open <= 0.005
+        ? "Used"
+        : open >= amount - 0.005
+          ? "Open"
+          : "Partially Used";
       return {
         id: r.id,
         customerId: r.customerId,
@@ -508,10 +514,11 @@ async function listOpenCreditNotes(customerIds: Set<number>, customerNames: Map<
         docNumber: r.docNumber,
         docDate: r.docDate,
         currency: r.currency ?? "EUR",
-        amount: Number(r.amount),
+        amount,
         allocated: alloc,
         open,
         openEur: toEur(open, r.currency ?? "EUR"),
+        creditStatus,
         branch: r.branch ?? null,
         vesselId: r.vesselId ?? null,
         vesselName: r.vesselId ? (vesselName.get(r.vesselId) ?? null) : null,
@@ -519,8 +526,11 @@ async function listOpenCreditNotes(customerIds: Set<number>, customerNames: Map<
         notes: r.notes ?? null,
       };
     })
-    .filter(r => r.open > 0.005)
     .sort((a, b) => b.docDate - a.docDate);
+}
+
+async function listOpenCreditNotes(customerIds: Set<number>, customerNames: Map<number, string>) {
+  return (await listCreditNotesWithStatus(customerIds, customerNames)).filter(row => row.open > 0.005);
 }
 
 /**
@@ -2806,6 +2816,15 @@ export const invoicesRouter = router({
     const groupOf = new Map(
       customers.map(c => [c.id, ((c.customerGroup ?? "").trim() || c.name) as string]),
     );
+    return rows.map(r => ({ ...r, customerGroup: groupOf.get(r.customerId) ?? r.customerName }));
+  }),
+
+  /** All credit notes, including fully and partially used SoftOne documents. */
+  creditNotes: protectedProcedure.query(async () => {
+    const customers = await db.listCustomers();
+    const names = new Map(customers.map(c => [c.id, c.name]));
+    const rows = await listCreditNotesWithStatus(new Set(customers.map(c => c.id)), names);
+    const groupOf = new Map(customers.map(c => [c.id, ((c.customerGroup ?? "").trim() || c.name) as string]));
     return rows.map(r => ({ ...r, customerGroup: groupOf.get(r.customerId) ?? r.customerName }));
   }),
 
