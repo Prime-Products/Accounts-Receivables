@@ -238,48 +238,88 @@ export default function LogCallDialog({
           </DialogTitle>
         </DialogHeader>
         <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2.5">
-          {collectionProfile?.notes?.trim() ? (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-1.5 flex items-start gap-2">
-              <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-              <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                  Collection Notes
-                </div>
+          {/*
+            Collection notes are pinned in slot 0 — the same place for every group.
+            When a group has no notes the row is still there (muted "no notes"),
+            so the fields below never start at a different height.
+          */}
+          <div
+            className={
+              collectionProfile?.notes?.trim()
+                ? "rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-1.5 flex items-start gap-2"
+                : "rounded-lg border border-dashed bg-muted/30 px-3 py-1.5 flex items-start gap-2"
+            }
+          >
+            <Info
+              className={
+                collectionProfile?.notes?.trim()
+                  ? "h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0"
+                  : "h-4 w-4 text-muted-foreground mt-0.5 shrink-0"
+              }
+            />
+            <div className="min-w-0">
+              <div
+                className={
+                  collectionProfile?.notes?.trim()
+                    ? "text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300"
+                    : "text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                }
+              >
+                Collection Notes
+              </div>
+              {collectionProfile?.notes?.trim() ? (
                 <MentionText
                   text={collectionProfile.notes.trim()}
                   className="block text-xs text-amber-900 dark:text-amber-100 line-clamp-3"
                 />
-              </div>
+              ) : (
+                <span className="block text-xs text-muted-foreground">No collection notes for this group.</span>
+              )}
             </div>
-          ) : null}
+          </div>
 
-          {/* Row 1: who we called — company / contact / outcome side by side */}
+          {/*
+            FIXED SKELETON — the four inputs always appear in the same order and in
+            the same cell of the grid: Company | Contact person / Outcome |
+            Customer Response. Nothing here is conditionally rendered, because a
+            dialog whose fields move around depending on the group is impossible to
+            fill in from muscle memory.
+          */}
           <div className="grid gap-2.5 sm:grid-cols-2">
-            {companies && companies.length > 1 && (
+            {/* Slot 1 — company. Single-company groups get a read-only label. */}
             <div className="space-y-1">
               <Label className="text-xs">Company (optional)</Label>
-              <Select
-                value={customerId ? String(customerId) : "all"}
-                onValueChange={v => setCustomerId(v && v !== "all" ? parseInt(v) : null)}
-              >
-                <SelectTrigger className="w-full h-9">
-                  <SelectValue placeholder="All companies" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All companies</SelectItem>
-                  {companies.map(c => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {companies && companies.length > 1 ? (
+                <Select
+                  value={customerId ? String(customerId) : "all"}
+                  onValueChange={v => setCustomerId(v && v !== "all" ? parseInt(v) : null)}
+                >
+                  <SelectTrigger className="w-full h-9">
+                    <SelectValue placeholder="All companies" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All companies</SelectItem>
+                    {companies.map(c => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div
+                  className="flex h-9 items-center gap-2 rounded-md border bg-muted/40 px-3 text-sm text-muted-foreground"
+                  title="This group has a single member company"
+                >
+                  <Building2 className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{companies?.[0]?.name ?? group}</span>
+                </div>
+              )}
             </div>
-            )}
 
-          {/* Contact person selection */}
-          <div className="space-y-1">
-            <Label className="text-xs">Contact person</Label>
+            {/* Slot 2 — contact person. The picker only; details go in their own row. */}
+            <div className="space-y-1">
+              <Label className="text-xs">Contact person</Label>
             {/*
              * A group can carry dozens of payment contacts, so the picker is a
              * search box first: the collector types what they remember (name,
@@ -380,64 +420,11 @@ export default function LogCallDialog({
                 </Command>
               </PopoverContent>
             </Popover>
-            {selectedContactId === "other" && (
-              <Input
-                placeholder="Contact name"
-                value={contactName}
-                onChange={e => setContactName(e.target.value)}
-                className="mt-1 h-9"
-              />
-            )}
-            {selectedContact && (
-                  <div className="rounded border bg-muted/40 px-2 py-1.5 text-xs mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      {(selectedContact as { contactType?: string }).contactType === "Department" ? (
-                        <Building2 className="h-3 w-3 text-violet-600" />
-                      ) : (
-                        <User className="h-3 w-3" />
-                      )}{" "}
-                      {selectedContact.name}
-                      {(selectedContact as { contactType?: string }).contactType === "Department" && (
-                        <span className="rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
-                          Dept
-                        </span>
-                      )}
-                      {selectedContact.title && <span className="text-muted-foreground font-normal">· {selectedContact.title}</span>}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <Mail className="h-3 w-3 text-muted-foreground" />
-                      <a className="text-blue-600 hover:underline" href={`mailto:${selectedContact.email}`}>{selectedContact.email}</a>
-                    </span>
-                    {selectedContact.phone && (
-                      <span className="flex items-center gap-1.5">
-                        <Phone className="h-3 w-3 text-muted-foreground" />
-                        <a className="text-blue-600 hover:underline" href={`tel:${selectedContact.phone}`}>{selectedContact.phone}</a>
-                      </span>
-                    )}
-                  </div>
-            )}
-            {selectedContactId === "add-new" && (
-              <div className="rounded border bg-muted/30 p-2 space-y-2 mt-1">
-                <div className="grid grid-cols-2 gap-2">
-                  <Input
-                    placeholder="Name *"
-                    value={newContactName}
-                    onChange={e => setNewContactName(e.target.value)}
-                    className="h-8 text-xs"
-                  />
-                  <Input className="h-8 text-xs" value={newContactTitle} onChange={e => setNewContactTitle(e.target.value)} placeholder="Title" />
-                  <Input className="h-8 text-xs" type="email" value={newContactEmail} onChange={e => setNewContactEmail(e.target.value)} placeholder="Email *" />
-                  <Input className="h-8 text-xs" value={newContactPhone} onChange={e => setNewContactPhone(e.target.value)} placeholder="Phone" />
-                </div>
-                <Button size="sm" className="h-7 text-xs w-full" onClick={handleAddContact} disabled={addContact.isPending}>
-                  {addContact.isPending ? "Saving…" : "Save contact"}
-                </Button>
-              </div>
-            )}
-          </div>
+            </div>
 
-          <div className="space-y-1">
-            <Label className="text-xs">Outcome</Label>
+            {/* Slot 3 — outcome. */}
+            <div className="space-y-1">
+              <Label className="text-xs">Outcome</Label>
             <Select value={outcome} onValueChange={v => setOutcome(v as (typeof OUTCOMES)[number])}>
               <SelectTrigger className="w-full h-9">
                 <SelectValue />
@@ -450,11 +437,11 @@ export default function LogCallDialog({
                 ))}
               </SelectContent>
             </Select>
-          </div>
+            </div>
 
-          {/* Customer response sits next to Outcome — it drives the panel below */}
-          <div className="space-y-1">
-            <Label className="text-xs font-semibold">
+            {/* Slot 4 — customer response; it drives the panel below. */}
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">
               Customer Response {outcome === "Reached" ? "*" : <span className="font-normal text-muted-foreground">— n/a</span>}
             </Label>
             <Select
@@ -477,8 +464,76 @@ export default function LogCallDialog({
                 ))}
               </SelectContent>
             </Select>
+            </div>
           </div>
-          </div>
+
+          {/*
+            Contact extras live on their own full-width row, BELOW the grid: when
+            they were inside the contact cell they stretched it and dragged the
+            Outcome / Customer Response fields out of line.
+          */}
+          {selectedContactId === "other" && (
+            <Input
+              placeholder="Contact name"
+              value={contactName}
+              onChange={e => setContactName(e.target.value)}
+              className="h-9"
+            />
+          )}
+          {selectedContact && (
+            <div className="rounded border bg-muted/40 px-2 py-1.5 text-xs flex flex-wrap items-center gap-x-3 gap-y-0.5">
+              <span className="flex items-center gap-1.5 font-medium">
+                {(selectedContact as { contactType?: string }).contactType === "Department" ? (
+                  <Building2 className="h-3 w-3 text-violet-600" />
+                ) : (
+                  <User className="h-3 w-3" />
+                )}{" "}
+                {selectedContact.name}
+                {(selectedContact as { contactType?: string }).contactType === "Department" && (
+                  <span className="rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+                    Dept
+                  </span>
+                )}
+                {selectedContact.title && <span className="text-muted-foreground font-normal">· {selectedContact.title}</span>}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Mail className="h-3 w-3 text-muted-foreground" />
+                <a className="text-blue-600 hover:underline" href={`mailto:${selectedContact.email}`}>{selectedContact.email}</a>
+              </span>
+              {selectedContact.phone && (
+                <span className="flex items-center gap-1.5">
+                  <Phone className="h-3 w-3 text-muted-foreground" />
+                  <a className="text-blue-600 hover:underline" href={`tel:${selectedContact.phone}`}>{selectedContact.phone}</a>
+                </span>
+              )}
+            </div>
+          )}
+          {selectedContactId === "add-new" && (
+            <div className="rounded border bg-muted/30 p-2 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  placeholder="Name *"
+                  value={newContactName}
+                  onChange={e => setNewContactName(e.target.value)}
+                  className="h-8 text-xs"
+                />
+                <Input className="h-8 text-xs" value={newContactTitle} onChange={e => setNewContactTitle(e.target.value)} placeholder="Title" />
+                <Input className="h-8 text-xs" type="email" value={newContactEmail} onChange={e => setNewContactEmail(e.target.value)} placeholder="Email *" />
+                <Input className="h-8 text-xs" value={newContactPhone} onChange={e => setNewContactPhone(e.target.value)} placeholder="Phone" />
+              </div>
+              <Button size="sm" className="h-7 text-xs w-full" onClick={handleAddContact} disabled={addContact.isPending}>
+                {addContact.isPending ? "Saving…" : "Save contact"}
+              </Button>
+            </div>
+          )}
+
+          {/*
+            Response panel — one fixed slot directly under the grid. Its contents
+            change with the chosen response, but its position never does, and the
+            minimum height keeps Save from jumping around while the collector
+            switches between responses.
+          */}
+          <div className="min-h-[104px]">
 
           {/*
             No-answer attempts are the most common call result and used to vanish
@@ -661,6 +716,7 @@ export default function LogCallDialog({
               </button>
             </div>
           )}
+          </div>
 
           <div className="space-y-1">
             <Label className="text-xs">

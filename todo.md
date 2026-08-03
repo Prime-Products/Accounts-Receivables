@@ -1924,3 +1924,10 @@ destination of the record is group-level.
 - [x] Timeline / activity-log lines read "Promise Broken → …"
 - [x] Server-side label helper (audit lines, task titles) renamed
 - [x] Existing tests updated and a new test pins the label
+## Log Call dialog — stable field order (user request 3/8)
+- [x] Company slot always rendered; read-only label when the group has a single company
+- [x] Fixed field order in every case: Company → Contact person → Outcome → Customer Response
+- [x] Contact details / "Other" / "Add new contact" move to their own full-width row so the grid never reflows
+- [x] Collection Notes row pinned in the same place for every group (muted "no notes" when empty)
+- [x] Response-specific panel always in the same place with a stable minimum height
+- [x] Tests pinning the field order and the single-company read-only slot
