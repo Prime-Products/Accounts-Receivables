@@ -1809,6 +1809,13 @@ a member company, which read as "this company's promise" when it is the group's 
 - [x] Tests for the group-level wording and attribution
 - [x] Watcher "+" opens a searchable colleague list directly (no explanatory text)
 - [x] Tests for the direct watcher search picker
+- [x] Remove the Companies tab from the Collections Desk (group list only)
+- [x] Delete the dead company table, paging state, sorting and totals from the Desk page
+- [x] Tests: deskGroupOnly.test.ts pins that the Companies tab cannot come back
+- [x] BUG: Log Call proposes "reschedule" for a group the desk shows as Not Contacted (REEDEREI NORD) — duplicate Pending promise rows exist for the same customer/date
+- [x] Open-promise lookup and the desk's Not Contacted status must agree on what counts as an open promise
+- [x] Sweep orphaned Pending promise rows (no live task + group carries no commitment) to Broken
+- [x] Tests: orphanPromiseSweep.test.ts pins the task-first ordering and the sweep
 
 ## Company-card actions record against the group (decided 3/8, corrected)
 Kostas: nothing is to be removed from either card — whether a call/promise is logged from a company

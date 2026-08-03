@@ -387,6 +387,18 @@ async function handOverTask(taskId: number, previousAssigneeId: number | null, n
  * the Log Call dialog claim "an open promise exists" for a group the collector had
  * already dealt with. Promises whose every linked task is Completed/Cancelled are
  * therefore treated as settled, and the stale row is repaired in the background.
+ *
+ * The group's own collection status is the second gate. The Desk decides whether a
+ * group carries a live commitment from `group_confirmation_status`; when that says
+ * "Not Contacted" (or the row is stale / closed as Kept or Broken) the group shows
+ * no promise anywhere in the UI, so a leftover `Pending` row must not resurrect one.
+ * Without this gate a group whose status was reset kept offering "saving moves it to
+ * the new date" for a promise the collector could not see.
+ *
+ * The two gates are deliberately ordered task-first: a promise that still owns a live
+ * check task is real work in the collector's queue (the Promises page can create one
+ * without touching the status row), so it stays open regardless of the status. Only
+ * promises with no live task are cross-checked against the group status.
  */
 async function findOpenGroupPromise(group: string) {
   const customers = await db.listCustomers();
@@ -400,17 +412,34 @@ async function findOpenGroupPromise(group: string) {
     .sort((a, b) => b.id - a.id);
   if (pending.length === 0) return null;
 
-  // Promises created before the check-task era have no linked task at all; those stay
-  // open on their own. Only promises that HAD a task and lost it are considered stale.
   const allTasks = await db.listTasks().catch(() => [] as any[]);
   const isLive = (t: { status: string }) => t.status !== "Completed" && t.status !== "Cancelled";
 
+  // A promise with no live task is only open while the group is genuinely carrying a
+  // commitment. "Not Contacted" (including stale rows and month-reset Kept/Broken)
+  // means the Desk shows nothing, so such rows are orphans → repair them.
+  let groupCarriesCommitment: boolean | null = null;
+  const carriesCommitment = async () => {
+    if (groupCarriesCommitment === null) {
+      const confRow = await db.getGroupConfirmationStatus(group).catch(() => null);
+      const status = effectiveConfirmation(confRow).status;
+      groupCarriesCommitment = status !== "Not Contacted" && status !== "Kept" && status !== "Broken";
+    }
+    return groupCarriesCommitment;
+  };
+
   for (const p of pending) {
     const linked = allTasks.filter(t => taskPromiseId(t) === p.id);
-    if (linked.length === 0 || linked.some(isLive)) {
+    if (linked.some(isLive)) {
       return { ...p, customerName: byId.get(p.customerId)?.name ?? "—" };
     }
-    // Stale: the check task was closed/escalated but the promise was never settled.
+    if (linked.length === 0 && (await carriesCommitment())) {
+      // Legacy row from before check tasks existed, on a group that is still
+      // carrying a commitment — keep honouring it.
+      return { ...p, customerName: byId.get(p.customerId)?.name ?? "—" };
+    }
+    // Stale: either the check task was closed/escalated without settling the promise,
+    // or the row is an orphan on a group that carries no commitment.
     await db.updatePromise(p.id, { status: "Broken" }).catch(() => {});
   }
   return null;

@@ -18,12 +18,10 @@ describe("per-list search boxes use shared matching", () => {
     expect(read(page)).toContain('from "@shared/textMatch"');
   });
 
-  it("Collections Desk filters companies and groups through the matcher", () => {
+  it("Collections Desk filters groups through the matcher", () => {
     const src = read("client/src/pages/Customers.tsx");
-    expect(src).toMatch(/matchesSearch = matchesAllTokens\(search, \[c\.name, c\.code/);
     expect(src).toMatch(/matchesSearch = matchesAllTokens\(search, \[g\.group\]\)/);
-    // The old substring filter must be gone from both views.
-    expect(src).not.toContain("c.name.toLowerCase().includes(search.toLowerCase())");
+    // The old substring filter must be gone.
     expect(src).not.toContain("g.group.toLowerCase().includes(search.toLowerCase())");
   });
 

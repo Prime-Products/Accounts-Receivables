@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   fmtEur,
   ratingColors,
@@ -19,7 +18,7 @@ import {
 } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { collectionActionSortValue } from "@/lib/collectionStatusSort";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BellRing, Filter, Layers, Pencil, Phone, Search, Sparkles, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, BellRing, Filter, Pencil, Phone, Search, Sparkles, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { memo } from "react";
 import { toast } from "sonner";
@@ -44,7 +43,6 @@ function daysSince(ts: number): number {
   return Math.floor((Date.now() - ts) / 86400000);
 }
 
-type CompanySortKey = "open" | "overdue" | "overdueEom" | "credit" | "score";
 
 /**
  * The date a group is waiting on, right under its status badge: the promised
@@ -316,27 +314,10 @@ const GROUP_COL_DEFAULTS: Record<string, number> = {
   remaining: 105,
 };
 
-const COMPANY_COL_DEFAULTS: Record<string, number> = {
-  code: 90,
-  name: 300,
-  score: 80,
-  open: 130,
-  overdue: 130,
-  overdueEom: 130,
-  credit: 120,
-};
-
-/** Rows rendered per page in the Companies tab (same rhythm as the Address Book). */
-const COMPANY_PAGE = 200;
-
 export default function Customers() {
-  const [view, setView] = useState<"groups" | "companies">("groups");
-  const { data, isLoading } = trpc.customers.list.useQuery(undefined, {
-    enabled: view === "companies",
-  });
-  const { data: groups, isLoading: groupsLoading } = trpc.customers.groups.useQuery(undefined, {
-    enabled: view === "groups",
-  });
+  // Collections is tracked per group only. A single company is reached from its
+  // group's member list (Customer 360), never from a flat company list here.
+  const { data: groups, isLoading: groupsLoading } = trpc.customers.groups.useQuery();
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
   const searchStr = useSearch();
@@ -378,14 +359,10 @@ export default function Customers() {
   const [collectorFilter, setCollectorFilter] = useState<string>("all");
   const { data: teamMembers } = trpc.team.list.useQuery();
   const [groupSort, setGroupSort] = useState<{ key: GroupSortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
-  const [companySort, setCompanySort] = useState<{ key: CompanySortKey | null; dir: "asc" | "desc" }>({ key: null, dir: "desc" });
   const groupCols = useResizableColumns("customer-groups", GROUP_COL_DEFAULTS);
-  const companyCols = useResizableColumns("customer-companies", COMPANY_COL_DEFAULTS);
 
   const toggleGroupSort = (key: GroupSortKey) =>
     setGroupSort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
-  const toggleCompanySort = (key: CompanySortKey) =>
-    setCompanySort(s => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
   const now = new Date();
   const { data: forecastStatus } = trpc.forecast.smartStatus.useQuery({
     year: now.getUTCFullYear(),
@@ -414,54 +391,6 @@ export default function Customers() {
       generate.mutate({ year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, useAi: true });
     }
   };
-
-  const filtered = useMemo(() => {
-    if (!data) return [];
-    let rows = data.filter(c => {
-      // Contacts-only companies (never invoiced) belong to the directory, not to collections.
-      if ((c as { hasLedger?: boolean }).hasLedger === false) return false;
-      // Accents, letter case and word order are handled centrally, so a Greek
-      // query also finds a Latin-spelled record (and vice versa).
-      const matchesSearch = matchesAllTokens(search, [c.name, c.code, (c as { customerGroup?: string | null }).customerGroup]);
-      const matchesRating = ratingFilter === "all" || c.rating === ratingFilter;
-      return matchesSearch && matchesRating;
-    });
-    if (companySort.key) {
-      const getVal = (c: (typeof rows)[number]): number => {
-        switch (companySort.key) {
-          case "open":
-            return c.openBalance;
-          case "overdue":
-            return c.overdueBalance;
-          case "overdueEom":
-            return c.overdueEomBalance;
-          case "credit":
-            return Number(c.creditLimit);
-          case "score":
-            return c.ratingScore;
-          default:
-            return 0;
-        }
-      };
-      rows = [...rows].sort((a, b) => {
-        const diff = getVal(a) - getVal(b);
-        return companySort.dir === "asc" ? diff : -diff;
-      });
-    }
-    return rows;
-  }, [data, search, ratingFilter, companySort]);
-
-  /**
-   * The Companies tab covers the whole ledger (3,400+ rows). Rendering them all
-   * makes the tab janky on ordinary laptops, so it pages like the Address Book:
-   * the first 200 rows, then Show more / Show all. Filters and totals always
-   * work on the full set, only the DOM is limited.
-   */
-  const [companyLimit, setCompanyLimit] = useState(COMPANY_PAGE);
-  useEffect(() => {
-    setCompanyLimit(COMPANY_PAGE);
-  }, [search, ratingFilter, companySort, view]);
-  const visibleCompanies = useMemo(() => filtered.slice(0, companyLimit), [filtered, companyLimit]);
 
   const filteredGroups = useMemo(() => {
     if (!groups) return [];
@@ -598,20 +527,6 @@ export default function Customers() {
     [search, statusFilter, confirmationFilter, contactFilter, dueFilter, managerFilter, collectorFilter, ratingFilter],
   );
 
-  const companyTotals = useMemo(
-    () =>
-      filtered.reduce<{ open: number; overdue: number; overdueEom: number; credit: number }>(
-        (t, c) => ({
-          open: t.open + c.openBalance,
-          overdue: t.overdue + c.overdueBalance,
-          overdueEom: t.overdueEom + c.overdueEomBalance,
-          credit: t.credit + Number(c.creditLimit),
-        }),
-        { open: 0, overdue: 0, overdueEom: 0, credit: 0 }
-      ),
-    [filtered]
-  );
-
   /** Overall summary across the filtered groups — same cards as the group view, but totals. */
   const summary = useMemo(() => {
     const s = {
@@ -665,9 +580,7 @@ export default function Customers() {
             <Users className="h-6 w-6" /> Collections Desk
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {view === "groups"
-              ? "Group tracking — click a group for its card with member companies"
-              : "Click a row for the Customer 360 View"}
+            Group tracking — click a group for its card with member companies
           </p>
         </div>
         <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
@@ -730,31 +643,20 @@ export default function Customers() {
         </DialogContent>
       </Dialog>
 
-      {/* What am I looking at (view) is a different decision from how I narrow it
-          (filters) — so the tabs stand alone and the filters live in one box. */}
+      {/* Collections is tracked per group only (the company card is reached from a
+          group's member list), so there is no view switch here — just the filters. */}
       <div className="flex flex-wrap items-start gap-2">
-        <Tabs value={view} onValueChange={v => setView(v as "groups" | "companies")}>
-          <TabsList className="h-10">
-            <TabsTrigger value="groups" className="gap-1.5">
-              <Layers className="h-4 w-4" /> Groups
-            </TabsTrigger>
-            <TabsTrigger value="companies" className="gap-1.5">
-              <Users className="h-4 w-4" /> Companies
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
         <div className="flex flex-1 flex-wrap items-center gap-2 rounded-lg border bg-muted/40 p-2 min-w-72">
           <Filter className="h-4 w-4 text-muted-foreground shrink-0 ml-0.5" />
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               className="pl-9 h-9 bg-background"
-              placeholder={view === "groups" ? "Search group…" : "Search by name or code…"}
+              placeholder="Search group…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          {view === "groups" && (
           <>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-40 h-9 bg-background">
@@ -844,7 +746,6 @@ export default function Customers() {
               </SelectContent>
             </Select>
           </>
-          )}
           <Select value={ratingFilter} onValueChange={setRatingFilter}>
             <SelectTrigger className="w-32 h-9 bg-background">
               <SelectValue placeholder="Rating" />
@@ -880,7 +781,7 @@ export default function Customers() {
         </div>
       </div>
 
-      {view === "groups" && !groupsLoading && (
+      {!groupsLoading && (
         <>
           {/* Summary KPI cards — totals across the filtered groups (same layout as group view) */}
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
@@ -953,8 +854,7 @@ export default function Customers() {
 
       <Card>
         <CardContent className="p-0">
-          {view === "groups" ? (
-            groupsLoading ? (
+          {groupsLoading ? (
               <div className="p-4 space-y-2">
                 {[...Array(6)].map((_, i) => (
                   <Skeleton key={i} className="h-10" />
@@ -1100,89 +1000,13 @@ export default function Customers() {
                      <TableCell className={`text-right font-mono ${g.collected > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                         {fmtEur(g.collected)}
                       </TableCell>
-                      <TableCell className={`text-right font-mono ${g.remaining > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
+                    <TableCell className={`text-right font-mono ${g.remaining > 0 ? "text-amber-600" : "text-muted-foreground"}`}>
                         {fmtEur(g.remaining)}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            )
-          ) : isLoading ? (
-            <div className="p-4 space-y-2">
-              {[...Array(6)].map((_, i) => (
-                <Skeleton key={i} className="h-10" />
-              ))}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="p-10 text-center text-muted-foreground">
-              No customers yet. Create one or pull them from Softone in Settings.
-            </div>
-          ) : (
-            <Table className="table-fixed" style={{ width: companyCols.totalWidth, minWidth: "100%" }}>
-              <TableHeader>
-                <TableRow>
-                  <PlainHead label="Code" col="code" cols={companyCols} />
-                  <PlainHead label="Name" col="name" cols={companyCols} />
-                  <SortableHead label="Rating" active={companySort.key === "score"} dir={companySort.dir} onClick={() => toggleCompanySort("score")} col="score" cols={companyCols} />
-                  <SortableHead label="Open Balance" active={companySort.key === "open"} dir={companySort.dir} onClick={() => toggleCompanySort("open")} col="open" cols={companyCols} />
-                  <SortableHead label="Overdue" active={companySort.key === "overdue"} dir={companySort.dir} onClick={() => toggleCompanySort("overdue")} col="overdue" cols={companyCols} />
-                  <SortableHead label="Overdue EOM" active={companySort.key === "overdueEom"} dir={companySort.dir} onClick={() => toggleCompanySort("overdueEom")} col="overdueEom" cols={companyCols} />
-                  <SortableHead label="Credit Limit" active={companySort.key === "credit"} dir={companySort.dir} onClick={() => toggleCompanySort("credit")} col="credit" cols={companyCols} />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow className="bg-muted/60 font-semibold border-b-2 hover:bg-muted/60">
-                  <TableCell colSpan={3}>TOTAL ({filtered.length} companies)</TableCell>
-                  <TableCell className="text-right font-mono">{fmtEur(companyTotals.open)}</TableCell>
-                  <TableCell className={`text-right font-mono ${companyTotals.overdue > 0 ? "text-red-600" : ""}`}>
-                    {fmtEur(companyTotals.overdue)}
-                  </TableCell>
-                  <TableCell className={`text-right font-mono ${companyTotals.overdueEom > 0 ? "text-amber-600" : ""}`}>
-                    {fmtEur(companyTotals.overdueEom)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">{fmtEur(companyTotals.credit)}</TableCell>
-                </TableRow>
-                {visibleCompanies.map(c => (
-                  <TableRow key={c.id} className="cursor-pointer" onClick={() => navigate(`/customers/${c.id}`)}>
-                    <TableCell className="font-mono text-sm">{c.code}</TableCell>
-                    <TableCell className="font-medium overflow-hidden">
-                      <span className="block truncate" title={c.name}>{c.name}</span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Badge
-                        variant="outline"
-                        className={`${ratingColors[c.rating] ?? ""} font-mono`}
-                        title={`Credit score ${c.ratingScore}/100${c.ratingBreakdown ? `\n${c.ratingBreakdown.split(" · ").join("\n")}` : ""}`}
-                      >
-                        {c.rating}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-mono">{fmtEur(c.openBalance)}</TableCell>
-                    <TableCell className={`text-right font-mono ${c.overdueBalance > 0 ? "text-red-600 font-semibold" : ""}`}>
-                      {fmtEur(c.overdueBalance)}
-                    </TableCell>
-                    <TableCell className={`text-right font-mono ${c.overdueEomBalance > 0 ? "text-amber-600" : ""}`}>
-                      {fmtEur(c.overdueEomBalance)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">{fmtEur(c.creditLimit)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          {view === "companies" && !isLoading && filtered.length > visibleCompanies.length && (
-            <div className="p-3 flex items-center justify-center gap-3 border-t">
-              <span className="text-sm text-muted-foreground">
-                Showing {visibleCompanies.length} of {filtered.length} companies
-              </span>
-              <Button variant="outline" size="sm" onClick={() => setCompanyLimit(n => n + COMPANY_PAGE)}>
-                Show more
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setCompanyLimit(filtered.length)}>
-                Show all
-              </Button>
-            </div>
           )}
         </CardContent>
       </Card>
