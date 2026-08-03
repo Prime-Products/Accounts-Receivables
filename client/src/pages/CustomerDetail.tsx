@@ -373,11 +373,16 @@ export default function CustomerDetail() {
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Overdue</div>
             <div className={`text-xl font-bold font-mono ${aging.totalOverdue > 0 ? "text-red-600" : ""}`}>{fmtEur(aging.totalOverdue)}</div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">
-              {openInvoices.filter(i => now > i.dueDate).length} overdue invoice(s)
-            </div>
-            <div className="text-[11px] font-mono mt-0.5 text-orange-600" title="Overdue by end of the current month (today's overdue + invoices falling due until month end)">
-              EOM: {fmtEur(data.overdueEomBalance)}
+            {/* Same treatment as the group card: the second amount sits on a
+                labelled row under a divider so it is easy to read. */}
+            <div
+              className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5"
+              title="Overdue by end of the current month (today's overdue + invoices falling due until month end)"
+            >
+              <span className="text-[11px] text-muted-foreground">
+                End of month · {openInvoices.filter(i => now > i.dueDate).length} inv.
+              </span>
+              <span className="text-[11px] font-mono font-medium">{fmtEur(data.overdueEomBalance)}</span>
             </div>
           </CardContent>
         </Card>
@@ -389,8 +394,13 @@ export default function CustomerDetail() {
                 <div className="text-xl font-bold font-mono text-emerald-700" title={groupForecast.aiReasoning ?? undefined}>
                   {fmtEur(groupForecast.expectedAmount)}
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
-                  collected {fmtEur(groupForecast.collected)} · remaining {fmtEur(groupForecast.remaining)}
+                <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                  <span className="text-[11px] text-muted-foreground">Collected</span>
+                  <span className="text-[11px] font-mono font-medium">{fmtEur(groupForecast.collected)}</span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between gap-2">
+                  <span className="text-[11px] text-muted-foreground">Remaining</span>
+                  <span className="text-[11px] font-mono font-medium">{fmtEur(groupForecast.remaining)}</span>
                 </div>
               </>
             ) : (
@@ -410,8 +420,9 @@ export default function CustomerDetail() {
                 >
                   {data.behavior.medianDaysLate > 0 ? `+${Math.round(data.behavior.medianDaysLate)}` : Math.round(data.behavior.medianDaysLate)}d median
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">
-                  avg {Math.round(data.behavior.avgDaysLate)}d vs due date · {data.behavior.payments} payments
+                <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                  <span className="text-[11px] text-muted-foreground">Average · {data.behavior.payments} payments</span>
+                  <span className="text-[11px] font-mono font-medium">{Math.round(data.behavior.avgDaysLate)}d</span>
                 </div>
               </>
             ) : (
@@ -425,7 +436,10 @@ export default function CustomerDetail() {
             <div className="text-xl font-bold font-mono text-blue-700">
               {customer.turnoverYtd != null ? fmtEur(customer.turnoverYtd) : "—"}
             </div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">credit limit {fmtEur(customer.creditLimit)}</div>
+            <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+              <span className="text-[11px] text-muted-foreground">Credit limit</span>
+              <span className="text-[11px] font-mono font-medium">{fmtEur(customer.creditLimit)}</span>
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -435,8 +449,13 @@ export default function CustomerDetail() {
               {customer.turnoverLastYear != null ? fmtEur(customer.turnoverLastYear) : "—"}
             </div>
             {customer.turnoverYtd != null && customer.turnoverLastYear != null && Number(customer.turnoverLastYear) > 0 && (
-              <div className={`text-[10px] font-mono mt-0.5 ${Number(customer.turnoverYtd) >= Number(customer.turnoverLastYear) ? "text-emerald-600" : "text-amber-600"}`}>
-                {((Number(customer.turnoverYtd) / Number(customer.turnoverLastYear) - 1) * 100).toFixed(0)}% vs last year
+              <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                <span className="text-[11px] text-muted-foreground">vs this year</span>
+                <span
+                  className={`text-[11px] font-mono font-medium ${Number(customer.turnoverYtd) >= Number(customer.turnoverLastYear) ? "text-emerald-600" : "text-amber-600"}`}
+                >
+                  {((Number(customer.turnoverYtd) / Number(customer.turnoverLastYear) - 1) * 100).toFixed(0)}%
+                </span>
               </div>
             )}
           </CardContent>

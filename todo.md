@@ -1909,3 +1909,10 @@ destination of the record is group-level.
 - [x] Invoice / on-account / credit-note breakdown moves into a tooltip instead of coloured lines
 - [x] Same simplification on the company card (Customer 360) Open Balance KPI
 - [x] Test pinning the simplified Open Balance card content
+
+## KPI secondary amounts readability (user request 3/8)
+- [x] Overdue card: "End of month" amount on a labelled row instead of faint orange text
+- [x] Turnover card: "Last year" amount on a labelled row with the variance beside the label
+- [x] Forecast card: expected-to-collect and variance on labelled rows
+- [x] Same treatment on the company card (EOM, collected/remaining, avg days, credit limit, vs this year)
+- [x] Test pinning the readable secondary-amount rows
