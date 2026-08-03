@@ -11,6 +11,7 @@ try {
   console.log(`[SoftOne] Starting approved credit-note customer ${softoneId}...`);
   const result = await syncSoftOneCreditNoteCustomer(softoneId);
   console.log(`SoftOne credit-note customer synchronized to Hub: ${result.softoneId} | ${result.name}`);
+  process.exit(0);
 } catch (error) {
   console.error(error instanceof Error ? error.message : "SoftOne credit-note customer sync failed.");
   process.exit(1);
