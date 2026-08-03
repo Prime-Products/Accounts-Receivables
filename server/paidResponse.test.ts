@@ -11,7 +11,7 @@ const read = (p: string) => readFileSync(join(root, p), "utf8");
  * "Paid" is the outcome every collections call is aiming for, and it was the one
  * customer response the Log Call dialog could not record: the collector had to
  * either leave a stale Promise to Pay on the group or mis-file the payment as
- * "Did not confirm". These tests pin the whole rule the user asked for — the
+ * "Promise Broken". These tests pin the whole rule the user asked for — the
  * status can be picked, it closes the month, and the group returns as
  * "Not Contacted" when the next month begins.
  */
@@ -71,7 +71,7 @@ describe("Paid closes the collections cycle server-side", () => {
     expect(router).toMatch(/if \(status === "Kept"\) return isFromPreviousMonth/);
   });
 
-  it("keeps 'Did not confirm' on the group when the new month starts", () => {
+  it("keeps 'Promise Broken' on the group when the new month starts", () => {
     // Only Paid may reset: a refusal must never silently look like an untouched group.
     const fn = router.slice(
       router.indexOf("function isConfirmationStale("),

@@ -34,7 +34,7 @@ const STATUS_LABELS: Record<string, string> = {
   "Not Contacted": "Not Contacted",
   Confirmed: "Promise to Pay",
   "Pending Follow-up": "Pending Follow-up",
-  Broken: "Did not confirm",
+  Broken: "Promise Broken",
   Kept: "Paid",
 };
 
@@ -77,7 +77,7 @@ export default function LogCallDialog({
   };
   const [confirmationStatus, setConfirmationStatus] = useState<(typeof CONFIRMATION_STATUSES)[number] | "">(initialResponse);
   /*
-   * What the customer actually answered. A refusal ("Did not confirm") still
+   * What the customer actually answered. A refusal ("Promise Broken") still
    * requires the collector to pick a way forward, which overwrites
    * `confirmationStatus`. Keeping the original answer here means the refusal
    * reaches the server and stays in the timeline — it used to be lost, so the
@@ -610,7 +610,7 @@ export default function LogCallDialog({
             </div>
           )}
 
-          {/* "Did not confirm" (stored as Broken) — offer the two ways forward */}
+          {/* "Promise Broken" (stored as Broken) — offer the two ways forward */}
           {confirmationStatus === "Broken" && (
             <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-2.5">
               <p className="text-xs font-medium text-red-900">Choose next action:</p>
@@ -633,7 +633,7 @@ export default function LogCallDialog({
               </div>
               <p className="text-[11px] leading-snug text-red-800">
                 Either way, the refusal stays in the history: the timeline will read
-                <strong> "Did not confirm → …"</strong>.
+                <strong> "Promise Broken → …"</strong>.
               </p>
               <p className="text-[11px] leading-snug text-red-800">
                 The status also stays on the group when the new month starts — only a new call clears it.
@@ -650,14 +650,14 @@ export default function LogCallDialog({
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
               <Info className="h-3.5 w-3.5 shrink-0 text-amber-600" />
               <span>
-                Recorded as <strong>Did not confirm → {STATUS_LABELS[confirmationStatus] ?? confirmationStatus}</strong>
+                Recorded as <strong>Promise Broken → {STATUS_LABELS[confirmationStatus] ?? confirmationStatus}</strong>
               </span>
               <button
                 type="button"
                 className="ml-auto underline hover:no-underline"
                 onClick={() => setConfirmationStatus("Broken")}
               >
-                Back to Did not confirm
+                Back to Promise Broken
               </button>
             </div>
           )}
@@ -669,7 +669,7 @@ export default function LogCallDialog({
             <MentionTextarea
               value={notes}
               onChange={setNotes}
-              placeholder={confirmationStatus === "Broken" ? "Why did they not confirm?" : "What was discussed…"}
+              placeholder={confirmationStatus === "Broken" ? "Why was the promise broken?" : "What was discussed…"}
               rows={2}
               className="resize-y min-h-[56px]"
             />

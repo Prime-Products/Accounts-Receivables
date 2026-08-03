@@ -134,13 +134,13 @@ describe("stale open promises — Not Contacted sweeps them", () => {
 });
 
 /*
- * User rule: "did not confirm status at the new month should remain did not confirm".
+ * User rule: "promise broken status at the new month should remain promise broken".
  * A refusal is unfinished business — if it reset to "Not Contacted" with the month
  * change, the group would look untouched and the refusal would disappear from the
  * Desk. Only "Paid" closes a cycle and resets, because that money is in.
  */
-describe("month rollover — Did not confirm carries over", () => {
-  it("keeps a refusal recorded last month as 'Did not confirm', while Paid resets to Not Contacted", async () => {
+describe("month rollover — Promise Broken carries over", () => {
+  it("keeps a refusal recorded last month as 'Promise Broken', while Paid resets to Not Contacted", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const cust = await getFixtureCustomer();
     const group = (cust.customerGroup ?? "").trim() || cust.name;

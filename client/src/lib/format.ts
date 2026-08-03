@@ -140,6 +140,6 @@ export const confirmationStatusLabels: Record<string, string> = {
   "Not Contacted": "Not Contacted",
   Confirmed: "Promise to Pay",
   "Pending Follow-up": "Pending Follow-up",
-  Broken: "Did not confirm",
+  Broken: "Promise Broken",
   Kept: "Paid",
 };
