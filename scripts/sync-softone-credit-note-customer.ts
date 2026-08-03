@@ -1,13 +1,14 @@
 import "dotenv/config";
 import { syncSoftOneCreditNoteCustomer } from "../server/lib/softoneCreditNotes";
 
-const softoneId = Number(process.argv[2]);
+const softoneId = Number(process.env.SOFTONE_SQL_CREDIT_NOTE_CUSTOMER_ID ?? process.argv[2]);
 if (!Number.isSafeInteger(softoneId) || softoneId <= 0) {
-  console.error("Usage: pnpm run sync:softone-credit-note-customer -- <TRDR>");
+  console.error("Set SOFTONE_SQL_CREDIT_NOTE_CUSTOMER_ID to the approved TRDR.");
   process.exit(1);
 }
 
 try {
+  console.log(`[SoftOne] Starting approved credit-note customer ${softoneId}...`);
   const result = await syncSoftOneCreditNoteCustomer(softoneId);
   console.log(`SoftOne credit-note customer synchronized to Hub: ${result.softoneId} | ${result.name}`);
 } catch (error) {
