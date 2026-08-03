@@ -23,11 +23,11 @@ function yearSetting() {
   return year;
 }
 
-function inspectionMonthSetting() {
+function monthSetting() {
   const raw = process.env.SOFTONE_SQL_CREDIT_NOTE_MONTH?.trim();
   if (!raw) return undefined;
   const month = Number(raw);
-  if (!Number.isSafeInteger(month) || month < 1 || month > 12) throw new Error("Invalid SoftOne credit-note inspection month.");
+  if (!Number.isSafeInteger(month) || month < 1 || month > 12) throw new Error("Invalid SoftOne credit-note month.");
   return month;
 }
 
@@ -184,7 +184,7 @@ export async function inspectSoftOneCreditNotes(onProgress: (stage: string) => v
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
   let stage = "connect";
   try {
-    const month = inspectionMonthSetting();
+    const month = monthSetting();
     return summary(await load(value => { stage = value; onProgress(value); }, month), month);
   }
   catch (error) { throw new Error(softOneSqlError(error, stage)); }
@@ -195,10 +195,12 @@ export async function syncSoftOneCreditNotes(onProgress: (stage: string) => void
   if (!isSoftOneSqlConfigured()) throw new Error("SoftOne SQL is not configured.");
   let stage = "connect";
   try {
-    const records = await load(value => { stage = value; onProgress(value); });
+    const month = monthSetting();
+    const records = await load(value => { stage = value; onProgress(value); }, month);
     stage = "upsert Hub credit notes";
     const result = await db.upsertSoftOneCreditNotes(records);
-    await db.addSyncLog({ direction: "Pull", entityType: "credit-notes", recordCount: result.synced, status: "Success", message: `Read-only SQL sync upserted ${result.synced} credit notes` });
-    return { ...summary(records), synced: result.synced };
+    const period = month ? `${yearSetting()}-${String(month).padStart(2, "0")}` : String(yearSetting());
+    await db.addSyncLog({ direction: "Pull", entityType: "credit-notes", recordCount: result.synced, status: "Success", message: `Read-only SQL sync upserted ${result.synced} credit notes for ${period}` });
+    return { ...summary(records, month), synced: result.synced };
   } catch (error) { throw new Error(softOneSqlError(error, stage)); }
 }
