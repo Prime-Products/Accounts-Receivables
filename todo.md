@@ -1916,14 +1916,8 @@ destination of the record is group-level.
 - [x] Forecast card: expected-to-collect and variance on labelled rows
 - [x] Same treatment on the company card (EOM, collected/remaining, avg days, credit limit, vs this year)
 - [x] Test pinning the readable secondary-amount rows
-## Ask for help without a due date (user request 3/8)
-- [ ] `tasks.dueDate` becomes nullable in the schema and the migration is applied
-- [ ] Ask for help opens with the due date empty; no +3 days default
-- [ ] Submitting Ask for help with no date creates the task without a deadline
-- [ ] Task list / group card / Tasks page render "No due date" instead of an invalid date
-- [ ] Overdue and due-soon logic ignores tasks without a due date
-- [ ] Activity log line omits the "Due:" row when there is no due date
-- [ ] Tests pinning optional due date (creation, rendering, overdue filters)
+## Ask for help without a due date — CANCELLED by user before implementation (3/8)
+- [x] Cancelled: user said "μη το κανεις"; the +3 days default stays as it is
 ## Rename "Did not confirm" to "Promise Broken" (user request 3/8)
 - [x] Log Call customer-response option reads "Promise Broken"
 - [x] Status badge, Collections Desk filter and company-card label read "Promise Broken"
