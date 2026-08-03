@@ -102,6 +102,7 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
       { icon: ShieldCheck, label: "Certificates", path: "/ops/certificates" },
       { icon: Truck, label: "Orders", path: "/ops/orders" },
       { icon: RotateCcw, label: "Returns", path: "/ops/returns" },
+      { icon: Settings, label: "Catalog", path: "/ops/catalog" },
     ],
   },
   {

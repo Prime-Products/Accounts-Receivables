@@ -18,4 +18,4 @@
 - [x] Build Reverse Logistics Dashboard (pending returns)
 - [x] Build Statement of Account (SoA) in Reports page
 - [x] Build Vessel Dashboard with KPIs, equipment, quota, history
-- [ ] Add Catalog management page (Services, Assets, Consumables CRUD)
+- [x] Add Catalog management page (Services, Assets, Consumables CRUD)
