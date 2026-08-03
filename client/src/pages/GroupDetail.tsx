@@ -865,29 +865,33 @@ export default function GroupDetail() {
             <Card>
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Open Balance</div>
-                <div className="text-xl font-bold font-mono">{fmtEur((data.totals as any).netOpenBalance ?? data.totals.openBalance)}</div>
-                {(((data.totals as any).unallocatedPayments ?? 0) > 0.005 ||
-                  ((data.totals as any).openCreditNotes ?? 0) > 0.005) && (
-                  <div
-                    className="text-[11px] font-mono mt-0.5 text-emerald-600"
-                    title="Open invoices minus payments on account and credit notes that are not yet matched"
-                  >
-                    {fmtEur(data.totals.openBalance)} inv
-                    {((data.totals as any).unallocatedPayments ?? 0) > 0.005 &&
-                      ` − ${fmtEur((data.totals as any).unallocatedPayments)} on acct`}
-                    {((data.totals as any).openCreditNotes ?? 0) > 0.005 && (
-                      <span className="text-sky-600"> − {fmtEur((data.totals as any).openCreditNotes)} credit</span>
-                    )}
-                  </div>
-                )}
-                <div className="text-[11px] text-muted-foreground mt-0.5">
-                  {fmtByCurrency(data.totals.openByCurrency, { skipEurOnly: true })}
-                </div>
                 <div
-                  className="text-[11px] font-mono mt-0.5 text-blue-600"
-                  title="Open invoices falling due within the next calendar month"
+                  className="text-xl font-bold font-mono"
+                  title={[
+                    `Open invoices: ${fmtEur(data.totals.openBalance)}`,
+                    ((data.totals as any).unallocatedPayments ?? 0) > 0.005
+                      ? `Payments on account (unmatched): −${fmtEur((data.totals as any).unallocatedPayments)}`
+                      : null,
+                    ((data.totals as any).openCreditNotes ?? 0) > 0.005
+                      ? `Open credit notes: −${fmtEur((data.totals as any).openCreditNotes)}`
+                      : null,
+                    fmtByCurrency(data.totals.openByCurrency, { skipEurOnly: true })
+                      ? `By currency: ${fmtByCurrency(data.totals.openByCurrency, { skipEurOnly: true })}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")}
                 >
-                  Due next month: {fmtEur((data.totals as any).dueNextMonth ?? 0)}
+                  {fmtEur((data.totals as any).netOpenBalance ?? data.totals.openBalance)}
+                </div>
+                {/* Only the net balance and next month's exposure are shown; the
+                    invoice / on-account / credit-note breakdown lives in the
+                    tooltip so the card stays readable at a glance. */}
+                <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                  <span className="text-[11px] text-muted-foreground">Due next month</span>
+                  <span className="text-[11px] font-mono font-medium" title="Open invoices falling due within the next calendar month">
+                    {fmtEur((data.totals as any).dueNextMonth ?? 0)}
+                  </span>
                 </div>
               </CardContent>
             </Card>

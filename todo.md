@@ -1903,3 +1903,9 @@ destination of the record is group-level.
 - [x] Navigating to a different page still lands at the top of the new page
 - [x] Test pinning the same-route scroll-to-top behaviour
 - [x] Global search results and the Mentions inbox also land at the top of the target page
+
+## Open Balance card readability (user request 3/8)
+- [x] Open Balance card shows only the net open balance and "Due next month"
+- [x] Invoice / on-account / credit-note breakdown moves into a tooltip instead of coloured lines
+- [x] Same simplification on the company card (Customer 360) Open Balance KPI
+- [x] Test pinning the simplified Open Balance card content
