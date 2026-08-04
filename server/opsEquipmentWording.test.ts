@@ -53,7 +53,7 @@ describe("equipment terminology (renamed from Assets)", () => {
 
 describe("catalog terminology", () => {
   it("the tab and dialogs say Product instead of Asset Type", () => {
-    expect(catalogPage).toContain("Products</TabsTrigger>");
+    expect(catalogPage).toContain("Equipment</TabsTrigger>");
     expect(catalogPage).toContain("<DialogTitle>Add Product</DialogTitle>");
     expect(catalogPage).toContain("<DialogTitle>Edit Product</DialogTitle>");
     expect(catalogPage).toContain("Add Product");
@@ -67,8 +67,9 @@ describe("catalog terminology", () => {
     expect(catalogPage).toContain("No products yet");
   });
 
-  it("keeps the three catalog tabs (services, products, consumables)", () => {
-    expect(catalogPage).toContain("Standard costs and prices for services, products and consumables");
+  it("keeps only the equipment and consumables tabs", () => {
+    expect(catalogPage).toContain("Standard costs and prices for equipment and consumables");
+    expect(catalogPage).not.toContain("Services</TabsTrigger>");
   });
 
   it("the catalog page is presented as the Pricelist", () => {

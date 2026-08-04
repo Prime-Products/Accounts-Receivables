@@ -13,6 +13,7 @@ import {
 import { matchScore, matchesAllTokens } from "../../shared/textMatch";
 import { parseMentions, stripMentionMarkup } from "../../shared/mentions";
 import * as db from "../db";
+import * as opsDb from "../opsDb";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveGroupStatus, normalizeStoredStatus } from "../lib/statusWorkflow";
 import {
@@ -3080,6 +3081,75 @@ export const vesselsRouter = router({
         return c ? { id: c.id, name: c.name, group: (c.customerGroup ?? "").trim() || c.name } : null;
       })
       .filter((x): x is { id: number; name: string; group: string } => x !== null);
+    // Serial-tracked instruments physically on board, with the contract they belong to and
+    // the calibration certificate that expires soonest for each one.
+    const [assets, contracts, allCertificates] = await Promise.all([
+      opsDb.listAssets({ vesselId: input.id }),
+      opsDb.listOpsContracts(),
+      opsDb.listCertificates(),
+    ]);
+    const contractById = new Map(contracts.map(c => [c.id, c]));
+    const certByAsset = new Map<number, { certificateNumber: string; expiryDate: number }>();
+    for (const cert of allCertificates) {
+      const existing = certByAsset.get(cert.assetId);
+      if (!existing || cert.expiryDate < existing.expiryDate) {
+        certByAsset.set(cert.assetId, { certificateNumber: cert.certificateNumber, expiryDate: cert.expiryDate });
+      }
+    }
+    const equipment = assets.map(a => {
+      const contract = a.contractId != null ? contractById.get(a.contractId) : undefined;
+      const cert = certByAsset.get(a.id);
+      return {
+        id: a.id,
+        serialNumber: a.serialNumber,
+        name: a.name,
+        status: a.status,
+        contractId: a.contractId,
+        contractNumber: contract?.contractNumber ?? null,
+        targetReturnPort: a.targetReturnPort,
+        certificateNumber: cert?.certificateNumber ?? null,
+        certificateExpiry: cert?.expiryDate ?? null,
+        daysUntilCertificateExpiry: cert ? Math.ceil((cert.expiryDate - now) / 86_400_000) : null,
+      };
+    });
+    // Everything the vessel is entitled to under its contracts, read the same way
+    // as on the contract card: Equipment first, then Consumables, then Other.
+    // Serial-tracked equipment carries its own units, so a line stays "Not Supplied"
+    // until its units leave "Not Supplied" status.
+    const vesselAssignments = await opsDb.getVesselAssignmentsByVessel(input.id);
+    const vesselContractIds = Array.from(new Set(vesselAssignments.map(a => a.contractId)));
+    const libraries = await Promise.all(vesselContractIds.map(id => opsDb.listContractLibrary(id)));
+    const contractItems = vesselContractIds.flatMap((cid, i) => {
+      const contract = contractById.get(cid);
+      return libraries[i].map(item => {
+        const units = assets.filter(a => a.contractId === cid && a.name === item.name);
+        const suppliedUnits = units.filter(u => u.status !== "Not Supplied");
+        const serialTracked = units.length > 0;
+        return {
+          id: item.id,
+          contractId: cid,
+          contractNumber: contract?.contractNumber ?? null,
+          itemType: item.itemType,
+          name: item.name,
+          quantity: item.quantity,
+          quotaType: item.quotaType,
+          quotaLimit: item.quotaLimit,
+          serialTracked,
+          unitsTotal: units.length,
+          unitsSupplied: suppliedUnits.length,
+          supplied: serialTracked ? suppliedUnits.length === units.length : null,
+          serials: units.map(u => ({
+            id: u.id,
+            serialNumber: u.serialNumber,
+            status: u.status,
+            certificateExpiry: certByAsset.get(u.id)?.expiryDate ?? null,
+            daysUntilCertificateExpiry: certByAsset.get(u.id)
+              ? Math.ceil((certByAsset.get(u.id)!.expiryDate - now) / 86_400_000)
+              : null,
+          })),
+        };
+      });
+    });
     return {
       vessel: {
         ...vessel,
@@ -3088,6 +3158,8 @@ export const vesselsRouter = router({
       },
       stats: { openBalance, overdueAmount, overdueCount, totalInvoiced, totalPaid, maxDaysOverdue: maxDays, invoiceCount: rows.length },
       relatedCompanies,
+      equipment,
+      contractItems,
       invoices: invoiceRows,
     };
   }),

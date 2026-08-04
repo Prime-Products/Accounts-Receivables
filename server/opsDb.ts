@@ -100,19 +100,23 @@ export async function deleteConsumableCatalogItem(id: number) {
  */
 export type PricelistEntry = {
   key: string;
-  source: "service" | "product" | "consumable";
+  source: "product" | "consumable";
   catalogId: number;
   name: string;
   category: string | null;
   unit: string | null;
   unitCost: string;
   sellingPrice: string;
-  suggestedItemType: "Service" | "Instrument" | "Ampoule";
+  suggestedItemType: "Equipment" | "Consumable" | "Other";
 };
 
+/**
+ * Flatten the pricelist into one searchable list for the contract product picker.
+ * Services are deliberately excluded: a contract only lists what is physically
+ * supplied to a vessel (equipment, consumables and other items).
+ */
 export async function listPricelist(): Promise<PricelistEntry[]> {
-  const [services, products, consumables] = await Promise.all([
-    listServices(),
+  const [products, consumables] = await Promise.all([
     listAssetCatalog(),
     listConsumableCatalog(),
   ]);
@@ -129,7 +133,7 @@ export async function listPricelist(): Promise<PricelistEntry[]> {
         unit: null,
         unitCost: p.defaultCost,
         sellingPrice: p.sellingPrice,
-        suggestedItemType: "Instrument" as const,
+        suggestedItemType: "Equipment" as const,
       })),
     ...consumables
       .filter(c => c.active)
@@ -142,20 +146,7 @@ export async function listPricelist(): Promise<PricelistEntry[]> {
         unit: c.unit,
         unitCost: c.defaultCostPerUnit,
         sellingPrice: c.sellingPricePerUnit,
-        suggestedItemType: "Ampoule" as const,
-      })),
-    ...services
-      .filter(s => s.active)
-      .map(s => ({
-        key: `service-${s.id}`,
-        source: "service" as const,
-        catalogId: s.id,
-        name: s.name,
-        category: s.category ?? null,
-        unit: null,
-        unitCost: s.defaultCost,
-        sellingPrice: s.sellingPrice,
-        suggestedItemType: "Service" as const,
+        suggestedItemType: "Consumable" as const,
       })),
   ];
 

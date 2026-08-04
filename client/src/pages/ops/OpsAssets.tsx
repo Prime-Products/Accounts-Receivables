@@ -33,8 +33,7 @@ const ASSET_STATUSES = ["Not Supplied", "In Transit", "Active", "Pending Return"
 type SortKey = "serialNumber" | "name" | "vesselName" | "status" | "updatedAt";
 
 const COL_DEFAULTS: Record<string, number> = {
-  serialNumber: 180,
-  name: 180,
+  name: 300,
   vessel: 160,
   status: 130,
   certificate: 150,
@@ -202,12 +201,8 @@ export default function OpsAssets() {
             <Table style={{ tableLayout: "fixed", width: cols.totalWidth }}>
               <TableHeader>
                 <TableRow>
-                  <TableHead style={cols.style("serialNumber")} className="relative cursor-pointer select-none" onClick={() => toggleSort("serialNumber")}>
-                    <span className="flex items-center">Serial # <SortIcon col="serialNumber" /></span>
-                    <ColResizer col="serialNumber" api={cols} />
-                  </TableHead>
                   <TableHead style={cols.style("name")} className="relative cursor-pointer select-none" onClick={() => toggleSort("name")}>
-                    <span className="flex items-center">Name <SortIcon col="name" /></span>
+                    <span className="flex items-center">Instrument <SortIcon col="name" /></span>
                     <ColResizer col="name" api={cols} />
                   </TableHead>
                   <TableHead style={cols.style("vessel")} className="relative cursor-pointer select-none" onClick={() => toggleSort("vesselName")}>
@@ -239,7 +234,7 @@ export default function OpsAssets() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                       <Package className="h-8 w-8 mx-auto mb-2 opacity-40" />
                       <p>{statusFilter === "Pending Return" ? "Nothing awaiting collection" : "No equipment yet"}</p>
                     </TableCell>
@@ -247,8 +242,10 @@ export default function OpsAssets() {
                 ) : (
                   filtered.map(a => (
                     <TableRow key={a.id} className="cursor-pointer hover:bg-muted/50">
-                      <TableCell className="font-mono text-sm">{a.serialNumber}</TableCell>
-                      <TableCell className="font-medium truncate">{a.name}</TableCell>
+                      <TableCell>
+                        <div className="font-medium truncate">{a.name}</div>
+                        <div className="font-mono text-xs text-muted-foreground mt-0.5 truncate">S/N {a.serialNumber}</div>
+                      </TableCell>
                       <TableCell className="text-sm">{a.vesselName ?? "—"}</TableCell>
                       <TableCell>
                         <Select value={a.status} onValueChange={v => updateStatus.mutate({ id: a.id, status: v as any })}>

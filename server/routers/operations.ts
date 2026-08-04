@@ -331,7 +331,7 @@ export const opsQuotationsRouter = router({
       });
       // Carry the quotation lines over as the contract's product list.
       for (const item of items) {
-        const nature = item.itemType === "Consumable" ? "Ampoule" : item.itemType === "Asset" ? "Instrument" : "Service";
+        const nature = item.itemType === "Consumable" ? "Consumable" : item.itemType === "Asset" ? "Equipment" : "Other";
         await opsDb.createContractLibraryItem({
           contractId,
           itemType: nature as any,
@@ -340,8 +340,8 @@ export const opsQuotationsRouter = router({
           quantity: item.quantity,
           unitCost: Number(item.unitCost ?? 0).toFixed(2),
           sellingPrice: Number(item.sellingPrice ?? 0).toFixed(2),
-          quotaType: nature === "Ampoule" ? "Annual" : null,
-          quotaLimit: nature === "Ampoule" ? item.quantity : null,
+          quotaType: nature === "Consumable" ? "Annual" : null,
+          quotaLimit: nature === "Consumable" ? item.quantity : null,
         } as any);
       }
       // Mark quotation as converted. Installments are created per vessel once each ships.
@@ -899,7 +899,7 @@ export const opsVesselRouter = router({
     // Calculate quota usage
     const quotaUsage = contractIds.map(cId => {
       const lib = libraryByContract.get(cId) ?? [];
-      const consumables = lib.filter(l => (l.itemType === "Ampoule" || l.itemType === "Cylinder") && l.quotaLimit);
+      const consumables = lib.filter(l => l.itemType === "Consumable" && l.quotaLimit);
       return consumables.map(c => {
         const used = orders.filter(o => o.contractId === cId && o.libraryItemId === c.id).reduce((s, o) => s + o.quantity, 0);
         return { libraryItem: c, used, remaining: (c.quotaLimit ?? 0) - used };

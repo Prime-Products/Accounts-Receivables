@@ -1150,9 +1150,9 @@ export type InsertOpsContract = typeof opsContracts.$inferInsert;
  * - Service:    work performed (calibration, service visit)
  * - Other:      anything else supplied under the contract
  */
-export const opsLibraryItemTypes = ["Instrument", "Cylinder", "Ampoule", "Service", "Other"] as const;
+export const opsLibraryItemTypes = ["Equipment", "Consumable", "Other"] as const;
 /** Natures that produce serial-tracked asset records when a vessel is activated. */
-export const opsSerialTrackedTypes = ["Instrument"] as const;
+export const opsSerialTrackedTypes = ["Equipment"] as const;
 /** Quota types for consumables. */
 export const opsQuotaTypes = ["Annual", "ContractLife"] as const;
 

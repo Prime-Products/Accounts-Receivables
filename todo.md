@@ -2043,3 +2043,18 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Adding or removing a vessel only touches that vessel's installments, never paid/invoiced rows
 - [x] Migrate the existing Spring Marine schedule to the per-vessel model (legacy fleet-wide rows removed, total corrected to 33,900)
 - [x] Vitest coverage for per-vessel generation, unshipped vessels and the paid-row guard
+
+## Serial numbers visible on the vessel (user request 4/8)
+- [x] Vessel detail: list the instruments installed on that vessel with their serial numbers
+- [x] Show each instrument's status, contract and certificate expiry next to the serial
+- [x] Serial number rendered as a sub-line under the instrument description, not a separate column
+- [x] Vitest coverage for the vessel instrument list
+
+## Vessel item grouping + drop Services (user request 4/8)
+- [x] Reduce the contract item taxonomy to Equipment / Consumables / Other (remove Service and the Instrument/Cylinder/Ampoule split)
+- [x] Migrate existing contract library rows and pricelist rows to the new item types
+- [x] Remove the Services tab from the Pricelist page
+- [x] Vessel page: show all contract items grouped Equipment / Consumables / Other, same order and style as the contract
+- [x] Vessel page: show supply status per item — Not Supplied until the serial-tracked units are supplied
+- [x] Update the affected vitest specs for the new taxonomy (965 tests passing)
+- [ ] Contract Vessels tab: supply column per vessel (x/y supplied)

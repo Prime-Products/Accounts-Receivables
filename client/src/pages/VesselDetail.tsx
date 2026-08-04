@@ -5,14 +5,25 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Anchor, FileText, Flag, Pencil, Ship } from "lucide-react";
-import { useState } from "react";
+import { groupContractProducts } from "@shared/productGrouping";
+import { ArrowLeft, Anchor, CheckCircle2, Circle, FileText, Flag, Package, Pencil, Ship } from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
 import { Link, useLocation, useRoute } from "wouter";
 import { toast } from "sonner";
+
+/** Colour a certificate countdown by how close it is to the reminder thresholds. */
+function certToneClass(days: number | null): string {
+  if (days == null) return "text-muted-foreground";
+  if (days < 0) return "text-red-600 font-medium";
+  if (days <= 15) return "text-orange-600 font-medium";
+  if (days <= 60) return "text-amber-600";
+  return "text-muted-foreground";
+}
 
 export default function VesselDetail() {
   const [, params] = useRoute("/vessels/:id");
@@ -31,6 +42,12 @@ export default function VesselDetail() {
     },
     onError: e => toast.error(e.message),
   });
+
+  // Read the vessel's entitlement exactly like the contract card: Equipment first,
+  // then Consumables, then anything else. Memo lives above the early returns so
+  // the hook order never changes between loading and loaded renders.
+  const contractItems = data?.contractItems ?? [];
+  const itemGroups = useMemo(() => groupContractProducts(contractItems), [contractItems]);
 
   if (error) {
     return (
@@ -58,6 +75,8 @@ export default function VesselDetail() {
   }
 
   const { vessel, stats, invoices, relatedCompanies } = data;
+  const suppliedCount = contractItems.filter(i => i.supplied === true).length;
+  const trackedCount = contractItems.filter(i => i.serialTracked).length;
 
   const openEdit = () => {
     setForm({
@@ -187,6 +206,121 @@ export default function VesselDetail() {
           </Card>
         </div>
       </div>
+
+      {/* Contract items for this vessel, grouped exactly as on the contract card */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+            <Package className="h-4 w-4" /> Contract items on board ({contractItems.length})
+          </CardTitle>
+          {trackedCount > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {suppliedCount} of {trackedCount} serial-tracked line(s) fully supplied
+            </p>
+          )}
+        </CardHeader>
+        <CardContent className="p-0">
+          {contractItems.length === 0 ? (
+            <div className="p-10 text-center text-muted-foreground text-sm">
+              This vessel is not assigned to any Prime 247 contract yet. Items appear here as soon as the vessel joins a contract.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead>Supply status</TableHead>
+                  <TableHead>Contract</TableHead>
+                  <TableHead>Certificate</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {itemGroups.map(group => (
+                  <Fragment key={group.group}>
+                    <TableRow className="bg-muted/40 hover:bg-muted/40">
+                      <TableCell colSpan={5} className="py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {group.label} ({group.items.length})
+                      </TableCell>
+                    </TableRow>
+                    {group.items.map(item => (
+                      <TableRow key={`${item.contractId}-${item.id}`}>
+                        <TableCell>
+                          <div className="font-medium">{item.name}</div>
+                          {item.serials.length > 0 ? (
+                            <div className="mt-0.5 space-y-0.5">
+                              {item.serials.map(u => (
+                                <div key={u.id} className="font-mono text-xs text-muted-foreground">
+                                  S/N {u.serialNumber}
+                                </div>
+                              ))}
+                            </div>
+                          ) : item.quotaLimit ? (
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {item.quotaType ?? "Quota"} allowance: {item.quotaLimit}
+                            </div>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">{item.quantity}</TableCell>
+                        <TableCell>
+                          {!item.serialTracked ? (
+                            <span className="text-muted-foreground text-sm">—</span>
+                          ) : item.supplied ? (
+                            <Badge variant="outline" className="gap-1 bg-emerald-100 text-emerald-800 border-emerald-200">
+                              <CheckCircle2 className="h-3 w-3" /> Supplied
+                            </Badge>
+                          ) : (
+                            <div className="space-y-1">
+                              <Badge variant="outline" className="gap-1 bg-slate-100 text-slate-700 border-slate-200">
+                                <Circle className="h-3 w-3" /> Not Supplied
+                              </Badge>
+                              <div className="text-[11px] text-muted-foreground">
+                                {item.unitsSupplied} of {item.unitsTotal} unit(s) shipped
+                              </div>
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {item.contractId ? (
+                            <Link href={`/ops/contracts/${item.contractId}`} className="text-primary hover:underline underline-offset-2 font-mono text-xs">
+                              {item.contractNumber ?? `#${item.contractId}`}
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {item.serials.length === 0 ? (
+                            <span className="text-muted-foreground text-sm">—</span>
+                          ) : (
+                            <div className="space-y-0.5">
+                              {item.serials.map(u => (
+                                <div key={u.id} className="text-xs">
+                                  {u.certificateExpiry == null ? (
+                                    <span className="text-muted-foreground">No certificate</span>
+                                  ) : (
+                                    <span className={certToneClass(u.daysUntilCertificateExpiry)}>
+                                      {new Date(u.certificateExpiry).toLocaleDateString()}
+                                      {" · "}
+                                      {(u.daysUntilCertificateExpiry ?? 0) < 0
+                                        ? `expired ${Math.abs(u.daysUntilCertificateExpiry ?? 0)}d ago`
+                                        : `${u.daysUntilCertificateExpiry}d left`}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </Fragment>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Invoices */}
       <Card>

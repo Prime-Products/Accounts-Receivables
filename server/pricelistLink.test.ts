@@ -29,34 +29,32 @@ describe("listPricelist", () => {
     return null;
   }
 
-  it("flattens the three pricelist tables into one list of active entries", async () => {
-    // The helper composes the three list functions, so we verify its source contract
+  it("flattens the pricelist tables into one list of active entries", async () => {
+    // The helper composes the list functions, so we verify its source contract
     // rather than standing up a database: shape and mapping are what callers rely on.
     const src = read("server/opsDb.ts");
     expect(src).toContain("export async function listPricelist()");
-    expect(src).toContain("listServices()");
     expect(src).toContain("listAssetCatalog()");
     expect(src).toContain("listConsumableCatalog()");
+    // Services left the taxonomy, so they must not leak into contract lines.
+    expect(src).not.toContain('suggestedItemType: "Service"');
     // Inactive rows must never reach a contract.
-    expect(src.match(/\.filter\(\w+ => \w+\.active\)/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(src.match(/\.filter\(\w+ => \w+\.active\)/g)?.length).toBeGreaterThanOrEqual(2);
     await loadPricelist();
   });
 
   it("maps each source to the item nature used by contracts", () => {
     const src = read("server/opsDb.ts");
     expect(src).toContain('source: "product" as const');
-    expect(src).toContain('suggestedItemType: "Instrument" as const');
+    expect(src).toContain('suggestedItemType: "Equipment" as const');
     expect(src).toContain('source: "consumable" as const');
-    expect(src).toContain('suggestedItemType: "Ampoule" as const');
-    expect(src).toContain('source: "service" as const');
-    expect(src).toContain('suggestedItemType: "Service" as const');
+    expect(src).toContain('suggestedItemType: "Consumable" as const');
   });
 
   it("exposes stable keys and both prices for every entry", () => {
     const src = read("server/opsDb.ts");
     expect(src).toContain("key: `product-${p.id}`");
     expect(src).toContain("key: `consumable-${c.id}`");
-    expect(src).toContain("key: `service-${s.id}`");
     expect(src).toContain("unitCost: p.defaultCost");
     expect(src).toContain("sellingPrice: p.sellingPrice");
     expect(src).toContain("unitCost: c.defaultCostPerUnit");
@@ -132,8 +130,8 @@ describe("contract Add Product dialog", () => {
 describe("Pricelist page price fields", () => {
   const src = read("client/src/pages/ops/OpsCatalog.tsx");
 
-  it("shows a selling price column in the services and products tabs", () => {
-    expect(src.match(/<TableHead>Selling Price<\/TableHead>/g)?.length).toBe(2);
+  it("shows a selling price column in the equipment tab", () => {
+    expect(src.match(/<TableHead>Selling Price<\/TableHead>/g)?.length).toBe(1);
   });
 
   it("shows a price per unit column for consumables", () => {
@@ -141,7 +139,7 @@ describe("Pricelist page price fields", () => {
   });
 
   it("collects selling price in every create and edit dialog", () => {
-    expect(src.match(/<Label>Selling Price<\/Label>/g)?.length).toBe(4);
+    expect(src.match(/<Label>Selling Price<\/Label>/g)?.length).toBe(2);
     expect(src.match(/<Label>Price per Unit<\/Label>/g)?.length).toBe(2);
   });
 

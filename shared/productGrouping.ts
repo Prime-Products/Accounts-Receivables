@@ -1,20 +1,18 @@
 /**
- * Presentation order for contract product natures.
+ * Presentation order for contract item natures.
  *
- * The user reads a contract card top-down: the certified instruments matter
- * most, then the returnable cylinders that feed them, then the ampoules that
- * are consumed, and finally anything else supplied under the agreement.
+ * A contract is read top-down: first the serial-tracked equipment that must be
+ * certified and returned, then the consumables that feed it, then everything
+ * else supplied under the agreement.
  */
-export const productGroupOrder = ["Instrument", "Cylinder", "Ampoule", "Service", "Other"] as const;
+export const productGroupOrder = ["Equipment", "Consumable", "Other"] as const;
 
 export type ProductGroup = (typeof productGroupOrder)[number];
 
 /** Plural, human-readable heading for each nature. */
 export const productGroupLabels: Record<ProductGroup, string> = {
-  Instrument: "Instruments",
-  Cylinder: "Cylinders",
-  Ampoule: "Ampoules",
-  Service: "Services",
+  Equipment: "Equipment",
+  Consumable: "Consumables",
   Other: "Other Items",
 };
 
@@ -46,4 +44,3 @@ export function groupContractProducts<T extends { itemType: string }>(
       items: buckets.get(group)!,
     }));
 }
-

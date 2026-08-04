@@ -25,24 +25,20 @@ const paymentStatusColors: Record<string, string> = {
   Paid: "bg-emerald-100 text-emerald-800 border-emerald-200",
 };
 
-/** Product natures, in the order they are presented to the user. */
-const productTypes = ["Instrument", "Cylinder", "Ampoule", "Service", "Other"] as const;
+/** Item natures, in the order they are presented to the user. */
+const productTypes = ["Equipment", "Consumable", "Other"] as const;
 
 const productTypeColors: Record<string, string> = {
-  Instrument: "bg-purple-100 text-purple-800 border-purple-200",
-  Cylinder: "bg-cyan-100 text-cyan-800 border-cyan-200",
-  Ampoule: "bg-orange-100 text-orange-800 border-orange-200",
-  Service: "bg-blue-100 text-blue-800 border-blue-200",
+  Equipment: "bg-purple-100 text-purple-800 border-purple-200",
+  Consumable: "bg-orange-100 text-orange-800 border-orange-200",
   Other: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
 /** Short hint shown under each nature so the user knows what it triggers. */
 const productTypeHint: Record<string, string> = {
-  Instrument: "Serial number + certificate tracked per vessel",
-  Cylinder: "Returnable, no certificate",
-  Ampoule: "Consumed on board, replenished by quota",
-  Service: "Work performed under the contract",
-  Other: "Anything else supplied",
+  Equipment: "Serial number + certificate tracked per vessel",
+  Consumable: "Consumed on board, replenished by quota",
+  Other: "Anything else supplied under the contract",
 };
 
 const contractStatusColors: Record<string, string> = {
@@ -52,13 +48,12 @@ const contractStatusColors: Record<string, string> = {
   Cancelled: "bg-red-100 text-red-700 border-red-200",
 };
 
-const emptyProduct = { itemType: "Instrument", pricelistKey: "", catalogId: null as number | null, name: "", quantity: "1", unitCost: "", sellingPrice: "", quotaType: "", quotaLimit: "", notes: "" };
+const emptyProduct = { itemType: "Equipment", pricelistKey: "", catalogId: null as number | null, name: "", quantity: "1", unitCost: "", sellingPrice: "", quotaType: "", quotaLimit: "", notes: "" };
 
 /** Wording for each pricelist source, so the picker shows where a price comes from. */
 const pricelistSourceLabel: Record<string, string> = {
   product: "Product",
   consumable: "Consumable",
-  service: "Service",
 };
 
 /** Payment methods offered on a contract, mirroring the DB enum. */
@@ -385,7 +380,7 @@ export default function OpsContractDetail() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4" /> Products</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">Grouped by nature — instruments first, then cylinders, ampoules and anything else supplied per vessel</p>
+              <p className="text-xs text-muted-foreground mt-1">Grouped by nature — equipment first, then consumables and anything else supplied per vessel</p>
             </div>
             <div className="flex items-center gap-2">
               <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => { resetLibForm(); setLibOpen(true); }}>

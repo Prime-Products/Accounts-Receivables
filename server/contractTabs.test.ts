@@ -11,28 +11,28 @@ const schema = readFileSync(join(root, "drizzle/schema.ts"), "utf8");
 const opsRouter = readFileSync(join(root, "server/routers/operations.ts"), "utf8");
 
 describe("contract product grouping", () => {
-  it("orders the natures instruments, cylinders, ampoules, then the rest", () => {
-    expect([...productGroupOrder]).toEqual(["Instrument", "Cylinder", "Ampoule", "Service", "Other"]);
+  it("orders the natures equipment, consumables, then the rest", () => {
+    expect([...productGroupOrder]).toEqual(["Equipment", "Consumable", "Other"]);
   });
 
   it("groups a mixed product list into the agreed reading order", () => {
     const items = [
-      { id: 1, itemType: "Ampoule", name: "Detector tubes" },
+      { id: 1, itemType: "Consumable", name: "Detector tubes" },
       { id: 2, itemType: "Other", name: "Regulator" },
-      { id: 3, itemType: "Instrument", name: "GX-3R" },
-      { id: 4, itemType: "Cylinder", name: "Calibration cylinder" },
-      { id: 5, itemType: "Instrument", name: "GX-6100" },
+      { id: 3, itemType: "Equipment", name: "GX-3R" },
+      { id: 4, itemType: "Consumable", name: "Calibration cylinder" },
+      { id: 5, itemType: "Equipment", name: "GX-6100" },
     ];
     const groups = groupContractProducts(items);
-    expect(groups.map(g => g.group)).toEqual(["Instrument", "Cylinder", "Ampoule", "Other"]);
+    expect(groups.map(g => g.group)).toEqual(["Equipment", "Consumable", "Other"]);
     expect(groups[0].items.map(i => i.id)).toEqual([3, 5]);
-    expect(groups[0].label).toBe("Instruments");
+    expect(groups[0].label).toBe("Equipment");
   });
 
   it("omits groups that have no items so no empty headings render", () => {
-    const groups = groupContractProducts([{ id: 1, itemType: "Instrument", name: "GX-3R" }]);
+    const groups = groupContractProducts([{ id: 1, itemType: "Equipment", name: "GX-3R" }]);
     expect(groups).toHaveLength(1);
-    expect(groups[0].group).toBe("Instrument");
+    expect(groups[0].group).toBe("Equipment");
   });
 
   it("treats an unknown nature as Other rather than dropping the line", () => {
@@ -44,8 +44,8 @@ describe("contract product grouping", () => {
 
   it("keeps the original order of items inside a group", () => {
     const groups = groupContractProducts([
-      { id: 1, itemType: "Cylinder", name: "B" },
-      { id: 2, itemType: "Cylinder", name: "A" },
+      { id: 1, itemType: "Consumable", name: "B" },
+      { id: 2, itemType: "Consumable", name: "A" },
     ]);
     expect(groups[0].items.map(i => i.name)).toEqual(["B", "A"]);
   });

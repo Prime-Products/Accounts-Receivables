@@ -111,20 +111,21 @@ export default function OpsVesselDashboard() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Serial #</TableHead>
-                <TableHead>Name</TableHead>
+                <TableHead>Instrument</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Certificates</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {assets.length === 0 ? (
-                <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No equipment assigned</TableCell></TableRow>
+                <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground">No equipment assigned</TableCell></TableRow>
               ) : (
                 assets.map(a => (
                   <TableRow key={a.id}>
-                    <TableCell className="font-mono text-sm">{a.serialNumber}</TableCell>
-                    <TableCell className="font-medium">{a.name}</TableCell>
+                    <TableCell>
+                      <div className="font-medium">{a.name}</div>
+                      <div className="font-mono text-xs text-muted-foreground mt-0.5">S/N {a.serialNumber}</div>
+                    </TableCell>
                     <TableCell><Badge variant="outline" className={assetStatusColors[a.status] ?? ""}>{a.status}</Badge></TableCell>
                     <TableCell className="text-sm">{a.certificates.length > 0 ? `${a.certificates.length} cert(s)` : "—"}</TableCell>
                   </TableRow>

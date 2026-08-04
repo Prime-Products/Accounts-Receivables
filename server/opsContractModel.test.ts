@@ -41,16 +41,16 @@ describe("ops contract lifecycle statuses", () => {
 });
 
 describe("single unified product list", () => {
-  it("declares the five product natures on one enum", () => {
+  it("declares the three product natures on one enum", () => {
     const m = schema.match(/opsLibraryItemTypes = \[([^\]]+)\]/);
     const types = (m?.[1] ?? "").match(/"([^"]+)"/g)?.map(s => s.replace(/"/g, "")) ?? [];
-    expect(types).toEqual(["Instrument", "Cylinder", "Ampoule", "Service", "Other"]);
+    expect(types).toEqual(["Equipment", "Consumable", "Other"]);
   });
 
-  it("marks only instruments as serial-tracked", () => {
+  it("marks only equipment as serial-tracked", () => {
     const m = schema.match(/opsSerialTrackedTypes = \[([^\]]+)\]/);
     const types = (m?.[1] ?? "").match(/"([^"]+)"/g)?.map(s => s.replace(/"/g, "")) ?? [];
-    expect(types).toEqual(["Instrument"]);
+    expect(types).toEqual(["Equipment"]);
   });
 
   it("stores price and cost directly on each product line", () => {
