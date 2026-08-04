@@ -753,7 +753,14 @@ export default function OpsContractDetail() {
               ) : (
                 assignments.map(a => (
                   <TableRow key={a.id} className="hover:bg-muted/50">
-                    <TableCell className="font-medium cursor-pointer" onClick={() => navigate(`/ops/vessel/${a.vesselId}`)}>{a.vesselName}</TableCell>
+                    {/* Open the full vessel page: it carries the same grouped Products view as this contract. */}
+                    <TableCell
+                      className="font-medium cursor-pointer hover:text-primary hover:underline underline-offset-2"
+                      onClick={() => navigate(`/vessels/${a.vesselId}`)}
+                      title={`Open ${a.vesselName}`}
+                    >
+                      {a.vesselName}
+                    </TableCell>
                     <TableCell className="font-mono text-sm">{a.vesselImo ?? "—"}</TableCell>
                     <TableCell className="text-sm">{fmtDate(a.assignedDate)}</TableCell>
                     {/* Shipment date is the billing trigger, so it is editable right here */}
