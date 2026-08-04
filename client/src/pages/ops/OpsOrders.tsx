@@ -10,6 +10,7 @@ import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
 import { ArrowDown, ArrowUp, ArrowUpDown, Search, Truck } from "lucide-react";
 import { useMemo, useState } from "react";
+import { VesselDetailDialog } from "@/components/VesselDetailDialog";
 
 const statusColors: Record<string, string> = {
   Pending: "bg-amber-100 text-amber-800 border-amber-200",
@@ -37,6 +38,8 @@ export default function OpsOrders() {
   const [sortKey, setSortKey] = useState<SortKey>("orderDate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const cols = useResizableColumns("ops-orders", COL_DEFAULTS);
+  const [vesselDialogOpen, setVesselDialogOpen] = useState(false);
+  const [vesselDialogId, setVesselDialogId] = useState<number | null>(null);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -144,7 +147,22 @@ export default function OpsOrders() {
                 ) : (
                   filtered.map(o => (
                     <TableRow key={o.id} className="hover:bg-muted/50">
-                      <TableCell className="font-medium">{o.vesselName}</TableCell>
+                      <TableCell className="font-medium">
+                        {o.vesselId ? (
+                          <button
+                            type="button"
+                            className="text-primary hover:underline underline-offset-2"
+                            onClick={() => {
+                              setVesselDialogId(o.vesselId);
+                              setVesselDialogOpen(true);
+                            }}
+                          >
+                            {o.vesselName}
+                          </button>
+                        ) : (
+                          o.vesselName
+                        )}
+                      </TableCell>
                       <TableCell className="text-center font-mono">{o.quantity}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className={statusColors[o.status] ?? ""}>{o.status}</Badge>
@@ -161,6 +179,12 @@ export default function OpsOrders() {
           </div>
         </CardContent>
       </Card>
+
+      <VesselDetailDialog
+        vesselId={vesselDialogId}
+        open={vesselDialogOpen}
+        onOpenChange={setVesselDialogOpen}
+      />
     </div>
   );
 }

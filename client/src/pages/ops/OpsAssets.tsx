@@ -15,6 +15,7 @@ import { matchesAllTokens } from "@shared/textMatch";
 import { ArrowDown, ArrowUp, ArrowUpDown, Package, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { VesselDetailDialog } from "@/components/VesselDetailDialog";
 
 const statusColors: Record<string, string> = {
   "Not Supplied": "bg-gray-100 text-gray-700 border-gray-200",
@@ -45,6 +46,8 @@ export default function OpsAssets() {
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const cols = useResizableColumns("ops-assets", COL_DEFAULTS);
+  const [vesselDialogOpen, setVesselDialogOpen] = useState(false);
+  const [vesselDialogId, setVesselDialogId] = useState<number | null>(null);
 
   /* ─── Create Dialog ─── */
   const [createOpen, setCreateOpen] = useState(false);
@@ -179,7 +182,23 @@ export default function OpsAssets() {
                     <TableRow key={a.id} className="cursor-pointer hover:bg-muted/50">
                       <TableCell className="font-mono text-sm">{a.serialNumber}</TableCell>
                       <TableCell className="font-medium truncate">{a.name}</TableCell>
-                      <TableCell className="text-sm">{a.vesselName ?? "—"}</TableCell>
+                      <TableCell className="text-sm">
+                        {a.vesselId ? (
+                          <button
+                            type="button"
+                            className="text-primary hover:underline underline-offset-2"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setVesselDialogId(a.vesselId);
+                              setVesselDialogOpen(true);
+                            }}
+                          >
+                            {a.vesselName}
+                          </button>
+                        ) : (
+                          a.vesselName ?? "—"
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Select value={a.status} onValueChange={v => updateStatus.mutate({ id: a.id, status: v as any })}>
                           <SelectTrigger className="h-7 w-[130px] text-xs border-0 p-0">
@@ -265,6 +284,12 @@ export default function OpsAssets() {
           </DialogFooter>
         </ResizableDialogContent>
       </Dialog>
+
+      <VesselDetailDialog
+        vesselId={vesselDialogId}
+        open={vesselDialogOpen}
+        onOpenChange={setVesselDialogOpen}
+      />
     </div>
   );
 }

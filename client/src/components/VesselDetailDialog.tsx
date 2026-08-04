@@ -4,9 +4,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { InvoicesTable } from "@/components/InvoicesTable";
-import { fmtEur } from "@/lib/format";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { fmtDate, fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { Anchor, FileText, Flag, Ship } from "lucide-react";
+import { Anchor, FileText, Flag, LayoutDashboard, Ship, ScrollText } from "lucide-react";
 import { Link } from "wouter";
 
 /**
@@ -32,6 +33,7 @@ export function VesselDetailDialog({
   const stats = data?.stats;
   const invoices = data?.invoices ?? [];
   const relatedCompanies = data?.relatedCompanies ?? [];
+  const opsContracts = (data as any)?.opsContracts ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -42,22 +44,32 @@ export function VesselDetailDialog({
             {vessel ? vessel.name : "Vessel"}
           </DialogTitle>
           {vessel && (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              {vessel.imo && (
-                <Badge variant="outline" className="gap-1 font-mono">
-                  <Anchor className="h-3 w-3" /> IMO {vessel.imo}
-                </Badge>
-              )}
-              {vessel.vesselType && (
-                <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200">{vessel.vesselType}</Badge>
-              )}
-              {vessel.flag && (
-                <Badge variant="outline" className="gap-1">
-                  <Flag className="h-3 w-3" /> {vessel.flag}
-                </Badge>
-              )}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="flex flex-wrap items-center gap-2">
+                {vessel.imo && (
+                  <Badge variant="outline" className="gap-1 font-mono">
+                    <Anchor className="h-3 w-3" /> IMO {vessel.imo}
+                  </Badge>
+                )}
+                {vessel.vesselType && (
+                  <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200">{vessel.vesselType}</Badge>
+                )}
+                {vessel.flag && (
+                  <Badge variant="outline" className="gap-1">
+                    <Flag className="h-3 w-3" /> {vessel.flag}
+                  </Badge>
+                )}
+              </div>
+              <Link
+                href={`/ops/vessel/${vessel.id}`}
+                className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+                onClick={() => onOpenChange(false)}
+              >
+                <LayoutDashboard className="h-3 w-3" /> Ops Dashboard
+              </Link>
             </div>
           )}
+
         </DialogHeader>
 
         {error ? (
@@ -156,6 +168,43 @@ export function VesselDetailDialog({
                 </div>
               )}
             </div>
+
+            {/* Active Contracts */}
+            {opsContracts.length > 0 && (
+              <div>
+                <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2 mb-2">
+                  <ScrollText className="h-4 w-4" /> Active Operations Contracts ({opsContracts.length})
+                </div>
+                <div className="rounded-lg border overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-muted/50">
+                      <TableRow>
+                        <TableHead className="h-9 text-xs">Contract #</TableHead>
+                        <TableHead className="h-9 text-xs">Title</TableHead>
+                        <TableHead className="h-9 text-xs">Status</TableHead>
+                        <TableHead className="h-9 text-xs text-right">Value</TableHead>
+                        <TableHead className="h-9 text-xs">End Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {opsContracts.map((c: any) => (
+                        <TableRow key={c.id} className="cursor-pointer hover:bg-muted/50" onClick={() => { onOpenChange(false); window.location.href = `/ops/contracts/${c.id}`; }}>
+                          <TableCell className="py-2 font-mono text-xs text-primary">{c.contractNumber}</TableCell>
+                          <TableCell className="py-2 text-xs font-medium">{c.title}</TableCell>
+                          <TableCell className="py-2">
+                            <Badge variant="outline" className="text-[10px] px-1.5 h-4 bg-emerald-50 text-emerald-700 border-emerald-200">
+                              {c.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="py-2 text-right font-mono text-xs">{fmtEur(Number(c.totalValue))}</TableCell>
+                          <TableCell className="py-2 text-xs text-muted-foreground">{fmtDate(c.endDate)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
 
             {/* Invoices */}
             <div>
