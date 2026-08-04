@@ -10,9 +10,45 @@ import {
   opsOrderStatuses,
   opsQuotationItemTypes,
   opsLibraryItemTypes,
+  opsSerialTrackedTypes,
   opsQuotaTypes,
   opsVesselEventTypes,
 } from "../../drizzle/schema";
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONTRACT HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Split a contract value into yearly installments starting from its start date. */
+async function generateSchedule(contractId: number, totalValue: number, installmentCount: number, startDate: number) {
+  const per = totalValue / installmentCount;
+  const start = new Date(startDate);
+  for (let i = 0; i < installmentCount; i++) {
+    const due = Date.UTC(start.getUTCFullYear() + i, start.getUTCMonth(), start.getUTCDate());
+    const amount = i === installmentCount - 1 ? totalValue - per * (installmentCount - 1) : per;
+    await opsDb.createPaymentScheduleItem({
+      contractId,
+      installmentNumber: i + 1,
+      dueDate: due,
+      amount: amount.toFixed(2),
+    });
+  }
+}
+
+/** Keep the contract total in step with the fleet: price per vessel x vessels on the contract. */
+async function recalcContractTotal(contractId: number) {
+  const contract = await opsDb.getOpsContract(contractId);
+  if (!contract) return;
+  const assignments = await opsDb.listVesselAssignments(contractId);
+  const totalValue = Number(contract.pricePerVessel) * Math.max(assignments.length, 1);
+  if (totalValue.toFixed(2) === Number(contract.totalValue).toFixed(2)) return;
+  await opsDb.updateOpsContract(contractId, { totalValue: totalValue.toFixed(2) } as any);
+  const schedule = await opsDb.listPaymentSchedule(contractId);
+  if (schedule.every(p => p.status === "Pending")) {
+    await opsDb.deletePaymentScheduleItems(contractId);
+    await generateSchedule(contractId, totalValue, contract.installmentCount, contract.startDate);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CATALOG ROUTERS
@@ -201,37 +237,30 @@ export const opsQuotationsRouter = router({
         quotationId: input.quotationId,
         customerId: quotation.customerId,
         title: input.title,
-        status: "Active",
+        status: "Offer",
         totalValue: totalValue.toFixed(2),
+        pricePerVessel: totalValue.toFixed(2),
+        installmentCount: input.installmentCount,
         startDate: input.startDate,
         endDate: input.endDate,
         createdBy: ctx.user.id,
       });
-      // Create library items from quotation items
+      // Carry the quotation lines over as the contract's product list.
       for (const item of items) {
+        const nature = item.itemType === "Consumable" ? "Ampoule" : item.itemType === "Asset" ? "Instrument" : "Service";
         await opsDb.createContractLibraryItem({
           contractId,
-          itemType: item.itemType as any,
+          itemType: nature as any,
           catalogId: item.catalogId,
           name: item.name,
           quantity: item.quantity,
-          quotaType: item.itemType === "Consumable" ? "Annual" : null,
-          quotaLimit: item.itemType === "Consumable" ? item.quantity : null,
-        });
+          unitCost: Number(item.unitCost ?? 0).toFixed(2),
+          sellingPrice: Number(item.sellingPrice ?? 0).toFixed(2),
+          quotaType: nature === "Ampoule" ? "Annual" : null,
+          quotaLimit: nature === "Ampoule" ? item.quantity : null,
+        } as any);
       }
-      // Generate payment schedule
-      const per = totalValue / input.installmentCount;
-      const start = new Date(input.startDate);
-      for (let i = 0; i < input.installmentCount; i++) {
-        const due = Date.UTC(start.getUTCFullYear() + i, start.getUTCMonth(), start.getUTCDate());
-        const amount = i === input.installmentCount - 1 ? totalValue - per * (input.installmentCount - 1) : per;
-        await opsDb.createPaymentScheduleItem({
-          contractId,
-          installmentNumber: i + 1,
-          dueDate: due,
-          amount: amount.toFixed(2),
-        });
-      }
+      await generateSchedule(contractId, totalValue, input.installmentCount, input.startDate);
       // Mark quotation as converted
       await opsDb.updateQuotation(input.quotationId, { status: "Approved" });
       return { contractId };
@@ -280,14 +309,25 @@ export const opsContractsRouter = router({
       const v = vessels.find(v => v.id === a.vesselId);
       return { ...a, vesselName: v?.name ?? "—", vesselImo: v?.imo ?? null };
     });
-    return { contract, library, schedule, assignments: assignedVessels, customer };
+    // Product totals per vessel, so the offer is derived from the product list itself.
+    const costPerVessel = library.reduce((s, i) => s + Number(i.unitCost) * i.quantity, 0);
+    const listPricePerVessel = library.reduce((s, i) => s + Number(i.sellingPrice) * i.quantity, 0);
+    const margin = listPricePerVessel > 0 ? ((listPricePerVessel - costPerVessel) / listPricePerVessel) * 100 : 0;
+    return {
+      contract,
+      library,
+      schedule,
+      assignments: assignedVessels,
+      customer,
+      totals: { costPerVessel, listPricePerVessel, margin },
+    };
   }),
   create: protectedProcedure
     .input(z.object({
       contractNumber: z.string().min(1),
       customerId: z.number(),
       title: z.string().min(1),
-      totalValue: z.number().positive(),
+      pricePerVessel: z.number().min(0),
       startDate: z.number(),
       endDate: z.number(),
       installmentCount: z.number().int().min(1).max(30),
@@ -296,47 +336,67 @@ export const opsContractsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       if (input.endDate <= input.startDate) throw new TRPCError({ code: "BAD_REQUEST", message: "End date must be after start date" });
+      const vesselIds = input.vesselIds ?? [];
+      // Contract total = agreed price per vessel x number of vessels in the fleet.
+      const totalValue = input.pricePerVessel * Math.max(vesselIds.length, 1);
       const id = await opsDb.createOpsContract({
         contractNumber: input.contractNumber,
         customerId: input.customerId,
         title: input.title,
-        status: "Draft",
-        totalValue: input.totalValue.toFixed(2),
+        status: "Offer",
+        totalValue: totalValue.toFixed(2),
+        pricePerVessel: input.pricePerVessel.toFixed(2),
+        installmentCount: input.installmentCount,
         startDate: input.startDate,
         endDate: input.endDate,
         notes: input.notes,
         createdBy: ctx.user.id,
       });
-      // Generate payment schedule
-      const per = input.totalValue / input.installmentCount;
-      const start = new Date(input.startDate);
-      for (let i = 0; i < input.installmentCount; i++) {
-        const due = Date.UTC(start.getUTCFullYear() + i, start.getUTCMonth(), start.getUTCDate());
-        const amount = i === input.installmentCount - 1 ? input.totalValue - per * (input.installmentCount - 1) : per;
-        await opsDb.createPaymentScheduleItem({
+      await generateSchedule(id, totalValue, input.installmentCount, input.startDate);
+      for (const vesselId of vesselIds) {
+        await opsDb.createVesselAssignment({
+          vesselId,
           contractId: id,
-          installmentNumber: i + 1,
-          dueDate: due,
-          amount: amount.toFixed(2),
+          assignedDate: Date.now(),
+          notes: "Added at contract creation",
         });
-      }
-      // Assign vessels if provided
-      if (input.vesselIds && input.vesselIds.length > 0) {
-        for (const vesselId of input.vesselIds) {
-          await opsDb.createVesselAssignment({
-            vesselId,
-            contractId: id,
-            assignedDate: Date.now(),
-            notes: "Assigned at contract creation",
-          });
-        }
       }
       return { id };
     }),
   update: protectedProcedure
-    .input(z.object({ id: z.number(), title: z.string().optional(), status: z.enum(opsContractStatuses).optional(), notes: z.string().nullable().optional() }))
+    .input(z.object({
+      id: z.number(),
+      title: z.string().optional(),
+      status: z.enum(opsContractStatuses).optional(),
+      notes: z.string().nullable().optional(),
+      startDate: z.number().optional(),
+      endDate: z.number().optional(),
+      pricePerVessel: z.number().min(0).optional(),
+      installmentCount: z.number().int().min(1).max(30).optional(),
+    }))
     .mutation(async ({ input }) => {
-      const { id, ...data } = input;
+      const { id, pricePerVessel, installmentCount, ...rest } = input;
+      const contract = await opsDb.getOpsContract(id);
+      if (!contract) throw new TRPCError({ code: "NOT_FOUND" });
+      const data: Record<string, unknown> = { ...rest };
+      const financialsChanged = pricePerVessel !== undefined || installmentCount !== undefined;
+      if (pricePerVessel !== undefined) data.pricePerVessel = pricePerVessel.toFixed(2);
+      if (installmentCount !== undefined) data.installmentCount = installmentCount;
+      if (financialsChanged) {
+        const assignments = await opsDb.listVesselAssignments(id);
+        const price = pricePerVessel ?? Number(contract.pricePerVessel);
+        const count = installmentCount ?? contract.installmentCount;
+        const totalValue = price * Math.max(assignments.length, 1);
+        data.totalValue = totalValue.toFixed(2);
+        await opsDb.updateOpsContract(id, data as any);
+        // Only regenerate the schedule while nothing has been invoiced or paid yet.
+        const schedule = await opsDb.listPaymentSchedule(id);
+        if (schedule.every(p => p.status === "Pending")) {
+          await opsDb.deletePaymentScheduleItems(id);
+          await generateSchedule(id, totalValue, count, rest.startDate ?? contract.startDate);
+        }
+        return { success: true };
+      }
       await opsDb.updateOpsContract(id, data as any);
       return { success: true };
     }),
@@ -356,9 +416,10 @@ export const opsContractsRouter = router({
       // AUTOMATION ENGINE: Read contract library and generate asset records
       const library = await opsDb.listContractLibrary(input.contractId);
       for (const item of library) {
-        if (item.itemType === "Asset") {
+        // Only instruments are serial-tracked; cylinders, ampoules and services are not.
+        if (opsSerialTrackedTypes.includes(item.itemType as (typeof opsSerialTrackedTypes)[number])) {
           for (let i = 0; i < item.quantity; i++) {
-            const serial = `${contract.contractNumber}-${item.catalogId}-${input.vesselId}-${i + 1}`;
+            const serial = `${contract.contractNumber}-${item.id}-${input.vesselId}-${i + 1}`;
             await opsDb.createAsset({
               serialNumber: serial,
               catalogItemId: item.catalogId,
@@ -378,29 +439,59 @@ export const opsContractsRouter = router({
         description: `Vessel assigned to contract ${contract.contractNumber}. Equipment records auto-generated.`,
         createdBy: ctx.user.id,
       });
+      await recalcContractTotal(input.contractId);
       return { id: assignId };
     }),
   removeVessel: protectedProcedure
-    .input(z.object({ assignmentId: z.number() }))
+    .input(z.object({ assignmentId: z.number(), contractId: z.number().optional() }))
     .mutation(async ({ input }) => {
       await opsDb.deleteVesselAssignment(input.assignmentId);
+      if (input.contractId) await recalcContractTotal(input.contractId);
       return { success: true };
     }),
-  /** Add a library item to a contract. */
+  /** Add a product to the contract's single product list. */
   addLibraryItem: protectedProcedure
     .input(z.object({
       contractId: z.number(),
       itemType: z.enum(opsLibraryItemTypes),
-      catalogId: z.number(),
+      catalogId: z.number().nullable().optional(),
       name: z.string().min(1),
       quantity: z.number().int().min(1),
+      unitCost: z.number().min(0).optional(),
+      sellingPrice: z.number().min(0).optional(),
       quotaType: z.enum(opsQuotaTypes).optional(),
       quotaLimit: z.number().int().optional(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
-      const id = await opsDb.createContractLibraryItem(input as any);
+      const id = await opsDb.createContractLibraryItem({
+        ...input,
+        catalogId: input.catalogId ?? null,
+        unitCost: (input.unitCost ?? 0).toFixed(2),
+        sellingPrice: (input.sellingPrice ?? 0).toFixed(2),
+      } as any);
       return { id };
+    }),
+  /** Edit a product already on the contract. */
+  updateLibraryItem: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      itemType: z.enum(opsLibraryItemTypes).optional(),
+      name: z.string().min(1).optional(),
+      quantity: z.number().int().min(1).optional(),
+      unitCost: z.number().min(0).optional(),
+      sellingPrice: z.number().min(0).optional(),
+      quotaType: z.enum(opsQuotaTypes).nullable().optional(),
+      quotaLimit: z.number().int().nullable().optional(),
+      notes: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { id, unitCost, sellingPrice, ...rest } = input;
+      const data: Record<string, unknown> = { ...rest };
+      if (unitCost !== undefined) data.unitCost = unitCost.toFixed(2);
+      if (sellingPrice !== undefined) data.sellingPrice = sellingPrice.toFixed(2);
+      await opsDb.updateContractLibraryItem(id, data as any);
+      return { success: true };
     }),
   removeLibraryItem: protectedProcedure
     .input(z.object({ id: z.number() }))
@@ -612,7 +703,7 @@ export const opsVesselRouter = router({
     // Calculate quota usage
     const quotaUsage = contractIds.map(cId => {
       const lib = libraryByContract.get(cId) ?? [];
-      const consumables = lib.filter(l => l.itemType === "Consumable" && l.quotaLimit);
+      const consumables = lib.filter(l => (l.itemType === "Ampoule" || l.itemType === "Cylinder") && l.quotaLimit);
       return consumables.map(c => {
         const used = orders.filter(o => o.contractId === cId && o.libraryItemId === c.id).reduce((s, o) => s + o.quantity, 0);
         return { libraryItem: c, used, remaining: (c.quotaLimit ?? 0) - used };

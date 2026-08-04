@@ -1941,3 +1941,16 @@ destination of the record is group-level.
 - [x] Asset status colours fixed: add "In Transit", drop non-existent "Written Off"
 - [x] Serial numbers stay manual for now (user confirmed: "χειροκίνητα προς το παρόν")
 - [x] Vitest coverage for the New Asset dialog contract/vessel behaviour
+
+## Contracts card — make it the simple single entry point (user request 4/8)
+- [x] Status vocabulary becomes Offer / Active / Expired / Cancelled (migrate Draft+Sent→Offer, Terminated→Cancelled)
+- [x] One unified product list per contract: instruments, cylinders, ampoules in the same table
+- [x] Products can be typed inline in the contract (catalogId becomes nullable, no Catalog pre-fill required)
+- [x] Per-item nature (Instrument / Cylinder / Ampoule / Service / Other) with serial tracking only for instruments
+- [x] Unit cost, selling price and quantity per item so the contract carries its own pricing
+- [x] Customer picker and multi-vessel picker (searchable add + remove) on the contract
+- [x] Financials block: price per vessel, installments, contract total, cost/price/margin per vessel
+- [x] New Contract dialog simplified: price per vessel with live contract-value preview
+- [x] Products can be edited and removed from the contract, not only added
+- [x] Payment schedule regenerates only while every installment is still Pending
+- [x] Vitest coverage for the new contract statuses, product list and financials (16 tests)

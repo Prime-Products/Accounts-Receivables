@@ -20,11 +20,10 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 const statusColors: Record<string, string> = {
-  Draft: "bg-slate-100 text-slate-700 border-slate-200",
-  Sent: "bg-blue-100 text-blue-800 border-blue-200",
+  Offer: "bg-blue-100 text-blue-800 border-blue-200",
   Active: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  Terminated: "bg-red-100 text-red-700 border-red-200",
   Expired: "bg-gray-100 text-gray-600 border-gray-200",
+  Cancelled: "bg-red-100 text-red-700 border-red-200",
 };
 
 type SortKey = "contractNumber" | "customerName" | "totalValue" | "status" | "startDate" | "endDate";
@@ -60,17 +59,17 @@ export default function OpsContractsList() {
     customerId: "",
     contractNumber: "",
     title: "",
-    totalValue: "",
+    pricePerVessel: "",
     startDate: "",
     endDate: "",
-    installmentCount: "12",
+    installmentCount: "3",
     notes: "",
   });
   const [selectedVesselIds, setSelectedVesselIds] = useState<number[]>([]);
   const [vesselSearch, setVesselSearch] = useState("");
 
   const resetForm = () => {
-    setForm({ customerId: "", contractNumber: "", title: "", totalValue: "", startDate: "", endDate: "", installmentCount: "12", notes: "" });
+    setForm({ customerId: "", contractNumber: "", title: "", pricePerVessel: "", startDate: "", endDate: "", installmentCount: "3", notes: "" });
     setSelectedVesselIds([]);
     setVesselSearch("");
   };
@@ -99,7 +98,7 @@ export default function OpsContractsList() {
 
   const create = trpc.opsContracts.create.useMutation({
     onSuccess: () => {
-      toast.success("Contract created as Draft with payment schedule");
+      toast.success("Contract created as an Offer — add its products next");
       utils.opsContracts.list.invalidate();
       setCreateOpen(false);
       resetForm();
@@ -171,10 +170,9 @@ export default function OpsContractsList() {
           <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="Draft">Draft</SelectItem>
-            <SelectItem value="Sent">Sent</SelectItem>
+            <SelectItem value="Offer">Offer</SelectItem>
             <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Terminated">Terminated</SelectItem>
+            <SelectItem value="Cancelled">Cancelled</SelectItem>
             <SelectItem value="Expired">Expired</SelectItem>
           </SelectContent>
         </Select>
@@ -296,8 +294,8 @@ export default function OpsContractsList() {
                 <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Service agreement title" />
               </div>
               <div className="space-y-1.5">
-                <Label>Total Value (€) *</Label>
-                <Input type="number" value={form.totalValue} onChange={e => setForm({ ...form, totalValue: e.target.value })} placeholder="0" />
+                <Label>Price per Vessel (€) *</Label>
+                <Input type="number" min="0" step="0.01" value={form.pricePerVessel} onChange={e => setForm({ ...form, pricePerVessel: e.target.value })} placeholder="e.g. 16950" />
               </div>
               <div className="space-y-1.5">
                 <Label>Installments</Label>
@@ -315,12 +313,23 @@ export default function OpsContractsList() {
                 <Label>Notes</Label>
                 <Input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes..." />
               </div>
+              {form.pricePerVessel && (
+                <div className="col-span-2 rounded-md bg-muted/50 p-2.5 text-sm">
+                  Contract value:{" "}
+                  <span className="font-mono font-semibold">
+                    {fmtEur((Number(form.pricePerVessel) || 0) * Math.max(selectedVesselIds.length, 1))}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {" "}({Math.max(selectedVesselIds.length, 1)} vessel(s) x {form.installmentCount || 1} installment(s))
+                  </span>
+                </div>
+              )}
 
               {/* ─── Vessel Selection (Multi) ─── */}
               <div className="space-y-2 col-span-2 border rounded-lg p-3 bg-muted/30">
                 <div className="flex items-center justify-between">
                   <Label className="flex items-center gap-2">
-                    <Ship className="h-4 w-4" /> Assign Vessels ({selectedVesselIds.length} selected)
+                    <Ship className="h-4 w-4" /> Vessels ({selectedVesselIds.length} selected)
                   </Label>
                   <Button type="button" variant="ghost" size="sm" onClick={selectAllVessels}>
                     {selectedVesselIds.length === (vessels?.length ?? 0) ? "Deselect All" : "Select All"}
@@ -359,15 +368,15 @@ export default function OpsContractsList() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button
-              disabled={!form.customerId || !form.contractNumber || !form.title || !form.totalValue || !form.startDate || !form.endDate || create.isPending}
+              disabled={!form.customerId || !form.contractNumber || !form.title || !form.pricePerVessel || !form.startDate || !form.endDate || create.isPending}
               onClick={() => create.mutate({
                 customerId: Number(form.customerId),
                 contractNumber: form.contractNumber,
                 title: form.title,
-                totalValue: Number(form.totalValue),
+                pricePerVessel: Number(form.pricePerVessel),
                 startDate: new Date(form.startDate).getTime(),
                 endDate: new Date(form.endDate).getTime(),
-                installmentCount: Number(form.installmentCount) || 12,
+                installmentCount: Number(form.installmentCount) || 3,
                 notes: form.notes || undefined,
                 vesselIds: selectedVesselIds.length > 0 ? selectedVesselIds : undefined,
               })}

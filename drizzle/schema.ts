@@ -1098,8 +1098,8 @@ export const opsQuotationItems = mysqlTable("ops_quotation_items", {
 export type OpsQuotationItem = typeof opsQuotationItems.$inferSelect;
 export type InsertOpsQuotationItem = typeof opsQuotationItems.$inferInsert;
 
-/** Operations contract statuses. */
-export const opsContractStatuses = ["Draft", "Sent", "Active", "Expired", "Terminated"] as const;
+/** Operations contract statuses: an offer becomes active, then expires or is cancelled. */
+export const opsContractStatuses = ["Offer", "Active", "Expired", "Cancelled"] as const;
 
 /** Operations contracts — umbrella agreements created from approved quotations. */
 export const opsContracts = mysqlTable("ops_contracts", {
@@ -1109,8 +1109,12 @@ export const opsContracts = mysqlTable("ops_contracts", {
   /** Links to existing AR customers table. */
   customerId: int("customerId").notNull(),
   title: varchar("title", { length: 255 }).notNull(),
-  status: mysqlEnum("status", opsContractStatuses).default("Draft").notNull(),
+  status: mysqlEnum("status", opsContractStatuses).default("Offer").notNull(),
   totalValue: decimal("totalValue", { precision: 12, scale: 2 }).default("0").notNull(),
+  /** Agreed price for one vessel; contract total = pricePerVessel x number of vessels. */
+  pricePerVessel: decimal("pricePerVessel", { precision: 12, scale: 2 }).default("0").notNull(),
+  /** Number of installments the per-vessel price is split into. */
+  installmentCount: int("installmentCount").default(1).notNull(),
   startDate: bigint("startDate", { mode: "number" }).notNull(),
   endDate: bigint("endDate", { mode: "number" }).notNull(),
   notes: text("notes"),
@@ -1124,19 +1128,35 @@ export const opsContracts = mysqlTable("ops_contracts", {
 export type OpsContract = typeof opsContracts.$inferSelect;
 export type InsertOpsContract = typeof opsContracts.$inferInsert;
 
-/** Contract library item types. */
-export const opsLibraryItemTypes = ["Service", "Asset", "Consumable"] as const;
+/**
+ * Product natures on a contract. All products live in one list; the nature only
+ * decides what is tracked afterwards:
+ * - Instrument: has a serial number and a certificate to renew (gas meters, detectors)
+ * - Cylinder:   calibration gas cylinders, returnable but not certified
+ * - Ampoule:    consumed on board, replenished per annual quota
+ * - Service:    work performed (calibration, service visit)
+ * - Other:      anything else supplied under the contract
+ */
+export const opsLibraryItemTypes = ["Instrument", "Cylinder", "Ampoule", "Service", "Other"] as const;
+/** Natures that produce serial-tracked asset records when a vessel is activated. */
+export const opsSerialTrackedTypes = ["Instrument"] as const;
 /** Quota types for consumables. */
 export const opsQuotaTypes = ["Annual", "ContractLife"] as const;
 
-/** Contract Library — blueprint of agreed services, assets, and consumable quotas. */
+/** Contract products — the single agreed list of everything supplied per vessel. */
 export const opsContractLibrary = mysqlTable("ops_contract_library", {
   id: int("id").autoincrement().primaryKey(),
   contractId: int("contractId").notNull(),
   itemType: mysqlEnum("itemType", opsLibraryItemTypes).notNull(),
-  catalogId: int("catalogId").notNull(),
+  /** Optional link to a catalog entry; products can be typed directly on the contract. */
+  catalogId: int("catalogId"),
   name: varchar("name", { length: 255 }).notNull(),
+  /** Quantity supplied per vessel. */
   quantity: int("quantity").default(1).notNull(),
+  /** Our cost per unit, used to derive the contract margin. */
+  unitCost: decimal("unitCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  /** Price charged per unit, used to build the offer. */
+  sellingPrice: decimal("sellingPrice", { precision: 12, scale: 2 }).default("0").notNull(),
   /** For consumables: Annual or ContractLife limit type. */
   quotaType: mysqlEnum("quotaType", opsQuotaTypes),
   /** Maximum quantity allowed under the quota. */
