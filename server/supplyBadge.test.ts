@@ -64,7 +64,8 @@ describe("vessel page badges every item line", () => {
   });
 
   it("summarises the vessel's outstanding units in the card header", () => {
-    expect(page).toContain("of {unitsTotal} unit(s) supplied");
+    // The header carries the ratio; the total row restates it in words.
+    expect(page).toContain("${unitsSupplied} of ${unitsTotal} unit(s) supplied");
     expect(page).toContain("line(s) still to deliver");
   });
 

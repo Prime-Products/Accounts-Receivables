@@ -11,7 +11,7 @@ import { InvoicesTable } from "@/components/InvoicesTable";
 import { SupplyBadge } from "@/components/SupplyBadge";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { groupContractProducts } from "@shared/productGrouping";
+import { groupContractProducts, productGroupBadgeColors } from "@shared/productGrouping";
 import { ArrowLeft, Anchor, ChevronRight, FileText, Flag, Package, Pencil, Ship } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { Link, useLocation, useRoute } from "wouter";
@@ -103,6 +103,9 @@ export default function VesselDetail() {
   const unitsTotal = contractItems.reduce((s, i) => s + i.unitsExpected, 0);
   const unitsSupplied = contractItems.reduce((s, i) => s + i.unitsSupplied, 0);
   const linesOutstanding = contractItems.filter(i => i.unitsSupplied < i.unitsExpected).length;
+  // Value of the agreed list for this vessel — the contract card's "per vessel total",
+  // summed across every contract this vessel is enrolled in.
+  const vesselValue = contractItems.reduce((s, i) => s + Number(i.sellingPrice) * i.quantity, 0);
 
   const openEdit = () => {
     setForm({
@@ -233,20 +236,29 @@ export default function VesselDetail() {
         </div>
       </div>
 
-      {/* Contract items for this vessel, grouped exactly as on the contract card */}
+      {/* Products for this vessel — the contract's Products card, scoped to this vessel */}
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-            <Package className="h-4 w-4" /> Contract items on board ({contractItems.length})
-          </CardTitle>
-          {unitsTotal > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {unitsSupplied} of {unitsTotal} unit(s) supplied
-              {linesOutstanding > 0
-                ? ` · ${linesOutstanding} line(s) still to deliver`
-                : " · nothing outstanding"}
-            </p>
-          )}
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Package className="h-4 w-4" /> Products
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Grouped by nature — equipment first, then consumables and anything else supplied to this vessel
+              </p>
+            </div>
+            {unitsTotal > 0 && (
+              <div className="text-right">
+                <div className="text-sm font-semibold font-mono">
+                  {unitsSupplied} / {unitsTotal}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {linesOutstanding > 0 ? `${linesOutstanding} line(s) still to deliver` : "nothing outstanding"}
+                </div>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {contractItems.length === 0 ? (
@@ -254,21 +266,32 @@ export default function VesselDetail() {
               This vessel is not assigned to any Prime 247 contract yet. Items appear here as soon as the vessel joins a contract.
             </div>
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead>Supply status</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-center">Qty / Vessel</TableHead>
+                  <TableHead className="text-right">Unit Price</TableHead>
+                  <TableHead className="text-right">Line Total</TableHead>
+                  <TableHead>Quota</TableHead>
+                  <TableHead>Supply</TableHead>
                   <TableHead>Contract</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {itemGroups.map(group => (
                   <Fragment key={group.group}>
-                    <TableRow className="bg-muted/40 hover:bg-muted/40">
-                      <TableCell colSpan={4} className="py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {group.label} ({group.items.length})
+                    {/* Same badge heading as the contract card, with the per-vessel value */}
+                    <TableRow className="bg-muted/60 hover:bg-muted/60">
+                      <TableCell colSpan={7} className="py-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className={productGroupBadgeColors[group.group] ?? ""}>{group.label}</Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {group.items.length} line{group.items.length !== 1 ? "s" : ""} ·{" "}
+                            {fmtEur(group.items.reduce((s, i) => s + Number(i.sellingPrice) * i.quantity, 0))} per vessel
+                          </span>
+                        </div>
                       </TableCell>
                     </TableRow>
                     {group.items.map(item => (
@@ -277,7 +300,7 @@ export default function VesselDetail() {
                         className={`${item.serials.length > 0 ? "cursor-pointer" : ""} ${expandedItems.has(itemKey(item)) ? "border-b-0 bg-muted/20" : ""}`}
                         onClick={item.serials.length > 0 ? () => toggleItem(itemKey(item)) : undefined}
                       >
-                        <TableCell>
+                        <TableCell className="pl-6">
                           <div className="flex items-start gap-1.5">
                             {/* The chevron only appears where there is serial detail to open. */}
                             {item.serials.length > 0 ? (
@@ -290,17 +313,18 @@ export default function VesselDetail() {
                             <div className="min-w-0">
                               <div className="font-medium">{item.name}</div>
                               {/* Same sub-line the contract card shows under the product name. */}
-                              {item.notes ? (
-                                <div className="text-xs text-muted-foreground mt-0.5">{item.notes}</div>
-                              ) : item.quotaLimit ? (
-                                <div className="text-xs text-muted-foreground mt-0.5">
-                                  {item.quotaType ?? "Quota"} allowance: {item.quotaLimit}
-                                </div>
-                              ) : null}
+                              {item.notes && <div className="text-xs text-muted-foreground mt-0.5">{item.notes}</div>}
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-mono">{item.quantity}</TableCell>
+                        <TableCell className="text-center font-mono text-sm">{item.quantity}</TableCell>
+                        <TableCell className="text-right font-mono text-sm">{fmtEur(Number(item.sellingPrice))}</TableCell>
+                        <TableCell className="text-right font-mono text-sm font-semibold">
+                          {fmtEur(Number(item.sellingPrice) * item.quantity)}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {item.quotaType ? `${item.quotaLimit} / ${item.quotaType === "ContractLife" ? "contract" : "year"}` : "—"}
+                        </TableCell>
                         <TableCell>
                           {/* Every line carries a badge, tracked or not, so the eye can scan the column */}
                           <SupplyBadge supplied={item.unitsSupplied} total={item.unitsExpected} />
@@ -329,7 +353,7 @@ export default function VesselDetail() {
                       {/* One nested row per serial, carrying every field the Equipment page shows. */}
                       {item.serials.length > 0 && expandedItems.has(itemKey(item)) && (
                         <TableRow className="hover:bg-transparent">
-                          <TableCell colSpan={4} className="pt-0 pb-3">
+                          <TableCell colSpan={7} className="pt-0 pb-3">
                             <div className="rounded-md border bg-muted/20 overflow-x-auto">
                               <table className="w-full text-xs">
                                 <thead>
@@ -399,8 +423,17 @@ export default function VesselDetail() {
                     ))}
                   </Fragment>
                 ))}
+                {/* Same closing total row as the contract card, scoped to this vessel */}
+                <TableRow className="bg-muted/40 font-medium">
+                  <TableCell colSpan={3} className="text-sm">This vessel total</TableCell>
+                  <TableCell className="text-right font-mono text-sm">{fmtEur(vesselValue)}</TableCell>
+                  <TableCell colSpan={3} className="text-sm text-muted-foreground">
+                    {unitsTotal > 0 ? `${unitsSupplied} of ${unitsTotal} unit(s) supplied` : "—"}
+                  </TableCell>
+                </TableRow>
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

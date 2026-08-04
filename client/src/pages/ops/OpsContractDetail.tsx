@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtDate, fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { groupContractProducts } from "@shared/productGrouping";
+import { groupContractProducts, productGroupBadgeColors } from "@shared/productGrouping";
 import { SupplyBadge } from "@/components/SupplyBadge";
 import { ContractExpiryIndicator } from "@/components/ContractExpiryIndicator";
 import { ProductPicker } from "@/components/ProductPicker";
@@ -31,11 +31,8 @@ const paymentStatusColors: Record<string, string> = {
 /** Item natures, in the order they are presented to the user. */
 const productTypes = ["Equipment", "Consumable", "Other"] as const;
 
-const productTypeColors: Record<string, string> = {
-  Equipment: "bg-purple-100 text-purple-800 border-purple-200",
-  Consumable: "bg-orange-100 text-orange-800 border-orange-200",
-  Other: "bg-slate-100 text-slate-700 border-slate-200",
-};
+/** One palette for product natures, shared with the vessel card. */
+const productTypeColors = productGroupBadgeColors;
 
 /** Short hint shown under each nature so the user knows what it triggers. */
 const productTypeHint: Record<string, string> = {

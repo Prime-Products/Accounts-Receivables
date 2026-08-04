@@ -2069,3 +2069,4 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Seed a 20-product Prime 247 catalogue (instruments / consumables / other) so the product picker has a source list
 - [x] Create 10 clearly-marked sample contracts (DEMO-2026-xxx) with products, real vessels and equipment units
 - [x] Provide a one-click cleanup that removes every sample contract and its dependants
+- [x] Vessel page: products card identical to the contract Products card — same group badges with line count and per-vessel value, same columns and totals, one card

@@ -23,6 +23,17 @@ export function productGroupRank(itemType: string): number {
 }
 
 /**
+ * Badge colours for each nature. Shared so a product list reads identically on the
+ * contract card and on the vessel card — the vessel is only a per-vessel extract of
+ * the same agreed list.
+ */
+export const productGroupBadgeColors: Record<string, string> = {
+  Equipment: "bg-purple-100 text-purple-800 border-purple-200",
+  Consumable: "bg-orange-100 text-orange-800 border-orange-200",
+  Other: "bg-slate-100 text-slate-700 border-slate-200",
+};
+
+/**
  * Split a contract's product list into ordered groups, keeping only the groups
  * that actually contain items so empty headings never reach the UI.
  */

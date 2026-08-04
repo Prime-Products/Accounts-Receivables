@@ -3154,6 +3154,10 @@ export const vesselsRouter = router({
           notes: item.notes ?? null,
           quotaType: item.quotaType,
           quotaLimit: item.quotaLimit,
+          // Same commercials the contract Products card shows, so the vessel card can
+          // be read as the contract's per-vessel extract rather than a reduced view.
+          unitCost: item.unitCost,
+          sellingPrice: item.sellingPrice,
           serialTracked,
           unitsTotal: units.length,
           unitsExpected,

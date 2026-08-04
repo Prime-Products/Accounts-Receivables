@@ -37,8 +37,8 @@ describe("vessels.detail exposes serial-tracked instruments", () => {
 describe("vessel page shows grouped contract items with serials under the description", () => {
   const page = read("client/src/pages/VesselDetail.tsx");
 
-  it("renders a contract-items-on-board card", () => {
-    expect(page).toContain("Contract items on board ({contractItems.length})");
+  it("renders the products card for the vessel", () => {
+    expect(page).toContain("<Package className=\"h-4 w-4\" /> Products");
   });
 
   it("reads the contract items from the query result", () => {
@@ -63,17 +63,17 @@ describe("vessel page shows grouped contract items with serials under the descri
 
   it("does not add a separate serial column header", () => {
     expect(page).not.toContain("<TableHead>Serial #</TableHead>");
-    expect(page).toContain("<TableHead>Item</TableHead>");
+    expect(page).toContain("<TableHead>Product</TableHead>");
   });
 
   it("shows the supply status per line", () => {
-    expect(page).toContain("Supply status");
+    expect(page).toContain("<TableHead>Supply</TableHead>");
     // Every line renders the shared badge, tracked or not.
     expect(page).toContain('import { SupplyBadge } from "@/components/SupplyBadge"');
     expect(page).toContain("<SupplyBadge supplied={item.unitsSupplied} total={item.unitsExpected} />");
     // The per-line shortfall is carried by the badge itself (e.g. "Not supplied 0/4"),
     // keeping each line to a single row.
-    expect(page).toContain("Supply status");
+    expect(page).toContain("unitsExpected");
   });
 
   it("links each instrument back to its contract", () => {
