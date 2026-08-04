@@ -16,11 +16,12 @@ describe("SoftOne credit-note synchronization", () => {
     expect(query).toContain("internal_customer.[TRDGROUP] = 473");
   });
 
-  it("allows one approved active customer without a group but rejects Prime's internal group", () => {
+  it("allows one explicitly approved historical customer but rejects non-customers and Prime's internal group", () => {
     const query = buildSoftOneCreditNoteCustomerQuery(39078);
     expect(query).toContain("customer.[TRDR] = 39078");
+    expect(query).toContain("customer.[COMPANY] = 1");
     expect(query).toContain("customer.[SODTYPE] = 13");
-    expect(query).toContain("customer.[ISACTIVE] = 1");
+    expect(query).not.toContain("customer.[ISACTIVE] = 1");
     expect(query).toContain("customer.[TRDGROUP] IS NULL OR customer.[TRDGROUP] <> 473");
   });
 
