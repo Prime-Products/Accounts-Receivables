@@ -57,7 +57,8 @@ describe("vessel page shows grouped contract items with serials under the descri
     const idxSerial = page.indexOf("{u.serialNumber}");
     expect(idxName).toBeGreaterThan(-1);
     expect(idxSerial).toBeGreaterThan(idxName);
-    expect(page).toContain("unit(s) tracked by serial number");
+    // The count now sits on the collapsed line; the detail opens on click.
+    expect(page).toContain("{item.serials.length} serial(s)");
   });
 
   it("does not add a separate serial column header", () => {
@@ -70,7 +71,9 @@ describe("vessel page shows grouped contract items with serials under the descri
     // Every line renders the shared badge, tracked or not.
     expect(page).toContain('import { SupplyBadge } from "@/components/SupplyBadge"');
     expect(page).toContain("<SupplyBadge supplied={item.unitsSupplied} total={item.unitsExpected} />");
-    expect(page).toContain("unit(s) still to deliver");
+    // The per-line shortfall is carried by the badge itself (e.g. "Not supplied 0/4"),
+    // keeping each line to a single row.
+    expect(page).toContain("Supply status");
   });
 
   it("links each instrument back to its contract", () => {

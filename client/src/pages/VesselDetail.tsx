@@ -12,7 +12,7 @@ import { SupplyBadge } from "@/components/SupplyBadge";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { groupContractProducts } from "@shared/productGrouping";
-import { ArrowLeft, Anchor, FileText, Flag, Package, Pencil, Ship } from "lucide-react";
+import { ArrowLeft, Anchor, ChevronRight, FileText, Flag, Package, Pencil, Ship } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { Link, useLocation, useRoute } from "wouter";
 import { toast } from "sonner";
@@ -27,6 +27,9 @@ const assetStatusColors: Record<string, string> = {
 };
 
 /** Colour a certificate countdown by how close it is to the reminder thresholds. */
+/** Stable key for one contract line on this vessel, used for expand/collapse. */
+const itemKey = (item: { contractId: number | null; id: number }) => `${item.contractId}-${item.id}`;
+
 function certToneClass(days: number | null): string {
   if (days == null) return "text-muted-foreground";
   if (days < 0) return "text-red-600 font-medium";
@@ -58,6 +61,16 @@ export default function VesselDetail() {
   // the hook order never changes between loading and loaded renders.
   const contractItems = data?.contractItems ?? [];
   const itemGroups = useMemo(() => groupContractProducts(contractItems), [contractItems]);
+  // Serial detail is collapsed by default so the whole entitlement fits on one screen;
+  // clicking a line opens the per-unit table underneath it.
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const toggleItem = (key: string) =>
+    setExpandedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   if (error) {
     return (
@@ -260,43 +273,61 @@ export default function VesselDetail() {
                     </TableRow>
                     {group.items.map(item => (
                       <Fragment key={`${item.contractId}-${item.id}`}>
-                      <TableRow className={item.serials.length > 0 ? "border-b-0" : undefined}>
+                      <TableRow
+                        className={`${item.serials.length > 0 ? "cursor-pointer" : ""} ${expandedItems.has(itemKey(item)) ? "border-b-0 bg-muted/20" : ""}`}
+                        onClick={item.serials.length > 0 ? () => toggleItem(itemKey(item)) : undefined}
+                      >
                         <TableCell>
-                          <div className="font-medium">{item.name}</div>
-                          {item.serials.length > 0 ? (
-                            <div className="text-xs text-muted-foreground mt-0.5">
-                              {item.serials.length} unit(s) tracked by serial number
+                          <div className="flex items-start gap-1.5">
+                            {/* The chevron only appears where there is serial detail to open. */}
+                            {item.serials.length > 0 ? (
+                              <ChevronRight
+                                className={`h-3.5 w-3.5 mt-1 shrink-0 text-muted-foreground transition-transform duration-150 ${expandedItems.has(itemKey(item)) ? "rotate-90" : ""}`}
+                              />
+                            ) : (
+                              <span className="h-3.5 w-3.5 shrink-0" />
+                            )}
+                            <div className="min-w-0">
+                              <div className="font-medium">{item.name}</div>
+                              {/* Same sub-line the contract card shows under the product name. */}
+                              {item.notes ? (
+                                <div className="text-xs text-muted-foreground mt-0.5">{item.notes}</div>
+                              ) : item.quotaLimit ? (
+                                <div className="text-xs text-muted-foreground mt-0.5">
+                                  {item.quotaType ?? "Quota"} allowance: {item.quotaLimit}
+                                </div>
+                              ) : null}
                             </div>
-                          ) : item.quotaLimit ? (
-                            <div className="text-xs text-muted-foreground mt-0.5">
-                              {item.quotaType ?? "Quota"} allowance: {item.quotaLimit}
-                            </div>
-                          ) : null}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right font-mono">{item.quantity}</TableCell>
                         <TableCell>
                           {/* Every line carries a badge, tracked or not, so the eye can scan the column */}
-                          <div className="space-y-1">
-                            <SupplyBadge supplied={item.unitsSupplied} total={item.unitsExpected} />
-                            {item.unitsSupplied < item.unitsExpected && (
-                              <div className="text-[11px] text-muted-foreground">
-                                {item.unitsExpected - item.unitsSupplied} unit(s) still to deliver
-                              </div>
+                          <SupplyBadge supplied={item.unitsSupplied} total={item.unitsExpected} />
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-between gap-2">
+                            {item.contractId ? (
+                              <Link
+                                href={`/ops/contracts/${item.contractId}`}
+                                onClick={e => e.stopPropagation()}
+                                className="text-primary hover:underline underline-offset-2 font-mono text-xs"
+                              >
+                                {item.contractNumber ?? `#${item.contractId}`}
+                              </Link>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                            {item.serials.length > 0 && (
+                              <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                                {item.serials.length} serial(s)
+                              </span>
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>
-                          {item.contractId ? (
-                            <Link href={`/ops/contracts/${item.contractId}`} className="text-primary hover:underline underline-offset-2 font-mono text-xs">
-                              {item.contractNumber ?? `#${item.contractId}`}
-                            </Link>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
                       </TableRow>
                       {/* One nested row per serial, carrying every field the Equipment page shows. */}
-                      {item.serials.length > 0 && (
+                      {item.serials.length > 0 && expandedItems.has(itemKey(item)) && (
                         <TableRow className="hover:bg-transparent">
                           <TableCell colSpan={4} className="pt-0 pb-3">
                             <div className="rounded-md border bg-muted/20 overflow-x-auto">

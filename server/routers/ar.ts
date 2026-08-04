@@ -3136,6 +3136,9 @@ export const vesselsRouter = router({
           itemType: item.itemType,
           name: item.name,
           quantity: item.quantity,
+          // The contract card shows this line under the product name (e.g. "Set:
+          // instrument + battery pack"); the vessel reads the same text.
+          notes: item.notes ?? null,
           quotaType: item.quotaType,
           quotaLimit: item.quotaLimit,
           serialTracked,
