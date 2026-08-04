@@ -2025,3 +2025,11 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Sidebar label and page header renamed to Pricelist, with a subtitle explaining it holds standard costs/prices
 - [x] Equipment dialog wording points to the Pricelist instead of "Catalog Management"
 - [x] Wording tests updated for the rename (920 tests passing)
+
+## Link Pricelist to contract products (user request 4/8)
+- [x] Pricelist: add a selling price field to products, services and consumables (cost + price side by side)
+- [x] Backend: one lookup returning all pricelist entries with itemType, cost and selling price
+- [x] Contract "Add Product": pick from the Pricelist and auto-fill name, unit cost and selling price
+- [x] Keep manual entry and manual overrides working (typed products still allowed)
+- [x] Store catalogId on the contract line so the pricelist origin is traceable
+- [x] Vitest coverage for the lookup, the auto-fill mapping and the override path

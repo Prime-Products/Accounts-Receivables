@@ -88,6 +88,81 @@ export async function deleteConsumableCatalogItem(id: number) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// UNIFIED PRICELIST LOOKUP
+// ═══════════════════════════════════════════════════════════════════════════════
+/**
+ * One flat list of every active pricelist entry across services, products and
+ * consumables, so a contract can pick an item and inherit its cost and price
+ * without caring which table it lives in.
+ *
+ * `source` identifies the origin table; `catalogId` is the id inside it. The
+ * contract line stores both so the pricelist origin stays traceable.
+ */
+export type PricelistEntry = {
+  key: string;
+  source: "service" | "product" | "consumable";
+  catalogId: number;
+  name: string;
+  category: string | null;
+  unit: string | null;
+  unitCost: string;
+  sellingPrice: string;
+  suggestedItemType: "Service" | "Instrument" | "Ampoule";
+};
+
+export async function listPricelist(): Promise<PricelistEntry[]> {
+  const [services, products, consumables] = await Promise.all([
+    listServices(),
+    listAssetCatalog(),
+    listConsumableCatalog(),
+  ]);
+
+  const entries: PricelistEntry[] = [
+    ...products
+      .filter(p => p.active)
+      .map(p => ({
+        key: `product-${p.id}`,
+        source: "product" as const,
+        catalogId: p.id,
+        name: p.name,
+        category: p.category ?? null,
+        unit: null,
+        unitCost: p.defaultCost,
+        sellingPrice: p.sellingPrice,
+        suggestedItemType: "Instrument" as const,
+      })),
+    ...consumables
+      .filter(c => c.active)
+      .map(c => ({
+        key: `consumable-${c.id}`,
+        source: "consumable" as const,
+        catalogId: c.id,
+        name: c.name,
+        category: c.category ?? null,
+        unit: c.unit,
+        unitCost: c.defaultCostPerUnit,
+        sellingPrice: c.sellingPricePerUnit,
+        suggestedItemType: "Ampoule" as const,
+      })),
+    ...services
+      .filter(s => s.active)
+      .map(s => ({
+        key: `service-${s.id}`,
+        source: "service" as const,
+        catalogId: s.id,
+        name: s.name,
+        category: s.category ?? null,
+        unit: null,
+        unitCost: s.defaultCost,
+        sellingPrice: s.sellingPrice,
+        suggestedItemType: "Service" as const,
+      })),
+  ];
+
+  return entries;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // QUOTATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function listQuotations() {

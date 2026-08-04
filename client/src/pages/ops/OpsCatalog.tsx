@@ -17,7 +17,7 @@ function ServicesTab() {
   const { data: services, refetch, isLoading, isError } = trpc.opsCatalog.services.list.useQuery();
   const [createOpen, setCreateOpen] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
-  const [form, setForm] = useState({ name: "", description: "", defaultCost: "", category: "" });
+  const [form, setForm] = useState({ name: "", description: "", defaultCost: "", sellingPrice: "", category: "" });
 
   const create = trpc.opsCatalog.services.create.useMutation({
     onSuccess: () => { refetch(); setCreateOpen(false); resetForm(); toast.success("Service created"); },
@@ -32,10 +32,10 @@ function ServicesTab() {
     onError: e => toast.error(e.message),
   });
 
-  const resetForm = () => setForm({ name: "", description: "", defaultCost: "", category: "" });
+  const resetForm = () => setForm({ name: "", description: "", defaultCost: "", sellingPrice: "", category: "" });
   const openEdit = (item: any) => {
     setEditItem(item);
-    setForm({ name: item.name, description: item.description ?? "", defaultCost: item.defaultCost ?? "", category: item.category ?? "" });
+    setForm({ name: item.name, description: item.description ?? "", defaultCost: item.defaultCost ?? "", sellingPrice: item.sellingPrice ?? "", category: item.category ?? "" });
   };
 
 
@@ -57,18 +57,20 @@ function ServicesTab() {
               <TableHead>Name</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Default Cost</TableHead>
+              <TableHead>Selling Price</TableHead>
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="w-24">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(services ?? []).length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No services yet</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No services yet</TableCell></TableRow>
             ) : (services ?? []).map(s => (
               <TableRow key={s.id}>
                 <TableCell className="font-medium">{s.name}</TableCell>
                 <TableCell>{s.category || "—"}</TableCell>
                 <TableCell className="font-mono">{fmtEur(Number(s.defaultCost))}</TableCell>
+                <TableCell className="font-mono">{fmtEur(Number(s.sellingPrice))}</TableCell>
                 <TableCell className="text-center">
                   <Badge variant={s.active ? "default" : "secondary"}>{s.active ? "Active" : "Inactive"}</Badge>
                 </TableCell>
@@ -92,11 +94,12 @@ function ServicesTab() {
             <div><Label>Name *</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
             <div><Label>Category</Label><Input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="e.g. Gas Detection" /></div>
             <div><Label>Default Cost</Label><Input value={form.defaultCost} onChange={e => setForm({ ...form, defaultCost: e.target.value })} placeholder="0.00" /></div>
+            <div><Label>Selling Price</Label><Input value={form.sellingPrice} onChange={e => setForm({ ...form, sellingPrice: e.target.value })} placeholder="0.00" /></div>
             <div><Label>Description</Label><Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button disabled={!form.name || create.isPending} onClick={() => create.mutate({ name: form.name, description: form.description || undefined, defaultCost: form.defaultCost || undefined, category: form.category || undefined })}>
+            <Button disabled={!form.name || create.isPending} onClick={() => create.mutate({ name: form.name, description: form.description || undefined, defaultCost: form.defaultCost || undefined, sellingPrice: form.sellingPrice || undefined, category: form.category || undefined })}>
               {create.isPending ? "Creating..." : "Create"}
             </Button>
           </DialogFooter>
@@ -111,11 +114,12 @@ function ServicesTab() {
             <div><Label>Name</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
             <div><Label>Category</Label><Input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} /></div>
             <div><Label>Default Cost</Label><Input value={form.defaultCost} onChange={e => setForm({ ...form, defaultCost: e.target.value })} /></div>
+            <div><Label>Selling Price</Label><Input value={form.sellingPrice} onChange={e => setForm({ ...form, sellingPrice: e.target.value })} /></div>
             <div><Label>Description</Label><Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
-            <Button disabled={!form.name || update.isPending} onClick={() => editItem && update.mutate({ id: editItem.id, name: form.name, description: form.description || null, defaultCost: form.defaultCost || undefined, category: form.category || null })}>
+            <Button disabled={!form.name || update.isPending} onClick={() => editItem && update.mutate({ id: editItem.id, name: form.name, description: form.description || null, defaultCost: form.defaultCost || undefined, sellingPrice: form.sellingPrice || undefined, category: form.category || null })}>
               {update.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
@@ -130,7 +134,7 @@ function AssetsCatalogTab() {
   const { data: items, refetch, isLoading, isError } = trpc.opsCatalog.assets.list.useQuery();
   const [createOpen, setCreateOpen] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
-  const [form, setForm] = useState({ name: "", description: "", defaultCost: "", category: "" });
+  const [form, setForm] = useState({ name: "", description: "", defaultCost: "", sellingPrice: "", category: "" });
 
   const create = trpc.opsCatalog.assets.create.useMutation({
     onSuccess: () => { refetch(); setCreateOpen(false); resetForm(); toast.success("Product created"); },
@@ -145,10 +149,10 @@ function AssetsCatalogTab() {
     onError: e => toast.error(e.message),
   });
 
-  const resetForm = () => setForm({ name: "", description: "", defaultCost: "", category: "" });
+  const resetForm = () => setForm({ name: "", description: "", defaultCost: "", sellingPrice: "", category: "" });
   const openEdit = (item: any) => {
     setEditItem(item);
-    setForm({ name: item.name, description: item.description ?? "", defaultCost: item.defaultCost ?? "", category: item.category ?? "" });
+    setForm({ name: item.name, description: item.description ?? "", defaultCost: item.defaultCost ?? "", sellingPrice: item.sellingPrice ?? "", category: item.category ?? "" });
   };
 
   if (isLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
@@ -168,18 +172,20 @@ function AssetsCatalogTab() {
               <TableHead>Name</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Default Cost</TableHead>
+              <TableHead>Selling Price</TableHead>
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="w-24">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(items ?? []).length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No products yet</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No products yet</TableCell></TableRow>
             ) : (items ?? []).map(s => (
               <TableRow key={s.id}>
                 <TableCell className="font-medium">{s.name}</TableCell>
                 <TableCell>{s.category || "—"}</TableCell>
                 <TableCell className="font-mono">{fmtEur(Number(s.defaultCost))}</TableCell>
+                <TableCell className="font-mono">{fmtEur(Number(s.sellingPrice))}</TableCell>
                 <TableCell className="text-center">
                   <Badge variant={s.active ? "default" : "secondary"}>{s.active ? "Active" : "Inactive"}</Badge>
                 </TableCell>
@@ -202,11 +208,12 @@ function AssetsCatalogTab() {
             <div><Label>Name *</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
             <div><Label>Category</Label><Input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="e.g. Gas Detectors" /></div>
             <div><Label>Default Cost</Label><Input value={form.defaultCost} onChange={e => setForm({ ...form, defaultCost: e.target.value })} placeholder="0.00" /></div>
+            <div><Label>Selling Price</Label><Input value={form.sellingPrice} onChange={e => setForm({ ...form, sellingPrice: e.target.value })} placeholder="0.00" /></div>
             <div><Label>Description</Label><Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button disabled={!form.name || create.isPending} onClick={() => create.mutate({ name: form.name, description: form.description || undefined, defaultCost: form.defaultCost || undefined, category: form.category || undefined })}>
+            <Button disabled={!form.name || create.isPending} onClick={() => create.mutate({ name: form.name, description: form.description || undefined, defaultCost: form.defaultCost || undefined, sellingPrice: form.sellingPrice || undefined, category: form.category || undefined })}>
               {create.isPending ? "Creating..." : "Create"}
             </Button>
           </DialogFooter>
@@ -220,11 +227,12 @@ function AssetsCatalogTab() {
             <div><Label>Name</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
             <div><Label>Category</Label><Input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} /></div>
             <div><Label>Default Cost</Label><Input value={form.defaultCost} onChange={e => setForm({ ...form, defaultCost: e.target.value })} /></div>
+            <div><Label>Selling Price</Label><Input value={form.sellingPrice} onChange={e => setForm({ ...form, sellingPrice: e.target.value })} /></div>
             <div><Label>Description</Label><Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
-            <Button disabled={!form.name || update.isPending} onClick={() => editItem && update.mutate({ id: editItem.id, name: form.name, description: form.description || null, defaultCost: form.defaultCost || undefined, category: form.category || null })}>
+            <Button disabled={!form.name || update.isPending} onClick={() => editItem && update.mutate({ id: editItem.id, name: form.name, description: form.description || null, defaultCost: form.defaultCost || undefined, sellingPrice: form.sellingPrice || undefined, category: form.category || null })}>
               {update.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
@@ -239,7 +247,7 @@ function ConsumablesCatalogTab() {
   const { data: items, refetch, isLoading, isError } = trpc.opsCatalog.consumables.list.useQuery();
   const [createOpen, setCreateOpen] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
-  const [form, setForm] = useState({ name: "", description: "", unit: "", defaultCostPerUnit: "", category: "" });
+  const [form, setForm] = useState({ name: "", description: "", unit: "", defaultCostPerUnit: "", sellingPricePerUnit: "", category: "" });
 
   const create = trpc.opsCatalog.consumables.create.useMutation({
     onSuccess: () => { refetch(); setCreateOpen(false); resetForm(); toast.success("Consumable created"); },
@@ -254,10 +262,10 @@ function ConsumablesCatalogTab() {
     onError: e => toast.error(e.message),
   });
 
-  const resetForm = () => setForm({ name: "", description: "", unit: "", defaultCostPerUnit: "", category: "" });
+  const resetForm = () => setForm({ name: "", description: "", unit: "", defaultCostPerUnit: "", sellingPricePerUnit: "", category: "" });
   const openEdit = (item: any) => {
     setEditItem(item);
-    setForm({ name: item.name, description: item.description ?? "", unit: item.unit ?? "", defaultCostPerUnit: item.defaultCostPerUnit ?? "", category: item.category ?? "" });
+    setForm({ name: item.name, description: item.description ?? "", unit: item.unit ?? "", defaultCostPerUnit: item.defaultCostPerUnit ?? "", sellingPricePerUnit: item.sellingPricePerUnit ?? "", category: item.category ?? "" });
   };
   if (isLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   if (isError) return <div className="flex items-center gap-2 justify-center py-12 text-red-600"><AlertCircle className="h-5 w-5" /> Failed to load consumables</div>;
@@ -278,19 +286,21 @@ function ConsumablesCatalogTab() {
               <TableHead>Category</TableHead>
               <TableHead>Unit</TableHead>
               <TableHead>Cost/Unit</TableHead>
+              <TableHead>Price/Unit</TableHead>
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="w-24">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(items ?? []).length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No consumables yet</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No consumables yet</TableCell></TableRow>
             ) : (items ?? []).map(s => (
               <TableRow key={s.id}>
                 <TableCell className="font-medium">{s.name}</TableCell>
                 <TableCell>{s.category || "—"}</TableCell>
                 <TableCell>{s.unit}</TableCell>
                 <TableCell className="font-mono">{fmtEur(Number(s.defaultCostPerUnit))}</TableCell>
+                <TableCell className="font-mono">{fmtEur(Number(s.sellingPricePerUnit))}</TableCell>
                 <TableCell className="text-center">
                   <Badge variant={s.active ? "default" : "secondary"}>{s.active ? "Active" : "Inactive"}</Badge>
                 </TableCell>
@@ -314,11 +324,12 @@ function ConsumablesCatalogTab() {
             <div><Label>Category</Label><Input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="e.g. Filters" /></div>
             <div><Label>Unit</Label><Input value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder="pcs, liters, kg..." /></div>
             <div><Label>Cost per Unit</Label><Input value={form.defaultCostPerUnit} onChange={e => setForm({ ...form, defaultCostPerUnit: e.target.value })} placeholder="0.00" /></div>
+            <div><Label>Price per Unit</Label><Input value={form.sellingPricePerUnit} onChange={e => setForm({ ...form, sellingPricePerUnit: e.target.value })} placeholder="0.00" /></div>
             <div><Label>Description</Label><Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button disabled={!form.name || create.isPending} onClick={() => create.mutate({ name: form.name, description: form.description || undefined, unit: form.unit || undefined, defaultCostPerUnit: form.defaultCostPerUnit || undefined, category: form.category || undefined })}>
+            <Button disabled={!form.name || create.isPending} onClick={() => create.mutate({ name: form.name, description: form.description || undefined, unit: form.unit || undefined, defaultCostPerUnit: form.defaultCostPerUnit || undefined, sellingPricePerUnit: form.sellingPricePerUnit || undefined, category: form.category || undefined })}>
               {create.isPending ? "Creating..." : "Create"}
             </Button>
           </DialogFooter>
@@ -333,11 +344,12 @@ function ConsumablesCatalogTab() {
             <div><Label>Category</Label><Input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} /></div>
             <div><Label>Unit</Label><Input value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} /></div>
             <div><Label>Cost per Unit</Label><Input value={form.defaultCostPerUnit} onChange={e => setForm({ ...form, defaultCostPerUnit: e.target.value })} /></div>
+            <div><Label>Price per Unit</Label><Input value={form.sellingPricePerUnit} onChange={e => setForm({ ...form, sellingPricePerUnit: e.target.value })} /></div>
             <div><Label>Description</Label><Input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button>
-            <Button disabled={!form.name || update.isPending} onClick={() => editItem && update.mutate({ id: editItem.id, name: form.name, description: form.description || null, unit: form.unit || undefined, defaultCostPerUnit: form.defaultCostPerUnit || undefined, category: form.category || null })}>
+            <Button disabled={!form.name || update.isPending} onClick={() => editItem && update.mutate({ id: editItem.id, name: form.name, description: form.description || null, unit: form.unit || undefined, defaultCostPerUnit: form.defaultCostPerUnit || undefined, sellingPricePerUnit: form.sellingPricePerUnit || undefined, category: form.category || null })}>
               {update.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>

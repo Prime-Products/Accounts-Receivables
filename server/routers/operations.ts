@@ -96,6 +96,8 @@ async function generateEquipmentForVessel(contractId: number, vesselId: number) 
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export const opsCatalogRouter = router({
+  /** Flat lookup across services, products and consumables, for contract auto-fill. */
+  pricelist: protectedProcedure.query(() => opsDb.listPricelist()),
   services: router({
     list: protectedProcedure.query(() => opsDb.listServices()),
     get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
@@ -104,13 +106,13 @@ export const opsCatalogRouter = router({
       return item;
     }),
     create: protectedProcedure
-      .input(z.object({ name: z.string().min(1), description: z.string().optional(), defaultCost: z.string().optional(), category: z.string().optional() }))
+      .input(z.object({ name: z.string().min(1), description: z.string().optional(), defaultCost: z.string().optional(), sellingPrice: z.string().optional(), category: z.string().optional() }))
       .mutation(async ({ input }) => {
-        const id = await opsDb.createService({ name: input.name, description: input.description, defaultCost: input.defaultCost ?? "0", category: input.category });
+        const id = await opsDb.createService({ name: input.name, description: input.description, defaultCost: input.defaultCost ?? "0", sellingPrice: input.sellingPrice ?? "0", category: input.category });
         return { id };
       }),
     update: protectedProcedure
-      .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().nullable().optional(), defaultCost: z.string().optional(), category: z.string().nullable().optional(), active: z.boolean().optional() }))
+      .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().nullable().optional(), defaultCost: z.string().optional(), sellingPrice: z.string().optional(), category: z.string().nullable().optional(), active: z.boolean().optional() }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         await opsDb.updateService(id, data as any);
@@ -124,13 +126,13 @@ export const opsCatalogRouter = router({
   assets: router({
     list: protectedProcedure.query(() => opsDb.listAssetCatalog()),
     create: protectedProcedure
-      .input(z.object({ name: z.string().min(1), description: z.string().optional(), defaultCost: z.string().optional(), category: z.string().optional() }))
+      .input(z.object({ name: z.string().min(1), description: z.string().optional(), defaultCost: z.string().optional(), sellingPrice: z.string().optional(), category: z.string().optional() }))
       .mutation(async ({ input }) => {
-        const id = await opsDb.createAssetCatalogItem({ name: input.name, description: input.description, defaultCost: input.defaultCost ?? "0", category: input.category });
+        const id = await opsDb.createAssetCatalogItem({ name: input.name, description: input.description, defaultCost: input.defaultCost ?? "0", sellingPrice: input.sellingPrice ?? "0", category: input.category });
         return { id };
       }),
     update: protectedProcedure
-      .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().nullable().optional(), defaultCost: z.string().optional(), category: z.string().nullable().optional(), active: z.boolean().optional() }))
+      .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().nullable().optional(), defaultCost: z.string().optional(), sellingPrice: z.string().optional(), category: z.string().nullable().optional(), active: z.boolean().optional() }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         await opsDb.updateAssetCatalogItem(id, data as any);
@@ -144,13 +146,13 @@ export const opsCatalogRouter = router({
   consumables: router({
     list: protectedProcedure.query(() => opsDb.listConsumableCatalog()),
     create: protectedProcedure
-      .input(z.object({ name: z.string().min(1), description: z.string().optional(), unit: z.string().optional(), defaultCostPerUnit: z.string().optional(), category: z.string().optional() }))
+      .input(z.object({ name: z.string().min(1), description: z.string().optional(), unit: z.string().optional(), defaultCostPerUnit: z.string().optional(), sellingPricePerUnit: z.string().optional(), category: z.string().optional() }))
       .mutation(async ({ input }) => {
-        const id = await opsDb.createConsumableCatalogItem({ name: input.name, description: input.description, unit: input.unit ?? "pcs", defaultCostPerUnit: input.defaultCostPerUnit ?? "0", category: input.category });
+        const id = await opsDb.createConsumableCatalogItem({ name: input.name, description: input.description, unit: input.unit ?? "pcs", defaultCostPerUnit: input.defaultCostPerUnit ?? "0", sellingPricePerUnit: input.sellingPricePerUnit ?? "0", category: input.category });
         return { id };
       }),
     update: protectedProcedure
-      .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().nullable().optional(), unit: z.string().optional(), defaultCostPerUnit: z.string().optional(), category: z.string().nullable().optional(), active: z.boolean().optional() }))
+      .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().nullable().optional(), unit: z.string().optional(), defaultCostPerUnit: z.string().optional(), sellingPricePerUnit: z.string().optional(), category: z.string().nullable().optional(), active: z.boolean().optional() }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         await opsDb.updateConsumableCatalogItem(id, data as any);
@@ -540,6 +542,7 @@ export const opsContractsRouter = router({
     .input(z.object({
       id: z.number(),
       itemType: z.enum(opsLibraryItemTypes).optional(),
+      catalogId: z.number().nullable().optional(),
       name: z.string().min(1).optional(),
       quantity: z.number().int().min(1).optional(),
       unitCost: z.number().min(0).optional(),

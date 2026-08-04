@@ -52,7 +52,14 @@ const contractStatusColors: Record<string, string> = {
   Cancelled: "bg-red-100 text-red-700 border-red-200",
 };
 
-const emptyProduct = { itemType: "Instrument", name: "", quantity: "1", unitCost: "", sellingPrice: "", quotaType: "", quotaLimit: "", notes: "" };
+const emptyProduct = { itemType: "Instrument", pricelistKey: "", catalogId: null as number | null, name: "", quantity: "1", unitCost: "", sellingPrice: "", quotaType: "", quotaLimit: "", notes: "" };
+
+/** Wording for each pricelist source, so the picker shows where a price comes from. */
+const pricelistSourceLabel: Record<string, string> = {
+  product: "Product",
+  consumable: "Consumable",
+  service: "Service",
+};
 
 /** Payment methods offered on a contract, mirroring the DB enum. */
 const paymentMethods = ["Bank Transfer", "Cheque", "Credit Card", "Cash", "Letter of Credit"] as const;
@@ -118,7 +125,28 @@ export default function OpsContractDetail() {
   const [libOpen, setLibOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [libForm, setLibForm] = useState({ ...emptyProduct });
-  const resetLibForm = () => { setLibForm({ ...emptyProduct }); setEditingId(null); };
+  const [pricelistSearch, setPricelistSearch] = useState("");
+  const resetLibForm = () => { setLibForm({ ...emptyProduct }); setEditingId(null); setPricelistSearch(""); };
+  /** Pricelist entries feed the picker; prices flow into the form but stay editable. */
+  const { data: pricelist } = trpc.opsCatalog.pricelist.useQuery();
+  const pricelistMatches = (pricelist ?? []).filter(p =>
+    p.name.toLowerCase().includes(pricelistSearch.toLowerCase()) ||
+    (p.category ?? "").toLowerCase().includes(pricelistSearch.toLowerCase()),
+  );
+  /** Picking an entry fills name, cost, price and a sensible nature — all overridable. */
+  const applyPricelistEntry = (key: string) => {
+    const entry = (pricelist ?? []).find(p => p.key === key);
+    if (!entry) return;
+    setLibForm(f => ({
+      ...f,
+      pricelistKey: entry.key,
+      catalogId: entry.catalogId,
+      name: entry.name,
+      unitCost: Number(entry.unitCost) ? String(Number(entry.unitCost)) : "",
+      sellingPrice: Number(entry.sellingPrice) ? String(Number(entry.sellingPrice)) : "",
+      itemType: f.itemType === emptyProduct.itemType ? entry.suggestedItemType : f.itemType,
+    }));
+  };
   const addLibItem = trpc.opsContracts.addLibraryItem.useMutation({
     onSuccess: () => {
       toast.success("Product added");
@@ -145,6 +173,8 @@ export default function OpsContractDetail() {
     setEditingId(item.id);
     setLibForm({
       itemType: item.itemType,
+      pricelistKey: "",
+      catalogId: item.catalogId ?? null,
       name: item.name,
       quantity: String(item.quantity),
       unitCost: Number(item.unitCost) ? String(Number(item.unitCost)) : "",
@@ -762,6 +792,45 @@ export default function OpsContractDetail() {
             </DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
+            {/* Pick from the Pricelist to inherit cost and price; typing by hand still works. */}
+            {!editingId && (
+              <div className="space-y-1.5 col-span-2">
+                <Label>From Pricelist (optional)</Label>
+                {(pricelist ?? []).length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Pricelist is empty — add items under Prime 247 &gt; Pricelist to auto-fill cost and price here.
+                  </p>
+                ) : (
+                  <Select value={libForm.pricelistKey} onValueChange={applyPricelistEntry}>
+                    <SelectTrigger><SelectValue placeholder="Search the pricelist..." /></SelectTrigger>
+                    <SelectContent>
+                      <div className="p-2">
+                        <Input
+                          autoFocus
+                          placeholder="Search item..."
+                          value={pricelistSearch}
+                          onChange={e => setPricelistSearch(e.target.value)}
+                          onKeyDown={e => e.stopPropagation()}
+                          className="h-8"
+                        />
+                      </div>
+                      {pricelistMatches.length === 0 ? (
+                        <div className="px-2 py-3 text-xs text-muted-foreground">No matching item</div>
+                      ) : (
+                        pricelistMatches.slice(0, 50).map(p => (
+                          <SelectItem key={p.key} value={p.key}>
+                            {p.name} · {pricelistSourceLabel[p.source]} · {fmtEur(Number(p.sellingPrice))}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Fills name, cost and price from the pricelist — you can still change any of them below.
+                </p>
+              </div>
+            )}
             <div className="space-y-1.5 col-span-2">
               <Label>Type *</Label>
               <Select value={libForm.itemType} onValueChange={v => setLibForm({ ...libForm, itemType: v })}>
@@ -818,6 +887,7 @@ export default function OpsContractDetail() {
               onClick={() => {
                 const payload = {
                   itemType: libForm.itemType as any,
+                  catalogId: libForm.catalogId,
                   name: libForm.name,
                   quantity: Number(libForm.quantity) || 1,
                   unitCost: Number(libForm.unitCost) || 0,

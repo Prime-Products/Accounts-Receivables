@@ -1017,6 +1017,8 @@ export const opsServices = mysqlTable("ops_services", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   defaultCost: decimal("defaultCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  /** Standard price charged to the customer, pulled into contracts as the default. */
+  sellingPrice: decimal("sellingPrice", { precision: 12, scale: 2 }).default("0").notNull(),
   category: varchar("category", { length: 100 }),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -1031,6 +1033,8 @@ export const opsAssetCatalog = mysqlTable("ops_asset_catalog", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   defaultCost: decimal("defaultCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  /** Standard price charged to the customer, pulled into contracts as the default. */
+  sellingPrice: decimal("sellingPrice", { precision: 12, scale: 2 }).default("0").notNull(),
   category: varchar("category", { length: 100 }),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -1046,6 +1050,8 @@ export const opsConsumableCatalog = mysqlTable("ops_consumable_catalog", {
   description: text("description"),
   unit: varchar("unit", { length: 50 }).default("pcs").notNull(),
   defaultCostPerUnit: decimal("defaultCostPerUnit", { precision: 12, scale: 2 }).default("0").notNull(),
+  /** Standard price per unit charged to the customer, pulled into contracts as the default. */
+  sellingPricePerUnit: decimal("sellingPricePerUnit", { precision: 12, scale: 2 }).default("0").notNull(),
   category: varchar("category", { length: 100 }),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
