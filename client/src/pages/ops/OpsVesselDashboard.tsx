@@ -35,7 +35,7 @@ export default function OpsVesselDashboard() {
       <div className="p-2 sm:p-4 flex flex-col items-center justify-center min-h-[400px] text-muted-foreground">
         <Ship className="h-10 w-10 mb-3 opacity-40" />
         <p className="text-lg font-medium">Invalid vessel ID</p>
-        <Button variant="outline" className="mt-4" onClick={() => navigate("/ops/assets")}>Back to Assets</Button>
+        <Button variant="outline" className="mt-4" onClick={() => navigate("/ops/assets")}>Back to Equipment</Button>
       </div>
     );
   }
@@ -58,7 +58,7 @@ export default function OpsVesselDashboard() {
         <Ship className="h-10 w-10 mb-3 opacity-40" />
         <p className="text-lg font-medium">Vessel not found</p>
         <p className="text-sm mt-1">This vessel may not have any active assignments.</p>
-        <Button variant="outline" className="mt-4" onClick={() => navigate("/ops/assets")}>Back to Assets</Button>
+        <Button variant="outline" className="mt-4" onClick={() => navigate("/ops/assets")}>Back to Equipment</Button>
       </div>
     );
   }
@@ -93,7 +93,7 @@ export default function OpsVesselDashboard() {
           <CardContent><div className="text-xl font-bold font-mono">{assets.length}</div></CardContent>
         </Card>
         <Card className="border-l-4 border-l-[oklch(0.65_0.12_175)]">
-          <CardHeader className="pb-1"><CardTitle className="text-sm font-medium text-muted-foreground">Active Assets</CardTitle></CardHeader>
+          <CardHeader className="pb-1"><CardTitle className="text-sm font-medium text-muted-foreground">Active Equipment</CardTitle></CardHeader>
           <CardContent><div className="text-xl font-bold font-mono">{assets.filter(a => a.status === "Active").length}</div></CardContent>
         </Card>
         <Card className="border-l-4 border-l-[oklch(0.55_0.14_25)]">

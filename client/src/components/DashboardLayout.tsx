@@ -96,7 +96,7 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
     items: [
       { icon: Briefcase, label: "Ops Dashboard", path: "/ops" },
       { icon: FileCheck2, label: "Ops Contracts", path: "/ops/contracts" },
-      { icon: Package, label: "Assets", path: "/ops/assets" },
+      { icon: Package, label: "Equipment", path: "/ops/assets" },
       { icon: ShieldCheck, label: "Certificates", path: "/ops/certificates" },
       { icon: Truck, label: "Orders", path: "/ops/orders" },
       { icon: RotateCcw, label: "Returns", path: "/ops/returns" },

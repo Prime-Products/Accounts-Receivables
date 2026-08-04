@@ -30,7 +30,7 @@ export default function OpsReturns() {
   const markReturned = trpc.opsAssets.updateStatus.useMutation({
     onSuccess: () => {
       utils.opsDashboard.reverseLogistics.invalidate();
-      toast.success("Asset marked as returned");
+      toast.success("Equipment marked as returned");
     },
   });
 
@@ -55,7 +55,7 @@ export default function OpsReturns() {
     <div className="p-2 sm:p-4 space-y-4">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Reverse Logistics — Pending Returns</h1>
-        <p className="text-sm text-muted-foreground mt-1">{filtered.length} asset{filtered.length !== 1 ? "s" : ""} awaiting collection</p>
+        <p className="text-sm text-muted-foreground mt-1">{filtered.length} unit{filtered.length !== 1 ? "s" : ""} awaiting collection</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

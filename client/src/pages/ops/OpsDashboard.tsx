@@ -36,7 +36,7 @@ export default function OpsDashboard() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Operations Dashboard</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Contracts, assets, and fulfillment overview
+          Contracts, equipment, and fulfillment overview
         </p>
       </div>
 
@@ -74,7 +74,7 @@ export default function OpsDashboard() {
           onClick={() => navigate("/ops/assets")}
         >
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Active Assets</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Equipment</CardTitle>
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -112,7 +112,7 @@ export default function OpsDashboard() {
             <div className={`text-2xl font-bold font-mono ${data.pendingReturns > 0 ? "text-amber-700" : ""}`}>
               {data.pendingReturns}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Assets awaiting collection</p>
+            <p className="text-xs text-muted-foreground mt-1">Equipment awaiting collection</p>
           </CardContent>
         </Card>
 

@@ -199,7 +199,7 @@ export default function Reports() {
                 <p className="text-lg font-bold font-mono text-emerald-700">{fmtEur(opsSummary.collectedAmount)}</p>
               </div>
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Active Assets</p>
+                <p className="text-xs text-muted-foreground">Active Equipment</p>
                 <p className="text-lg font-bold font-mono">{opsSummary.activeAssets}</p>
               </div>
               <div className="space-y-1">

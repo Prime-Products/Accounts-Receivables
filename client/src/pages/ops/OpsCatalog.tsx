@@ -125,7 +125,7 @@ function ServicesTab() {
   );
 }
 
-// ─── Assets Catalog Tab ──────────────────────────────────────────────────────
+// ─── Products Catalog Tab (serial-tracked equipment types) ───────────────────
 function AssetsCatalogTab() {
   const { data: items, refetch, isLoading, isError } = trpc.opsCatalog.assets.list.useQuery();
   const [createOpen, setCreateOpen] = useState(false);
@@ -133,15 +133,15 @@ function AssetsCatalogTab() {
   const [form, setForm] = useState({ name: "", description: "", defaultCost: "", category: "" });
 
   const create = trpc.opsCatalog.assets.create.useMutation({
-    onSuccess: () => { refetch(); setCreateOpen(false); resetForm(); toast.success("Asset type created"); },
+    onSuccess: () => { refetch(); setCreateOpen(false); resetForm(); toast.success("Product created"); },
     onError: e => toast.error(e.message),
   });
   const update = trpc.opsCatalog.assets.update.useMutation({
-    onSuccess: () => { refetch(); setEditItem(null); toast.success("Asset type updated"); },
+    onSuccess: () => { refetch(); setEditItem(null); toast.success("Product updated"); },
     onError: e => toast.error(e.message),
   });
   const del = trpc.opsCatalog.assets.delete.useMutation({
-    onSuccess: () => { refetch(); toast.success("Asset type deleted"); },
+    onSuccess: () => { refetch(); toast.success("Product deleted"); },
     onError: e => toast.error(e.message),
   });
 
@@ -152,13 +152,13 @@ function AssetsCatalogTab() {
   };
 
   if (isLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
-  if (isError) return <div className="flex items-center gap-2 justify-center py-12 text-red-600"><AlertCircle className="h-5 w-5" /> Failed to load asset types</div>;
+  if (isError) return <div className="flex items-center gap-2 justify-center py-12 text-red-600"><AlertCircle className="h-5 w-5" /> Failed to load products</div>;
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{(items ?? []).length} asset types</p>
+        <p className="text-sm text-muted-foreground">{(items ?? []).length} products</p>
         <Button size="sm" onClick={() => { resetForm(); setCreateOpen(true); }}>
-          <Plus className="h-4 w-4 mr-1" /> Add Asset Type
+          <Plus className="h-4 w-4 mr-1" /> Add Product
         </Button>
       </div>
       <div className="border rounded-lg overflow-hidden">
@@ -174,7 +174,7 @@ function AssetsCatalogTab() {
           </TableHeader>
           <TableBody>
             {(items ?? []).length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No asset types yet</TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No products yet</TableCell></TableRow>
             ) : (items ?? []).map(s => (
               <TableRow key={s.id}>
                 <TableCell className="font-medium">{s.name}</TableCell>
@@ -186,7 +186,7 @@ function AssetsCatalogTab() {
                 <TableCell>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(s)}><Edit className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" onClick={() => { if (confirm("Delete this asset type?")) del.mutate({ id: s.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" onClick={() => { if (confirm("Delete this product?")) del.mutate({ id: s.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -197,7 +197,7 @@ function AssetsCatalogTab() {
 
       <Dialog open={createOpen} onOpenChange={o => { setCreateOpen(o); if (!o) resetForm(); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Add Asset Type</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Add Product</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div><Label>Name *</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
             <div><Label>Category</Label><Input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="e.g. Gas Detectors" /></div>
@@ -215,7 +215,7 @@ function AssetsCatalogTab() {
 
       <Dialog open={editItem !== null} onOpenChange={o => { if (!o) setEditItem(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Edit Asset Type</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Edit Product</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div><Label>Name</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
             <div><Label>Category</Label><Input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} /></div>
@@ -356,14 +356,14 @@ export default function OpsCatalog() {
           <Settings2 className="h-6 w-6" /> Catalog Management
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage your service offerings, asset types, and consumable items
+          Manage your service offerings, products, and consumable items
         </p>
       </div>
 
       <Tabs defaultValue="services" className="w-full">
         <TabsList>
           <TabsTrigger value="services" className="gap-1.5"><Wrench className="h-3.5 w-3.5" /> Services</TabsTrigger>
-          <TabsTrigger value="assets" className="gap-1.5"><Package className="h-3.5 w-3.5" /> Asset Types</TabsTrigger>
+          <TabsTrigger value="assets" className="gap-1.5"><Package className="h-3.5 w-3.5" /> Products</TabsTrigger>
           <TabsTrigger value="consumables" className="gap-1.5"><Truck className="h-3.5 w-3.5" /> Consumables</TabsTrigger>
         </TabsList>
         <TabsContent value="services"><ServicesTab /></TabsContent>

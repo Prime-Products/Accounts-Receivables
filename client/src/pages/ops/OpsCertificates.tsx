@@ -88,7 +88,7 @@ export default function OpsCertificates() {
                     <ColResizer col="certificateNumber" api={cols} />
                   </TableHead>
                   <TableHead style={cols.style("asset")} className="relative cursor-pointer select-none" onClick={() => toggleSort("assetName")}>
-                    <span className="flex items-center">Asset <SortIcon col="assetName" /></span>
+                    <span className="flex items-center">Equipment <SortIcon col="assetName" /></span>
                     <ColResizer col="asset" api={cols} />
                   </TableHead>
                   <TableHead style={cols.style("vessel")} className="relative">

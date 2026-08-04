@@ -77,7 +77,7 @@ export default function OpsAssets() {
 
   const create = trpc.opsAssets.create.useMutation({
     onSuccess: () => {
-      toast.success("Asset created");
+      toast.success("Equipment created");
       utils.opsAssets.list.invalidate();
       setCreateOpen(false);
       resetForm();
@@ -87,7 +87,7 @@ export default function OpsAssets() {
 
   const updateStatus = trpc.opsAssets.updateStatus.useMutation({
     onSuccess: () => {
-      toast.success("Asset status updated");
+      toast.success("Status updated");
       utils.opsAssets.list.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -132,18 +132,20 @@ export default function OpsAssets() {
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Asset Tracking</h1>
-          <p className="text-sm text-muted-foreground mt-1">{filtered.length} asset{filtered.length !== 1 ? "s" : ""}</p>
+          <h1 className="text-2xl font-bold tracking-tight">Equipment on Vessels</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {filtered.length} unit{filtered.length !== 1 ? "s" : ""} tracked — one row per physical item with its own serial number
+          </p>
         </div>
         <Button className="gap-2" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" /> New Asset
+          <Plus className="h-4 w-4" /> New Equipment
         </Button>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search assets..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Search equipment..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
@@ -191,7 +193,7 @@ export default function OpsAssets() {
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                       <Package className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                      <p>No assets found</p>
+                      <p>No equipment yet</p>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -221,12 +223,12 @@ export default function OpsAssets() {
         </CardContent>
       </Card>
 
-      {/* ─── Create Asset Dialog ─── */}
+      {/* ─── Create Equipment Dialog ─── */}
       <Dialog open={createOpen} onOpenChange={o => { setCreateOpen(o); if (!o) resetForm(); }}>
         <ResizableDialogContent storageKey="ops-asset-create" defaultWidth={560} defaultHeight={620} minWidth={420} minHeight={420}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5" /> New Asset
+              <Plus className="h-5 w-5" /> New Equipment
             </DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 overflow-y-auto pr-1">
@@ -240,12 +242,12 @@ export default function OpsAssets() {
               <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. RIKEN KEIKI GX-3R" />
             </div>
 
-            {/* Asset type from catalog — fills the name automatically */}
+            {/* Product from catalog — fills the name automatically */}
             <div className="space-y-1.5 col-span-2">
-              <Label>Asset Type <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Label>Product <span className="text-muted-foreground font-normal">(optional)</span></Label>
               {(assetCatalog ?? []).filter(a => a.active).length === 0 ? (
                 <p className="text-xs text-muted-foreground border rounded-md px-3 py-2 bg-muted/40">
-                  No asset types yet — add them in Catalog Management to auto-fill names.
+                  No products in the catalog yet — add them in Catalog Management to auto-fill names.
                 </p>
               ) : (
                 <Select value={form.catalogItemId} onValueChange={v => {
@@ -291,7 +293,7 @@ export default function OpsAssets() {
               <Label>Contract <span className="text-muted-foreground font-normal">(optional)</span></Label>
               {(contracts ?? []).length === 0 ? (
                 <p className="text-xs text-muted-foreground border rounded-md px-3 py-2 bg-muted/40">
-                  No contracts yet — you can create the asset now and link it to a contract later.
+                  No contracts yet — you can create the equipment now and link it to a contract later.
                 </p>
               ) : (
                 <Select value={form.contractId} onValueChange={v => setForm({ ...form, contractId: v })}>
@@ -344,7 +346,7 @@ export default function OpsAssets() {
                 notes: form.notes.trim() || undefined,
               })}
             >
-              {create.isPending ? "Creating..." : "Create Asset"}
+              {create.isPending ? "Creating..." : "Create Equipment"}
             </Button>
           </DialogFooter>
         </ResizableDialogContent>

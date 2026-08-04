@@ -1954,3 +1954,12 @@ destination of the record is group-level.
 - [x] Products can be edited and removed from the contract, not only added
 - [x] Payment schedule regenerates only while every installment is still Pending
 - [x] Vitest coverage for the new contract statuses, product list and financials (16 tests)
+
+## Rename "Assets" to plain language (user request 4/8)
+- [x] Sidebar and page titles: Assets → Equipment (serial-tracked units on a vessel)
+- [x] New Asset / Create Asset / Search assets / No assets found → Equipment wording
+- [x] Dialog field "Asset Type" → "Product" (the catalog entry it comes from)
+- [x] Catalog tab "Asset Types" → "Products" (add/edit/delete dialogs too)
+- [x] KPI labels "Active Assets" → "Active Equipment" (Ops Dashboard, Reports, Vessel Dashboard)
+- [x] Certificates page "Asset" column and Returns toast wording
+- [x] Vitest coverage pinning the new terminology (13 tests)

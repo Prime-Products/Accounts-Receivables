@@ -25,8 +25,8 @@ describe("New Asset dialog — creation is not blocked by empty lookups", () => 
     expect(page).toMatch(/contractId: form\.contractId \? Number\(form\.contractId\) : undefined/);
   });
 
-  it("labels contract, vessel and asset type as optional", () => {
-    for (const label of ["Asset Type", "Vessel", "Contract"]) {
+  it("labels contract, vessel and product as optional", () => {
+    for (const label of ["Product", "Vessel", "Contract"]) {
       const idx = page.indexOf(`<Label>${label} `);
       expect(idx, `${label} label missing`).toBeGreaterThan(-1);
       expect(page.slice(idx, idx + 160)).toMatch(/\(optional\)/);
@@ -34,7 +34,7 @@ describe("New Asset dialog — creation is not blocked by empty lookups", () => 
   });
 
   it("explains empty catalog and contract dropdowns instead of showing a blank list", () => {
-    expect(page).toMatch(/No asset types yet/);
+    expect(page).toMatch(/No products in the catalog yet/);
     expect(page).toMatch(/No contracts yet/);
   });
 
