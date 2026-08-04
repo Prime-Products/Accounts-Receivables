@@ -296,6 +296,11 @@ export default function OpsContractDetail() {
   /** Products grouped by nature: instruments, then cylinders, then ampoules, then the rest. */
   const productGroups = groupContractProducts(library);
   /**
+   * Contracts are followed at group level, so the group leads. Customers without a group
+   * fall back to their own name so the header never reads as empty.
+   */
+  const customerGroupName = (customer?.customerGroup ?? "").trim() || customer?.name || "—";
+  /**
    * Supply view: the same nature grouping as the product list, but read as a delivery
    * checklist. Lines with nothing outstanding are kept — the user wants to see both what
    * has been supplied and what has not — while the toggle narrows it to the open ones.
@@ -313,7 +318,12 @@ export default function OpsContractDetail() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold tracking-tight">{contract.contractNumber} — {contract.title}</h1>
           <p className="text-sm text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
-            <span>{customer?.name ?? "—"} · {fmtDate(contract.startDate)} → {fmtDate(contract.endDate)}</span>
+            {/* The list shows the group only; here we name the contracting company behind it. */}
+            <span className="font-medium text-foreground">{customerGroupName}</span>
+            {customer?.name && customer.name !== customerGroupName && (
+              <span>· {customer.name}</span>
+            )}
+            <span>· {fmtDate(contract.startDate)} → {fmtDate(contract.endDate)}</span>
             {/* The end date carries its own colour, so an expiring contract is visible on arrival. */}
             <ContractExpiryIndicator endDate={contract.endDate} />
           </p>

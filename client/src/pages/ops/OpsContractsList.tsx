@@ -27,7 +27,7 @@ const statusColors: Record<string, string> = {
   Cancelled: "bg-red-100 text-red-700 border-red-200",
 };
 
-type SortKey = "contractNumber" | "customerName" | "totalValue" | "status" | "startDate" | "endDate";
+type SortKey = "contractNumber" | "customerGroup" | "totalValue" | "status" | "startDate" | "endDate";
 
 const COL_DEFAULTS: Record<string, number> = {
   contractNumber: 130,
@@ -244,8 +244,8 @@ export default function OpsContractsList() {
                     <span>Title</span>
                     <ColResizer col="title" api={cols} />
                   </TableHead>
-                  <TableHead style={cols.style("customer")} className="relative cursor-pointer select-none" onClick={() => toggleSort("customerName")}>
-                    <span className="flex items-center">Customer <SortIcon col="customerName" /></span>
+                  <TableHead style={cols.style("customer")} className="relative cursor-pointer select-none" onClick={() => toggleSort("customerGroup")}>
+                    <span className="flex items-center">Group <SortIcon col="customerGroup" /></span>
                     <ColResizer col="customer" api={cols} />
                   </TableHead>
                   <TableHead style={cols.style("totalValue")} className="relative cursor-pointer select-none text-right" onClick={() => toggleSort("totalValue")}>
@@ -295,10 +295,10 @@ export default function OpsContractsList() {
                       <TableCell className="font-mono text-sm">{c.contractNumber}</TableCell>
                       <TableCell className="truncate">{c.title}</TableCell>
                       <TableCell>
-                        <div className="truncate font-medium">{c.customerGroup}</div>
-                        {c.customerName !== c.customerGroup && (
-                          <div className="text-xs text-muted-foreground truncate">{c.customerName}</div>
-                        )}
+                        {/* Group only — the specific contracting company is shown inside the contract. */}
+                        <div className="truncate font-medium" title={c.customerName !== c.customerGroup ? `Contracting company: ${c.customerName}` : undefined}>
+                          {c.customerGroup}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{fmtEur(Number(c.totalValue))}</TableCell>
                       <TableCell className="text-right font-mono text-sm">{fmtEur(c.collectedAmount)}</TableCell>
