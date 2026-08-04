@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
+import { certUrgencyClass } from "@shared/certificateExpiry";
 import { ArrowDown, ArrowUp, ArrowUpDown, Package, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -35,6 +36,7 @@ const COL_DEFAULTS: Record<string, number> = {
   name: 180,
   vessel: 160,
   status: 130,
+  certificate: 150,
   returnPort: 130,
   updated: 120,
 };
@@ -62,6 +64,11 @@ export default function OpsAssets() {
     status: "Not Supplied" as (typeof ASSET_STATUSES)[number],
     targetReturnPort: "",
     notes: "",
+    // Instruments arrive with a calibration certificate; capturing it here starts
+    // the expiry clock (60 / 15-day reminders) on day one.
+    certificateNumber: "",
+    certificateIssueDate: "",
+    certificateExpiryDate: "",
   };
   const [form, setForm] = useState(EMPTY_FORM);
   const [vesselSearch, setVesselSearch] = useState("");
@@ -178,6 +185,10 @@ export default function OpsAssets() {
                     <span className="flex items-center">Status <SortIcon col="status" /></span>
                     <ColResizer col="status" api={cols} />
                   </TableHead>
+                  <TableHead style={cols.style("certificate")} className="relative">
+                    <span>Certificate</span>
+                    <ColResizer col="certificate" api={cols} />
+                  </TableHead>
                   <TableHead style={cols.style("returnPort")} className="relative">
                     <span>Return Port</span>
                     <ColResizer col="returnPort" api={cols} />
@@ -191,7 +202,7 @@ export default function OpsAssets() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                       <Package className="h-8 w-8 mx-auto mb-2 opacity-40" />
                       <p>No equipment yet</p>
                     </TableCell>
@@ -211,6 +222,20 @@ export default function OpsAssets() {
                             {ASSET_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                           </SelectContent>
                         </Select>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {a.certificateExpiry == null ? (
+                          <span className="text-xs text-muted-foreground">No certificate</span>
+                        ) : (
+                          <div className={certUrgencyClass(a.certificateExpiry)}>
+                            <div className="text-xs">{fmtDate(a.certificateExpiry)}</div>
+                            <div className="text-[11px]">
+                              {a.certificateDaysLeft != null && a.certificateDaysLeft <= 0
+                                ? "Expired"
+                                : `${a.certificateDaysLeft}d left`}
+                            </div>
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm">{a.targetReturnPort ?? "—"}</TableCell>
                       <TableCell className="text-sm">{fmtDate(new Date(a.updatedAt).getTime())}</TableCell>
@@ -330,6 +355,44 @@ export default function OpsAssets() {
                 className="min-h-[64px]"
               />
             </div>
+
+            {/* Calibration certificate — optional, but the expiry date is what
+                switches on the 60 and 15-day renewal reminders. */}
+            <div className="col-span-2 border-t pt-3">
+              <p className="text-xs font-medium">
+                Calibration certificate{" "}
+                <span className="font-normal text-muted-foreground">(optional — expiry date enables 60 / 15-day reminders)</span>
+              </p>
+            </div>
+            <div className="space-y-1.5 col-span-2">
+              <Label>Certificate Number</Label>
+              <Input
+                value={form.certificateNumber}
+                onChange={e => setForm({ ...form, certificateNumber: e.target.value })}
+                placeholder="e.g. CAL-2026-01187"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Issue Date</Label>
+              <Input
+                type="date"
+                value={form.certificateIssueDate}
+                onChange={e => setForm({ ...form, certificateIssueDate: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Expiry Date</Label>
+              <Input
+                type="date"
+                value={form.certificateExpiryDate}
+                onChange={e => setForm({ ...form, certificateExpiryDate: e.target.value })}
+              />
+            </div>
+            {form.certificateNumber.trim() && !form.certificateExpiryDate && (
+              <p className="col-span-2 text-xs text-amber-700">
+                Add an expiry date, otherwise the certificate is not saved and no reminders can be raised.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -344,6 +407,9 @@ export default function OpsAssets() {
                 status: form.status,
                 targetReturnPort: form.targetReturnPort.trim() || undefined,
                 notes: form.notes.trim() || undefined,
+                certificateNumber: form.certificateNumber.trim() || undefined,
+                certificateIssueDate: form.certificateIssueDate ? new Date(form.certificateIssueDate).getTime() : undefined,
+                certificateExpiryDate: form.certificateExpiryDate ? new Date(form.certificateExpiryDate).getTime() : undefined,
               })}
             >
               {create.isPending ? "Creating..." : "Create Equipment"}

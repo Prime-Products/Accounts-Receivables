@@ -34,7 +34,7 @@ export default function OpsDashboard() {
   return (
     <div className="p-2 sm:p-4 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Operations Dashboard</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Prime 247 Overview</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Contracts, equipment, and fulfillment overview
         </p>
@@ -117,19 +117,19 @@ export default function OpsDashboard() {
         </Card>
 
         <Card
-          className={`cursor-pointer hover:shadow-md transition-shadow ${data.expiringCerts30 > 0 ? "border-red-200 bg-red-50/50" : ""}`}
+          className={`cursor-pointer hover:shadow-md transition-shadow ${data.expiringCerts15 > 0 ? "border-red-200 bg-red-50/50" : ""}`}
           onClick={() => navigate("/ops/certificates")}
         >
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">Certificates Expiring</CardTitle>
-            <ShieldCheck className={`h-4 w-4 ${data.expiringCerts30 > 0 ? "text-red-600" : "text-muted-foreground"}`} />
+            <ShieldCheck className={`h-4 w-4 ${data.expiringCerts15 > 0 ? "text-red-600" : "text-muted-foreground"}`} />
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold font-mono ${data.expiringCerts30 > 0 ? "text-red-700" : ""}`}>
-              {data.expiringCerts30}
+            <div className={`text-2xl font-bold font-mono ${data.expiringCerts15 > 0 ? "text-red-700" : ""}`}>
+              {data.expiringCerts15}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Within 30 days · {data.expiringCerts60} within 60d
+              Final notice ≤15 days · {data.expiringCerts60} more within 60d
             </p>
           </CardContent>
         </Card>

@@ -181,7 +181,7 @@ export default function Reports() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Briefcase className="h-4 w-4" /> Operations Overview
+              <Briefcase className="h-4 w-4" /> Prime 247 Overview
             </CardTitle>
           </CardHeader>
           <CardContent>

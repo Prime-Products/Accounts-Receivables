@@ -150,7 +150,7 @@ export default function OpsContractsList() {
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Operations Contracts</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Prime 247 Contracts</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {filtered.length} contract{filtered.length !== 1 ? "s" : ""} · Value: {fmtEur(totals.value)} · Collected: {fmtEur(totals.collected)}
           </p>

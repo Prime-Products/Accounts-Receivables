@@ -192,7 +192,7 @@ export const contractInstallments = mysqlTable("contract_installments", {
  * `Help` is a request for help addressed to a colleague ("ask a colleague"):
  * deliberately a normal task, so there is one queue and one place to look.
  */
-export const taskTypes = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual", "Help"] as const;
+export const taskTypes = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Certificate Expiry", "Manual", "Help"] as const;
 export const taskStatuses = ["Pending", "In Progress", "Completed", "Cancelled"] as const;
 
 export const tasks = mysqlTable("tasks", {

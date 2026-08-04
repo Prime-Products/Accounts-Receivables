@@ -3,6 +3,8 @@ import { TRPCError } from "@trpc/server";
 import * as opsDb from "../opsDb";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { certUrgency, daysUntilExpiry } from "@shared/certificateExpiry";
+import { runCertificateReminders } from "../lib/certificateReminders";
 import {
   opsQuotationStatuses,
   opsContractStatuses,
@@ -577,10 +579,26 @@ export const opsAssetsRouter = router({
       const assets = await opsDb.listAssets(input ?? undefined);
       const vessels = await db.listVessels();
       const vesselMap = new Map(vessels.map(v => [v.id, v]));
-      return assets.map(a => ({
-        ...a,
-        vesselName: a.vesselId ? vesselMap.get(a.vesselId)?.name ?? "—" : null,
-      }));
+      // Attach the equipment's current certificate (the one expiring last) so the
+      // Equipment table can flag compliance without a second round-trip.
+      const certs = await opsDb.listCertificates();
+      const latestByAsset = new Map<number, (typeof certs)[number]>();
+      for (const c of certs) {
+        const prev = latestByAsset.get(c.assetId);
+        if (!prev || c.expiryDate > prev.expiryDate) latestByAsset.set(c.assetId, c);
+      }
+      const now = Date.now();
+      return assets.map(a => {
+        const cert = latestByAsset.get(a.id);
+        return {
+          ...a,
+          vesselName: a.vesselId ? vesselMap.get(a.vesselId)?.name ?? "—" : null,
+          certificateNumber: cert?.certificateNumber ?? null,
+          certificateExpiry: cert?.expiryDate ?? null,
+          certificateDaysLeft: cert ? daysUntilExpiry(cert.expiryDate, now) : null,
+          certificateUrgency: cert ? certUrgency(cert.expiryDate, now) : null,
+        };
+      });
     }),
   get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
     const asset = await opsDb.getAsset(input.id);
@@ -598,9 +616,26 @@ export const opsAssetsRouter = router({
       status: z.enum(opsAssetStatuses).optional(),
       targetReturnPort: z.string().optional(),
       notes: z.string().optional(),
+      // Optional certificate captured in the same step: instruments arrive with a
+      // calibration certificate, and typing it here saves a second trip to the
+      // Certificates page (which is where it lands anyway).
+      certificateNumber: z.string().optional(),
+      certificateIssueDate: z.number().optional(),
+      certificateExpiryDate: z.number().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const id = await opsDb.createAsset(input as any);
+      const { certificateNumber, certificateIssueDate, certificateExpiryDate, ...assetData } = input;
+      const id = await opsDb.createAsset(assetData as any);
+      // A certificate needs at least a number and an expiry date to be meaningful;
+      // the issue date defaults to today when left blank.
+      if (certificateNumber && certificateExpiryDate) {
+        await opsDb.createCertificate({
+          assetId: id,
+          certificateNumber,
+          issueDate: certificateIssueDate ?? Date.now(),
+          expiryDate: certificateExpiryDate,
+        } as any);
+      }
       if (input.vesselId) {
         await opsDb.createVesselHistoryEntry({
           vesselId: input.vesselId,
@@ -654,6 +689,7 @@ export const opsCertificatesRouter = router({
       const vessels = await db.listVessels();
       const assetMap = new Map(assets.map(a => [a.id, a]));
       const vesselMap = new Map(vessels.map(v => [v.id, v]));
+      const now = Date.now();
       return certs.map(c => {
         const asset = assetMap.get(c.assetId);
         return {
@@ -661,9 +697,20 @@ export const opsCertificatesRouter = router({
           assetName: asset?.name ?? "—",
           assetSerial: asset?.serialNumber ?? "—",
           vesselName: asset?.vesselId ? vesselMap.get(asset.vesselId)?.name ?? null : null,
+          // Derived server-side so the table, the KPI cards and the reminder
+          // engine cannot disagree about how urgent a certificate is.
+          daysLeft: daysUntilExpiry(c.expiryDate, now),
+          urgency: certUrgency(c.expiryDate, now),
         };
       });
     }),
+  /**
+   * Create any certificate reminder tasks that are due (60 / 15 days out).
+   * Safe to call repeatedly — reminders are deduped by marker.
+   */
+  runReminders: protectedProcedure.mutation(async () => {
+    return await runCertificateReminders();
+  }),
   create: protectedProcedure
     .input(z.object({ assetId: z.number(), certificateNumber: z.string().min(1), issueDate: z.number(), expiryDate: z.number(), fileUrl: z.string().optional(), notes: z.string().optional() }))
     .mutation(async ({ input }) => {
@@ -804,8 +851,6 @@ export const opsDashboardRouter = router({
       opsDb.listPaymentSchedule(),
     ]);
     const now = Date.now();
-    const day30 = 30 * 24 * 60 * 60 * 1000;
-    const day60 = 60 * 24 * 60 * 60 * 1000;
     return {
       activeContracts: contracts.filter(c => c.status === "Active").length,
       totalContracts: contracts.length,
@@ -813,9 +858,11 @@ export const opsDashboardRouter = router({
       activeAssets: assets.filter(a => a.status === "Active").length,
       pendingReturns: assets.filter(a => a.status === "Pending Return").length,
       pendingOrders: orders.filter(o => o.status === "Pending").length,
-      expiringCerts30: certs.filter(c => c.expiryDate > now && c.expiryDate <= now + day30).length,
-      expiringCerts60: certs.filter(c => c.expiryDate > now + day30 && c.expiryDate <= now + day60).length,
-      expiredCerts: certs.filter(c => c.expiryDate <= now).length,
+      // Windows follow the service agreement's 60 / 15-day reminder duties, not
+      // arbitrary round numbers — see shared/certificateExpiry.ts.
+      expiringCerts15: certs.filter(c => certUrgency(c.expiryDate, now) === "final").length,
+      expiringCerts60: certs.filter(c => certUrgency(c.expiryDate, now) === "warning").length,
+      expiredCerts: certs.filter(c => certUrgency(c.expiryDate, now) === "expired").length,
       pendingPayments: schedule.filter(p => p.status === "Pending").length,
       overduePayments: schedule.filter(p => p.status === "Pending" && p.dueDate < now).length,
       totalContractValue: contracts.filter(c => c.status === "Active").reduce((s, c) => s + Number(c.totalValue), 0),

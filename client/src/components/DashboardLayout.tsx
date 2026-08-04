@@ -12,7 +12,6 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -92,10 +91,10 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
     ],
   },
   {
-    label: "Operations",
+    label: "Prime 247",
     items: [
-      { icon: Briefcase, label: "Ops Dashboard", path: "/ops" },
-      { icon: FileCheck2, label: "Ops Contracts", path: "/ops/contracts" },
+      { icon: Briefcase, label: "Overview", path: "/ops" },
+      { icon: FileCheck2, label: "Contracts", path: "/ops/contracts" },
       { icon: Package, label: "Equipment", path: "/ops/assets" },
       { icon: ShieldCheck, label: "Certificates", path: "/ops/certificates" },
       { icon: Truck, label: "Orders", path: "/ops/orders" },
@@ -127,13 +126,26 @@ const collapsibleSectionLabels = navSections
   .map(s => s.label)
   .filter((l): l is string => Boolean(l));
 
+/*
+ * Route matching. A bare `startsWith` is wrong for nested sections: "/ops" is a prefix of
+ * "/ops/contracts", so the section index would light up on every child page and two menu
+ * rows looked active at once. We require either an exact match or a "/" boundary, so
+ * "/ops" only claims "/ops" itself while "/ops/contracts" still claims "/ops/contracts/1".
+ */
+export function matchesNavPath(currentPath: string, itemPath: string): boolean {
+  if (itemPath === "/") return currentPath === "/";
+  if (currentPath === itemPath) return true;
+  // Index routes ("/ops") must not swallow their children — they get an exact match only.
+  const isIndexRoute = itemPath.split("/").filter(Boolean).length === 1;
+  if (isIndexRoute) return false;
+  return currentPath.startsWith(`${itemPath}/`);
+}
+
 /** Which section a given route belongs to, so the current page is never hidden. */
 function sectionOfPath(path: string): string | null {
   for (const section of navSections) {
     if (!section.label) continue;
-    const match = section.items.some(item =>
-      item.path === "/" ? path === "/" : path.startsWith(item.path),
-    );
+    const match = section.items.some(item => matchesNavPath(path, item.path));
     if (match) return section.label;
   }
   return null;
@@ -227,9 +239,7 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item =>
-    item.path === "/" ? location === "/" : location.startsWith(item.path),
-  );
+  const activeMenuItem = menuItems.find(item => matchesNavPath(location, item.path));
   const activeSection = sectionOfPath(location);
   const [openSections, setOpenSections] = useState<string[]>(readOpenSections);
 
@@ -310,7 +320,7 @@ function DashboardLayoutContent({
             </div>
           </SidebarHeader>
 
-          <SidebarContent className="gap-0">
+          <SidebarContent className="gap-1 py-1">
             {navSections.map((section, i) => {
               /*
                * A section header is a control: clicking it expands or collapses the
@@ -324,12 +334,18 @@ function DashboardLayoutContent({
               const isOpen =
                 !hasHeader || isCollapsed || holdsCurrentPage || openSections.includes(section.label!);
               return (
-              <SidebarGroup key={section.label ?? `section-${i}`} className="px-0 py-0">
+              <SidebarGroup
+                key={section.label ?? `section-${i}`}
+                className={`shrink-0 px-0 ${section.label ? "pt-2 pb-0" : "py-0"}`}
+              >
                 {section.label ? (
-                  <SidebarGroupLabel
-                    asChild
-                    className="px-2 pt-3 group-data-[collapsible=icon]:hidden"
-                  >
+                  /*
+                   * Deliberately NOT shadcn's `SidebarGroupLabel`: that component is a
+                   * fixed `h-8` flex box which, in icon mode, pulls itself out of flow with
+                   * `-mt-8`. Wrapping our toggle button in it made the header sit on top of
+                   * the first menu row. A plain block keeps the header in normal flow.
+                   */
+                  <div className="mb-1 shrink-0 px-2 group-data-[collapsible=icon]:hidden">
                     <button
                       type="button"
                       onClick={() => toggleSection(section.label!)}
@@ -352,14 +368,14 @@ function DashboardLayoutContent({
                         aria-hidden="true"
                       />
                     </button>
-                  </SidebarGroupLabel>
+                  </div>
                 ) : null}
                 <SidebarMenu
                   id={section.label ? `nav-section-${section.label}` : undefined}
-                  className={`px-2 py-1 ${isOpen ? "" : "hidden"}`}
+                  className={`shrink-0 px-2 py-1 ${isOpen ? "" : "hidden"}`}
                 >
                   {section.items.map(item => {
-                    const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
+                    const isActive = matchesNavPath(location, item.path);
                     /*
                      * A menu click always takes you to the top of the page. Deep in a
                      * 5,000-row invoice list the fastest way back to the filters is the
