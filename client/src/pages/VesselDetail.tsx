@@ -17,6 +17,15 @@ import { Fragment, useMemo, useState } from "react";
 import { Link, useLocation, useRoute } from "wouter";
 import { toast } from "sonner";
 
+/** Same status palette as the Equipment page, so a status reads identically everywhere. */
+const assetStatusColors: Record<string, string> = {
+  "Not Supplied": "bg-gray-100 text-gray-700 border-gray-200",
+  "In Transit": "bg-indigo-100 text-indigo-800 border-indigo-200",
+  Active: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  "Pending Return": "bg-amber-100 text-amber-800 border-amber-200",
+  Returned: "bg-sky-100 text-sky-800 border-sky-200",
+};
+
 /** Colour a certificate countdown by how close it is to the reminder thresholds. */
 function certToneClass(days: number | null): string {
   if (days == null) return "text-muted-foreground";
@@ -239,28 +248,24 @@ export default function VesselDetail() {
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead>Supply status</TableHead>
                   <TableHead>Contract</TableHead>
-                  <TableHead>Certificate</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {itemGroups.map(group => (
                   <Fragment key={group.group}>
                     <TableRow className="bg-muted/40 hover:bg-muted/40">
-                      <TableCell colSpan={5} className="py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      <TableCell colSpan={4} className="py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                         {group.label} ({group.items.length})
                       </TableCell>
                     </TableRow>
                     {group.items.map(item => (
-                      <TableRow key={`${item.contractId}-${item.id}`}>
+                      <Fragment key={`${item.contractId}-${item.id}`}>
+                      <TableRow className={item.serials.length > 0 ? "border-b-0" : undefined}>
                         <TableCell>
                           <div className="font-medium">{item.name}</div>
                           {item.serials.length > 0 ? (
-                            <div className="mt-0.5 space-y-0.5">
-                              {item.serials.map(u => (
-                                <div key={u.id} className="font-mono text-xs text-muted-foreground">
-                                  S/N {u.serialNumber}
-                                </div>
-                              ))}
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {item.serials.length} unit(s) tracked by serial number
                             </div>
                           ) : item.quotaLimit ? (
                             <div className="text-xs text-muted-foreground mt-0.5">
@@ -289,30 +294,77 @@ export default function VesselDetail() {
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell>
-                          {item.serials.length === 0 ? (
-                            <span className="text-muted-foreground text-sm">—</span>
-                          ) : (
-                            <div className="space-y-0.5">
-                              {item.serials.map(u => (
-                                <div key={u.id} className="text-xs">
-                                  {u.certificateExpiry == null ? (
-                                    <span className="text-muted-foreground">No certificate</span>
-                                  ) : (
-                                    <span className={certToneClass(u.daysUntilCertificateExpiry)}>
-                                      {new Date(u.certificateExpiry).toLocaleDateString()}
-                                      {" · "}
-                                      {(u.daysUntilCertificateExpiry ?? 0) < 0
-                                        ? `expired ${Math.abs(u.daysUntilCertificateExpiry ?? 0)}d ago`
-                                        : `${u.daysUntilCertificateExpiry}d left`}
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </TableCell>
                       </TableRow>
+                      {/* One nested row per serial, carrying every field the Equipment page shows. */}
+                      {item.serials.length > 0 && (
+                        <TableRow className="hover:bg-transparent">
+                          <TableCell colSpan={4} className="pt-0 pb-3">
+                            <div className="rounded-md border bg-muted/20 overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                    <th className="text-left font-medium px-3 py-1.5">Serial number</th>
+                                    <th className="text-left font-medium px-3 py-1.5">Status</th>
+                                    <th className="text-left font-medium px-3 py-1.5">Certificate</th>
+                                    <th className="text-left font-medium px-3 py-1.5">Return port</th>
+                                    <th className="text-left font-medium px-3 py-1.5">Updated</th>
+                                    <th className="text-right font-medium px-3 py-1.5">Open</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {item.serials.map(u => (
+                                    <tr key={u.id} className="border-t">
+                                      <td className="px-3 py-1.5 font-mono">{u.serialNumber}</td>
+                                      <td className="px-3 py-1.5">
+                                        <Badge variant="outline" className={assetStatusColors[u.status] ?? ""}>{u.status}</Badge>
+                                      </td>
+                                      <td className="px-3 py-1.5">
+                                        {u.certificateExpiry == null ? (
+                                          <span className="text-muted-foreground">No certificate</span>
+                                        ) : (
+                                          <span className={certToneClass(u.daysUntilCertificateExpiry)}>
+                                            {u.certificateNumber ? <span className="font-mono">{u.certificateNumber}</span> : null}
+                                            {u.certificateNumber ? " · " : ""}
+                                            {new Date(u.certificateExpiry).toLocaleDateString()}
+                                            {" · "}
+                                            {(u.daysUntilCertificateExpiry ?? 0) < 0
+                                              ? `expired ${Math.abs(u.daysUntilCertificateExpiry ?? 0)}d ago`
+                                              : `${u.daysUntilCertificateExpiry}d left`}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-1.5">
+                                        {u.targetReturnPort || <span className="text-muted-foreground">—</span>}
+                                      </td>
+                                      <td className="px-3 py-1.5 text-muted-foreground">
+                                        {u.updatedAt ? new Date(u.updatedAt).toLocaleDateString() : "—"}
+                                      </td>
+                                      <td className="px-3 py-1.5 text-right">
+                                        <Link
+                                          href={`/ops/assets?q=${encodeURIComponent(u.serialNumber)}`}
+                                          className="text-primary hover:underline underline-offset-2"
+                                        >
+                                          Equipment
+                                        </Link>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            {item.serials.some(u => u.notes) && (
+                              <div className="mt-1.5 space-y-0.5">
+                                {item.serials.filter(u => u.notes).map(u => (
+                                  <div key={u.id} className="text-[11px] text-muted-foreground">
+                                    <span className="font-mono">{u.serialNumber}</span>: {u.notes}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      </Fragment>
                     ))}
                   </Fragment>
                 ))}

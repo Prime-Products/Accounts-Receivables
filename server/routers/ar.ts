@@ -3147,6 +3147,11 @@ export const vesselsRouter = router({
             id: u.id,
             serialNumber: u.serialNumber,
             status: u.status,
+            // Same field set as the Equipment page, so the vessel is a full read of it.
+            targetReturnPort: u.targetReturnPort,
+            notes: u.notes ?? null,
+            updatedAt: u.updatedAt ? new Date(u.updatedAt).getTime() : null,
+            certificateNumber: certByAsset.get(u.id)?.certificateNumber ?? null,
             certificateExpiry: certByAsset.get(u.id)?.expiryDate ?? null,
             daysUntilCertificateExpiry: certByAsset.get(u.id)
               ? Math.ceil((certByAsset.get(u.id)!.expiryDate - now) / 86_400_000)

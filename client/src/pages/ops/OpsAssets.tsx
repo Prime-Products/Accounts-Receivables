@@ -48,7 +48,9 @@ export default function OpsAssets() {
   const { data: assetCatalog } = trpc.opsCatalog.assets.list.useQuery();
   const { data: vessels } = trpc.vessels.list.useQuery();
   const utils = trpc.useUtils();
-  const [search, setSearch] = useState("");
+  // A serial can be opened straight from a vessel row (?q=<serial>), so the search box
+  // is seeded from the URL and kept in sync when the link is followed again.
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get("q") ?? "");
   /**
    * The retired Returns page lived at /ops/returns; its work now happens here.
    * The Overview "Pending Returns" card links in with ?status=Pending Return,
@@ -66,6 +68,8 @@ export default function OpsAssets() {
   useEffect(() => {
     const p = new URLSearchParams(searchStr).get("status");
     if (p && (ASSET_STATUSES as readonly string[]).includes(p)) setStatusFilter(p);
+    const q = new URLSearchParams(searchStr).get("q");
+    if (q) setSearch(q);
   }, [searchStr]);
 
   /* ─── Create Dialog ─── */

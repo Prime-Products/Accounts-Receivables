@@ -51,12 +51,13 @@ describe("vessel page shows grouped contract items with serials under the descri
     expect(page).toContain("itemGroups.map(group =>");
   });
 
-  it("puts the serial numbers on sub-lines under the item name", () => {
-    // The name line comes first, the S/N line directly after it.
+  it("puts the serials on sub-rows under the item name", () => {
+    // The name line comes first, the per-serial detail table directly after it.
     const idxName = page.indexOf('<div className="font-medium">{item.name}</div>');
-    const idxSerial = page.indexOf("S/N {u.serialNumber}");
+    const idxSerial = page.indexOf("{u.serialNumber}");
     expect(idxName).toBeGreaterThan(-1);
     expect(idxSerial).toBeGreaterThan(idxName);
+    expect(page).toContain("unit(s) tracked by serial number");
   });
 
   it("does not add a separate serial column header", () => {

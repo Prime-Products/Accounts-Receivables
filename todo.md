@@ -2061,3 +2061,4 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Vessel page: supply badge on every item line (supplied / partial / not supplied), not only serial-tracked ones
 - [x] Contract: fleet-wide outstanding supply summary — what is still to be delivered per item and per vessel
 - [x] Add Product dialog: product name as a searchable picker from the pricelist, in a wider window
+- [x] Vessel page: show the same fields per serial as the Equipment page (S/N, status, certificate no + expiry, return port, updated, notes)
