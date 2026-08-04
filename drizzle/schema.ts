@@ -1186,6 +1186,12 @@ export const opsPaymentStatuses = ["Pending", "Invoiced", "Paid"] as const;
 export const opsPaymentSchedule = mysqlTable("ops_payment_schedule", {
   id: int("id").autoincrement().primaryKey(),
   contractId: int("contractId").notNull(),
+  /**
+   * Vessel this installment belongs to. Each vessel is billed on its own schedule,
+   * starting from its shipment date, so installments are never shared across the fleet.
+   * Null only on legacy rows created before the per-vessel model.
+   */
+  vesselId: int("vesselId"),
   installmentNumber: int("installmentNumber").notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   dueDate: bigint("dueDate", { mode: "number" }).notNull(),
@@ -1197,6 +1203,7 @@ export const opsPaymentSchedule = mysqlTable("ops_payment_schedule", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, t => [
   index("idx_ops_payment_schedule_contractId").on(t.contractId),
+  index("idx_ops_payment_schedule_vesselId").on(t.vesselId),
   index("idx_ops_payment_schedule_status").on(t.status),
 ]);
 export type OpsPaymentSchedule = typeof opsPaymentSchedule.$inferSelect;
@@ -1209,6 +1216,12 @@ export const opsVesselAssignments = mysqlTable("ops_vessel_assignments", {
   vesselId: int("vesselId").notNull(),
   contractId: int("contractId").notNull(),
   assignedDate: bigint("assignedDate", { mode: "number" }).notNull(),
+  /**
+   * When the equipment actually shipped to this vessel. This is what activates the
+   * vessel commercially: its installments are generated from this date. Null means
+   * not yet shipped, so the vessel carries no installments.
+   */
+  shipmentDate: bigint("shipmentDate", { mode: "number" }),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, t => [

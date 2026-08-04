@@ -93,7 +93,7 @@ describe("financials derived per vessel", () => {
   });
 
   it("only rebuilds the payment schedule while nothing is invoiced or paid", () => {
-    expect(router).toMatch(/schedule\.every\(p => p\.status === "Pending"\)/);
+    expect(router).toMatch(/rows\.every\(p => p\.status === "Pending"\)/);
   });
 
   it("surfaces cost, list price and margin per vessel for the offer", () => {

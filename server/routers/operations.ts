@@ -22,20 +22,66 @@ import {
 // CONTRACT HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Split a contract value into yearly installments starting from its start date. */
-async function generateSchedule(contractId: number, totalValue: number, installmentCount: number, startDate: number) {
-  const per = totalValue / installmentCount;
-  const start = new Date(startDate);
+/**
+ * Build one vessel's installments. Each vessel is billed on its own schedule, so the
+ * amount split is the agreed price for a single vessel and the first due date is that
+ * vessel's shipment date — the moment it actually goes live. Yearly steps from there.
+ */
+async function generateVesselSchedule(
+  contractId: number,
+  vesselId: number,
+  pricePerVessel: number,
+  installmentCount: number,
+  shipmentDate: number,
+) {
+  const per = pricePerVessel / installmentCount;
+  const start = new Date(shipmentDate);
   for (let i = 0; i < installmentCount; i++) {
     const due = Date.UTC(start.getUTCFullYear() + i, start.getUTCMonth(), start.getUTCDate());
-    const amount = i === installmentCount - 1 ? totalValue - per * (installmentCount - 1) : per;
+    // Rounding remainder lands on the last installment so the vessel total is exact.
+    const amount = i === installmentCount - 1 ? pricePerVessel - per * (installmentCount - 1) : per;
     await opsDb.createPaymentScheduleItem({
       contractId,
+      vesselId,
       installmentNumber: i + 1,
       dueDate: due,
       amount: amount.toFixed(2),
     });
   }
+}
+
+/**
+ * Regenerate the installments of a single vessel. Refuses to touch a vessel whose
+ * installments are already invoiced or paid, and clears the schedule of a vessel that
+ * has not shipped yet, since an unshipped vessel is not billable.
+ */
+async function syncVesselSchedule(contractId: number, vesselId: number) {
+  const contract = await opsDb.getOpsContract(contractId);
+  if (!contract) return;
+  const existing = await opsDb.listPaymentScheduleForVessel(contractId, vesselId);
+  if (existing.some(p => p.status !== "Pending")) return;
+  const assignments = await opsDb.listVesselAssignments(contractId);
+  const assignment = assignments.find(a => a.vesselId === vesselId);
+  await opsDb.deletePaymentScheduleItemsForVessel(contractId, vesselId);
+  if (!assignment?.shipmentDate) return;
+  await generateVesselSchedule(
+    contractId,
+    vesselId,
+    Number(contract.pricePerVessel),
+    contract.installmentCount,
+    assignment.shipmentDate,
+  );
+}
+
+/**
+ * Rebuild every shipped vessel's schedule, e.g. after the per-vessel price or the
+ * installment count changes. Vessels with billed installments keep what they have.
+ */
+async function syncAllVesselSchedules(contractId: number) {
+  const assignments = await opsDb.listVesselAssignments(contractId);
+  // Fleet-wide rows from the pre-per-vessel model would double-count the contract.
+  await opsDb.deleteFleetWidePaymentScheduleItems(contractId);
+  for (const a of assignments) await syncVesselSchedule(contractId, a.vesselId);
 }
 
 /** Keep the contract total in step with the fleet: price per vessel x vessels on the contract. */
@@ -46,11 +92,6 @@ async function recalcContractTotal(contractId: number) {
   const totalValue = Number(contract.pricePerVessel) * Math.max(assignments.length, 1);
   if (totalValue.toFixed(2) === Number(contract.totalValue).toFixed(2)) return;
   await opsDb.updateOpsContract(contractId, { totalValue: totalValue.toFixed(2) } as any);
-  const schedule = await opsDb.listPaymentSchedule(contractId);
-  if (schedule.every(p => p.status === "Pending")) {
-    await opsDb.deletePaymentScheduleItems(contractId);
-    await generateSchedule(contractId, totalValue, contract.installmentCount, contract.startDate);
-  }
 }
 
 /**
@@ -303,8 +344,7 @@ export const opsQuotationsRouter = router({
           quotaLimit: nature === "Ampoule" ? item.quantity : null,
         } as any);
       }
-      await generateSchedule(contractId, totalValue, input.installmentCount, input.startDate);
-      // Mark quotation as converted
+      // Mark quotation as converted. Installments are created per vessel once each ships.
       await opsDb.updateQuotation(input.quotationId, { status: "Approved" });
       return { contractId };
     }),
@@ -352,6 +392,14 @@ export const opsContractsRouter = router({
       const v = vessels.find(v => v.id === a.vesselId);
       return { ...a, vesselName: v?.name ?? "—", vesselImo: v?.imo ?? null };
     });
+    // Each vessel is billed on its own schedule, so label every installment with its vessel.
+    const vesselName = (id: number | null) =>
+      id == null ? null : (vessels.find(v => v.id === id)?.name ?? `Vessel ${id}`);
+    const labelledSchedule = schedule
+      .map(p => ({ ...p, vesselName: vesselName(p.vesselId) }))
+      .sort((a, b) =>
+        (a.vesselName ?? "").localeCompare(b.vesselName ?? "") ||
+        a.installmentNumber - b.installmentNumber);
     // Product totals per vessel, so the offer is derived from the product list itself.
     const costPerVessel = library.reduce((s, i) => s + Number(i.unitCost) * i.quantity, 0);
     const listPricePerVessel = library.reduce((s, i) => s + Number(i.sellingPrice) * i.quantity, 0);
@@ -359,7 +407,7 @@ export const opsContractsRouter = router({
     return {
       contract,
       library,
-      schedule,
+      schedule: labelledSchedule,
       assignments: assignedVessels,
       customer,
       totals: { costPerVessel, listPricePerVessel, margin },
@@ -395,7 +443,6 @@ export const opsContractsRouter = router({
         notes: input.notes,
         createdBy: ctx.user.id,
       });
-      await generateSchedule(id, totalValue, input.installmentCount, input.startDate);
       for (const vesselId of vesselIds) {
         await opsDb.createVesselAssignment({
           vesselId,
@@ -437,12 +484,10 @@ export const opsContractsRouter = router({
         const totalValue = price * Math.max(assignments.length, 1);
         data.totalValue = totalValue.toFixed(2);
         await opsDb.updateOpsContract(id, data as any);
-        // Only regenerate the schedule while nothing has been invoiced or paid yet.
-        const schedule = await opsDb.listPaymentSchedule(id);
-        if (schedule.every(p => p.status === "Pending")) {
-          await opsDb.deletePaymentScheduleItems(id);
-          await generateSchedule(id, totalValue, count, rest.startDate ?? contract.startDate);
-        }
+        // Price or installment count changed, so every shipped vessel is re-planned.
+        // syncAllVesselSchedules leaves vessels with invoiced or paid installments alone.
+        void count;
+        await syncAllVesselSchedules(id);
         return { success: true };
       }
       await opsDb.updateOpsContract(id, data as any);
@@ -473,6 +518,38 @@ export const opsContractsRouter = router({
       });
       await recalcContractTotal(input.contractId);
       return { id: assignId, created: generated.created };
+    }),
+  /**
+   * Record (or clear) the shipment date of one vessel. This is what activates the vessel
+   * commercially: its own installments are generated from that date, independently of the
+   * rest of the fleet. Clearing the date removes its still-unbilled installments again.
+   */
+  setVesselShipment: protectedProcedure
+    .input(z.object({ assignmentId: z.number(), shipmentDate: z.number().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const assignment = await opsDb.getVesselAssignment(input.assignmentId);
+      if (!assignment) throw new TRPCError({ code: "NOT_FOUND" });
+      const billed = (await opsDb.listPaymentScheduleForVessel(assignment.contractId, assignment.vesselId))
+        .some(p => p.status !== "Pending");
+      if (billed) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This vessel already has invoiced or paid installments — adjust those rows individually instead.",
+        });
+      }
+      await opsDb.updateVesselAssignment(input.assignmentId, { shipmentDate: input.shipmentDate });
+      await syncVesselSchedule(assignment.contractId, assignment.vesselId);
+      const contract = await opsDb.getOpsContract(assignment.contractId);
+      const ref = contract?.contractNumber ?? String(assignment.contractId);
+      await opsDb.createVesselHistoryEntry({
+        vesselId: assignment.vesselId,
+        eventType: "Shipment",
+        description: input.shipmentDate
+          ? `Shipment recorded for contract ${ref} — installments start ${new Date(input.shipmentDate).toISOString().slice(0, 10)}.`
+          : `Shipment date cleared for contract ${ref} — pending installments removed.`,
+        createdBy: ctx.user.id,
+      });
+      return { success: true };
     }),
   /**
    * Re-run equipment generation for one vessel (or the whole fleet) after products change.
@@ -510,7 +587,15 @@ export const opsContractsRouter = router({
   removeVessel: protectedProcedure
     .input(z.object({ assignmentId: z.number(), contractId: z.number().optional() }))
     .mutation(async ({ input }) => {
+      const assignment = await opsDb.getVesselAssignment(input.assignmentId);
       await opsDb.deleteVesselAssignment(input.assignmentId);
+      // Drop that vessel's unbilled installments; invoiced or paid ones stay on the record.
+      if (assignment) {
+        const rows = await opsDb.listPaymentScheduleForVessel(assignment.contractId, assignment.vesselId);
+        if (rows.every(p => p.status === "Pending")) {
+          await opsDb.deletePaymentScheduleItemsForVessel(assignment.contractId, assignment.vesselId);
+        }
+      }
       if (input.contractId) await recalcContractTotal(input.contractId);
       return { success: true };
     }),

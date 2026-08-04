@@ -120,6 +120,21 @@ export default function OpsContractDetail() {
     },
     onError: (e) => toast.error(e.message),
   });
+  /**
+   * Recording a shipment date activates that vessel: its own installments are generated
+   * from that date. Clearing it removes them again, so the edit is reversible.
+   */
+  const setShipment = trpc.opsContracts.setVesselShipment.useMutation({
+    onSuccess: (_r, vars) => {
+      utils.opsContracts.get.invalidate({ id: contractId });
+      toast.success(vars.shipmentDate ? "Shipment recorded — installments generated" : "Shipment cleared");
+      setShipEditId(null);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  /** Which vessel row currently has its shipment date open for editing. */
+  const [shipEditId, setShipEditId] = useState<number | null>(null);
+  const [shipDraft, setShipDraft] = useState("");
 
   /* ─── Product Dialog (add / edit) ─── */
   const [libOpen, setLibOpen] = useState(false);
@@ -211,6 +226,41 @@ export default function OpsContractDetail() {
   const { contract, library, schedule, assignments, customer, totals } = data;
   const collected = schedule.filter(p => p.status === "Paid").reduce((s, p) => s + Number(p.amount), 0);
   const remaining = Number(contract.totalValue) - collected;
+  /**
+   * Installments belong to a vessel, so the schedule is presented as one block per vessel
+   * in the order the vessels joined the contract. Rows with no vesselId are legacy
+   * fleet-wide installments and are shown last under their own heading.
+   */
+  const scheduleGroups = (() => {
+    const groups: Array<{
+      key: string;
+      label: string;
+      shipmentDate: number | null;
+      rows: typeof schedule;
+      total: number;
+      paid: number;
+    }> = [];
+    const push = (key: string, label: string, shipmentDate: number | null, rows: typeof schedule) => {
+      if (rows.length === 0) return;
+      groups.push({
+        key,
+        label,
+        shipmentDate,
+        rows: [...rows].sort((a, b) => a.installmentNumber - b.installmentNumber),
+        total: rows.reduce((s, p) => s + Number(p.amount), 0),
+        paid: rows.filter(p => p.status === "Paid").reduce((s, p) => s + Number(p.amount), 0),
+      });
+    };
+    for (const a of assignments) {
+      push(`v-${a.vesselId}`, a.vesselName, (a as any).shipmentDate ?? null,
+        schedule.filter(p => p.vesselId === a.vesselId));
+    }
+    push("legacy", "Contract-wide (before per-vessel billing)", null, schedule.filter(p => p.vesselId == null));
+    return groups;
+  })();
+  /** Vessels that cannot be billed yet — no shipment date means no schedule. */
+  const unscheduledVessels = assignments.filter(a =>
+    !(a as any).shipmentDate && !schedule.some(p => p.vesselId === a.vesselId));
   const assignedIds = new Set(assignments.map(a => a.vesselId));
   const availableVessels = (vessels ?? []).filter((v: any) => !assignedIds.has(v.id));
   const filteredVessels = vesselSearch.trim()
@@ -495,6 +545,8 @@ export default function OpsContractDetail() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2"><Clock className="h-4 w-4" /> Payment Schedule</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
+                Each vessel is billed on its own schedule, starting from its shipment date.
+                {" "}
                 {collected > 0
                   ? `${fmtEur(collected)} collected · ${fmtEur(remaining)} remaining`
                   : `${fmtEur(remaining)} outstanding across ${schedule.length} installment(s)`}
@@ -514,46 +566,79 @@ export default function OpsContractDetail() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {schedule.length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No payment schedule</TableCell></TableRow>
+                  {scheduleGroups.length === 0 && unscheduledVessels.length === 0 ? (
+                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      No installments yet — record a shipment date on the Vessels tab to start a vessel's schedule.
+                    </TableCell></TableRow>
                   ) : (
-                    schedule.map(p => (
-                      <TableRow key={p.id}>
-                        <TableCell className="font-mono text-sm">{p.installmentNumber}</TableCell>
-                        <TableCell className="text-sm">{fmtDate(p.dueDate)}</TableCell>
-                        <TableCell className="text-right font-mono text-sm">{fmtEur(Number(p.amount))}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={paymentStatusColors[p.status] ?? ""}>{p.status}</Badge>
-                        </TableCell>
-                        <TableCell className="text-sm font-mono">{p.invoiceNumber ?? "—"}</TableCell>
-                        <TableCell className="text-sm">{p.paidDate ? fmtDate(p.paidDate) : "—"}</TableCell>
-                        <TableCell>
-                          {p.status === "Pending" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-xs"
-                              onClick={() => updatePayment.mutate({ id: p.id, status: "Invoiced" })}
-                            >
-                              Invoice
-                            </Button>
-                          )}
-                          {p.status === "Invoiced" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-xs"
-                              onClick={() => updatePayment.mutate({ id: p.id, status: "Paid", paidDate: Date.now() })}
-                            >
-                              Mark Paid
-                            </Button>
-                          )}
-                          {p.status === "Paid" && (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    <>
+                      {scheduleGroups.map(group => (
+                        <Fragment key={group.key}>
+                          {/* One header band per vessel keeps the fleet's schedules visually separate */}
+                          <TableRow className="bg-muted/50 hover:bg-muted/50">
+                            <TableCell colSpan={2} className="py-2 text-xs font-semibold uppercase tracking-wide">
+                              {group.label}
+                              {group.shipmentDate && (
+                                <span className="ml-2 font-normal normal-case text-muted-foreground">
+                                  shipped {fmtDate(group.shipmentDate)}
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="py-2 text-right font-mono text-xs font-semibold">{fmtEur(group.total)}</TableCell>
+                            <TableCell colSpan={4} className="py-2 text-xs text-muted-foreground">
+                              {group.rows.length} installment(s)
+                              {group.paid > 0 && ` · ${fmtEur(group.paid)} paid`}
+                            </TableCell>
+                          </TableRow>
+                          {group.rows.map(p => (
+                            <TableRow key={p.id}>
+                              <TableCell className="font-mono text-sm">{p.installmentNumber}</TableCell>
+                              <TableCell className="text-sm">{fmtDate(p.dueDate)}</TableCell>
+                              <TableCell className="text-right font-mono text-sm">{fmtEur(Number(p.amount))}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className={paymentStatusColors[p.status] ?? ""}>{p.status}</Badge>
+                              </TableCell>
+                              <TableCell className="text-sm font-mono">{p.invoiceNumber ?? "—"}</TableCell>
+                              <TableCell className="text-sm">{p.paidDate ? fmtDate(p.paidDate) : "—"}</TableCell>
+                              <TableCell>
+                                {p.status === "Pending" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs"
+                                    onClick={() => updatePayment.mutate({ id: p.id, status: "Invoiced" })}
+                                  >
+                                    Invoice
+                                  </Button>
+                                )}
+                                {p.status === "Invoiced" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs"
+                                    onClick={() => updatePayment.mutate({ id: p.id, status: "Paid", paidDate: Date.now() })}
+                                  >
+                                    Mark Paid
+                                  </Button>
+                                )}
+                                {p.status === "Paid" && (
+                                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </Fragment>
+                      ))}
+                      {/* Vessels on the contract that are not billable yet, so the gap is explicit */}
+                      {unscheduledVessels.map(a => (
+                        <TableRow key={`pending-${a.id}`} className="hover:bg-transparent">
+                          <TableCell colSpan={7} className="py-3 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">{a.vesselName}</span> — not shipped yet, so no installments.
+                            {" "}Record its shipment date on the Vessels tab to generate them.
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </>
                   )}
                 </TableBody>
               </Table>
@@ -568,7 +653,10 @@ export default function OpsContractDetail() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base flex items-center gap-2"><Ship className="h-4 w-4" /> Vessels</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">Adding a vessel generates its instrument records automatically</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Adding a vessel generates its instrument records automatically. Recording a shipment date
+                activates that vessel and creates its own installments.
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <Button
@@ -594,6 +682,7 @@ export default function OpsContractDetail() {
                 <TableHead>Vessel</TableHead>
                 <TableHead>IMO</TableHead>
                 <TableHead>Added</TableHead>
+                <TableHead>Shipped / Activated</TableHead>
                 <TableHead>Notes</TableHead>
                 <TableHead className="w-[100px] text-right">Actions</TableHead>
               </TableRow>
@@ -601,7 +690,7 @@ export default function OpsContractDetail() {
             <TableBody>
               {assignments.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                     No vessels yet — add the fleet covered by this contract.
                   </TableCell>
                 </TableRow>
@@ -611,6 +700,62 @@ export default function OpsContractDetail() {
                     <TableCell className="font-medium cursor-pointer" onClick={() => navigate(`/ops/vessel/${a.vesselId}`)}>{a.vesselName}</TableCell>
                     <TableCell className="font-mono text-sm">{a.vesselImo ?? "—"}</TableCell>
                     <TableCell className="text-sm">{fmtDate(a.assignedDate)}</TableCell>
+                    {/* Shipment date is the billing trigger, so it is editable right here */}
+                    <TableCell className="text-sm">
+                      {shipEditId === a.id ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="date"
+                            value={shipDraft}
+                            autoFocus
+                            onChange={e => setShipDraft(e.target.value)}
+                            className="h-7 w-[140px] text-xs"
+                          />
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs"
+                            disabled={!shipDraft || setShipment.isPending}
+                            onClick={() => setShipment.mutate({
+                              assignmentId: a.id,
+                              shipmentDate: Date.parse(`${shipDraft}T00:00:00Z`),
+                            })}
+                          >
+                            Save
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShipEditId(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (a as any).shipmentDate ? (
+                        <div className="flex items-center gap-1.5">
+                          <span>{fmtDate((a as any).shipmentDate)}</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-1.5 text-xs text-muted-foreground"
+                            onClick={() => {
+                              setShipEditId(a.id);
+                              setShipDraft(new Date((a as any).shipmentDate).toISOString().slice(0, 10));
+                            }}
+                          >
+                            Edit
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs gap-1"
+                          onClick={() => {
+                            setShipEditId(a.id);
+                            setShipDraft(new Date().toISOString().slice(0, 10));
+                          }}
+                          title="Recording the shipment date generates this vessel's installments"
+                        >
+                          <Clock className="h-3 w-3" /> Record shipment
+                        </Button>
+                      )}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{a.notes ?? "—"}</TableCell>
                     <TableCell className="text-right">
                       <Button

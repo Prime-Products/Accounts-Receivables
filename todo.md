@@ -2033,3 +2033,13 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Keep manual entry and manual overrides working (typed products still allowed)
 - [x] Store catalogId on the contract line so the pricelist origin is traceable
 - [x] Vitest coverage for the lookup, the auto-fill mapping and the override path
+
+## Per-vessel installments (user request 4/8)
+- [x] Vessel assignment: add a shipment date that activates that vessel on the contract
+- [x] Payment schedule: link every installment to a vessel (vesselId on ops_payment_schedule)
+- [x] Generate installmentCount installments per vessel of pricePerVessel/installmentCount, dated from that vessel's shipment date
+- [x] Vessels with no shipment date yet produce no installments (not shipped, not billable)
+- [x] Financials tab: show the schedule grouped per vessel with a per-vessel subtotal
+- [x] Adding or removing a vessel only touches that vessel's installments, never paid/invoiced rows
+- [x] Migrate the existing Spring Marine schedule to the per-vessel model (legacy fleet-wide rows removed, total corrected to 33,900)
+- [x] Vitest coverage for per-vessel generation, unshipped vessels and the paid-row guard

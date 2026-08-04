@@ -1,4 +1,4 @@
-import { eq, desc, asc, and, inArray, sql } from "drizzle-orm";
+import { eq, desc, asc, and, inArray, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   opsServices, InsertOpsService,
@@ -254,6 +254,25 @@ export async function updatePaymentScheduleItem(id: number, data: Partial<Insert
 export async function deletePaymentScheduleItems(contractId: number) {
   await getDb().delete(opsPaymentSchedule).where(eq(opsPaymentSchedule.contractId, contractId));
 }
+/** Installments belonging to one vessel on a contract, in due order. */
+export async function listPaymentScheduleForVessel(contractId: number, vesselId: number) {
+  return getDb().select().from(opsPaymentSchedule)
+    .where(and(eq(opsPaymentSchedule.contractId, contractId), eq(opsPaymentSchedule.vesselId, vesselId)))
+    .orderBy(asc(opsPaymentSchedule.installmentNumber));
+}
+/**
+ * Remove one vessel's installments only. Used when a vessel's shipment date changes or
+ * the vessel leaves the contract — the rest of the fleet's schedules stay untouched.
+ */
+export async function deletePaymentScheduleItemsForVessel(contractId: number, vesselId: number) {
+  await getDb().delete(opsPaymentSchedule)
+    .where(and(eq(opsPaymentSchedule.contractId, contractId), eq(opsPaymentSchedule.vesselId, vesselId)));
+}
+/** Legacy rows that predate the per-vessel model carry no vesselId. */
+export async function deleteFleetWidePaymentScheduleItems(contractId: number) {
+  await getDb().delete(opsPaymentSchedule)
+    .where(and(eq(opsPaymentSchedule.contractId, contractId), isNull(opsPaymentSchedule.vesselId)));
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // VESSEL ASSIGNMENTS
@@ -270,6 +289,13 @@ export async function getVesselAssignmentsByVessel(vesselId: number) {
 export async function createVesselAssignment(data: Omit<InsertOpsVesselAssignment, "id">) {
   const [result] = await getDb().insert(opsVesselAssignments).values(data).$returningId();
   return result.id;
+}
+export async function getVesselAssignment(id: number) {
+  const [row] = await getDb().select().from(opsVesselAssignments).where(eq(opsVesselAssignments.id, id)).limit(1);
+  return row;
+}
+export async function updateVesselAssignment(id: number, data: Partial<InsertOpsVesselAssignment>) {
+  await getDb().update(opsVesselAssignments).set(data).where(eq(opsVesselAssignments.id, id));
 }
 export async function deleteVesselAssignment(id: number) {
   await getDb().delete(opsVesselAssignments).where(eq(opsVesselAssignments.id, id));
