@@ -2968,11 +2968,23 @@ export const vesselsRouter = router({
   list: protectedProcedure.query(async () => db.listVessels()),
   /** Vessels enriched with financial aggregates for the Vessels list page. */
   listWithStats: protectedProcedure.query(async () => {
-    const [vesselRows, allInvoices, customers] = await Promise.all([
+    const [vesselRows, allInvoices, customers, assignments] = await Promise.all([
       db.listVessels(),
       db.listInvoices(),
       db.listCustomers(),
+      opsDb.listVesselAssignments(),
     ]);
+    // How many Prime 247 contracts each vessel is enrolled in. A vessel can appear
+    // twice on the same contract, so contracts are counted distinctly.
+    const contractIdsByVessel = new Map<number, Set<number>>();
+    for (const a of assignments) {
+      let set = contractIdsByVessel.get(a.vesselId);
+      if (!set) {
+        set = new Set();
+        contractIdsByVessel.set(a.vesselId, set);
+      }
+      set.add(a.contractId);
+    }
     const custById = new Map(customers.map(c => [c.id, c]));
     const now = Date.now();
     type Agg = {
@@ -3030,6 +3042,7 @@ export const vesselsRouter = router({
         totalInvoiced: agg?.totalInvoiced ?? 0,
         totalPaid: agg?.totalPaid ?? 0,
         maxDaysOverdue: agg?.maxDaysOverdue ?? 0,
+        contractCount: contractIdsByVessel.get(v.id)?.size ?? 0,
       };
     });
   }),
@@ -3173,6 +3186,19 @@ export const vesselsRouter = router({
       relatedCompanies,
       equipment,
       contractItems,
+      // Which Prime 247 contracts the vessel is enrolled in, so the card can state
+      // the count and link straight to each one.
+      contracts: vesselContractIds.map(cid => {
+        const c = contractById.get(cid);
+        return {
+          id: cid,
+          contractNumber: c?.contractNumber ?? null,
+          title: c?.title ?? null,
+          status: c?.status ?? null,
+          startDate: c?.startDate ?? null,
+          endDate: c?.endDate ?? null,
+        };
+      }),
       invoices: invoiceRows,
     };
   }),

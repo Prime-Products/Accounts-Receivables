@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { InvoicesTable } from "@/components/InvoicesTable";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { Anchor, FileText, Flag, Ship } from "lucide-react";
+import { Anchor, FileText, FileSignature, Flag, Ship } from "lucide-react";
 import { Link } from "wouter";
 
 /**
@@ -32,6 +32,8 @@ export function VesselDetailDialog({
   const stats = data?.stats;
   const invoices = data?.invoices ?? [];
   const relatedCompanies = data?.relatedCompanies ?? [];
+  // Prime 247 contracts this vessel is enrolled in.
+  const contracts = data?.contracts ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -54,6 +56,11 @@ export function VesselDetailDialog({
               {vessel.flag && (
                 <Badge variant="outline" className="gap-1">
                   <Flag className="h-3 w-3" /> {vessel.flag}
+                </Badge>
+              )}
+              {contracts.length > 0 && (
+                <Badge variant="outline" className="gap-1 bg-violet-50 text-violet-700 border-violet-200">
+                  <FileSignature className="h-3 w-3" /> {contracts.length} contract{contracts.length === 1 ? "" : "s"}
                 </Badge>
               )}
             </div>
@@ -155,6 +162,29 @@ export function VesselDetailDialog({
                   </div>
                 </div>
               )}
+              <div className="col-span-2">
+                <div className="text-xs text-muted-foreground mb-1">
+                  Prime 247 contracts ({contracts.length})
+                </div>
+                {contracts.length === 0 ? (
+                  <div className="text-muted-foreground text-xs">Not enrolled in any contract yet.</div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {contracts.map(c => (
+                      <Link key={c.id} href={`/ops/contracts/${c.id}`} onClick={() => onOpenChange(false)}>
+                        <Badge
+                          variant="outline"
+                          className="cursor-pointer hover:bg-muted font-normal gap-1"
+                          title={c.title ?? undefined}
+                        >
+                          <span className="font-mono text-[11px]">{c.contractNumber ?? `#${c.id}`}</span>
+                          {c.status && <span className="text-muted-foreground">· {c.status}</span>}
+                        </Badge>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Invoices */}

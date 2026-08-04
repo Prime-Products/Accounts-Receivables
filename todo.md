@@ -2065,3 +2065,4 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Contract: replace the Payment Method field with Contract Period (3 / 4 / 5 years), driving the end date
 - [x] Contract: colour-coded expiry indicator next to the end date that escalates as the period nears its end
 - [x] Vessel: compact one-line-per-product list with description, serials collapsed behind a click
+- [x] Vessel card + vessels list: show how many contracts the vessel is enrolled in
