@@ -13,6 +13,7 @@ import {
 import { matchScore, matchesAllTokens } from "../../shared/textMatch";
 import { parseMentions, stripMentionMarkup } from "../../shared/mentions";
 import * as db from "../db";
+import * as opsDb from "../opsDb";
 import { protectedProcedure, router } from "../_core/trpc";
 import { resolveGroupStatus, normalizeStoredStatus } from "../lib/statusWorkflow";
 import {
@@ -3117,8 +3118,12 @@ export const vesselsRouter = router({
   detail: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
     const vessel = await db.getVesselById(input.id);
     if (!vessel) throw new TRPCError({ code: "NOT_FOUND", message: "Vessel not found" });
-    const [allInvoices, customers] = await Promise.all([db.listInvoices(), db.listCustomers()]);
-    const vesselAllocations = await db.listInvoiceVesselAllocations();
+    const [allInvoices, customers, assignments, vesselAllocations] = await Promise.all([
+      db.listInvoices(),
+      db.listCustomers(),
+      opsDb.getVesselAssignmentsByVessel(input.id),
+      db.listInvoiceVesselAllocations(),
+    ]);
     const allocationsByInvoice = new Map<number, typeof vesselAllocations>();
     for (const allocation of vesselAllocations) {
       const allocations = allocationsByInvoice.get(allocation.invoiceId) ?? [];
@@ -3178,6 +3183,15 @@ export const vesselsRouter = router({
         return c ? { id: c.id, name: c.name, group: (c.customerGroup ?? "").trim() || c.name } : null;
       })
       .filter((x): x is { id: number; name: string; group: string } => x !== null);
+
+    // Fetch full contract details for each assignment
+    const opsContracts = await Promise.all(
+      assignments.map(async (a) => {
+        const c = await opsDb.getOpsContract(a.contractId);
+        return c ? { ...c, assignedDate: a.assignedDate, assignmentNotes: a.notes } : null;
+      })
+    );
+
     return {
       vessel: {
         ...vessel,
@@ -3187,6 +3201,7 @@ export const vesselsRouter = router({
       stats: { openBalance, overdueAmount, overdueCount, totalInvoiced, totalPaid, maxDaysOverdue: maxDays, invoiceCount: rows.length },
       relatedCompanies,
       invoices: invoiceRows,
+      opsContracts: opsContracts.filter(Boolean),
     };
   }),
   create: protectedProcedure

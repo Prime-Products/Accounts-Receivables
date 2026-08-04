@@ -13,6 +13,7 @@ import { trpc } from "@/lib/trpc";
 import { ArrowLeft, CheckCircle2, Clock, Package, Plus, Ship } from "lucide-react";
 import { Send, Play } from "lucide-react";
 import { useLocation, useParams } from "wouter";
+import { VesselDetailDialog } from "@/components/VesselDetailDialog";
 import { toast } from "sonner";
 import { useState } from "react";
 
@@ -55,6 +56,9 @@ export default function OpsContractDetail() {
   /* ─── Assign Vessel Dialog ─── */
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignForm, setAssignForm] = useState({ vesselId: "", notes: "" });
+  const [vesselDialogOpen, setVesselDialogOpen] = useState(false);
+  const [vesselDialogId, setVesselDialogId] = useState<number | null>(null);
+
   const assignVessel = trpc.opsContracts.assignVessel.useMutation({
     onSuccess: () => {
       toast.success("Vessel assigned");
@@ -194,7 +198,14 @@ export default function OpsContractDetail() {
               </TableHeader>
               <TableBody>
                 {assignments.map(a => (
-                  <TableRow key={a.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/ops/vessel/${a.vesselId}`)}>
+                  <TableRow
+                    key={a.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => {
+                      setVesselDialogId(a.vesselId);
+                      setVesselDialogOpen(true);
+                    }}
+                  >
                     <TableCell className="font-medium">{a.vesselName}</TableCell>
                     <TableCell className="font-mono text-sm">{a.vesselImo ?? "—"}</TableCell>
                     <TableCell className="text-sm">{fmtDate(a.assignedDate)}</TableCell>
@@ -430,6 +441,12 @@ export default function OpsContractDetail() {
           </DialogFooter>
         </ResizableDialogContent>
       </Dialog>
+
+      <VesselDetailDialog
+        vesselId={vesselDialogId}
+        open={vesselDialogOpen}
+        onOpenChange={setVesselDialogOpen}
+      />
     </div>
   );
 }
