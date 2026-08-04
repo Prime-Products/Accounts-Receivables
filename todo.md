@@ -2074,3 +2074,4 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Contracts list: show the customer group only; show the specific company inside the contract page
 - [x] Contracts list: reorder columns to Contract / Customer / Title / Value / Vessels / Status / Start / End
 - [x] Contracts list: KPI dashboard row (agreed vs activated value and vessels, collected, outstanding)
+- [x] Contracts: show current (active) contract value = value of activated vessels only, in the list column and on the contract detail KPI

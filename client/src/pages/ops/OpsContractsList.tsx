@@ -30,6 +30,18 @@ const statusColors: Record<string, string> = {
 
 type SortKey = "contractNumber" | "customerGroup" | "totalValue" | "status" | "startDate" | "endDate";
 
+/**
+ * Current value = the value of the vessels that have actually been activated (shipped).
+ * Agreed totals are only used as the per-vessel basis, never shown as the contract value.
+ */
+export function contractCurrentValue(c: { totalValue: unknown; vesselCount?: number | null; activatedVesselCount?: number | null }) {
+  const value = Number(c.totalValue) || 0;
+  const vessels = c.vesselCount ?? 0;
+  const active = c.activatedVesselCount ?? 0;
+  if (vessels <= 0 || active <= 0) return 0;
+  return (value / vessels) * active;
+}
+
 const COL_DEFAULTS: Record<string, number> = {
   contractNumber: 130,
   customer: 180,
@@ -156,6 +168,8 @@ export default function OpsContractsList() {
     if (q) rows = rows.filter(c => matchesAllTokens(q, [c.contractNumber, c.title, c.customerName, c.customerGroup]));
     const dir = sortDir === "asc" ? 1 : -1;
     return [...rows].sort((a, b) => {
+      // The Value column shows current value, so it must sort by that, not the agreed total.
+      if (sortKey === "totalValue") return (contractCurrentValue(a) - contractCurrentValue(b)) * dir;
       const va = a[sortKey as keyof typeof a];
       const vb = b[sortKey as keyof typeof b];
       if (typeof va === "string") return String(va).localeCompare(String(vb ?? "")) * dir;
@@ -178,28 +192,21 @@ export default function OpsContractsList() {
     );
   }
 
-  const totals = filtered.reduce((acc, c) => ({
-    value: acc.value + Number(c.totalValue),
-    collected: acc.collected + c.collectedAmount,
-  }), { value: 0, collected: 0 });
-
   /**
-   * Fleet dashboard figures. "Agreed" is everything on the contract; "activated" is the
-   * part that has actually shipped — a vessel's installments only start on its shipment
-   * date, so agreed-minus-activated is the pipeline still to be delivered and invoiced.
+   * Fleet dashboard figures, expressed in current (activated) terms: value and vessels that
+   * have actually shipped, the cash collected against them and what is still outstanding.
    */
   const kpi = filtered.reduce(
     (acc, c) => {
-      const value = Number(c.totalValue) || 0;
       const vessels = c.vesselCount || 0;
       const activeVessels = (c as { activatedVesselCount?: number }).activatedVesselCount ?? 0;
-      const perVessel = vessels > 0 ? value / vessels : 0;
       return {
         contracts: acc.contracts + 1,
         activeContracts: acc.activeContracts + (c.status === "Active" ? 1 : 0),
-        agreedValue: acc.agreedValue + value,
-        activatedValue: acc.activatedValue + perVessel * activeVessels,
+        agreedValue: acc.agreedValue + (Number(c.totalValue) || 0),
+        currentValue: acc.currentValue + contractCurrentValue(c),
         agreedVessels: acc.agreedVessels + vessels,
+        pipelineVessels: acc.pipelineVessels + Math.max(vessels - activeVessels, 0),
         activatedVessels: acc.activatedVessels + activeVessels,
         collected: acc.collected + c.collectedAmount,
         installments: acc.installments + c.totalInstallments,
@@ -207,12 +214,12 @@ export default function OpsContractsList() {
       };
     },
     {
-      contracts: 0, activeContracts: 0, agreedValue: 0, activatedValue: 0,
-      agreedVessels: 0, activatedVessels: 0, collected: 0, installments: 0, paidInstallments: 0,
+      contracts: 0, activeContracts: 0, agreedValue: 0, currentValue: 0, agreedVessels: 0, pipelineVessels: 0,
+      activatedVessels: 0, collected: 0, installments: 0, paidInstallments: 0,
     },
   );
+  const outstanding = Math.max(kpi.currentValue - kpi.collected, 0);
   const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
-  const outstanding = Math.max(kpi.activatedValue - kpi.collected, 0);
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
@@ -220,7 +227,7 @@ export default function OpsContractsList() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Prime 247 Contracts</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {filtered.length} contract{filtered.length !== 1 ? "s" : ""} · Value: {fmtEur(totals.value)} · Collected: {fmtEur(totals.collected)}
+            {filtered.length} contract{filtered.length !== 1 ? "s" : ""} · Current: {fmtEur(kpi.currentValue)} of {fmtEur(kpi.agreedValue)} agreed · Collected: {fmtEur(kpi.collected)}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -259,35 +266,26 @@ export default function OpsContractsList() {
         </Select>
       </div>
 
-      {/* ─── Fleet KPI dashboard: agreed vs activated, then the cash position ─── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* ─── Fleet KPI dashboard: the live (activated) position, then the cash against it ─── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <Card className="border-l-4 border-l-[oklch(0.55_0.14_255)]">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Agreed Value</CardTitle></CardHeader>
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground whitespace-nowrap">Current / Agreed Value</CardTitle></CardHeader>
           <CardContent>
-            <div className="text-lg font-bold font-mono">{fmtEur(kpi.agreedValue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{kpi.contracts} contract{kpi.contracts !== 1 ? "s" : ""}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-[oklch(0.6_0.13_300)]">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Activated Value</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-lg font-bold font-mono">{fmtEur(kpi.activatedValue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{pct(kpi.activatedValue, kpi.agreedValue)}% of agreed shipped</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-[oklch(0.65_0.12_80)]">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Agreed Vessels</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-lg font-bold font-mono">{kpi.agreedVessels}</div>
-            <p className="text-xs text-muted-foreground mt-1">{kpi.activeContracts} active contract{kpi.activeContracts !== 1 ? "s" : ""}</p>
+            {/* Agreed is the signed total; current is only what has been activated (shipped). */}
+            <div className="text-lg font-bold font-mono leading-tight">{fmtEur(kpi.currentValue)}</div>
+            <div className="text-xs text-muted-foreground font-mono mt-0.5">of {fmtEur(kpi.agreedValue)} agreed</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {pct(kpi.currentValue, kpi.agreedValue)}% activated · {kpi.activatedVessels} vessel{kpi.activatedVessels !== 1 ? "s" : ""}
+            </p>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-[oklch(0.65_0.12_140)]">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Activated Vessels</CardTitle></CardHeader>
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground whitespace-nowrap">Active / Agreed Vessels</CardTitle></CardHeader>
           <CardContent>
-            <div className="text-lg font-bold font-mono">{kpi.activatedVessels}</div>
+            <div className="text-lg font-bold font-mono leading-tight">{kpi.activatedVessels}</div>
+            <div className="text-xs text-muted-foreground font-mono mt-0.5">of {kpi.agreedVessels} agreed</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {kpi.agreedVessels - kpi.activatedVessels} awaiting shipment
+              {kpi.pipelineVessels} awaiting shipment
             </p>
           </CardContent>
         </Card>
@@ -302,7 +300,14 @@ export default function OpsContractsList() {
           <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Outstanding</CardTitle></CardHeader>
           <CardContent>
             <div className="text-lg font-bold font-mono">{fmtEur(outstanding)}</div>
-            <p className="text-xs text-muted-foreground mt-1">on activated vessels</p>
+            <p className="text-xs text-muted-foreground mt-1">on active vessels</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-[oklch(0.65_0.12_80)]">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Contracts</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold font-mono">{kpi.contracts}</div>
+            <p className="text-xs text-muted-foreground mt-1">{kpi.activeContracts} active</p>
           </CardContent>
         </Card>
       </div>
@@ -327,7 +332,7 @@ export default function OpsContractsList() {
                     <ColResizer col="title" api={cols} />
                   </TableHead>
                   <TableHead style={cols.style("totalValue")} className="relative cursor-pointer select-none text-right" onClick={() => toggleSort("totalValue")}>
-                    <span className="flex items-center justify-end">Value <SortIcon col="totalValue" /></span>
+                    <span className="flex items-center justify-end">Current Value <SortIcon col="totalValue" /></span>
                     <ColResizer col="totalValue" api={cols} />
                   </TableHead>
                   <TableHead style={cols.style("vessels")} className="relative text-center">
@@ -370,7 +375,15 @@ export default function OpsContractsList() {
                         </div>
                       </TableCell>
                       <TableCell className="truncate">{c.title}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{fmtEur(Number(c.totalValue))}</TableCell>
+                      <TableCell
+                        className="text-right font-mono text-sm"
+                        title={`Current value of the activated vessels. Agreed total: ${fmtEur(Number(c.totalValue))}`}
+                      >
+                        {/* Only what has shipped counts as current value. */}
+                        {contractCurrentValue(c) > 0
+                          ? fmtEur(contractCurrentValue(c))
+                          : <span className="text-muted-foreground">—</span>}
+                      </TableCell>
                       <TableCell className="text-center text-sm" title={`${(c as { activatedVesselCount?: number }).activatedVesselCount ?? 0} of ${c.vesselCount} vessel(s) shipped`}>
                         {/* Activated / agreed, so the pipeline is visible without opening the contract. */}
                         <span className="font-mono">

@@ -29,7 +29,7 @@ export function aggregateContractKpi(rows: Row[]) {
         contracts: acc.contracts + 1,
         activeContracts: acc.activeContracts + (c.status === "Active" ? 1 : 0),
         agreedValue: acc.agreedValue + value,
-        activatedValue: acc.activatedValue + perVessel * c.activatedVesselCount,
+        currentValue: acc.currentValue + perVessel * c.activatedVesselCount,
         agreedVessels: acc.agreedVessels + c.vesselCount,
         activatedVessels: acc.activatedVessels + c.activatedVesselCount,
         collected: acc.collected + c.collectedAmount,
@@ -38,11 +38,11 @@ export function aggregateContractKpi(rows: Row[]) {
       };
     },
     {
-      contracts: 0, activeContracts: 0, agreedValue: 0, activatedValue: 0,
+      contracts: 0, activeContracts: 0, agreedValue: 0, currentValue: 0,
       agreedVessels: 0, activatedVessels: 0, collected: 0, installments: 0, paidInstallments: 0,
     },
   );
-  return { ...kpi, outstanding: Math.max(kpi.activatedValue - kpi.collected, 0) };
+  return { ...kpi, outstanding: Math.max(kpi.currentValue - kpi.collected, 0) };
 }
 
 const row = (over: Partial<Row> = {}): Row => ({
@@ -57,11 +57,11 @@ const row = (over: Partial<Row> = {}): Row => ({
 });
 
 describe("contracts list KPI dashboard", () => {
-  it("separates agreed value from the shipped (activated) share", () => {
+  it("separates agreed value from the current (shipped) share", () => {
     const k = aggregateContractKpi([row()]);
     expect(k.agreedValue).toBe(30_000);
     // 2 of 3 vessels shipped → two thirds of the contract value is commercially live.
-    expect(k.activatedValue).toBe(20_000);
+    expect(k.currentValue).toBe(20_000);
   });
 
   it("counts agreed and activated vessels across contracts", () => {
@@ -75,13 +75,13 @@ describe("contracts list KPI dashboard", () => {
     expect(k.activeContracts).toBe(1);
   });
 
-  it("treats an offer with no shipments as zero activated value", () => {
+  it("treats an offer with no shipments as zero current value", () => {
     const k = aggregateContractKpi([row({ status: "Offer", activatedVesselCount: 0 })]);
-    expect(k.activatedValue).toBe(0);
+    expect(k.currentValue).toBe(0);
     expect(k.outstanding).toBe(0);
   });
 
-  it("derives outstanding from activated value minus collected", () => {
+  it("derives outstanding from current value minus collected", () => {
     const k = aggregateContractKpi([row({ collectedAmount: 5_000 })]);
     expect(k.collected).toBe(5_000);
     expect(k.outstanding).toBe(15_000);
@@ -95,7 +95,7 @@ describe("contracts list KPI dashboard", () => {
   it("survives contracts with no vessels assigned yet", () => {
     const k = aggregateContractKpi([row({ vesselCount: 0, activatedVesselCount: 0 })]);
     expect(k.agreedValue).toBe(30_000);
-    expect(k.activatedValue).toBe(0);
+    expect(k.currentValue).toBe(0);
     expect(k.agreedVessels).toBe(0);
   });
 
@@ -110,7 +110,7 @@ describe("contracts list KPI dashboard", () => {
 
   it("returns zeros for an empty (fully filtered) list", () => {
     const k = aggregateContractKpi([]);
-    expect(k).toMatchObject({ contracts: 0, agreedValue: 0, activatedValue: 0, agreedVessels: 0, outstanding: 0 });
+    expect(k).toMatchObject({ contracts: 0, agreedValue: 0, currentValue: 0, agreedVessels: 0, outstanding: 0 });
   });
 });
 
@@ -137,8 +137,8 @@ describe("contracts list — column order", () => {
 });
 
 describe("contracts list — KPI cards", () => {
-  it("shows agreed vs activated value and vessels, collected and outstanding", () => {
-    for (const label of ["Agreed Value", "Activated Value", "Agreed Vessels", "Activated Vessels", "Collected", "Outstanding"]) {
+  it("shows current against agreed for both value and vessels, plus collected and outstanding", () => {
+    for (const label of ["Current / Agreed Value", "Active / Agreed Vessels", "Collected", "Outstanding", "of {fmtEur(kpi.agreedValue)} agreed"]) {
       expect(listSrc).toContain(label);
     }
   });
@@ -150,5 +150,30 @@ describe("contracts list — KPI cards", () => {
   it("reads the activated count supplied by the server", () => {
     expect(listSrc).toContain("activatedVesselCount");
     expect(routerSrc).toMatch(/activatedVesselCount:\s*contractVessels\.filter\(a => a\.shipmentDate != null\)\.length/);
+  });
+
+  it("labels the money column Current Value and shows the activated amount, not the agreed total", () => {
+    const header = listSrc.slice(listSrc.indexOf("<TableHeader>"), listSrc.indexOf("</TableHeader>"));
+    expect(header).toMatch(/>Current Value <SortIcon col="totalValue"/);
+    const body = listSrc.slice(listSrc.indexOf("<TableBody>"), listSrc.indexOf("</TableBody>"));
+    expect(body).toContain("contractCurrentValue(c)");
+    expect(body).not.toContain("fmtEur(Number(c.totalValue))}</TableCell>");
+  });
+
+  it("sorts the money column by current value rather than the agreed total", () => {
+    expect(listSrc).toMatch(/sortKey === "totalValue"\) return \(contractCurrentValue\(a\) - contractCurrentValue\(b\)\)/);
+  });
+});
+
+describe("contractCurrentValue helper", () => {
+  it("prorates the agreed value over the activated vessels", async () => {
+    const { contractCurrentValue } = await import("../client/src/pages/ops/OpsContractsList");
+    expect(contractCurrentValue({ totalValue: 30_000, vesselCount: 3, activatedVesselCount: 2 })).toBe(20_000);
+  });
+
+  it("is zero when nothing has shipped or no vessels are assigned", async () => {
+    const { contractCurrentValue } = await import("../client/src/pages/ops/OpsContractsList");
+    expect(contractCurrentValue({ totalValue: 30_000, vesselCount: 3, activatedVesselCount: 0 })).toBe(0);
+    expect(contractCurrentValue({ totalValue: 30_000, vesselCount: 0, activatedVesselCount: 0 })).toBe(0);
   });
 });
