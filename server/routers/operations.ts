@@ -50,6 +50,44 @@ async function recalcContractTotal(contractId: number) {
   }
 }
 
+/**
+ * Create one serial-tracked equipment row per unit of every Instrument in the contract's
+ * product list, for a single vessel. Idempotent: rows already present for that vessel are
+ * counted, never duplicated, so the action can be re-run after products are added.
+ */
+async function generateEquipmentForVessel(contractId: number, vesselId: number) {
+  const contract = await opsDb.getOpsContract(contractId);
+  if (!contract) return { created: 0, skipped: 0 };
+  const [library, existing] = await Promise.all([
+    opsDb.listContractLibrary(contractId),
+    opsDb.listAssets({ contractId, vesselId }),
+  ]);
+  const taken = new Set(existing.map(a => a.serialNumber));
+  let created = 0;
+  let skipped = 0;
+  for (const item of library) {
+    if (!opsSerialTrackedTypes.includes(item.itemType as (typeof opsSerialTrackedTypes)[number])) continue;
+    for (let i = 0; i < item.quantity; i++) {
+      const serial = `${contract.contractNumber}-${item.id}-${vesselId}-${i + 1}`;
+      if (taken.has(serial)) {
+        skipped++;
+        continue;
+      }
+      await opsDb.createAsset({
+        serialNumber: serial,
+        catalogItemId: item.catalogId,
+        name: item.name,
+        vesselId,
+        contractId,
+        status: "Not Supplied",
+      });
+      taken.add(serial);
+      created++;
+    }
+  }
+  return { created, skipped };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CATALOG ROUTERS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -360,6 +398,8 @@ export const opsContractsRouter = router({
           assignedDate: Date.now(),
           notes: "Added at contract creation",
         });
+        // Same automation as assignVessel, so vessels added here are not left without equipment.
+        await generateEquipmentForVessel(id, vesselId);
       }
       return { id };
     }),
@@ -414,33 +454,50 @@ export const opsContractsRouter = router({
         notes: input.notes,
       });
       // AUTOMATION ENGINE: Read contract library and generate asset records
-      const library = await opsDb.listContractLibrary(input.contractId);
-      for (const item of library) {
-        // Only instruments are serial-tracked; cylinders, ampoules and services are not.
-        if (opsSerialTrackedTypes.includes(item.itemType as (typeof opsSerialTrackedTypes)[number])) {
-          for (let i = 0; i < item.quantity; i++) {
-            const serial = `${contract.contractNumber}-${item.id}-${input.vesselId}-${i + 1}`;
-            await opsDb.createAsset({
-              serialNumber: serial,
-              catalogItemId: item.catalogId,
-              name: item.name,
-              vesselId: input.vesselId,
-              contractId: input.contractId,
-              status: "Not Supplied",
-            });
-          }
-        }
-      }
+      const generated = await generateEquipmentForVessel(input.contractId, input.vesselId);
       // Log history
       const vessel = await db.getVesselById(input.vesselId);
       await opsDb.createVesselHistoryEntry({
         vesselId: input.vesselId,
         eventType: "AssetAssigned",
-        description: `Vessel assigned to contract ${contract.contractNumber}. Equipment records auto-generated.`,
+        description: `Vessel assigned to contract ${contract.contractNumber}. ${generated.created} equipment record(s) auto-generated.`,
         createdBy: ctx.user.id,
       });
       await recalcContractTotal(input.contractId);
-      return { id: assignId };
+      return { id: assignId, created: generated.created };
+    }),
+  /**
+   * Re-run equipment generation for one vessel (or the whole fleet) after products change.
+   * Safe to call repeatedly: existing serial rows are kept, only missing ones are added.
+   */
+  generateEquipment: protectedProcedure
+    .input(z.object({ contractId: z.number(), vesselId: z.number().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const contract = await opsDb.getOpsContract(input.contractId);
+      if (!contract) throw new TRPCError({ code: "NOT_FOUND" });
+      const assignments = await opsDb.listVesselAssignments(input.contractId);
+      const targets = input.vesselId
+        ? assignments.filter(a => a.vesselId === input.vesselId)
+        : assignments;
+      if (targets.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Add a vessel to the contract first" });
+      }
+      let created = 0;
+      let skipped = 0;
+      for (const assignment of targets) {
+        const result = await generateEquipmentForVessel(input.contractId, assignment.vesselId);
+        created += result.created;
+        skipped += result.skipped;
+        if (result.created > 0) {
+          await opsDb.createVesselHistoryEntry({
+            vesselId: assignment.vesselId,
+            eventType: "AssetAssigned",
+            description: `${result.created} equipment record(s) generated from contract ${contract.contractNumber}.`,
+            createdBy: ctx.user.id,
+          });
+        }
+      }
+      return { created, skipped, vessels: targets.length };
     }),
   removeVessel: protectedProcedure
     .input(z.object({ assignmentId: z.number(), contractId: z.number().optional() }))

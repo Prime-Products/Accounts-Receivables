@@ -90,6 +90,17 @@ export default function OpsContractDetail() {
     onSuccess: () => { utils.opsContracts.get.invalidate({ id: contractId }); toast.success("Vessel removed"); },
     onError: (e) => toast.error(e.message),
   });
+  const generateEquipment = trpc.opsContracts.generateEquipment.useMutation({
+    onSuccess: (r) => {
+      utils.opsContracts.get.invalidate({ id: contractId });
+      toast.success(
+        r.created > 0
+          ? `${r.created} equipment record(s) created across ${r.vessels} vessel(s)`
+          : "Equipment already up to date for this contract",
+      );
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   /* ─── Product Dialog (add / edit) ─── */
   const [libOpen, setLibOpen] = useState(false);
@@ -351,9 +362,21 @@ export default function OpsContractDetail() {
               <CardTitle className="text-base flex items-center gap-2"><Ship className="h-4 w-4" /> Vessels</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">Adding a vessel generates its instrument records automatically</p>
             </div>
-            <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setAssignOpen(true)}>
-              <Plus className="h-3 w-3" /> Add Vessel
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1"
+                disabled={assignments.length === 0 || generateEquipment.isPending}
+                onClick={() => generateEquipment.mutate({ contractId })}
+                title="Create any missing serial-tracked equipment rows for the whole fleet"
+              >
+                <Package className="h-3 w-3" /> {generateEquipment.isPending ? "Generating..." : "Generate Equipment"}
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setAssignOpen(true)}>
+                <Plus className="h-3 w-3" /> Add Vessel
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -364,7 +387,7 @@ export default function OpsContractDetail() {
                 <TableHead>IMO</TableHead>
                 <TableHead>Added</TableHead>
                 <TableHead>Notes</TableHead>
-                <TableHead className="w-[60px] text-right">Actions</TableHead>
+                <TableHead className="w-[100px] text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -382,6 +405,16 @@ export default function OpsContractDetail() {
                     <TableCell className="text-sm">{fmtDate(a.assignedDate)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{a.notes ?? "—"}</TableCell>
                     <TableCell className="text-right">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7"
+                        disabled={generateEquipment.isPending}
+                        onClick={() => generateEquipment.mutate({ contractId, vesselId: a.vesselId })}
+                        title="Generate missing equipment records for this vessel"
+                      >
+                        <Package className="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         size="icon"
                         variant="ghost"
