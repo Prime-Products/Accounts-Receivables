@@ -4,6 +4,7 @@ import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -31,12 +32,10 @@ type SortKey = "contractNumber" | "customerGroup" | "totalValue" | "status" | "s
 
 const COL_DEFAULTS: Record<string, number> = {
   contractNumber: 130,
-  title: 200,
   customer: 180,
+  title: 200,
   totalValue: 130,
-  collected: 130,
-  vessels: 80,
-  installments: 110,
+  vessels: 100,
   status: 110,
   startDate: 110,
   endDate: 110,
@@ -184,6 +183,37 @@ export default function OpsContractsList() {
     collected: acc.collected + c.collectedAmount,
   }), { value: 0, collected: 0 });
 
+  /**
+   * Fleet dashboard figures. "Agreed" is everything on the contract; "activated" is the
+   * part that has actually shipped — a vessel's installments only start on its shipment
+   * date, so agreed-minus-activated is the pipeline still to be delivered and invoiced.
+   */
+  const kpi = filtered.reduce(
+    (acc, c) => {
+      const value = Number(c.totalValue) || 0;
+      const vessels = c.vesselCount || 0;
+      const activeVessels = (c as { activatedVesselCount?: number }).activatedVesselCount ?? 0;
+      const perVessel = vessels > 0 ? value / vessels : 0;
+      return {
+        contracts: acc.contracts + 1,
+        activeContracts: acc.activeContracts + (c.status === "Active" ? 1 : 0),
+        agreedValue: acc.agreedValue + value,
+        activatedValue: acc.activatedValue + perVessel * activeVessels,
+        agreedVessels: acc.agreedVessels + vessels,
+        activatedVessels: acc.activatedVessels + activeVessels,
+        collected: acc.collected + c.collectedAmount,
+        installments: acc.installments + c.totalInstallments,
+        paidInstallments: acc.paidInstallments + c.paidInstallments,
+      };
+    },
+    {
+      contracts: 0, activeContracts: 0, agreedValue: 0, activatedValue: 0,
+      agreedVessels: 0, activatedVessels: 0, collected: 0, installments: 0, paidInstallments: 0,
+    },
+  );
+  const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
+  const outstanding = Math.max(kpi.activatedValue - kpi.collected, 0);
+
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -229,6 +259,54 @@ export default function OpsContractsList() {
         </Select>
       </div>
 
+      {/* ─── Fleet KPI dashboard: agreed vs activated, then the cash position ─── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Card className="border-l-4 border-l-[oklch(0.55_0.14_255)]">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Agreed Value</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold font-mono">{fmtEur(kpi.agreedValue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">{kpi.contracts} contract{kpi.contracts !== 1 ? "s" : ""}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-[oklch(0.6_0.13_300)]">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Activated Value</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold font-mono">{fmtEur(kpi.activatedValue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">{pct(kpi.activatedValue, kpi.agreedValue)}% of agreed shipped</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-[oklch(0.65_0.12_80)]">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Agreed Vessels</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold font-mono">{kpi.agreedVessels}</div>
+            <p className="text-xs text-muted-foreground mt-1">{kpi.activeContracts} active contract{kpi.activeContracts !== 1 ? "s" : ""}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-[oklch(0.65_0.12_140)]">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Activated Vessels</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold font-mono">{kpi.activatedVessels}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {kpi.agreedVessels - kpi.activatedVessels} awaiting shipment
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-[oklch(0.65_0.12_175)]">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Collected</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold font-mono">{fmtEur(kpi.collected)}</div>
+            <p className="text-xs text-muted-foreground mt-1">{kpi.paidInstallments}/{kpi.installments} installments paid</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-[oklch(0.55_0.14_25)]">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Outstanding</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold font-mono">{fmtEur(outstanding)}</div>
+            <p className="text-xs text-muted-foreground mt-1">on activated vessels</p>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Table */}
       <Card>
         <CardContent className="p-0">
@@ -240,29 +318,21 @@ export default function OpsContractsList() {
                     <span className="flex items-center">Contract # <SortIcon col="contractNumber" /></span>
                     <ColResizer col="contractNumber" api={cols} />
                   </TableHead>
+                  <TableHead style={cols.style("customer")} className="relative cursor-pointer select-none" onClick={() => toggleSort("customerGroup")}>
+                    <span className="flex items-center">Customer <SortIcon col="customerGroup" /></span>
+                    <ColResizer col="customer" api={cols} />
+                  </TableHead>
                   <TableHead style={cols.style("title")} className="relative">
                     <span>Title</span>
                     <ColResizer col="title" api={cols} />
-                  </TableHead>
-                  <TableHead style={cols.style("customer")} className="relative cursor-pointer select-none" onClick={() => toggleSort("customerGroup")}>
-                    <span className="flex items-center">Group <SortIcon col="customerGroup" /></span>
-                    <ColResizer col="customer" api={cols} />
                   </TableHead>
                   <TableHead style={cols.style("totalValue")} className="relative cursor-pointer select-none text-right" onClick={() => toggleSort("totalValue")}>
                     <span className="flex items-center justify-end">Value <SortIcon col="totalValue" /></span>
                     <ColResizer col="totalValue" api={cols} />
                   </TableHead>
-                  <TableHead style={cols.style("collected")} className="relative text-right">
-                    <span>Collected</span>
-                    <ColResizer col="collected" api={cols} />
-                  </TableHead>
                   <TableHead style={cols.style("vessels")} className="relative text-center">
                     <span>Vessels</span>
                     <ColResizer col="vessels" api={cols} />
-                  </TableHead>
-                  <TableHead style={cols.style("installments")} className="relative text-center">
-                    <span>Installments</span>
-                    <ColResizer col="installments" api={cols} />
                   </TableHead>
                   <TableHead style={cols.style("status")} className="relative cursor-pointer select-none" onClick={() => toggleSort("status")}>
                     <span className="flex items-center">Status <SortIcon col="status" /></span>
@@ -284,7 +354,7 @@ export default function OpsContractsList() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                       <FileCheck2 className="h-8 w-8 mx-auto mb-2 opacity-40" />
                       <p>No contracts found</p>
                     </TableCell>
@@ -293,17 +363,23 @@ export default function OpsContractsList() {
                   filtered.map(c => (
                     <TableRow key={c.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/ops/contracts/${c.id}`)}>
                       <TableCell className="font-mono text-sm">{c.contractNumber}</TableCell>
-                      <TableCell className="truncate">{c.title}</TableCell>
                       <TableCell>
                         {/* Group only — the specific contracting company is shown inside the contract. */}
                         <div className="truncate font-medium" title={c.customerName !== c.customerGroup ? `Contracting company: ${c.customerName}` : undefined}>
                           {c.customerGroup}
                         </div>
                       </TableCell>
+                      <TableCell className="truncate">{c.title}</TableCell>
                       <TableCell className="text-right font-mono text-sm">{fmtEur(Number(c.totalValue))}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{fmtEur(c.collectedAmount)}</TableCell>
-                      <TableCell className="text-center">{c.vesselCount}</TableCell>
-                      <TableCell className="text-center text-sm">{c.paidInstallments}/{c.totalInstallments}</TableCell>
+                      <TableCell className="text-center text-sm" title={`${(c as { activatedVesselCount?: number }).activatedVesselCount ?? 0} of ${c.vesselCount} vessel(s) shipped`}>
+                        {/* Activated / agreed, so the pipeline is visible without opening the contract. */}
+                        <span className="font-mono">
+                          <span className={((c as { activatedVesselCount?: number }).activatedVesselCount ?? 0) > 0 ? "text-emerald-700 font-medium" : "text-muted-foreground"}>
+                            {(c as { activatedVesselCount?: number }).activatedVesselCount ?? 0}
+                          </span>
+                          <span className="text-muted-foreground">/{c.vesselCount}</span>
+                        </span>
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline" className={statusColors[c.status] ?? ""}>{c.status}</Badge>
                       </TableCell>

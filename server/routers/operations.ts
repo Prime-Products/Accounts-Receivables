@@ -366,7 +366,7 @@ export const opsContractsRouter = router({
     const byId = new Map(customers.map(c => [c.id, c]));
     return contracts.map(c => {
       const payments = schedules.filter(p => p.contractId === c.id);
-      const vesselCount = assignments.filter(a => a.contractId === c.id).length;
+      const contractVessels = assignments.filter(a => a.contractId === c.id);
       return {
         ...c,
         customerName: byId.get(c.customerId)?.name ?? "—",
@@ -374,7 +374,13 @@ export const opsContractsRouter = router({
         totalInstallments: payments.length,
         paidInstallments: payments.filter(p => p.status === "Paid").length,
         collectedAmount: payments.filter(p => p.status === "Paid").reduce((s, p) => s + Number(p.amount), 0),
-        vesselCount,
+        vesselCount: contractVessels.length,
+        /**
+         * A vessel is commercially activated once its equipment has shipped — that is the
+         * date its installments are generated from. Agreed-but-unshipped vessels are the
+         * pipeline the fleet dashboard highlights.
+         */
+        activatedVesselCount: contractVessels.filter(a => a.shipmentDate != null).length,
       };
     });
   }),

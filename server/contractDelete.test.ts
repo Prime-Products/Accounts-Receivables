@@ -62,7 +62,8 @@ describe("contract delete — UI", () => {
   });
 
   it("keeps the row/header column counts in step after adding the actions column", () => {
-    expect(listSrc).toMatch(/colSpan=\{11\}/);
+    // Contract # / Customer / Title / Value / Vessels / Status / Start / End (+ actions).
+    expect(listSrc).toMatch(/colSpan=\{8\}/);
     expect(listSrc).toMatch(/actions:\s*\d+/);
   });
 

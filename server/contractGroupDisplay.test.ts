@@ -10,8 +10,8 @@ const listSrc = readFileSync(join(process.cwd(), "client/src/pages/ops/OpsContra
 const detailSrc = readFileSync(join(process.cwd(), "client/src/pages/ops/OpsContractDetail.tsx"), "utf8");
 
 describe("contracts list shows the group only", () => {
-  it("labels the customer column as Group", () => {
-    expect(listSrc).toMatch(/>Group <SortIcon col="customerGroup"/);
+  it("labels the group column Customer while still sorting by group", () => {
+    expect(listSrc).toMatch(/>Customer <SortIcon col="customerGroup"/);
   });
 
   it("sorts that column by group, not by company", () => {
