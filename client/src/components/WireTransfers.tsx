@@ -9,6 +9,12 @@ import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtCur, fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import {
+  DEFAULT_REMITTANCE_METHOD,
+  REMITTANCE_METHODS,
+  normalizeRemittanceMethod,
+  type RemittanceMethod,
+} from "@shared/remittanceMethods";
 import { Building2, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -20,12 +26,29 @@ interface WireTransfersProps {
 }
 
 const CURRENCIES = ["EUR", "USD", "AED", "SGD", "GBP", "NOK", "JPY"];
+/** Instruments a customer can remit with — same list as the Remittances page. */
+const METHODS = REMITTANCE_METHODS;
+type Method = RemittanceMethod;
+const METHOD_STYLES: Record<Method, string> = {
+  Transfer: "bg-sky-50 text-sky-700 border-sky-200",
+  Cheque: "bg-amber-50 text-amber-800 border-amber-200",
+  "Credit Card": "bg-violet-50 text-violet-700 border-violet-200",
+};
+function MethodBadge({ method }: { method?: string | null }) {
+  const m = normalizeRemittanceMethod(method);
+  return (
+    <span className={cn("inline-block rounded border px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap", METHOD_STYLES[m])}>
+      {m}
+    </span>
+  );
+}
 
 export function WireTransfers({ customerId }: WireTransfersProps) {
   const utils = trpc.useUtils();
-  const wtCols = useResizableColumns("wire-transfers", {
+  const wtCols = useResizableColumns("remittances-card", {
     date: 110,
     branch: 150,
+    method: 120,
     amount: 130,
     status: 120,
     reference: 160,
@@ -64,25 +87,32 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
     amount: "",
     currency: "EUR",
     branch: "none",
+    method: DEFAULT_REMITTANCE_METHOD as Method,
     transferDate: new Date().toISOString().split("T")[0],
     status: "Pending",
     referenceNumber: "",
     notes: "",
+    // Cheque-only fields, ignored for transfers and card payments.
+    chequeBank: "",
+    chequeDueDate: "",
   });
 
   const createMutation = trpc.customers.createWireTransfer.useMutation({
     onSuccess: () => {
-      toast.success("Wire transfer recorded");
+      toast.success("Remittance recorded");
       utils.customers.listWireTransfers.invalidate({ customerId });
       setOpen(false);
       setForm({
         amount: "",
         currency: "EUR",
         branch: "none",
+        method: DEFAULT_REMITTANCE_METHOD,
         transferDate: new Date().toISOString().split("T")[0],
         status: "Pending",
         referenceNumber: "",
         notes: "",
+        chequeBank: "",
+        chequeDueDate: "",
       });
     },
     onError: (e) => toast.error(e.message),
@@ -90,7 +120,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
 
   const updateMutation = trpc.customers.updateWireTransfer.useMutation({
     onSuccess: () => {
-      toast.success("Wire transfer updated");
+      toast.success("Remittance updated");
       utils.customers.listWireTransfers.invalidate({ customerId });
     },
     onError: (e) => toast.error(e.message),
@@ -98,7 +128,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
 
   const deleteMutation = trpc.customers.deleteWireTransfer.useMutation({
     onSuccess: () => {
-      toast.success("Wire transfer deleted");
+      toast.success("Remittance deleted");
       utils.customers.listWireTransfers.invalidate({ customerId });
     },
     onError: (e) => toast.error(e.message),
@@ -116,11 +146,15 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
       amount: Number(form.amount),
       currency: form.currency,
       branch: form.branch !== "none" ? form.branch : null,
+      method: form.method,
       transferDate,
       status: form.status as "Pending" | "Received",
       referenceNumber: form.referenceNumber || null,
       notes: form.notes || null,
       receivedDate: form.status === "Received" ? new Date().getTime() : null,
+      chequeBank: form.method === "Cheque" ? form.chequeBank.trim() || null : null,
+      chequeDueDate:
+        form.method === "Cheque" && form.chequeDueDate ? new Date(form.chequeDueDate).getTime() : null,
     });
   };
 
@@ -134,7 +168,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
   };
 
   const handleDelete = (id: number) => {
-    if (confirm("Are you sure you want to delete this wire transfer?")) {
+    if (confirm("Are you sure you want to delete this remittance?")) {
       deleteMutation.mutate({ id, customerId });
     }
   };
@@ -142,7 +176,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold">Wire Transfers</h3>
+        <h3 className="text-lg font-semibold">Remittances</h3>
         <div className="flex items-center gap-2">
           {internalCount > 0 && (
             <Button
@@ -171,12 +205,12 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
           <DialogTrigger asChild>
             <Button size="sm" className="gap-2">
               <Plus className="w-4 h-4" />
-              New Transfer
+              New Remittance
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Record Wire Transfer</DialogTitle>
+              <DialogTitle>Record Remittance</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -208,6 +242,44 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
               </div>
 
               <div>
+                <Label>Method</Label>
+                <Select value={form.method} onValueChange={(v) => setForm({ ...form, method: v as Method })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {METHODS.map(m => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {form.method === "Cheque" && (
+                <div className="grid grid-cols-2 gap-4 rounded-md border border-dashed border-border/70 bg-muted/30 p-3">
+                  <div>
+                    <Label>Bank</Label>
+                    <Input
+                      value={form.chequeBank}
+                      onChange={e => setForm({ ...form, chequeBank: e.target.value })}
+                      placeholder="Issuing bank, e.g. Alpha Bank"
+                    />
+                  </div>
+                  <div>
+                    <Label>Due date</Label>
+                    <Input
+                      type="date"
+                      value={form.chequeDueDate}
+                      onChange={e => setForm({ ...form, chequeDueDate: e.target.value })}
+                    />
+                    <p className="mt-1 text-[11px] text-muted-foreground">Date the cheque can be cashed.</p>
+                  </div>
+                </div>
+              )}
+
+              <div>
                 <Label>Branch (received at)</Label>
                 <Select value={form.branch} onValueChange={(v) => setForm({ ...form, branch: v })}>
                   <SelectTrigger>
@@ -226,7 +298,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Transfer Date</Label>
+                  <Label>{form.method === "Cheque" ? "Cheque date" : "Payment date"}</Label>
                   <Input
                     type="date"
                     value={form.transferDate}
@@ -250,7 +322,13 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
               <div>
                 <Label>Reference Number (optional)</Label>
                 <Input
-                  placeholder="Bank reference or transaction ID"
+                  placeholder={
+                    form.method === "Cheque"
+                      ? "Cheque number"
+                      : form.method === "Credit Card"
+                        ? "Card authorisation / transaction ID"
+                        : "Bank reference or transaction ID"
+                  }
                   value={form.referenceNumber}
                   onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })}
                 />
@@ -291,8 +369,8 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">
               {internalCount > 0 && !showInternal
-                ? "No client transfers recorded yet — use the Internal button to see the intercompany ones."
-                : "No wire transfers recorded yet"}
+                ? "No customer remittances recorded yet — use the Internal button to see the intercompany transfers."
+                : "No remittances recorded yet"}
             </p>
           </CardContent>
         </Card>
@@ -306,6 +384,7 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                     [
                       ["date", "Date"],
                       ["branch", "Branch"],
+                      ["method", "Method"],
                       ["amount", "Amount"],
                       ["status", "Status"],
                       ["reference", "Reference"],
@@ -332,6 +411,35 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                         </span>
                       ) : (
                         t.branch || "-"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {t.isInternal ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <>
+                          <MethodBadge method={t.method} />
+                          {normalizeRemittanceMethod(t.method) === "Cheque" && (t.chequeBank || t.chequeDueDate) && (
+                            <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                              {t.chequeBank && (
+                                <div className="truncate" title={t.chequeBank}>
+                                  {t.chequeBank}
+                                </div>
+                              )}
+                              {t.chequeDueDate && (
+                                <div
+                                  className={
+                                    t.status !== "Received" && Number(t.chequeDueDate) < Date.now()
+                                      ? "font-medium text-red-600"
+                                      : undefined
+                                  }
+                                >
+                                  due {fmtDate(Number(t.chequeDueDate))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
                       )}
                     </TableCell>
                     <TableCell>{fmtCur(t.amount, t.currency)}</TableCell>
@@ -392,14 +500,14 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
         </Card>
       )}
 
-      {/* Incoming allocations: money credited to this company's invoices via wire transfers (possibly from other group members) */}
+      {/* Incoming allocations: money credited to this company's invoices via remittances (possibly from other group members) */}
       {(incoming as any[]).length > 0 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">
               Incoming allocations{" "}
               <span className="text-sm font-normal text-muted-foreground">
-                (amounts settled on this company's invoices via wire transfers)
+                (amounts settled on this company's invoices via remittances)
               </span>
             </CardTitle>
           </CardHeader>
@@ -414,8 +522,8 @@ export function WireTransfers({ customerId }: WireTransfersProps) {
                       ["invoice", "Invoice"],
                       ["branch", "Branch"],
                       ["fromBranch", "From branch"],
-                      ["viaFrom", "Via wire transfer from"],
-                      ["transfer", "Transfer"],
+                      ["viaFrom", "Via remittance from"],
+                      ["transfer", "Remittance"],
                     ] as const
                   ).map(([key, label]) => (
                     <TableHead key={key} className="relative" style={payCols.style(key)}>

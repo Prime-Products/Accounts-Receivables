@@ -17,6 +17,16 @@ import {
   teamRouter,
 } from "./routers/ar";
 import { addressBookRouter } from "./routers/addressBook";
+import {
+  opsCatalogRouter,
+  opsQuotationsRouter,
+  opsContractsRouter,
+  opsAssetsRouter,
+  opsCertificatesRouter,
+  opsOrdersRouter,
+  opsVesselRouter,
+  opsDashboardRouter,
+} from "./routers/operations";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -45,6 +55,15 @@ export const appRouter = router({
   forecast: forecastRouter,
   reports: reportsRouter,
   admin: adminRouter,
+  // Operations module
+  opsCatalog: opsCatalogRouter,
+  opsQuotations: opsQuotationsRouter,
+  opsContracts: opsContractsRouter,
+  opsAssets: opsAssetsRouter,
+  opsCertificates: opsCertificatesRouter,
+  opsOrders: opsOrdersRouter,
+  opsVessel: opsVesselRouter,
+  opsDashboard: opsDashboardRouter,
 });
 
 export type AppRouter = typeof appRouter;

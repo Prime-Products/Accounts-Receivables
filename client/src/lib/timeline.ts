@@ -92,6 +92,10 @@ export function buildTimeline(sources: TimelineSources): TimelineEntry[] {
   const out: TimelineEntry[] = [];
 
   for (const a of sources.activityLogs ?? []) {
+    // Writing a note also writes a "Note added" activity line, so the same text
+    // would show twice. The note row is the one that can be edited or deleted,
+    // so the log echo is dropped here.
+    if (a.activityType === "note" && a.title.trim() === "Note added") continue;
     out.push({
       id: `log-${a.id}`,
       at: ms(a.createdAt),
@@ -110,6 +114,8 @@ export function buildTimeline(sources: TimelineSources): TimelineEntry[] {
       title: "Note",
       body: n.content ?? null,
       author: n.authorName ?? null,
+      // Row id travels with the entry so the timeline can edit/delete in place.
+      noteId: n.id,
     });
   }
 

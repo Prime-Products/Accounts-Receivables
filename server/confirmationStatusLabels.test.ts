@@ -3,13 +3,13 @@ import { confirmationStatusLabel } from "./taskMarkers";
 
 /**
  * The stored value stays "Broken" (no migration, no rewriting of history), but
- * every human-facing surface must read "Did not confirm". This pins the mapping
+ * every human-facing surface must read "Promise Broken". This pins the mapping
  * so a future refactor cannot quietly leak the raw DB value into the UI or into
  * an activity-log line.
  */
 describe("confirmation status labels", () => {
-  it("renders the stored Broken value as 'Did not confirm'", () => {
-    expect(confirmationStatusLabel("Broken")).toBe("Did not confirm");
+  it("renders the stored Broken value as 'Promise Broken'", () => {
+    expect(confirmationStatusLabel("Broken")).toBe("Promise Broken");
   });
 
   it("keeps the other labels unchanged", () => {

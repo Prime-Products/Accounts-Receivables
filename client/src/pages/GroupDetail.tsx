@@ -435,7 +435,7 @@ export default function GroupDetail() {
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
   // Credit-note toggle: when on, the transactions list shows only credit notes.
   const [creditOnly, setCreditOnly] = useState(false);
-  // Payments toggle: when on, the transactions list shows only wire transfers.
+  // Payments toggle: when on, the transactions list shows only remittances.
   const [paymentsOnly, setPaymentsOnly] = useState(false);
   // The transactions list is a collection worklist, so settled invoices are hidden
   // by default; the toggle brings them back for reconciliation/history checks.
@@ -585,11 +585,15 @@ export default function GroupDetail() {
   }, [allCreditNotes, creditOnly, paymentsOnly, invoiceOnlyFilterActive, vesselDrill]);
 
   /**
-   * Payments (wire transfers with an unallocated remainder) shown inside the same
-   * transactions list. A payment has no vessel or aging bucket, so the
-   * invoice-only filters hide them rather than showing a misleading subset.
+   * Payments (customer remittances) shown inside the same transactions list —
+   * including ones already matched in full, which appear as "Matched" so the group
+   * card is a complete record of the money received. A payment has no vessel or
+   * aging bucket, so the invoice-only filters hide them rather than showing a
+   * misleading subset.
    */
   const allTransfers = ((data as any)?.openTransfers ?? []) as any[];
+  /** Payments that still have money sitting on account (nothing matched yet, or a remainder). */
+  const openTransferCount = allTransfers.filter(t => !(t.settled ?? t.unallocated <= 0.005)).length;
   const visibleTransfers = useMemo(() => {
     if (allTransfers.length === 0) return [];
     if (creditOnly) return [];
@@ -748,7 +752,7 @@ export default function GroupDetail() {
               {data && (data as any).confirmationCarriedOver && (
                 <span
                   className="text-[11px] text-amber-600 font-normal inline-flex items-center gap-1"
-                  title="Recorded in a previous month — still active until its date"
+                  title="Recorded in a previous month — still standing until a new call is logged"
                 >
                   ↻ Carried over
                 </span>
@@ -861,29 +865,33 @@ export default function GroupDetail() {
             <Card>
               <CardContent className="pt-4">
                 <div className="text-xs text-muted-foreground">Open Balance</div>
-                <div className="text-xl font-bold font-mono">{fmtEur((data.totals as any).netOpenBalance ?? data.totals.openBalance)}</div>
-                {(((data.totals as any).unallocatedPayments ?? 0) > 0.005 ||
-                  ((data.totals as any).openCreditNotes ?? 0) > 0.005) && (
-                  <div
-                    className="text-[11px] font-mono mt-0.5 text-emerald-600"
-                    title="Open invoices minus payments on account and credit notes that are not yet matched"
-                  >
-                    {fmtEur(data.totals.openBalance)} inv
-                    {((data.totals as any).unallocatedPayments ?? 0) > 0.005 &&
-                      ` − ${fmtEur((data.totals as any).unallocatedPayments)} on acct`}
-                    {((data.totals as any).openCreditNotes ?? 0) > 0.005 && (
-                      <span className="text-sky-600"> − {fmtEur((data.totals as any).openCreditNotes)} credit</span>
-                    )}
-                  </div>
-                )}
-                <div className="text-[11px] text-muted-foreground mt-0.5">
-                  {fmtByCurrency(data.totals.openByCurrency, { skipEurOnly: true })}
-                </div>
                 <div
-                  className="text-[11px] font-mono mt-0.5 text-blue-600"
-                  title="Open invoices falling due within the next calendar month"
+                  className="text-xl font-bold font-mono"
+                  title={[
+                    `Open invoices: ${fmtEur(data.totals.openBalance)}`,
+                    ((data.totals as any).unallocatedPayments ?? 0) > 0.005
+                      ? `Payments on account (unmatched): −${fmtEur((data.totals as any).unallocatedPayments)}`
+                      : null,
+                    ((data.totals as any).openCreditNotes ?? 0) > 0.005
+                      ? `Open credit notes: −${fmtEur((data.totals as any).openCreditNotes)}`
+                      : null,
+                    fmtByCurrency(data.totals.openByCurrency, { skipEurOnly: true })
+                      ? `By currency: ${fmtByCurrency(data.totals.openByCurrency, { skipEurOnly: true })}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")}
                 >
-                  Due next month: {fmtEur((data.totals as any).dueNextMonth ?? 0)}
+                  {fmtEur((data.totals as any).netOpenBalance ?? data.totals.openBalance)}
+                </div>
+                {/* Only the net balance and next month's exposure are shown; the
+                    invoice / on-account / credit-note breakdown lives in the
+                    tooltip so the card stays readable at a glance. */}
+                <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                  <span className="text-[11px] text-muted-foreground">Due next month</span>
+                  <span className="text-[11px] font-mono font-medium" title="Open invoices falling due within the next calendar month">
+                    {fmtEur((data.totals as any).dueNextMonth ?? 0)}
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -893,9 +901,17 @@ export default function GroupDetail() {
                 <div className={`text-xl font-bold font-mono ${data.totals.overdueBalance > 0 ? "text-red-600" : ""}`}>
                   {fmtEur(data.totals.overdueBalance)}
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">{data.totals.overdueCount} overdue invoice(s)</div>
-                <div className="text-[11px] font-mono mt-0.5 text-orange-600" title="Overdue by end of the current month (today's overdue + invoices falling due until month end)">
-                  EOM: {fmtEur(data.overdueEomBalance)}
+                {/* Secondary amount gets the same weight and layout as the
+                    Open Balance card: a labelled row under a divider, so the
+                    number is readable instead of a faint coloured line. */}
+                <div
+                  className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5"
+                  title="Overdue by end of the current month (today's overdue + invoices falling due until month end)"
+                >
+                  <span className="text-[11px] text-muted-foreground">
+                    End of month · {data.totals.overdueCount} inv.
+                  </span>
+                  <span className="text-[11px] font-mono font-medium">{fmtEur(data.overdueEomBalance)}</span>
                 </div>
               </CardContent>
             </Card>
@@ -905,9 +921,9 @@ export default function GroupDetail() {
                 {groupForecast && (groupForecast as any).hasForecast !== false ? (
                   <>
                     <EditableGroupForecast group={group} value={groupForecast.expectedAmount} reasoning={groupForecast.aiReasoning} />
-                    <div className="text-[11px] font-mono mt-0.5">
-                      <span className="text-muted-foreground">Expected: </span>
-                      <span className="font-semibold">
+                    <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                      <span className="text-[11px] text-muted-foreground">Expected to collect</span>
+                      <span className="text-[11px] font-mono font-medium">
                         {fmtEur((data as any).expectedToCollect ?? groupForecast.expectedAmount)}
                       </span>
                     </div>
@@ -916,12 +932,12 @@ export default function GroupDetail() {
                         (data as any).expectedVariance ??
                         ((data as any).expectedToCollect ?? groupForecast.expectedAmount) - groupForecast.expectedAmount;
                       return (
-                        <div
-                          className={`text-[11px] font-mono mt-0.5 ${variance >= 0 ? "text-emerald-600" : "text-red-600"}`}
-                          title="Expected to Collect vs Forecast"
-                        >
-                          {variance >= 0 ? "+" : ""}
-                          {fmtEur(variance)} vs forecast
+                        <div className="mt-1 flex items-baseline justify-between gap-2" title="Expected to Collect vs Forecast">
+                          <span className="text-[11px] text-muted-foreground">vs forecast</span>
+                          <span className={`text-[11px] font-mono font-medium ${variance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            {variance >= 0 ? "+" : ""}
+                            {fmtEur(variance)}
+                          </span>
                         </div>
                       );
                     })()}
@@ -958,13 +974,19 @@ export default function GroupDetail() {
                 <div className="text-xl font-bold font-mono text-blue-700">
                   {data.totals.turnoverYtd > 0 ? fmtEur(data.totals.turnoverYtd) : "—"}
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
-                  last year: {data.totals.turnoverLastYear > 0 ? fmtEur(data.totals.turnoverLastYear) : "—"}
-                  {data.totals.turnoverYtd > 0 && data.totals.turnoverLastYear > 0 && (
-                    <span className={data.totals.turnoverYtd >= data.totals.turnoverLastYear ? "text-emerald-600" : "text-amber-600"}>
-                      {" "}· {((data.totals.turnoverYtd / data.totals.turnoverLastYear - 1) * 100).toFixed(0)}%
-                    </span>
-                  )}
+                <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                  <span className="text-[11px] text-muted-foreground">
+                    Last year
+                    {data.totals.turnoverYtd > 0 && data.totals.turnoverLastYear > 0 && (
+                      <span className={data.totals.turnoverYtd >= data.totals.turnoverLastYear ? "text-emerald-600" : "text-amber-600"}>
+                        {" "}
+                        ({((data.totals.turnoverYtd / data.totals.turnoverLastYear - 1) * 100).toFixed(0)}%)
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[11px] font-mono font-medium">
+                    {data.totals.turnoverLastYear > 0 ? fmtEur(data.totals.turnoverLastYear) : "—"}
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -1134,7 +1156,7 @@ export default function GroupDetail() {
                       ? "Show invoices again"
                       : visibleTransfers.length === 0
                         ? "Payments are hidden by the current filters — click to show them"
-                        : "Show only payments on account"
+                        : `Show only customer payments — ${openTransferCount} with money still on account, ${allTransfers.length - openTransferCount} already matched`
                 }
               >
                 <Banknote className="h-3.5 w-3.5" />

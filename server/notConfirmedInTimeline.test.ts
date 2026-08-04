@@ -45,7 +45,7 @@ describe("a refusal stays in the timeline even when the call ends on another sta
     await cleanupSince(snap);
   });
 
-  it("records 'Did not confirm → Pending Follow-up' when a call-back date is set after a refusal", async () => {
+  it("records 'Promise Broken → Pending Follow-up' when a call-back date is set after a refusal", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const followUpDate = Date.now() + 3 * 86400000;
     await caller.calls.logCall({
@@ -59,16 +59,16 @@ describe("a refusal stays in the timeline even when the call ends on another sta
 
     const timeline = await db.listActivityLog(fixture.group, 20);
     const entry = timeline[0];
-    expect(entry.title).toContain("Did not confirm");
+    expect(entry.title).toContain("Promise Broken");
     expect(entry.title).toContain("Pending Follow-up");
-    expect(entry.description ?? "").toContain("Customer response: Did not confirm");
+    expect(entry.description ?? "").toContain("Customer response: Promise Broken");
 
     // The status the group ends on is still the plan, not the refusal.
     const status = await db.getGroupConfirmationStatus(fixture.group);
     expect(status?.status).toBe("Pending Follow-up");
   });
 
-  it("records 'Did not confirm → Promise to Pay' when a promise is rescheduled after a refusal", async () => {
+  it("records 'Promise Broken → Promise to Pay' when a promise is rescheduled after a refusal", async () => {
     const caller = appRouter.createCaller(createAuthContext());
     const promisedDate = Date.now() + 10 * 86400000;
     await caller.calls.logCall({
@@ -83,9 +83,9 @@ describe("a refusal stays in the timeline even when the call ends on another sta
 
     const timeline = await db.listActivityLog(fixture.group, 20);
     const entry = timeline[0];
-    expect(entry.title).toContain("Did not confirm");
+    expect(entry.title).toContain("Promise Broken");
     expect(entry.title).toContain("Promise to Pay");
-    expect(entry.description ?? "").toContain("Customer response: Did not confirm");
+    expect(entry.description ?? "").toContain("Customer response: Promise Broken");
   });
 
   it("does not duplicate the response when the call ends where it started", async () => {
@@ -100,8 +100,8 @@ describe("a refusal stays in the timeline even when the call ends on another sta
 
     const timeline = await db.listActivityLog(fixture.group, 20);
     const entry = timeline[0];
-    // One mention of the refusal, not "Did not confirm → Did not confirm".
-    expect(entry.title).toContain("Did not confirm");
+    // One mention of the refusal, not "Promise Broken → Promise Broken".
+    expect(entry.title).toContain("Promise Broken");
     expect(entry.title).not.toContain("→");
     expect(entry.description ?? "").not.toContain("Customer response:");
   });

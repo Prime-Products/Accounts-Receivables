@@ -1,0 +1,29 @@
+# Contracts & Operations Module TODO
+
+- [x] Update Contracts page with new implementation (resizable columns, search, sort, detail dialog, summary strip)
+- [x] Verify TypeScript compilation passes
+- [x] Save checkpoint and publish (auto-publish enabled)
+- [x] Create database schema for new tables (ops_services, ops_asset_catalog, ops_consumable_catalog, ops_quotations, ops_quotation_items, ops_contracts, ops_contract_library, ops_payment_schedule, ops_vessel_assignments, ops_assets, ops_certificates, ops_consumable_orders, ops_vessel_history)
+- [x] Build backend tRPC routers for all modules (catalog, quotations, contracts, assets, certificates, orders, vessel, dashboard)
+- [x] Build sidebar navigation with Operations section
+- [x] Build Operations Dashboard with KPI cards
+- [x] Add Create Quotation dialog with item builder
+- [x] Add Quotation detail view with convert-to-contract action
+- [x] Add Create Contract dialog
+- [x] Add Assign Vessel dialog to Contract Detail
+- [x] Add Create Asset dialog
+- [x] Add Asset status change actions
+- [x] Build Certificates page with expiry warnings
+- [x] Build Consumable Orders page with status filter
+- [x] Build Reverse Logistics Dashboard (pending returns)
+- [x] Build Statement of Account (SoA) in Reports page
+- [x] Build Vessel Dashboard with KPIs, equipment, quota, history
+- [x] Add Catalog management page (Services, Assets, Consumables CRUD)
+- [ ] Remove Quotations page from sidebar and routing
+- [x] Remove Quotations page from sidebar and routing
+- [x] Update New Contract dialog to support multiple vessels (fleet)
+- [x] Update contract flow: Draft → Sent → Active → Expired/Terminated
+- [x] Update contract flow: Draft → Sent → Active → Expired/Terminated
+- [ ] Add UI actions in contract detail to change status (Draft → Sent → Active)
+- [x] Add UI actions in contract detail to change status (Draft → Sent → Active)
+- [x] Remove stale 'Completed' status from contracts UI filter

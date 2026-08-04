@@ -86,7 +86,7 @@ export default function CustomerDetail() {
   const [installmentFilter, setInstallmentFilter] = useState<"all" | "installments">("all");
   // Credit-note toggle: when on, the transactions list shows only credit notes.
   const [creditOnly, setCreditOnly] = useState(false);
-  // Payments toggle: when on, the transactions list shows only wire transfers.
+  // Payments toggle: when on, the transactions list shows only remittances.
   const [paymentsOnly, setPaymentsOnly] = useState(false);
   // Settled invoices are hidden by default (same rule as the group card).
   const [showPaid, setShowPaid] = useState(false);
@@ -138,7 +138,7 @@ export default function CustomerDetail() {
   const invoiceOnlyFilterActive = installmentFilter === "installments" || statusFilter !== "all";
   const visibleCreditNotes =
     paymentsOnly || (invoiceOnlyFilterActive && !creditOnly) ? [] : allCreditNotes;
-  // Payments (wire transfers with an unallocated remainder) live in the same list.
+  // Payments (customer remittances) live in the same list, matched ones included.
   const allTransfers = ((data as any).openTransfers ?? []) as any[];
   const visibleTransfers =
     creditOnly || (invoiceOnlyFilterActive && !paymentsOnly) ? [] : allTransfers;
@@ -334,7 +334,24 @@ export default function CustomerDetail() {
         <Card>
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Open Balance</div>
-            <div className="text-xl font-bold font-mono">
+            <div
+              className="text-xl font-bold font-mono"
+              title={[
+                `Open invoices: ${fmtEur(aging.current + aging.totalOverdue)}`,
+                ((data as any).unallocatedPayments ?? 0) > 0.005
+                  ? `Payments on account (unmatched): −${fmtEur((data as any).unallocatedPayments)}`
+                  : null,
+                ((data as any).openCreditNotesTotal ?? 0) > 0.005
+                  ? `Open credit notes: −${fmtEur((data as any).openCreditNotesTotal)}`
+                  : null,
+                fmtByCurrency(agingAny.totalByCurrency, { skipEurOnly: true })
+                  ? `By currency: ${fmtByCurrency(agingAny.totalByCurrency, { skipEurOnly: true })}`
+                  : null,
+                `${openInvoices.length} open invoice(s)`,
+              ]
+                .filter(Boolean)
+                .join("\n")}
+            >
               {fmtEur(
                 aging.current +
                   aging.totalOverdue -
@@ -342,21 +359,13 @@ export default function CustomerDetail() {
                   ((data as any).openCreditNotesTotal ?? 0),
               )}
             </div>
-            {(((data as any).unallocatedPayments ?? 0) > 0.005 ||
-              ((data as any).openCreditNotesTotal ?? 0) > 0.005) && (
-              <div
-                className="text-[11px] font-mono mt-0.5 text-emerald-600"
-                title="Open invoices minus payments on account and credit notes that are not yet matched"
-              >
-                {fmtEur(aging.current + aging.totalOverdue)} inv
-                {((data as any).unallocatedPayments ?? 0) > 0.005 && ` − ${fmtEur((data as any).unallocatedPayments)} on acct`}
-                {((data as any).openCreditNotesTotal ?? 0) > 0.005 && (
-                  <span className="text-sky-600"> − {fmtEur((data as any).openCreditNotesTotal)} credit</span>
-                )}
-              </div>
-            )}
-            <div className="text-[11px] text-muted-foreground mt-0.5">
-              {fmtByCurrency(agingAny.totalByCurrency, { skipEurOnly: true }) || `${openInvoices.length} open invoice(s)`}
+            {/* Same reading as the group card: balance plus next month's
+                exposure, with the breakdown moved into the tooltip. */}
+            <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+              <span className="text-[11px] text-muted-foreground">Due next month</span>
+              <span className="text-[11px] font-mono font-medium" title="Open invoices falling due within the next calendar month">
+                {fmtEur((data as any).dueNextMonth ?? 0)}
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -364,11 +373,16 @@ export default function CustomerDetail() {
           <CardContent className="pt-4">
             <div className="text-xs text-muted-foreground">Overdue</div>
             <div className={`text-xl font-bold font-mono ${aging.totalOverdue > 0 ? "text-red-600" : ""}`}>{fmtEur(aging.totalOverdue)}</div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">
-              {openInvoices.filter(i => now > i.dueDate).length} overdue invoice(s)
-            </div>
-            <div className="text-[11px] font-mono mt-0.5 text-orange-600" title="Overdue by end of the current month (today's overdue + invoices falling due until month end)">
-              EOM: {fmtEur(data.overdueEomBalance)}
+            {/* Same treatment as the group card: the second amount sits on a
+                labelled row under a divider so it is easy to read. */}
+            <div
+              className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5"
+              title="Overdue by end of the current month (today's overdue + invoices falling due until month end)"
+            >
+              <span className="text-[11px] text-muted-foreground">
+                End of month · {openInvoices.filter(i => now > i.dueDate).length} inv.
+              </span>
+              <span className="text-[11px] font-mono font-medium">{fmtEur(data.overdueEomBalance)}</span>
             </div>
           </CardContent>
         </Card>
@@ -380,8 +394,13 @@ export default function CustomerDetail() {
                 <div className="text-xl font-bold font-mono text-emerald-700" title={groupForecast.aiReasoning ?? undefined}>
                   {fmtEur(groupForecast.expectedAmount)}
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
-                  collected {fmtEur(groupForecast.collected)} · remaining {fmtEur(groupForecast.remaining)}
+                <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                  <span className="text-[11px] text-muted-foreground">Collected</span>
+                  <span className="text-[11px] font-mono font-medium">{fmtEur(groupForecast.collected)}</span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between gap-2">
+                  <span className="text-[11px] text-muted-foreground">Remaining</span>
+                  <span className="text-[11px] font-mono font-medium">{fmtEur(groupForecast.remaining)}</span>
                 </div>
               </>
             ) : (
@@ -401,8 +420,9 @@ export default function CustomerDetail() {
                 >
                   {data.behavior.medianDaysLate > 0 ? `+${Math.round(data.behavior.medianDaysLate)}` : Math.round(data.behavior.medianDaysLate)}d median
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">
-                  avg {Math.round(data.behavior.avgDaysLate)}d vs due date · {data.behavior.payments} payments
+                <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                  <span className="text-[11px] text-muted-foreground">Average · {data.behavior.payments} payments</span>
+                  <span className="text-[11px] font-mono font-medium">{Math.round(data.behavior.avgDaysLate)}d</span>
                 </div>
               </>
             ) : (
@@ -416,7 +436,10 @@ export default function CustomerDetail() {
             <div className="text-xl font-bold font-mono text-blue-700">
               {customer.turnoverYtd != null ? fmtEur(customer.turnoverYtd) : "—"}
             </div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">credit limit {fmtEur(customer.creditLimit)}</div>
+            <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+              <span className="text-[11px] text-muted-foreground">Credit limit</span>
+              <span className="text-[11px] font-mono font-medium">{fmtEur(customer.creditLimit)}</span>
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -426,8 +449,13 @@ export default function CustomerDetail() {
               {customer.turnoverLastYear != null ? fmtEur(customer.turnoverLastYear) : "—"}
             </div>
             {customer.turnoverYtd != null && customer.turnoverLastYear != null && Number(customer.turnoverLastYear) > 0 && (
-              <div className={`text-[10px] font-mono mt-0.5 ${Number(customer.turnoverYtd) >= Number(customer.turnoverLastYear) ? "text-emerald-600" : "text-amber-600"}`}>
-                {((Number(customer.turnoverYtd) / Number(customer.turnoverLastYear) - 1) * 100).toFixed(0)}% vs last year
+              <div className="mt-2 flex items-baseline justify-between gap-2 border-t pt-1.5">
+                <span className="text-[11px] text-muted-foreground">vs this year</span>
+                <span
+                  className={`text-[11px] font-mono font-medium ${Number(customer.turnoverYtd) >= Number(customer.turnoverLastYear) ? "text-emerald-600" : "text-amber-600"}`}
+                >
+                  {((Number(customer.turnoverYtd) / Number(customer.turnoverLastYear) - 1) * 100).toFixed(0)}%
+                </span>
               </div>
             )}
           </CardContent>
@@ -463,7 +491,7 @@ export default function CustomerDetail() {
           <TabsTrigger value="contracts">Contracts ({contracts.length})</TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
           <TabsTrigger value="bankDetails">Bank Details</TabsTrigger>
-          <TabsTrigger value="wireTransfers">Wire Transfers</TabsTrigger>
+          <TabsTrigger value="wireTransfers">Remittances</TabsTrigger>
         </TabsList>
 
         <TabsContent value="invoices">

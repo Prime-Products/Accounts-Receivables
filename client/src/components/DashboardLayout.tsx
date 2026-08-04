@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/sidebar";
 import GlobalSearch from "@/components/GlobalSearch";
 import { trpc } from "@/lib/trpc";
+import { scrollPageToTop } from "@/lib/scrollToTop";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
@@ -46,6 +47,14 @@ import {
   UserCog,
   Banknote,
 } from "lucide-react";
+import {
+  Briefcase,
+  FileCheck2,
+  Package,
+  RotateCcw,
+  ShieldCheck,
+  Truck,
+} from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -67,7 +76,8 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
     items: [
       { icon: Users, label: "Collections Desk", path: "/customers" },
       { icon: FileText, label: "Invoices", path: "/invoices" },
-      { icon: Banknote, label: "Wire Transfers", path: "/wire-transfers" },
+      // "Remittances" covers every instrument the customer pays with: bank wire, cheque, credit card.
+      { icon: Banknote, label: "Remittances", path: "/remittances" },
       // Tasks are part of the daily chase (follow-ups, promises, help requests),
       // so they belong next to the desk rather than under Management.
       { icon: ListChecks, label: "Tasks", path: "/tasks" },
@@ -79,6 +89,18 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
       { icon: Contact, label: "Address Book", path: "/address-book" },
       { icon: Ship, label: "Vessels", path: "/vessels" },
       { icon: ScrollText, label: "Contracts", path: "/contracts" },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { icon: Briefcase, label: "Ops Dashboard", path: "/ops" },
+      { icon: FileCheck2, label: "Ops Contracts", path: "/ops/contracts" },
+      { icon: Package, label: "Assets", path: "/ops/assets" },
+      { icon: ShieldCheck, label: "Certificates", path: "/ops/certificates" },
+      { icon: Truck, label: "Orders", path: "/ops/orders" },
+      { icon: RotateCcw, label: "Returns", path: "/ops/returns" },
+      { icon: Settings, label: "Catalog", path: "/ops/catalog" },
     ],
   },
   {
@@ -201,7 +223,7 @@ function DashboardLayoutContent({
 }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
-  const { state, toggleSidebar } = useSidebar();
+  const { state, toggleSidebar, isMobile: sidebarIsMobile, setOpenMobile } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -338,11 +360,23 @@ function DashboardLayoutContent({
                 >
                   {section.items.map(item => {
                     const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
+                    /*
+                     * A menu click always takes you to the top of the page. Deep in a
+                     * 5,000-row invoice list the fastest way back to the filters is the
+                     * menu entry you are already on, so clicking the active item must
+                     * scroll up instead of doing nothing. On a different route we still
+                     * reset the scroll, because wouter keeps the window position.
+                     */
+                    const handleClick = () => {
+                      if (!isActive) setLocation(item.path);
+                      if (sidebarIsMobile) setOpenMobile(false);
+                      scrollPageToTop();
+                    };
                     return (
                       <SidebarMenuItem key={item.path}>
                         <SidebarMenuButton
                           isActive={isActive}
-                          onClick={() => setLocation(item.path)}
+                          onClick={handleClick}
                           tooltip={item.label}
                           className={`h-10 transition-all font-normal`}
                         >

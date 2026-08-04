@@ -1,6 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import { scrollPageToTop } from "@/lib/scrollToTop";
+import { normalizeRemittanceMethod } from "@shared/remittanceMethods";
 import { ArrowLeftRight, Banknote, Building2, FileText, ListChecks, Loader2, Mail, Search, Ship, StickyNote, Users, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -54,6 +56,7 @@ export default function GlobalSearch() {
     setOpen(false);
     setQuery("");
     navigate(path);
+    scrollPageToTop();
   };
 
   const hasResults =
@@ -211,7 +214,7 @@ export default function GlobalSearch() {
               {(data!.payments?.length ?? 0) > 0 && (
                 <Section title="Payments (allocations)">
                   {data!.payments!.map((p: any) => (
-                    <Row key={`p-${p.id}`} onClick={() => go("/wire-transfers")}>
+                    <Row key={`p-${p.id}`} onClick={() => go("/remittances")}>
                       <Banknote className="h-4 w-4 text-muted-foreground shrink-0" />
                       <div className="flex-1 min-w-0">
                         <div className="truncate text-sm">
@@ -220,7 +223,7 @@ export default function GlobalSearch() {
                           {p.payerName}
                         </div>
                         <div className="text-[10px] text-muted-foreground truncate">
-                          from transfer {p.transferAmount?.toLocaleString()} {p.currency}
+                          from remittance {p.transferAmount?.toLocaleString()} {p.currency}
                           {p.transferReference ? ` · ref ${p.transferReference}` : ""} ·{" "}
                           {new Date(Number(p.transferDate)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                         </div>
@@ -233,14 +236,19 @@ export default function GlobalSearch() {
                 </Section>
               )}
               {(data!.transfers?.length ?? 0) > 0 && (
-                <Section title="Wire transfers">
+                <Section title="Remittances">
                   {data!.transfers!.map((t: any) => (
-                    <Row key={`w-${t.id}`} onClick={() => go("/wire-transfers")}>
+                    <Row key={`w-${t.id}`} onClick={() => go("/remittances")}>
                       <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="flex-1 truncate">
                         {t.isInternal ? "Internal · " : ""}
                         {t.customerName}
                       </span>
+                      {!t.isInternal && t.method && normalizeRemittanceMethod(t.method) !== "Transfer" && (
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          {normalizeRemittanceMethod(t.method)}
+                        </span>
+                      )}
                       <span className="font-mono text-xs shrink-0">
                         {Number(t.amount).toLocaleString()} {t.currency}
                       </span>

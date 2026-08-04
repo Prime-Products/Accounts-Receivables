@@ -1,0 +1,15 @@
+All Operations module pages render correctly:
+- /ops - Dashboard with 8 KPI cards (loading state, empty data)
+- /ops/quotations - Table with columns: Quotation #, Customer, Cost, Price, Margin, Status, Valid Until, Created
+- /ops/contracts - Table with columns: Contract #, Title, Customer, Value, Collected, Vessels, Installments
+- /ops/assets - Table with columns: Serial #, Name, Vessel, Status, Return Port, Updated
+- /ops/certificates - Table with columns: Certificate #, Asset, Vessel, Issued, Expires, Days Left
+- /ops/orders - Table with columns: Vessel, Qty, Status, Ordered, Shipped, Delivered, Notes
+- /ops/returns - Table with columns: Serial #, Name, Vessel, Return Port, Last Updated, Action
+
+Sidebar navigation correctly shows:
+- OPERATIONS section with: Ops Dashboard, Quotations, Ops Contracts, Assets, Certificates, Orders
+- MANAGEMENT section with: Returns, Reports
+
+All pages have consistent design: search bar, status filter, sortable columns, empty states.
+TypeScript compilation: 0 errors.

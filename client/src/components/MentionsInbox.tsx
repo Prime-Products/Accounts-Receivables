@@ -2,6 +2,7 @@ import MentionText from "@/components/MentionText";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { trpc } from "@/lib/trpc";
+import { scrollPageToTop } from "@/lib/scrollToTop";
 import { AtSign } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -78,6 +79,7 @@ export default function MentionsInbox({ collapsed }: { collapsed?: boolean }) {
                   markRead.mutate({ mentionId: m.id });
                   setOpen(false);
                   setLocation(`/groups/${encodeURIComponent(m.group)}`);
+                  scrollPageToTop();
                 }}
                 className={`block w-full px-3 py-2 text-left transition-colors hover:bg-accent/50 ${
                   m.readAt ? "" : "bg-primary/5"

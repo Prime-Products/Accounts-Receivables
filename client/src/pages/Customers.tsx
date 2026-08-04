@@ -680,7 +680,7 @@ export default function Customers() {
                 <SelectItem value="not-contacted">Not Contacted</SelectItem>
                 <SelectItem value="confirmed">Promise to Pay</SelectItem>
                 <SelectItem value="pending">Pending Follow-up</SelectItem>
-                <SelectItem value="broken">Did not confirm</SelectItem>
+                <SelectItem value="broken">Promise Broken</SelectItem>
                 <SelectItem value="paid">Paid</SelectItem>
               </SelectContent>
             </Select>
@@ -954,7 +954,7 @@ export default function Customers() {
                           taskOverdue={(g as any).confirmationTaskOverdue}
                         />
                         {(g as any).confirmationCarriedOver && (
-                          <div className="text-[11px] text-amber-600 mt-1 inline-flex items-center gap-1" title="Recorded in a previous month — still active until its date">
+                          <div className="text-[11px] text-amber-600 mt-1 inline-flex items-center gap-1" title="Recorded in a previous month — still standing until a new call is logged">
                             <span>↻</span>
                             <span>Carried over</span>
                           </div>

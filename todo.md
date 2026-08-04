@@ -1812,6 +1812,12 @@ a member company, which read as "this company's promise" when it is the group's 
 - [x] Remove the Companies tab from the Collections Desk (group list only)
 - [x] Delete the dead company table, paging state, sorting and totals from the Desk page
 - [x] Tests: deskGroupOnly.test.ts pins that the Companies tab cannot come back
+
+## BUG: aging cards zeroed under the Installments filter (reported 3/8)
+- [x] BUG: Invoices page — with the Installments filter active, every aging bucket shows 0 although 6 overdue installments exist
+      (root cause was not scoping: 0-30 shows €2,768 / 5 installments and 61-90 shows €141 / 1, the other three buckets are genuinely empty)
+- [x] Verified the aging scoping is correct for installments-only (server buckets 5/0/1/0/0)
+- [x] Test pinning the installments aging behaviour (installmentsAgingStrip.test.ts)
 - [x] BUG: Log Call proposes "reschedule" for a group the desk shows as Not Contacted (REEDEREI NORD) — duplicate Pending promise rows exist for the same customer/date
 - [x] Open-promise lookup and the desk's Not Contacted status must agree on what counts as an open promise
 - [x] Sweep orphaned Pending promise rows (no live task + group carries no commitment) to Broken
@@ -1827,3 +1833,101 @@ destination of the record is group-level.
 - [x] Keep New Task on the company card
 - [x] Tests: company-card promise routes to the group's single commitment
 - [x] Group-first tracking recorded as a standing rule in the ar-pro-design-system skill
+
+## Invoices aging strip under the Installments filter (user request 3/8)
+- [x] Investigate "aging filter does not work, all tabs show 0" with Installments active
+- [x] Confirmed the server does scope aging by installmentsOnly (buckets 5/0/1/0/0 of 6 installments) — the numbers were real, the interaction was the problem
+- [x] Zero-count buckets are no longer clickable (dashed, dimmed, tooltip) so they cannot empty the table
+- [x] Empty result now names the empty bucket ("No contract installments are 31-60 days overdue.") and offers "Clear N filters"
+- [x] Removed the temporary aging diagnostic console logging
+- [x] Tests: installmentsAgingStrip.test.ts pins the scoping, disabled empty buckets and the escape action
+
+## Audit: are all wire transfers visible on the group card? (user request 3/8)
+- [x] Compare wire transfers in the database against what the group card shows, per group
+- [x] Identify transfers that are hidden (fully allocated, internal, or customer not matched to a group)
+- [x] Fully allocated customer transfers now stay in the transactions list with a "Matched" badge instead of vanishing
+- [x] Settled payment rows are toned down, show no remainder and no Allocate button
+- [x] Open-remainder totals (on-account, net open balance) still count only unmatched money
+- [x] Tests: settled transfers reach the group card and totals stay unchanged
+
+## Rename Wire Transfers to Remittances + payment method (user request 3/8)
+- [x] Add a `method` field (Wire transfer / Cheque / Credit card) to the remittance table and migrate the DB
+- [x] Rename "Wire Transfers" to "Remittances" in the sidebar, page titles and user-facing copy
+- [x] New Remittance form lets the user choose the method, defaulting to Wire transfer
+- [x] Method is visible in the remittances list and on the payment rows of the transactions list
+- [x] Tests: method is persisted, defaulted and surfaced
+
+## Bug: customer search in New Remittance finds nothing (user report 3/8)
+- [x] Reproduce: typing "mage" in the New Remittance customer picker returns "No customer found" although MAGE SHIPPING LIMITED exists
+- [x] Fix the combobox filtering so typing any part of the company name (case-insensitive, also code/group) matches
+- [x] Keep the picker usable with the full customer list (3,409 rows) — filter over the whole list, render top 60 hits
+- [x] Same fix applied to the New Task group picker and the Log Call contact picker
+- [x] Test covering the search filter behaviour
+
+## Quick note directly inside the Communication window (user request 3/8)
+- [x] Add an inline note composer at the top of the Communication window (group + company card)
+- [x] Support @mentions in the composer, same as the group notes dialog
+- [x] Note appears immediately in the timeline after saving, without reopening the window
+- [x] Allow editing/deleting a note straight from its timeline entry
+- [x] Tests for the composer wiring and note edit/delete from the timeline
+
+## Remittance type labels must be Cheque / Transfer / Credit Card (user request 3/8)
+- [x] Transaction rows show "Transfer" instead of the generic "Payment" badge
+- [x] Use Cheque / Transfer / Credit Card consistently on the Remittances page, filters and dialogs
+- [x] Legacy rows without a method still read as Transfer
+- [x] Tests for the label set
+
+## Bug: a note added from the Communication window shows twice in the timeline (3/8)
+- [x] Find the duplicate source ("Note added" activity log + the note row itself)
+- [x] Keep a single timeline entry per note (the editable one)
+- [x] Regression test so one note produces one timeline entry
+
+## Cheque-specific fields on remittances (user request 3/8)
+- [x] Schema: cheque bank name + cheque due (expiration) date columns, migration applied
+- [x] Procedures accept and return the cheque fields
+- [x] New Remittance form shows the cheque fields only when Cheque is selected
+- [x] Company-card remittance form shows the same conditional fields
+- [x] Edit dialog can correct the cheque bank and due date
+- [x] Remittances table shows bank + due date for cheques (and a due/expired hint)
+- [x] Tests for storing, updating and hiding the cheque fields
+
+## "Did not confirm" must survive the month change (user request 3/8)
+- [x] Stop resetting the Broken ("Did not confirm") status to Not Contacted when a new month starts
+- [x] Keep "Kept" resetting as before (that cycle really is finished)
+- [x] Check every surface reading the status (Collections Desk filter, group card, dashboard counters, timeline) still agrees
+- [x] Tests pinning that a Broken row recorded last month still reads "Did not confirm" this month
+
+## Clicking the active sidebar item scrolls back to the top (user request 3/8)
+- [x] Clicking a sidebar entry for the page you are already on scrolls the page back to the top
+- [x] Works for every sidebar entry (Collections Desk, Invoices, Remittances, Tasks, Address Book, …) on desktop and mobile
+- [x] Navigating to a different page still lands at the top of the new page
+- [x] Test pinning the same-route scroll-to-top behaviour
+- [x] Global search results and the Mentions inbox also land at the top of the target page
+
+## Open Balance card readability (user request 3/8)
+- [x] Open Balance card shows only the net open balance and "Due next month"
+- [x] Invoice / on-account / credit-note breakdown moves into a tooltip instead of coloured lines
+- [x] Same simplification on the company card (Customer 360) Open Balance KPI
+- [x] Test pinning the simplified Open Balance card content
+
+## KPI secondary amounts readability (user request 3/8)
+- [x] Overdue card: "End of month" amount on a labelled row instead of faint orange text
+- [x] Turnover card: "Last year" amount on a labelled row with the variance beside the label
+- [x] Forecast card: expected-to-collect and variance on labelled rows
+- [x] Same treatment on the company card (EOM, collected/remaining, avg days, credit limit, vs this year)
+- [x] Test pinning the readable secondary-amount rows
+## Ask for help without a due date — CANCELLED by user before implementation (3/8)
+- [x] Cancelled: user said "μη το κανεις"; the +3 days default stays as it is
+## Rename "Did not confirm" to "Promise Broken" (user request 3/8)
+- [x] Log Call customer-response option reads "Promise Broken"
+- [x] Status badge, Collections Desk filter and company-card label read "Promise Broken"
+- [x] Timeline / activity-log lines read "Promise Broken → …"
+- [x] Server-side label helper (audit lines, task titles) renamed
+- [x] Existing tests updated and a new test pins the label
+## Log Call dialog — stable field order (user request 3/8)
+- [x] Company slot always rendered; read-only label when the group has a single company
+- [x] Fixed field order in every case: Company → Contact person → Outcome → Customer Response
+- [x] Contact details / "Other" / "Add new contact" move to their own full-width row so the grid never reflows
+- [x] Collection Notes row pinned in the same place for every group (muted "no notes" when empty)
+- [x] Response-specific panel always in the same place with a stable minimum height
+- [x] Tests pinning the field order and the single-company read-only slot

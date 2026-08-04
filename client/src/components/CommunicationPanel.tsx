@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { CommunicationTimeline, type TimelineEntry } from "@/components/CommunicationTimeline";
 import { CommunicationAiSummary } from "@/components/CommunicationAiSummary";
+import { CommunicationNoteComposer } from "@/components/CommunicationNoteComposer";
 import { useIsMobile } from "@/hooks/useMobile";
 import { GripVertical, MessageSquare, X } from "lucide-react";
 
@@ -218,6 +219,8 @@ export function CommunicationPanel({ open, onClose, entries, isLoading, title = 
             entries={entries}
             isLoading={isLoading}
             actions={actions}
+            composer={group ? <CommunicationNoteComposer group={group} /> : undefined}
+            editableNotesGroup={group}
             embedded
             maxHeightClass="max-h-none"
           />
@@ -265,6 +268,8 @@ export function CommunicationPanel({ open, onClose, entries, isLoading, title = 
         <CommunicationTimeline
           entries={entries}
           isLoading={isLoading}
+          composer={group ? <CommunicationNoteComposer group={group} /> : undefined}
+          editableNotesGroup={group}
           actions={
             group ? (
               <>

@@ -120,10 +120,13 @@ function endOfCurrentMonth(now = new Date()): number {
  * passes and the linked auto-task is still open, the badge turns red (taskOverdue)
  * instead of resetting the status.
  *
- * Rolling flow (no full monthly reset): only CLOSED outcomes — "Kept" and
- * "Broken" — reset back to "Not Contacted" at the start of a new month.
- * Active statuses ("Confirmed" / "Pending Follow-up") carry over across months
- * together with their open tasks, so the collector never restarts from zero.
+ * Rolling flow (no monthly reset): "Kept" (Paid) is the only status that resets
+ * back to "Not Contacted" at the start of a new month, because the money is in and
+ * that cycle is finished. Every other status carries over into the new month —
+ * including "Broken" ("Promise Broken"), which stays visible until a human logs a
+ * new call, so a refusal never looks like an untouched group. Active statuses
+ * ("Confirmed" / "Pending Follow-up") carry over with their open tasks as well, so
+ * the collector never restarts from zero.
  */
 function isConfirmationStale(
   status: string | null | undefined,
@@ -133,11 +136,12 @@ function isConfirmationStale(
 ): boolean {
   // "Not Contacted" is always stale (no active follow-up).
   if (!status || status === "Not Contacted") return true;
-  // Closed outcomes ("Kept" / "Broken") show for the rest of the month, then
-  // reset to Not Contacted when a new month starts.
-  if (status === "Kept" || status === "Broken") return isFromPreviousMonth(updatedAt ?? null, now);
-  // Active statuses (Confirmed, Pending Follow-up) persist until explicitly
-  // changed by a human — no date-based auto-reset, no monthly reset.
+  // "Kept" (Paid) is the only closed outcome: it shows for the rest of the month
+  // and resets to Not Contacted when a new month starts, because the money is in.
+  if (status === "Kept") return isFromPreviousMonth(updatedAt ?? null, now);
+  // Everything else — including "Broken" ("Promise Broken") — persists until a
+  // human records a new call. A refusal is still a refusal in the new month, so it
+  // must not silently turn back into an untouched group.
   return false;
 }
 
@@ -390,7 +394,7 @@ async function handOverTask(taskId: number, previousAssigneeId: number | null, n
  *
  * The group's own collection status is the second gate. The Desk decides whether a
  * group carries a live commitment from `group_confirmation_status`; when that says
- * "Not Contacted" (or the row is stale / closed as Kept or Broken) the group shows
+ * "Not Contacted" (or the row is closed as Paid, or the customer promise broken) the group shows
  * no promise anywhere in the UI, so a leftover `Pending` row must not resurrect one.
  * Without this gate a group whose status was reset kept offering "saving moves it to
  * the new date" for a promise the collector could not see.
@@ -416,8 +420,9 @@ async function findOpenGroupPromise(group: string) {
   const isLive = (t: { status: string }) => t.status !== "Completed" && t.status !== "Cancelled";
 
   // A promise with no live task is only open while the group is genuinely carrying a
-  // commitment. "Not Contacted" (including stale rows and month-reset Kept/Broken)
-  // means the Desk shows nothing, so such rows are orphans → repair them.
+  // commitment. "Not Contacted" (including stale rows and Paid rows that reset with the
+  // month) and "Promise Broken" mean the Desk shows no commitment, so such rows are
+  // orphans → repair them.
   let groupCarriesCommitment: boolean | null = null;
   const carriesCommitment = async () => {
     if (groupCarriesCommitment === null) {
@@ -446,12 +451,14 @@ async function findOpenGroupPromise(group: string) {
 }
 
 /**
- * Open (not fully allocated) wire transfers for a set of customers — the
- * "payments on account" rows of the transactions list. Fully allocated
- * transfers are hidden (like paid invoices); internal inter-office transfers
- * are excluded. Remaining = amount − sum(allocations).
+ * Customer wire transfers for a set of customers — the "payments on account"
+ * rows of the transactions list. Every external transfer is returned so the
+ * group card is a complete record of the money we received: fully allocated
+ * ones carry `settled: true` and a zero remainder, and the UI marks them as
+ * matched instead of dropping them. Internal inter-office transfers are
+ * excluded. Remaining = amount − sum(allocations).
  */
-async function listOpenWireTransfers(customerIds: Set<number>, customerNames: Map<number, string>) {
+async function listGroupWireTransfers(customerIds: Set<number>, customerNames: Map<number, string>) {
   const all = await db.listAllWireTransfers().catch(() => []);
   const mine = all.filter(t => customerIds.has(t.customerId) && !t.isInternal);
   if (mine.length === 0) return [];
@@ -460,23 +467,31 @@ async function listOpenWireTransfers(customerIds: Set<number>, customerNames: Ma
     .map(t => {
       const alloc = allocated.get(t.id) ?? 0;
       const unallocated = Number(t.amount) - alloc;
+      // Rounding noise below half a cent counts as fully matched.
+      const settled = unallocated <= 0.005;
       return {
         id: t.id,
         customerId: t.customerId,
         customerName: customerNames.get(t.customerId) ?? "—",
         amount: Number(t.amount),
         allocated: alloc,
-        unallocated,
-        unallocatedEur: toEur(unallocated, t.currency ?? "EUR"),
+        unallocated: settled ? 0 : unallocated,
+        unallocatedEur: settled ? 0 : toEur(unallocated, t.currency ?? "EUR"),
+        settled,
         currency: t.currency ?? "EUR",
         transferDate: t.transferDate,
         status: t.status,
+        // Transfer / Cheque / Credit Card — the collector needs to know
+        // which instrument the money arrived on, not just that it arrived.
+        method: (t as any).method ?? "Transfer",
+        // Cheque-only details, so a row can show "Alpha Bank · due 15 Sep".
+        chequeBank: (t as any).chequeBank ?? null,
+        chequeDueDate: (t as any).chequeDueDate ?? null,
         referenceNumber: t.referenceNumber ?? null,
         branch: t.branch ?? null,
         notes: t.notes ?? null,
       };
     })
-    .filter(t => t.unallocated > 0.005)
     .sort((a, b) => b.transferDate - a.transferDate);
 }
 
@@ -743,7 +758,7 @@ async function cleanupStatusArtifacts(
  * Settle a group's open payment commitment because the customer PAID.
  *
  * Distinct from `cleanupStatusArtifacts`, which cancels promises that became
- * obsolete (Not Contacted / Did not confirm). Here the customer honoured the
+ * obsolete (Not Contacted / Promise Broken). Here the customer honoured the
  * commitment, so the promise is closed as **Kept** — that is what feeds the
  * kept/broken reliability statistics and the collector's hit rate. The tasks that
  * existed only to chase the money (follow-up call, promise check) are cancelled,
@@ -1244,7 +1259,8 @@ export const customersRouter = router({
         const aging = computeAging(groupInvoices.get(g.group) ?? [], now);
         // Expected to Collect: live estimate driven by log calls.
         // Not Contacted → forecast; Confirmed/Pending → confirmation amount; Broken → 0.
-        // A status recorded in a previous month is stale → treated as Not Contacted.
+        // Only a "Paid" row recorded in a previous month is stale → treated as Not
+        // Contacted; "Promise Broken" carries over and keeps holding the estimate at 0.
         const conf = effectiveConfirmation(confirmation);
         const confStatus = conf.status;
         const confAmount = conf.amount;
@@ -1444,8 +1460,10 @@ export const customersRouter = router({
      const customerNames = new Map(members.map(m => [m.id, m.name]));
      const allVesselRows = await db.listVessels();
      const vesselNameById = new Map(allVesselRows.map(v => [v.id, v.name]));
-      // Open (unallocated) wire transfers — the transactions list's payment rows.
-      const openTransfers = await listOpenWireTransfers(memberIds, customerNames);
+      // Customer wire transfers — the transactions list's payment rows. Fully
+      // allocated ones stay in the list (flagged `settled`) so the group card
+      // shows every payment we received, not only the ones with a remainder.
+      const openTransfers = await listGroupWireTransfers(memberIds, customerNames);
       // Open (unmatched) credit notes — also part of the transactions list.
       const openCreditNotes = await listOpenCreditNotes(memberIds, customerNames);
       const openCreditNotesEur = openCreditNotes.reduce((s, c) => s + c.openEur, 0);
@@ -2018,6 +2036,13 @@ export const customersRouter = router({
     const groupKey = (customer.customerGroup ?? "").trim() || customer.name;
     const eomTs = endOfCurrentMonth();
     const overdueEomBalance = openInv.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
+    // Open amount falling due within the NEXT calendar month — shown on the
+    // company card's Open Balance KPI, mirroring the group card.
+    const nmStart360 = Date.UTC(new Date(eomTs).getUTCFullYear(), new Date(eomTs).getUTCMonth() + 1, 1);
+    const nmEnd360 = Date.UTC(new Date(eomTs).getUTCFullYear(), new Date(eomTs).getUTCMonth() + 2, 0, 23, 59, 59, 999);
+    const dueNextMonth360 = openInv
+      .filter(i => i.dueDate > eomTs && i.dueDate >= nmStart360 && i.dueDate <= nmEnd360)
+      .reduce((s, i) => s + outstanding(i), 0);
     const todayD = new Date();
     const [watchRow, forecastRows] = await Promise.all([
       db.getGroupWatchStatus(groupKey).catch(() => null),
@@ -2065,7 +2090,7 @@ export const customersRouter = router({
          title: teamMap360.get((customer as any).collectorId)!.title ?? null,
        }
      : null;
-    const openTransfers360 = await listOpenWireTransfers(new Set([input.id]), new Map([[input.id, customer.name]]));
+    const openTransfers360 = await listGroupWireTransfers(new Set([input.id]), new Map([[input.id, customer.name]]));
     const unallocatedPayments360 = openTransfers360.reduce((s, t) => s + t.unallocatedEur, 0);
     const openCreditNotes360 = await listOpenCreditNotes(new Set([input.id]), new Map([[input.id, customer.name]]));
     const openCreditNotesEur360 = openCreditNotes360.reduce((s, c) => s + c.openEur, 0);
@@ -2097,9 +2122,10 @@ export const customersRouter = router({
      aging,
       rating: ratingResult,
       behavior: behaviorRow,
-      groupKey,
-      overdueEomBalance,
-      watchStatus,
+     groupKey,
+     overdueEomBalance,
+      dueNextMonth: dueNextMonth360,
+     watchStatus,
       watchOverride,
       autoProblematic,
       forecastExpected: groupForecast,
@@ -2200,18 +2226,35 @@ export const customersRouter = router({
         currency: z.string().default("EUR"),
         transferDate: z.number(),
         branch: z.string().optional().nullable(),
+        // How the customer remitted the money. Bank wire is the common case, so
+        // it stays the default for existing callers and ERP imports.
+        method: z.enum(["Transfer", "Cheque", "Credit Card"]).default("Transfer"),
         status: z.enum(["Pending", "Received"]).default("Pending"),
         receivedDate: z.number().optional().nullable(),
         referenceNumber: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
+        // Cheque-only: issuing bank and the date the cheque can be cashed.
+        chequeBank: z.string().max(128).optional().nullable(),
+        chequeDueDate: z.number().optional().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // A transfer or card payment has no cheque details; drop anything sent by
+      // mistake so the row cannot claim a bank it does not have.
+      const isCheque = input.method === "Cheque";
       const id = await db.createWireTransfer({
         ...input,
+        chequeBank: isCheque ? (input.chequeBank?.trim() || null) : null,
+        chequeDueDate: isCheque ? (input.chequeDueDate ?? null) : null,
         createdBy: ctx.user.id,
       });
-      await audit(ctx, "Create Wire Transfer", "customer", input.customerId, `${input.currency ?? "EUR"} ${input.amount}${input.branch ? ` @ ${input.branch}` : ""}`);
+      await audit(
+        ctx,
+        "Create Remittance",
+        "customer",
+        input.customerId,
+        `${input.method ?? "Transfer"} · ${input.currency ?? "EUR"} ${input.amount}${input.branch ? ` @ ${input.branch}` : ""}`,
+      );
       return { id, success: true };
     }),
 
@@ -2221,16 +2264,28 @@ export const customersRouter = router({
         id: z.number(),
         customerId: z.number(),
         branch: z.string().optional().nullable(),
+        method: z.enum(["Transfer", "Cheque", "Credit Card"]).optional(),
         status: z.enum(["Pending", "Received"]).optional(),
         receivedDate: z.number().optional().nullable(),
         referenceNumber: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
+        chequeBank: z.string().max(128).optional().nullable(),
+        chequeDueDate: z.number().optional().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, customerId, ...data } = input;
-      await db.updateWireTransfer(id, { ...data, updatedBy: ctx.user.id });
-      await audit(ctx, "Update Wire Transfer", "customer", customerId);
+      // Switching a cheque to a transfer/card must not leave stale cheque details
+      // behind, so they are cleared whenever the method moves away from Cheque.
+      const patch: Record<string, unknown> = { ...data, updatedBy: ctx.user.id };
+      if (data.method !== undefined && data.method !== "Cheque") {
+        patch.chequeBank = null;
+        patch.chequeDueDate = null;
+      } else if (data.chequeBank !== undefined) {
+        patch.chequeBank = data.chequeBank?.trim() || null;
+      }
+      await db.updateWireTransfer(id, patch as any);
+      await audit(ctx, "Update Remittance", "customer", customerId);
       return { success: true };
     }),
 
@@ -2407,7 +2462,7 @@ export const customersRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const wt = await db.getWireTransfer(input.wireTransferId);
-      if (!wt) throw new TRPCError({ code: "NOT_FOUND", message: "Wire transfer not found" });
+      if (!wt) throw new TRPCError({ code: "NOT_FOUND", message: "Remittance not found" });
       if (wt.status !== "Received")
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Only received wire transfers can be allocated" });
 
@@ -2638,11 +2693,15 @@ export const customersRouter = router({
       return { success: true };
     }),
 
-  /** Lightweight list of all companies (id + name) for dropdowns. */
+  /**
+   * Lightweight list of all companies for dropdowns. Code and group travel with
+   * the name so a picker can be searched the way the user thinks ("dynacom" finds
+   * every member company, an ERP code finds its company).
+   */
   listCompanies: protectedProcedure.query(async () => {
     const customers = await db.listCustomers();
     return customers
-      .map(c => ({ id: c.id, name: c.name }))
+      .map(c => ({ id: c.id, name: c.name, code: c.code ?? null, group: c.customerGroup ?? null }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }),
   /**
@@ -5274,7 +5333,7 @@ export const callsRouter = router({
       })();
       /*
        * A call can start with a refusal and still end with a new date: the collector
-       * picks "Did not confirm" and then chooses Pending Follow-up or Reschedule
+       * picks "Promise Broken" and then chooses Pending Follow-up or Reschedule
        * Promise as the way forward. Both facts belong in the record — the refusal is
        * the collections signal, the new date is only the plan. Without this line the
        * timeline showed just the plan and the refusal was lost.
