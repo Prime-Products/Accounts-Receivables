@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
@@ -18,11 +19,14 @@ import { toast } from "sonner";
 
 const statusColors: Record<string, string> = {
   "Not Supplied": "bg-gray-100 text-gray-700 border-gray-200",
+  "In Transit": "bg-indigo-100 text-indigo-800 border-indigo-200",
   Active: "bg-emerald-100 text-emerald-800 border-emerald-200",
   "Pending Return": "bg-amber-100 text-amber-800 border-amber-200",
   Returned: "bg-sky-100 text-sky-800 border-sky-200",
-  "Written Off": "bg-red-100 text-red-700 border-red-200",
 };
+
+/** Mirrors opsAssetStatuses in drizzle/schema.ts — keep in sync. */
+const ASSET_STATUSES = ["Not Supplied", "In Transit", "Active", "Pending Return", "Returned"] as const;
 
 type SortKey = "serialNumber" | "name" | "vesselName" | "status" | "updatedAt";
 
@@ -39,6 +43,7 @@ export default function OpsAssets() {
   const { data: assets, isLoading } = trpc.opsAssets.list.useQuery({});
   const { data: contracts } = trpc.opsContracts.list.useQuery();
   const { data: assetCatalog } = trpc.opsCatalog.assets.list.useQuery();
+  const { data: vessels } = trpc.vessels.list.useQuery();
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -48,8 +53,27 @@ export default function OpsAssets() {
 
   /* ─── Create Dialog ─── */
   const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({ contractId: "", catalogItemId: "", serialNumber: "", name: "", vesselId: "" });
-  const resetForm = () => setForm({ contractId: "", catalogItemId: "", serialNumber: "", name: "", vesselId: "" });
+  const EMPTY_FORM = {
+    contractId: "",
+    catalogItemId: "",
+    serialNumber: "",
+    name: "",
+    vesselId: "",
+    status: "Not Supplied" as (typeof ASSET_STATUSES)[number],
+    targetReturnPort: "",
+    notes: "",
+  };
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [vesselSearch, setVesselSearch] = useState("");
+  const resetForm = () => { setForm(EMPTY_FORM); setVesselSearch(""); };
+
+  /** Vessel list is large (180+), so the dropdown gets its own search box. */
+  const vesselOptions = useMemo(() => {
+    const list = (vessels ?? []) as any[];
+    const q = vesselSearch.trim();
+    const matched = q ? list.filter(v => matchesAllTokens(q, [v.name ?? "", v.imo ?? "", v.code ?? ""])) : list;
+    return matched.slice(0, 60);
+  }, [vessels, vesselSearch]);
 
   const create = trpc.opsAssets.create.useMutation({
     onSuccess: () => {
@@ -125,11 +149,7 @@ export default function OpsAssets() {
           <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="Not Supplied">Not Supplied</SelectItem>
-            <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Pending Return">Pending Return</SelectItem>
-            <SelectItem value="Returned">Returned</SelectItem>
-            <SelectItem value="Written Off">Written Off</SelectItem>
+            {ASSET_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -186,11 +206,7 @@ export default function OpsAssets() {
                             <Badge variant="outline" className={statusColors[a.status] ?? ""}>{a.status}</Badge>
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Not Supplied">Not Supplied</SelectItem>
-                            <SelectItem value="Active">Active</SelectItem>
-                            <SelectItem value="Pending Return">Pending Return</SelectItem>
-                            <SelectItem value="Returned">Returned</SelectItem>
-                            <SelectItem value="Written Off">Written Off</SelectItem>
+                            {ASSET_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       </TableCell>
@@ -207,57 +223,125 @@ export default function OpsAssets() {
 
       {/* ─── Create Asset Dialog ─── */}
       <Dialog open={createOpen} onOpenChange={o => { setCreateOpen(o); if (!o) resetForm(); }}>
-        <ResizableDialogContent storageKey="ops-asset-create" defaultWidth={480} defaultHeight={420} minWidth={380} minHeight={350}>
+        <ResizableDialogContent storageKey="ops-asset-create" defaultWidth={560} defaultHeight={620} minWidth={420} minHeight={420}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Plus className="h-5 w-5" /> New Asset
             </DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5 col-span-2">
-              <Label>Contract *</Label>
-              <Select value={form.contractId} onValueChange={v => setForm({ ...form, contractId: v })}>
-                <SelectTrigger><SelectValue placeholder="Select contract" /></SelectTrigger>
-                <SelectContent>
-                  {(contracts ?? []).map(c => (
-                    <SelectItem key={c.id} value={String(c.id)}>{c.contractNumber} - {c.title}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5 col-span-2">
-              <Label>Catalog Item</Label>
-              <Select value={form.catalogItemId} onValueChange={v => {
-                const item = assetCatalog?.find(a => a.id === Number(v));
-                setForm({ ...form, catalogItemId: v, name: item?.name ?? form.name });
-              }}>
-                <SelectTrigger><SelectValue placeholder="Select from catalog (optional)" /></SelectTrigger>
-                <SelectContent>
-                  {(assetCatalog ?? []).filter(a => a.active).map(a => (
-                    <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid grid-cols-2 gap-3 overflow-y-auto pr-1">
+            {/* Identity — the only mandatory part: serial + name */}
             <div className="space-y-1.5">
               <Label>Serial Number *</Label>
-              <Input value={form.serialNumber} onChange={e => setForm({ ...form, serialNumber: e.target.value })} placeholder="SN-001" />
+              <Input value={form.serialNumber} onChange={e => setForm({ ...form, serialNumber: e.target.value })} placeholder="e.g. GX3R-24-00187" />
             </div>
             <div className="space-y-1.5">
               <Label>Name *</Label>
-              <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Asset name" />
+              <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. RIKEN KEIKI GX-3R" />
+            </div>
+
+            {/* Asset type from catalog — fills the name automatically */}
+            <div className="space-y-1.5 col-span-2">
+              <Label>Asset Type <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              {(assetCatalog ?? []).filter(a => a.active).length === 0 ? (
+                <p className="text-xs text-muted-foreground border rounded-md px-3 py-2 bg-muted/40">
+                  No asset types yet — add them in Catalog Management to auto-fill names.
+                </p>
+              ) : (
+                <Select value={form.catalogItemId} onValueChange={v => {
+                  const item = assetCatalog?.find(a => a.id === Number(v));
+                  setForm({ ...form, catalogItemId: v, name: item?.name ?? form.name });
+                }}>
+                  <SelectTrigger><SelectValue placeholder="Select from catalog" /></SelectTrigger>
+                  <SelectContent>
+                    {(assetCatalog ?? []).filter(a => a.active).map(a => (
+                      <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {/* Placement — vessel and contract are both optional */}
+            <div className="space-y-1.5 col-span-2">
+              <Label>Vessel <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Select value={form.vesselId} onValueChange={v => setForm({ ...form, vesselId: v })}>
+                <SelectTrigger><SelectValue placeholder="Not on a vessel yet" /></SelectTrigger>
+                <SelectContent>
+                  <div className="p-2 sticky top-0 bg-popover z-10">
+                    <Input
+                      placeholder="Search vessel..."
+                      value={vesselSearch}
+                      onChange={e => setVesselSearch(e.target.value)}
+                      onKeyDown={e => e.stopPropagation()}
+                      className="h-8"
+                    />
+                  </div>
+                  {vesselOptions.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-muted-foreground">No vessel matches "{vesselSearch}"</p>
+                  ) : (
+                    vesselOptions.map((v: any) => (
+                      <SelectItem key={v.id} value={String(v.id)}>{v.name}{v.imo ? ` (${v.imo})` : ""}</SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5 col-span-2">
+              <Label>Contract <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              {(contracts ?? []).length === 0 ? (
+                <p className="text-xs text-muted-foreground border rounded-md px-3 py-2 bg-muted/40">
+                  No contracts yet — you can create the asset now and link it to a contract later.
+                </p>
+              ) : (
+                <Select value={form.contractId} onValueChange={v => setForm({ ...form, contractId: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select contract" /></SelectTrigger>
+                  <SelectContent>
+                    {(contracts ?? []).map(c => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.contractNumber} - {c.title}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {/* State */}
+            <div className="space-y-1.5">
+              <Label>Initial Status</Label>
+              <Select value={form.status} onValueChange={v => setForm({ ...form, status: v as (typeof ASSET_STATUSES)[number] })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ASSET_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Return Port <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Input value={form.targetReturnPort} onChange={e => setForm({ ...form, targetReturnPort: e.target.value })} placeholder="e.g. Piraeus" />
+            </div>
+            <div className="space-y-1.5 col-span-2">
+              <Label>Notes <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Textarea
+                value={form.notes}
+                onChange={e => setForm({ ...form, notes: e.target.value })}
+                placeholder="Condition, calibration reference, accessories included..."
+                className="min-h-[64px]"
+              />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button
-              disabled={!form.contractId || !form.serialNumber || !form.name || create.isPending}
+              disabled={!form.serialNumber.trim() || !form.name.trim() || create.isPending}
               onClick={() => create.mutate({
-                contractId: Number(form.contractId),
+                contractId: form.contractId ? Number(form.contractId) : undefined,
                 catalogItemId: form.catalogItemId ? Number(form.catalogItemId) : undefined,
-                serialNumber: form.serialNumber,
-                name: form.name,
+                serialNumber: form.serialNumber.trim(),
+                name: form.name.trim(),
                 vesselId: form.vesselId ? Number(form.vesselId) : undefined,
+                status: form.status,
+                targetReturnPort: form.targetReturnPort.trim() || undefined,
+                notes: form.notes.trim() || undefined,
               })}
             >
               {create.isPending ? "Creating..." : "Create Asset"}

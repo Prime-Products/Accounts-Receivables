@@ -447,6 +447,7 @@ export const opsAssetsRouter = router({
       catalogItemId: z.number().optional(),
       vesselId: z.number().optional(),
       contractId: z.number().optional(),
+      status: z.enum(opsAssetStatuses).optional(),
       targetReturnPort: z.string().optional(),
       notes: z.string().optional(),
     }))
@@ -456,7 +457,7 @@ export const opsAssetsRouter = router({
         await opsDb.createVesselHistoryEntry({
           vesselId: input.vesselId,
           eventType: "AssetAssigned",
-          description: `Asset "${input.name}" (S/N: ${input.serialNumber}) created and assigned.`,
+          description: `Asset "${input.name}" (S/N: ${input.serialNumber}) created and assigned${input.status ? ` as ${input.status}` : ""}.`,
           createdBy: ctx.user.id,
         });
       }

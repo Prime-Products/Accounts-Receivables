@@ -1931,3 +1931,13 @@ destination of the record is group-level.
 - [x] Collection Notes row pinned in the same place for every group (muted "no notes" when empty)
 - [x] Response-specific panel always in the same place with a stable minimum height
 - [x] Tests pinning the field order and the single-company read-only slot
+
+## New Asset (Ops) — unblock creation (user request 4/8)
+- [x] Contract becomes optional in the New Asset dialog (server already treats it as optional)
+- [x] Searchable Vessel select added (vesselId was posted to the server but never selectable)
+- [x] Initial Status select (Not Supplied / In Transit / Active / Pending Return / Returned)
+- [x] Return Port and Notes fields added to the dialog
+- [x] Guidance shown when the Contract / Catalog dropdowns are empty instead of a blank list
+- [x] Asset status colours fixed: add "In Transit", drop non-existent "Written Off"
+- [x] Serial numbers stay manual for now (user confirmed: "χειροκίνητα προς το παρόν")
+- [x] Vitest coverage for the New Asset dialog contract/vessel behaviour
