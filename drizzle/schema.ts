@@ -1100,7 +1100,8 @@ export type InsertOpsQuotationItem = typeof opsQuotationItems.$inferInsert;
 
 /** Operations contract statuses: an offer becomes active, then expires or is cancelled. */
 export const opsContractStatuses = ["Offer", "Active", "Expired", "Cancelled"] as const;
-
+/** How a contract's installments are settled. */
+export const opsPaymentMethods = ["Bank Transfer", "Cheque", "Credit Card", "Cash", "Letter of Credit"] as const;
 /** Operations contracts — umbrella agreements created from approved quotations. */
 export const opsContracts = mysqlTable("ops_contracts", {
   id: int("id").autoincrement().primaryKey(),
@@ -1115,6 +1116,12 @@ export const opsContracts = mysqlTable("ops_contracts", {
   pricePerVessel: decimal("pricePerVessel", { precision: 12, scale: 2 }).default("0").notNull(),
   /** Number of installments the per-vessel price is split into. */
   installmentCount: int("installmentCount").default(1).notNull(),
+  /** How the customer settles the installments (bank transfer, cheque, ...). */
+  paymentMethod: mysqlEnum("paymentMethod", opsPaymentMethods).default("Bank Transfer").notNull(),
+  /** Credit terms in days from invoice date; 0 means due on receipt. */
+  paymentTermsDays: int("paymentTermsDays").default(30).notNull(),
+  /** Free-text commercial remarks (currency clauses, discounts, escalation). */
+  paymentNotes: text("paymentNotes"),
   startDate: bigint("startDate", { mode: "number" }).notNull(),
   endDate: bigint("endDate", { mode: "number" }).notNull(),
   notes: text("notes"),

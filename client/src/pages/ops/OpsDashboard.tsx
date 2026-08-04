@@ -9,7 +9,6 @@ import {
   Package,
   RotateCcw,
   ShieldCheck,
-  Truck,
   Wallet,
 } from "lucide-react";
 import { useLocation } from "wouter";
@@ -41,7 +40,7 @@ export default function OpsDashboard() {
       </div>
 
       {/* KPI Row 1: Contracts & Revenue */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <Card
           className="border-l-4 border-l-[oklch(0.55_0.14_255)] cursor-pointer hover:shadow-md transition-shadow"
           onClick={() => navigate("/ops/contracts")}
@@ -80,20 +79,6 @@ export default function OpsDashboard() {
           <CardContent>
             <div className="text-2xl font-bold font-mono">{data.activeAssets}</div>
             <p className="text-xs text-muted-foreground mt-1">of {data.totalAssets} total tracked</p>
-          </CardContent>
-        </Card>
-
-        <Card
-          className="border-l-4 border-l-[oklch(0.55_0.14_25)] cursor-pointer hover:shadow-md transition-shadow"
-          onClick={() => navigate("/ops/orders")}
-        >
-          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Pending Orders</CardTitle>
-            <Truck className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-mono">{data.pendingOrders}</div>
-            <p className="text-xs text-muted-foreground mt-1">Awaiting fulfillment</p>
           </CardContent>
         </Card>
       </div>

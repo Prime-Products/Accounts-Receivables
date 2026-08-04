@@ -52,7 +52,6 @@ import {
   Package,
   RotateCcw,
   ShieldCheck,
-  Truck,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -97,7 +96,6 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
       { icon: FileCheck2, label: "Contracts", path: "/ops/contracts" },
       { icon: Package, label: "Equipment", path: "/ops/assets" },
       { icon: ShieldCheck, label: "Certificates", path: "/ops/certificates" },
-      { icon: Truck, label: "Orders", path: "/ops/orders" },
       { icon: RotateCcw, label: "Returns", path: "/ops/returns" },
       { icon: Settings, label: "Catalog", path: "/ops/catalog" },
     ],

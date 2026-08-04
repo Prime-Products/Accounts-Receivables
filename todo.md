@@ -1988,4 +1988,16 @@ destination of the record is group-level.
 - [x] Certificate expiry: certificate column with urgency colours in the Equipment table
 - [x] Certificate expiry: urgency filter + "Run reminders" action on the Certificates page
 - [x] Certificate expiry: daily Heartbeat callback /api/scheduled/certificateReminders
-- [ ] Certificate expiry: register the daily cron with manus-heartbeat (needs the deployed site)
+- [x] Certificate expiry: register the daily cron with manus-heartbeat (daily 06:00 UTC, task_uid a7nAk7XwbXvWnLzeGCD3cV, stored in app_settings; verified auth-gated 403 on production)
+
+## Contract card restructure (user request 4/8)
+- [x] Group the product list by nature: Instruments first, then Cylinders, then Ampoules, then everything else
+- [x] Split the contract card into tabs instead of one long scroll
+- [x] Products tab: categorised product list with per-vessel totals
+- [x] Financials tab: contract commercials, payment method/terms, and the payment schedule inside it
+- [x] Vessels tab: separate from products, with add/remove and equipment generation
+- [ ] Schema: payment method + payment terms fields on ops contracts
+- [x] Vitest coverage for product grouping order and the tab structure (17 tests)
+- [x] Remove "Orders" (Consumable Orders) from the Prime 247 menu — orders belong to the ERP; keep tables/procedures for a future ERP feed
+- [x] Schema: payment method + payment terms fields on ops contracts (applied to live DB)
+- [ ] Remove "Orders" (Consumable Orders) from the Prime 247 menu — orders live in the ERP; keep the tables/procedures for a future ERP feed

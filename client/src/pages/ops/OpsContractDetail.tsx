@@ -8,13 +8,16 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { fmtDate, fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, CheckCircle2, Clock, Package, Pencil, Plus, Ship, Trash2 } from "lucide-react";
+import { groupContractProducts } from "@shared/productGrouping";
+import { ArrowLeft, CheckCircle2, Clock, CreditCard, Package, Pencil, Plus, Ship, Trash2, Wallet } from "lucide-react";
 import { Play, XCircle } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 const paymentStatusColors: Record<string, string> = {
   Pending: "bg-amber-100 text-amber-800 border-amber-200",
@@ -50,6 +53,15 @@ const contractStatusColors: Record<string, string> = {
 };
 
 const emptyProduct = { itemType: "Instrument", name: "", quantity: "1", unitCost: "", sellingPrice: "", quotaType: "", quotaLimit: "", notes: "" };
+
+/** Payment methods offered on a contract, mirroring the DB enum. */
+const paymentMethods = ["Bank Transfer", "Cheque", "Credit Card", "Cash", "Letter of Credit"] as const;
+
+/** Human wording for the credit terms shown next to the payment method. */
+function termsLabel(days: number): string {
+  if (days <= 0) return "Due on receipt";
+  return `${days} days from invoice date`;
+}
 
 export default function OpsContractDetail() {
   const params = useParams<{ id: string }>();
@@ -146,7 +158,13 @@ export default function OpsContractDetail() {
 
   /* ─── Financials Dialog ─── */
   const [finOpen, setFinOpen] = useState(false);
-  const [finForm, setFinForm] = useState({ pricePerVessel: "", installmentCount: "" });
+  const [finForm, setFinForm] = useState({
+    pricePerVessel: "",
+    installmentCount: "",
+    paymentMethod: "Bank Transfer",
+    paymentTermsDays: "30",
+    paymentNotes: "",
+  });
 
   if (isLoading || !data) {
     return (
@@ -172,9 +190,14 @@ export default function OpsContractDetail() {
     setFinForm({
       pricePerVessel: Number(contract.pricePerVessel) ? String(Number(contract.pricePerVessel)) : "",
       installmentCount: String(contract.installmentCount),
+      paymentMethod: (contract as any).paymentMethod ?? "Bank Transfer",
+      paymentTermsDays: String((contract as any).paymentTermsDays ?? 30),
+      paymentNotes: (contract as any).paymentNotes ?? "",
     });
     setFinOpen(true);
   };
+  /** Products grouped by nature: instruments, then cylinders, then ampoules, then the rest. */
+  const productGroups = groupContractProducts(library);
 
   return (
     <div className="p-2 sm:p-4 space-y-6">
@@ -267,18 +290,24 @@ export default function OpsContractDetail() {
         </Card>
       </div>
 
-      {/* Products — the single agreed list supplied per vessel */}
+      {/* Tabs: the contract is read in three passes — what is supplied, what it costs, where it goes */}
+      <Tabs defaultValue="products" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="products">Products ({library.length})</TabsTrigger>
+          <TabsTrigger value="financials">Financials</TabsTrigger>
+          <TabsTrigger value="vessels">Vessels ({assignments.length})</TabsTrigger>
+        </TabsList>
+
+        {/* ── Products: one agreed list per vessel, grouped by nature ── */}
+        <TabsContent value="products" className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4" /> Products</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">Instruments, cylinders and ampoules supplied to each vessel under this contract</p>
+              <p className="text-xs text-muted-foreground mt-1">Grouped by nature — instruments first, then cylinders, ampoules and anything else supplied per vessel</p>
             </div>
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={openFinancials}>
-                <Pencil className="h-3 w-3" /> Financials
-              </Button>
               <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => { resetLibForm(); setLibOpen(true); }}>
                 <Plus className="h-3 w-3" /> Add Product
               </Button>
@@ -289,7 +318,6 @@ export default function OpsContractDetail() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Type</TableHead>
                 <TableHead>Product</TableHead>
                 <TableHead className="text-center">Qty / Vessel</TableHead>
                 <TableHead className="text-right">Unit Cost</TableHead>
@@ -302,44 +330,59 @@ export default function OpsContractDetail() {
             <TableBody>
               {library.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     No products yet — add the instruments, cylinders and ampoules agreed for each vessel.
                   </TableCell>
                 </TableRow>
               ) : (
                 <>
-                  {library.map(item => (
-                    <TableRow key={item.id}>
-                      <TableCell><Badge variant="outline" className={productTypeColors[item.itemType] ?? ""}>{item.itemType}</Badge></TableCell>
-                      <TableCell>
-                        <div className="font-medium">{item.name}</div>
-                        {item.notes && <div className="text-xs text-muted-foreground mt-0.5">{item.notes}</div>}
-                      </TableCell>
-                      <TableCell className="text-center font-mono text-sm">{item.quantity}</TableCell>
-                      <TableCell className="text-right font-mono text-sm text-muted-foreground">{fmtEur(Number(item.unitCost))}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{fmtEur(Number(item.sellingPrice))}</TableCell>
-                      <TableCell className="text-right font-mono text-sm font-semibold">{fmtEur(Number(item.sellingPrice) * item.quantity)}</TableCell>
-                      <TableCell className="text-sm">{item.quotaType ? `${item.quotaLimit} / ${item.quotaType === "ContractLife" ? "contract" : "year"}` : "—"}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditProduct(item)} title="Edit product">
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-destructive hover:text-destructive"
-                            onClick={() => removeLibItem.mutate({ id: item.id })}
-                            title="Remove product"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                  {productGroups.map(group => (
+                    <Fragment key={group.group}>
+                      {/* Group heading — keeps the natures visually separated inside one list */}
+                      <TableRow className="bg-muted/60 hover:bg-muted/60">
+                        <TableCell colSpan={7} className="py-2">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={productTypeColors[group.group] ?? ""}>{group.label}</Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {group.items.length} line{group.items.length !== 1 ? "s" : ""} ·{" "}
+                              {fmtEur(group.items.reduce((s, i) => s + Number(i.sellingPrice) * i.quantity, 0))} per vessel
+                            </span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {group.items.map(item => (
+                        <TableRow key={item.id}>
+                          <TableCell className="pl-6">
+                            <div className="font-medium">{item.name}</div>
+                            {item.notes && <div className="text-xs text-muted-foreground mt-0.5">{item.notes}</div>}
+                          </TableCell>
+                          <TableCell className="text-center font-mono text-sm">{item.quantity}</TableCell>
+                          <TableCell className="text-right font-mono text-sm text-muted-foreground">{fmtEur(Number(item.unitCost))}</TableCell>
+                          <TableCell className="text-right font-mono text-sm">{fmtEur(Number(item.sellingPrice))}</TableCell>
+                          <TableCell className="text-right font-mono text-sm font-semibold">{fmtEur(Number(item.sellingPrice) * item.quantity)}</TableCell>
+                          <TableCell className="text-sm">{item.quotaType ? `${item.quotaLimit} / ${item.quotaType === "ContractLife" ? "contract" : "year"}` : "—"}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditProduct(item)} title="Edit product">
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-destructive hover:text-destructive"
+                                onClick={() => removeLibItem.mutate({ id: item.id })}
+                                title="Remove product"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </Fragment>
                   ))}
                   <TableRow className="bg-muted/40 font-medium">
-                    <TableCell colSpan={3} className="text-sm">Per vessel total</TableCell>
+                    <TableCell colSpan={2} className="text-sm">Per vessel total</TableCell>
                     <TableCell className="text-right font-mono text-sm">{fmtEur(totals.costPerVessel)}</TableCell>
                     <TableCell />
                     <TableCell className="text-right font-mono text-sm">{fmtEur(totals.listPricePerVessel)}</TableCell>
@@ -353,8 +396,143 @@ export default function OpsContractDetail() {
           </Table>
         </CardContent>
       </Card>
+        </TabsContent>
 
-      {/* Vessels on the contract */}
+        {/* ── Financials: commercials, payment method and the schedule in one place ── */}
+        <TabsContent value="financials" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2"><Wallet className="h-4 w-4" /> Commercial Terms</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">Agreed price, installments and how the customer settles them</p>
+                </div>
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={openFinancials}>
+                  <Pencil className="h-3 w-3" /> Edit
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
+                <div>
+                  <div className="text-xs text-muted-foreground">Price per Vessel</div>
+                  <div className="font-mono font-semibold mt-0.5">{fmtEur(Number(contract.pricePerVessel))}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Contract Value</div>
+                  <div className="font-mono font-semibold mt-0.5">{fmtEur(Number(contract.totalValue))}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{assignments.length || 1} vessel(s)</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Installments</div>
+                  <div className="font-mono font-semibold mt-0.5">{contract.installmentCount}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {fmtEur(Number(contract.pricePerVessel) / Math.max(contract.installmentCount, 1))} per vessel each
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Payment Method</div>
+                  <div className="font-medium mt-0.5 flex items-center gap-1.5">
+                    <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
+                    {(contract as any).paymentMethod ?? "Bank Transfer"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Payment Terms</div>
+                  <div className="font-medium mt-0.5">{termsLabel(Number((contract as any).paymentTermsDays ?? 30))}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Product Margin</div>
+                  <div className="font-mono font-semibold mt-0.5">
+                    {totals.listPricePerVessel > 0 ? `${totals.margin.toFixed(1)}%` : "—"}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Cost {fmtEur(totals.costPerVessel)} vs list {fmtEur(totals.listPricePerVessel)}
+                  </div>
+                </div>
+              </div>
+              {(contract as any).paymentNotes && (
+                <div className="mt-4 rounded-md bg-muted/50 p-3 text-sm">
+                  <div className="text-xs text-muted-foreground mb-1">Payment Notes</div>
+                  {(contract as any).paymentNotes}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Payment schedule lives with the commercials it is derived from */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2"><Clock className="h-4 w-4" /> Payment Schedule</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                {collected > 0
+                  ? `${fmtEur(collected)} collected · ${fmtEur(remaining)} remaining`
+                  : `${fmtEur(remaining)} outstanding across ${schedule.length} installment(s)`}
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[60px]">#</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Invoice #</TableHead>
+                    <TableHead>Paid Date</TableHead>
+                    <TableHead className="w-[100px]">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {schedule.length === 0 ? (
+                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No payment schedule</TableCell></TableRow>
+                  ) : (
+                    schedule.map(p => (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-mono text-sm">{p.installmentNumber}</TableCell>
+                        <TableCell className="text-sm">{fmtDate(p.dueDate)}</TableCell>
+                        <TableCell className="text-right font-mono text-sm">{fmtEur(Number(p.amount))}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={paymentStatusColors[p.status] ?? ""}>{p.status}</Badge>
+                        </TableCell>
+                        <TableCell className="text-sm font-mono">{p.invoiceNumber ?? "—"}</TableCell>
+                        <TableCell className="text-sm">{p.paidDate ? fmtDate(p.paidDate) : "—"}</TableCell>
+                        <TableCell>
+                          {p.status === "Pending" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() => updatePayment.mutate({ id: p.id, status: "Invoiced" })}
+                            >
+                              Invoice
+                            </Button>
+                          )}
+                          {p.status === "Invoiced" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() => updatePayment.mutate({ id: p.id, status: "Paid", paidDate: Date.now() })}
+                            >
+                              Mark Paid
+                            </Button>
+                          )}
+                          {p.status === "Paid" && (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Vessels: the fleet covered, kept away from the product list ── */}
+        <TabsContent value="vessels" className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
@@ -433,70 +611,8 @@ export default function OpsContractDetail() {
         </CardContent>
       </Card>
 
-      {/* Payment Schedule */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2"><Clock className="h-4 w-4" /> Payment Schedule</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[60px]">#</TableHead>
-                <TableHead>Due Date</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Invoice #</TableHead>
-                <TableHead>Paid Date</TableHead>
-                <TableHead className="w-[100px]">Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {schedule.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No payment schedule</TableCell></TableRow>
-              ) : (
-                schedule.map(p => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-mono text-sm">{p.installmentNumber}</TableCell>
-                    <TableCell className="text-sm">{fmtDate(p.dueDate)}</TableCell>
-                    <TableCell className="text-right font-mono text-sm">{fmtEur(Number(p.amount))}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={paymentStatusColors[p.status] ?? ""}>{p.status}</Badge>
-                    </TableCell>
-                    <TableCell className="text-sm font-mono">{p.invoiceNumber ?? "—"}</TableCell>
-                    <TableCell className="text-sm">{p.paidDate ? fmtDate(p.paidDate) : "—"}</TableCell>
-                    <TableCell>
-                      {p.status === "Pending" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs"
-                          onClick={() => updatePayment.mutate({ id: p.id, status: "Invoiced" })}
-                        >
-                          Invoice
-                        </Button>
-                      )}
-                      {p.status === "Invoiced" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs"
-                          onClick={() => updatePayment.mutate({ id: p.id, status: "Paid", paidDate: Date.now() })}
-                        >
-                          Mark Paid
-                        </Button>
-                      )}
-                      {p.status === "Paid" && (
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* ─── Add Vessel Dialog ─── */}
       <Dialog open={assignOpen} onOpenChange={o => { setAssignOpen(o); if (!o) { setAssignForm({ vesselId: "", notes: "" }); setVesselSearch(""); } }}>
@@ -544,9 +660,9 @@ export default function OpsContractDetail() {
 
       {/* ─── Financials Dialog ─── */}
       <Dialog open={finOpen} onOpenChange={setFinOpen}>
-        <ResizableDialogContent storageKey="ops-contract-financials" defaultWidth={460} defaultHeight={340} minWidth={380} minHeight={300}>
+        <ResizableDialogContent storageKey="ops-contract-financials" defaultWidth={520} defaultHeight={620} minWidth={420} minHeight={420}>
           <DialogHeader>
-            <DialogTitle>Contract Financials</DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><Wallet className="h-5 w-5" /> Commercial Terms</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
@@ -576,6 +692,38 @@ export default function OpsContractDetail() {
                 Yearly installments from the start date. Schedule is rebuilt only while nothing is invoiced or paid.
               </p>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Payment Method</Label>
+                <Select value={finForm.paymentMethod} onValueChange={v => setFinForm({ ...finForm, paymentMethod: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {paymentMethods.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Payment Terms (days)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="365"
+                  value={finForm.paymentTermsDays}
+                  onChange={e => setFinForm({ ...finForm, paymentTermsDays: e.target.value })}
+                  placeholder="30"
+                />
+                <p className="text-xs text-muted-foreground">{termsLabel(Number(finForm.paymentTermsDays) || 0)}</p>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Payment Notes</Label>
+              <Textarea
+                rows={2}
+                value={finForm.paymentNotes}
+                onChange={e => setFinForm({ ...finForm, paymentNotes: e.target.value })}
+                placeholder="Currency clause, discount, escalation..."
+              />
+            </div>
             <div className="rounded-md bg-muted/50 p-2.5 text-sm">
               Contract value: <span className="font-mono font-semibold">
                 {fmtEur((Number(finForm.pricePerVessel) || 0) * Math.max(assignments.length, 1))}
@@ -592,6 +740,9 @@ export default function OpsContractDetail() {
                   id: contractId,
                   pricePerVessel: Number(finForm.pricePerVessel),
                   installmentCount: Number(finForm.installmentCount),
+                  paymentMethod: finForm.paymentMethod as any,
+                  paymentTermsDays: Number(finForm.paymentTermsDays) || 0,
+                  paymentNotes: finForm.paymentNotes || null,
                 });
                 setFinOpen(false);
               }}

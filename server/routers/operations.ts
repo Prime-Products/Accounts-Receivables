@@ -8,6 +8,7 @@ import { runCertificateReminders } from "../lib/certificateReminders";
 import {
   opsQuotationStatuses,
   opsContractStatuses,
+  opsPaymentMethods,
   opsAssetStatuses,
   opsOrderStatuses,
   opsQuotationItemTypes,
@@ -415,6 +416,9 @@ export const opsContractsRouter = router({
       endDate: z.number().optional(),
       pricePerVessel: z.number().min(0).optional(),
       installmentCount: z.number().int().min(1).max(30).optional(),
+      paymentMethod: z.enum(opsPaymentMethods).optional(),
+      paymentTermsDays: z.number().int().min(0).max(365).optional(),
+      paymentNotes: z.string().nullable().optional(),
     }))
     .mutation(async ({ input }) => {
       const { id, pricePerVessel, installmentCount, ...rest } = input;
