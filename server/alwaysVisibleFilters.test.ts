@@ -48,8 +48,8 @@ describe("transactions toolbar — credit notes / payments always visible", () =
 });
 
 describe("Invoices page — global credit notes view", () => {
-  it("queries every open credit note across the book", () => {
-    expect(invoices).toContain("trpc.invoices.openCreditNotes.useQuery()");
+  it("queries open and recently closed credit notes across the book", () => {
+    expect(invoices).toContain("trpc.invoices.creditNotes.useQuery()");
   });
 
   it("offers a Credit notes view next to By group / By vessel", () => {

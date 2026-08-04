@@ -84,25 +84,45 @@ export function buildSoftOneCreditNotesQuery(afterFindoc: number, year = 2026, m
       AND terms.[ISCANCEL] = 0
       AND terms.[APPRV] = 1
       AND terms.[PAYDEMANDMD] IN (-1, 1)
-  ), 0) AS float)) AS [OPEN_AMOUNT]
+  ), 0) AS float)) AS [OPEN_AMOUNT],
+  CAST((
+    SELECT MAX(CONVERT(char(8), settled.[TRNDATE], 112))
+    FROM [dbo].[CCCVOBFINPAY] AS settled
+    WHERE settled.[COMPANY] = document.[COMPANY]
+      AND settled.[FINDOC] = document.[FINDOC]
+      AND settled.[TRDR] = document.[TRDR]
+      AND settled.[PAYDEMANDMD] = -2
+      AND ABS(COALESCE(settled.[OPNTAMNT], 0)) <= 0.005
+  ) AS int) AS [CLOSED_DATE]
 FROM [dbo].[FINDOC] AS document
 WHERE document.[COMPANY] = 1
   AND document.[SODTYPE] = 13
   AND document.[ISCANCEL] = 0
-  AND document.[TRNDATE] >= '${rangeStart}'
-  AND document.[TRNDATE] < '${rangeEnd}'
   AND document.[FINDOC] > ${afterFindoc}
   AND document.[FINCODE] NOT LIKE N'ΔΑΤ-%'
-  AND EXISTS (
-    SELECT 1
-    FROM [dbo].[FINPAYTERMS] AS open_terms
-    WHERE open_terms.[COMPANY] = document.[COMPANY]
-      AND open_terms.[FINDOC] = document.[FINDOC]
-      AND open_terms.[ISCANCEL] = 0
-      AND open_terms.[APPRV] = 1
-      AND open_terms.[PAYDEMANDMD] IN (-1, 1)
-    GROUP BY open_terms.[FINDOC]
-    HAVING ABS(SUM(open_terms.[OPNTAMNT] * open_terms.[PAYDEMANDMD])) > 0.005
+  AND (
+    EXISTS (
+      SELECT 1
+      FROM [dbo].[FINPAYTERMS] AS open_terms
+      WHERE open_terms.[COMPANY] = document.[COMPANY]
+        AND open_terms.[FINDOC] = document.[FINDOC]
+        AND open_terms.[ISCANCEL] = 0
+        AND open_terms.[APPRV] = 1
+        AND open_terms.[PAYDEMANDMD] IN (-1, 1)
+      GROUP BY open_terms.[FINDOC]
+      HAVING ABS(SUM(open_terms.[OPNTAMNT] * open_terms.[PAYDEMANDMD])) > 0.005
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM [dbo].[CCCVOBFINPAY] AS settled_terms
+      WHERE settled_terms.[COMPANY] = document.[COMPANY]
+        AND settled_terms.[FINDOC] = document.[FINDOC]
+        AND settled_terms.[TRDR] = document.[TRDR]
+        AND settled_terms.[PAYDEMANDMD] = -2
+        AND ABS(COALESCE(settled_terms.[OPNTAMNT], 0)) <= 0.005
+        AND settled_terms.[TRNDATE] >= '${rangeStart}'
+        AND settled_terms.[TRNDATE] < '${rangeEnd}'
+    )
   )
   AND NOT EXISTS (
     SELECT 1
@@ -170,11 +190,12 @@ export function normalizeSoftOneCreditNotes(
       currency,
       amount: amount.toFixed(2),
       openAmount: openAmount.toFixed(2),
+      closedAt: openAmount <= 0.005 && row.CLOSED_DATE ? dateKeyToUtc(row.CLOSED_DATE) : null,
       openAmountEur: toEur(openAmount, currency).toFixed(2),
       vesselId: numberValue(row, "VESSEL_ID") > 0 ? numberValue(row, "VESSEL_ID") : null,
       notes: `SoftOne series ${identity(row, "SERIES")}`,
     } satisfies SoftOneCreditNoteUpsert;
-    return Number(record.openAmount) > 0.005 ? [record] : [];
+    return Number(record.openAmount) > 0.005 || record.closedAt !== null ? [record] : [];
   });
 }
 

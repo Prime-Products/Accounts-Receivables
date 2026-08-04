@@ -1995,6 +1995,7 @@ export async function upsertSoftOneCreditNotes(records: SoftOneCreditNoteUpsert[
         currency: sql`VALUES(${creditNotes.currency})`,
         amount: sql`VALUES(${creditNotes.amount})`,
         openAmount: sql`VALUES(${creditNotes.openAmount})`,
+        closedAt: sql`VALUES(${creditNotes.closedAt})`,
         openAmountEur: sql`VALUES(${creditNotes.openAmountEur})`,
         vesselId: sql`VALUES(${creditNotes.vesselId})`,
         softoneId: sql`VALUES(${creditNotes.softoneId})`,

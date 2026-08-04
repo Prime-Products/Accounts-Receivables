@@ -534,6 +534,7 @@ async function listCreditNotesWithStatus(customerIds: Set<number>, customerNames
         allocated: alloc,
         open,
         openEur: toEur(open, r.currency ?? "EUR"),
+        closedAt: r.closedAt ?? null,
         creditStatus,
         branch: r.branch ?? null,
         vesselId: r.vesselId ?? null,
@@ -2879,13 +2880,18 @@ export const invoicesRouter = router({
     return rows.map(r => ({ ...r, customerGroup: groupOf.get(r.customerId) ?? r.customerName }));
   }),
 
-  /** Open credit notes only; closed credits disappear just like paid invoices. */
+  /** Open credits plus credits settled in the configured/current calendar year. */
   creditNotes: protectedProcedure.query(async () => {
     const customers = await db.listCustomers();
     const names = new Map(customers.map(c => [c.id, c.name]));
-    const rows = await listOpenCreditNotes(new Set(customers.map(c => c.id)), names);
+    const rows = await listCreditNotesWithStatus(new Set(customers.map(c => c.id)), names);
+    const year = Number(process.env.SOFTONE_SQL_CREDIT_NOTE_YEAR ?? new Date().getUTCFullYear());
+    const start = Date.UTC(year, 0, 1);
+    const end = Date.UTC(year + 1, 0, 1);
     const groupOf = new Map(customers.map(c => [c.id, ((c.customerGroup ?? "").trim() || c.name) as string]));
-    return rows.map(r => ({ ...r, customerGroup: groupOf.get(r.customerId) ?? r.customerName }));
+    return rows
+      .filter(r => r.open > 0.005 || (r.closedAt !== null && r.closedAt >= start && r.closedAt < end))
+      .map(r => ({ ...r, customerGroup: groupOf.get(r.customerId) ?? r.customerName }));
   }),
 
   /**
