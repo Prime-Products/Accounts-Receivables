@@ -23,6 +23,17 @@ const EXPECTED_SECTIONS: [string, string[]][] = [
 ];
 
 describe("Sidebar sections", () => {
+  it("repeats the Vessels shortcut inside Prime 247", () => {
+    // The fleet is an entry point for contract work as often as the contract itself,
+    // so /vessels is reachable from Prime 247 without jumping back up to CRM.
+    const prime = layout.slice(layout.indexOf('label: "Prime 247"'), layout.indexOf('label: "Management"'));
+    expect(prime).toMatch(/label: "Vessels", path: "\/vessels"/);
+    const crm = layout.slice(layout.indexOf('label: "CRM"'), layout.indexOf('label: "Prime 247"'));
+    expect(crm).toMatch(/label: "Vessels", path: "\/vessels"/);
+    // A path living in two sections must not collide as a React key.
+    expect(layout).toMatch(/key=\{`\$\{section\.label \?\? "root"\}-\$\{item\.path\}`\}/);
+  });
+
   it("declares the three sections in order, with Dashboard ungrouped first", () => {
     const dashboardAt = layout.indexOf('label: "Dashboard"');
     expect(dashboardAt).toBeGreaterThan(-1);

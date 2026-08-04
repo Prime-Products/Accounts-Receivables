@@ -7,17 +7,15 @@ const routerSrc = readFileSync(join(__dirname, "..", "server/routers/operations.
 
 /**
  * Fleet dashboard aggregation for the Prime 247 contracts list. Kept as a pure function
- * here so the arithmetic (agreed vs activated, pro-rata activated value, outstanding)
- * is pinned independently of the React page that renders it.
+ * here so the arithmetic (agreed vs activated, pro-rata activated value) is pinned
+ * independently of the React page that renders it. Cash figures are deliberately not
+ * part of this list — collections belong to the contract page and to Invoices.
  */
 type Row = {
   status: string;
   totalValue: number;
   vesselCount: number;
   activatedVesselCount: number;
-  collectedAmount: number;
-  totalInstallments: number;
-  paidInstallments: number;
 };
 
 export function aggregateContractKpi(rows: Row[]) {
@@ -32,17 +30,15 @@ export function aggregateContractKpi(rows: Row[]) {
         currentValue: acc.currentValue + perVessel * c.activatedVesselCount,
         agreedVessels: acc.agreedVessels + c.vesselCount,
         activatedVessels: acc.activatedVessels + c.activatedVesselCount,
-        collected: acc.collected + c.collectedAmount,
-        installments: acc.installments + c.totalInstallments,
-        paidInstallments: acc.paidInstallments + c.paidInstallments,
+        pipelineVessels: acc.pipelineVessels + Math.max(c.vesselCount - c.activatedVesselCount, 0),
       };
     },
     {
       contracts: 0, activeContracts: 0, agreedValue: 0, currentValue: 0,
-      agreedVessels: 0, activatedVessels: 0, collected: 0, installments: 0, paidInstallments: 0,
+      agreedVessels: 0, activatedVessels: 0, pipelineVessels: 0,
     },
   );
-  return { ...kpi, outstanding: Math.max(kpi.currentValue - kpi.collected, 0) };
+  return kpi;
 }
 
 const row = (over: Partial<Row> = {}): Row => ({
@@ -50,9 +46,6 @@ const row = (over: Partial<Row> = {}): Row => ({
   totalValue: 30_000,
   vesselCount: 3,
   activatedVesselCount: 2,
-  collectedAmount: 0,
-  totalInstallments: 9,
-  paidInstallments: 0,
   ...over,
 });
 
@@ -78,18 +71,7 @@ describe("contracts list KPI dashboard", () => {
   it("treats an offer with no shipments as zero current value", () => {
     const k = aggregateContractKpi([row({ status: "Offer", activatedVesselCount: 0 })]);
     expect(k.currentValue).toBe(0);
-    expect(k.outstanding).toBe(0);
-  });
-
-  it("derives outstanding from current value minus collected", () => {
-    const k = aggregateContractKpi([row({ collectedAmount: 5_000 })]);
-    expect(k.collected).toBe(5_000);
-    expect(k.outstanding).toBe(15_000);
-  });
-
-  it("never reports negative outstanding when collections run ahead", () => {
-    const k = aggregateContractKpi([row({ collectedAmount: 25_000 })]);
-    expect(k.outstanding).toBe(0);
+    expect(k.pipelineVessels).toBe(3);
   });
 
   it("survives contracts with no vessels assigned yet", () => {
@@ -99,18 +81,17 @@ describe("contracts list KPI dashboard", () => {
     expect(k.agreedVessels).toBe(0);
   });
 
-  it("totals installment progress for the Collected card", () => {
+  it("counts the vessels still awaiting shipment", () => {
     const k = aggregateContractKpi([
-      row({ totalInstallments: 9, paidInstallments: 3 }),
-      row({ totalInstallments: 6, paidInstallments: 1 }),
+      row({ vesselCount: 3, activatedVesselCount: 2 }),
+      row({ vesselCount: 5, activatedVesselCount: 1 }),
     ]);
-    expect(k.installments).toBe(15);
-    expect(k.paidInstallments).toBe(4);
+    expect(k.pipelineVessels).toBe(5);
   });
 
   it("returns zeros for an empty (fully filtered) list", () => {
     const k = aggregateContractKpi([]);
-    expect(k).toMatchObject({ contracts: 0, agreedValue: 0, currentValue: 0, agreedVessels: 0, outstanding: 0 });
+    expect(k).toMatchObject({ contracts: 0, agreedValue: 0, currentValue: 0, agreedVessels: 0, pipelineVessels: 0 });
   });
 });
 
@@ -137,10 +118,19 @@ describe("contracts list — column order", () => {
 });
 
 describe("contracts list — KPI cards", () => {
-  it("shows current against agreed for both value and vessels, plus collected and outstanding", () => {
-    for (const label of ["Current / Agreed Value", "Active / Agreed Vessels", "Collected", "Outstanding", "of {fmtEur(kpi.agreedValue)} agreed"]) {
+  it("shows current against agreed for both value and vessels", () => {
+    for (const label of ["Current / Agreed Value", "Active / Agreed Vessels", "of {fmtEur(kpi.agreedValue)} agreed"]) {
       expect(listSrc).toContain(label);
     }
+  });
+
+  it("keeps cash metrics off this page", () => {
+    // Collected / Outstanding belong to the contract page and Invoices, not to the
+    // contracts list, which is about scope and activation.
+    expect(listSrc).not.toMatch(/CardTitle[^>]*>Collected</);
+    expect(listSrc).not.toMatch(/CardTitle[^>]*>Outstanding</);
+    expect(listSrc).not.toContain("installments paid");
+    expect(listSrc).not.toContain("on active vessels");
   });
 
   it("uses the same left-accent card styling as the contract detail KPIs", () => {

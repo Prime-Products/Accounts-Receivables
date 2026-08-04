@@ -193,8 +193,9 @@ export default function OpsContractsList() {
   }
 
   /**
-   * Fleet dashboard figures, expressed in current (activated) terms: value and vessels that
-   * have actually shipped, the cash collected against them and what is still outstanding.
+   * Fleet dashboard figures, expressed in current (activated) terms: the value and the
+   * vessels that have actually shipped. Cash (collected / outstanding) is intentionally
+   * left out — that belongs to the contract page and to Invoices.
    */
   const kpi = filtered.reduce(
     (acc, c) => {
@@ -208,17 +209,13 @@ export default function OpsContractsList() {
         agreedVessels: acc.agreedVessels + vessels,
         pipelineVessels: acc.pipelineVessels + Math.max(vessels - activeVessels, 0),
         activatedVessels: acc.activatedVessels + activeVessels,
-        collected: acc.collected + c.collectedAmount,
-        installments: acc.installments + c.totalInstallments,
-        paidInstallments: acc.paidInstallments + c.paidInstallments,
       };
     },
     {
       contracts: 0, activeContracts: 0, agreedValue: 0, currentValue: 0, agreedVessels: 0, pipelineVessels: 0,
-      activatedVessels: 0, collected: 0, installments: 0, paidInstallments: 0,
+      activatedVessels: 0,
     },
   );
-  const outstanding = Math.max(kpi.currentValue - kpi.collected, 0);
   const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
 
   return (
@@ -227,7 +224,7 @@ export default function OpsContractsList() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Prime 247 Contracts</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {filtered.length} contract{filtered.length !== 1 ? "s" : ""} · Current: {fmtEur(kpi.currentValue)} of {fmtEur(kpi.agreedValue)} agreed · Collected: {fmtEur(kpi.collected)}
+            {filtered.length} contract{filtered.length !== 1 ? "s" : ""} · Current: {fmtEur(kpi.currentValue)} of {fmtEur(kpi.agreedValue)} agreed
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -266,8 +263,12 @@ export default function OpsContractsList() {
         </Select>
       </div>
 
-      {/* ─── Fleet KPI dashboard: the live (activated) position, then the cash against it ─── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {/*
+       * Fleet KPI dashboard — the activated position only. Cash figures (collected /
+       * outstanding) deliberately live on the contract page and in Invoices, not here:
+       * this list is about scope and activation, not collections.
+       */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Card className="border-l-4 border-l-[oklch(0.55_0.14_255)]">
           <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground whitespace-nowrap">Current / Agreed Value</CardTitle></CardHeader>
           <CardContent>
@@ -287,20 +288,6 @@ export default function OpsContractsList() {
             <p className="text-xs text-muted-foreground mt-1">
               {kpi.pipelineVessels} awaiting shipment
             </p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-[oklch(0.65_0.12_175)]">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Collected</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-lg font-bold font-mono">{fmtEur(kpi.collected)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{kpi.paidInstallments}/{kpi.installments} installments paid</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-[oklch(0.55_0.14_25)]">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Outstanding</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-lg font-bold font-mono">{fmtEur(outstanding)}</div>
-            <p className="text-xs text-muted-foreground mt-1">on active vessels</p>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-[oklch(0.65_0.12_80)]">

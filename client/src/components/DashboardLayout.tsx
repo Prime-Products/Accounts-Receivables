@@ -92,6 +92,10 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
     items: [
       { icon: Briefcase, label: "Overview", path: "/ops" },
       { icon: FileCheck2, label: "Contracts", path: "/ops/contracts" },
+      // Same destination as CRM → Vessels. Contract work starts from the fleet just as
+      // often as from a contract, so the shortcut is repeated inside this section
+      // instead of forcing a jump back up to CRM.
+      { icon: Ship, label: "Vessels", path: "/vessels" },
       { icon: Package, label: "Equipment", path: "/ops/assets" },
       { icon: ShieldCheck, label: "Certificates", path: "/ops/certificates" },
       { icon: Settings, label: "Pricelist", path: "/ops/catalog" },
@@ -107,7 +111,12 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
   },
 ];
 
-/** Flat list for lookups (active item, page title) — the grouping is presentational. */
+/**
+ * Flat list for lookups (active item, page title) — the grouping is presentational.
+ * A path may appear in more than one section (Vessels lives under both CRM and
+ * Prime 247); lookups take the first match, which is enough because duplicates
+ * share the same label.
+ */
 const menuItems = navSections.flatMap(s => s.items);
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -404,7 +413,7 @@ function DashboardLayoutContent({
                       const hidden = !isOpen && !isActive;
                       return (
                         <SidebarMenuItem
-                          key={item.path}
+                          key={`${section.label ?? "root"}-${item.path}`}
                           className={hidden ? "hidden group-data-[collapsible=icon]:block" : undefined}
                         >
                           <SidebarMenuButton

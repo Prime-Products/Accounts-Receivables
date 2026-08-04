@@ -2093,3 +2093,8 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Contract title editable inline from the contract header (click title / pencil, Enter saves, Esc cancels)
 - [x] Saved title refreshes the header and the contracts list without a reload
 - [x] Empty title rejected with a clear message; unchanged title does not fire a save
+
+## Sidebar Vessels shortcut + contracts list cleanup (user request 5/8)
+- [x] Vessels entry duplicated under Prime 247 (same /vessels destination as CRM), unique React keys
+- [x] Collected and Outstanding KPI cards removed from the Prime 247 contracts list
+- [x] Contracts list KPI row reduced to three cards; page subtitle no longer shows collected cash
