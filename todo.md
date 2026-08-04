@@ -2066,3 +2066,6 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Contract: colour-coded expiry indicator next to the end date that escalates as the period nears its end
 - [x] Vessel: compact one-line-per-product list with description, serials collapsed behind a click
 - [x] Vessel card + vessels list: show how many contracts the vessel is enrolled in
+- [x] Seed a 20-product Prime 247 catalogue (instruments / consumables / other) so the product picker has a source list
+- [x] Create 10 clearly-marked sample contracts (DEMO-2026-xxx) with products, real vessels and equipment units
+- [x] Provide a one-click cleanup that removes every sample contract and its dependants

@@ -723,6 +723,25 @@ export const opsContractsRouter = router({
       await opsDb.updatePaymentScheduleItem(id, data as any);
       return { success: true };
     }),
+  /**
+   * How many seeded sample contracts are still in the database, so the UI can offer
+   * the cleanup only when there is something to clean up.
+   */
+  sampleDataStatus: protectedProcedure.query(async () => {
+    const contracts = await opsDb.listSampleContracts();
+    return {
+      prefix: opsDb.SAMPLE_CONTRACT_PREFIX,
+      count: contracts.length,
+      contractNumbers: contracts.map(c => c.contractNumber),
+    };
+  }),
+  /**
+   * Remove every sample contract and everything hanging off it in one step. The
+   * pricelist catalogue is left untouched — it holds real product data.
+   */
+  purgeSampleData: protectedProcedure.mutation(async () => {
+    return await opsDb.purgeSampleContracts();
+  }),
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

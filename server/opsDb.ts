@@ -213,6 +213,65 @@ export async function deleteOpsContract(id: number) {
   await getDb().delete(opsContracts).where(eq(opsContracts.id, id));
 }
 
+/**
+ * Prefix that marks a contract as seeded sample data. Everything hanging off such a
+ * contract (vessels, products, equipment, certificates, installments) is disposable,
+ * so the Prime 247 module can be exercised before the real ERP data lands.
+ */
+export const SAMPLE_CONTRACT_PREFIX = "DEMO-";
+
+/** Contracts whose number starts with the sample prefix. */
+export async function listSampleContracts() {
+  return getDb()
+    .select()
+    .from(opsContracts)
+    .where(sql`${opsContracts.contractNumber} LIKE ${SAMPLE_CONTRACT_PREFIX + "%"}`)
+    .orderBy(asc(opsContracts.contractNumber));
+}
+
+/**
+ * Delete every sample contract and its dependents, leaf tables first so no row is ever
+ * orphaned. The product catalogue is deliberately left alone — it holds real Prime
+ * Products pricing, not demo rows.
+ */
+export async function purgeSampleContracts() {
+  const contracts = await listSampleContracts();
+  const contractIds = contracts.map(c => c.id);
+  if (contractIds.length === 0) {
+    return { contracts: 0, vessels: 0, products: 0, equipment: 0, certificates: 0, orders: 0, installments: 0 };
+  }
+  const conn = getDb();
+  const assets = await conn.select().from(opsAssets).where(inArray(opsAssets.contractId, contractIds));
+  const assetIds = assets.map(a => a.id);
+  let certificates = 0;
+  if (assetIds.length > 0) {
+    const certs = await conn.select().from(opsCertificates).where(inArray(opsCertificates.assetId, assetIds));
+    certificates = certs.length;
+    await conn.delete(opsCertificates).where(inArray(opsCertificates.assetId, assetIds));
+  }
+  const [orders, products, assignments, installments] = await Promise.all([
+    conn.select().from(opsConsumableOrders).where(inArray(opsConsumableOrders.contractId, contractIds)),
+    conn.select().from(opsContractLibrary).where(inArray(opsContractLibrary.contractId, contractIds)),
+    conn.select().from(opsVesselAssignments).where(inArray(opsVesselAssignments.contractId, contractIds)),
+    conn.select().from(opsPaymentSchedule).where(inArray(opsPaymentSchedule.contractId, contractIds)),
+  ]);
+  await conn.delete(opsAssets).where(inArray(opsAssets.contractId, contractIds));
+  await conn.delete(opsConsumableOrders).where(inArray(opsConsumableOrders.contractId, contractIds));
+  await conn.delete(opsPaymentSchedule).where(inArray(opsPaymentSchedule.contractId, contractIds));
+  await conn.delete(opsVesselAssignments).where(inArray(opsVesselAssignments.contractId, contractIds));
+  await conn.delete(opsContractLibrary).where(inArray(opsContractLibrary.contractId, contractIds));
+  await conn.delete(opsContracts).where(inArray(opsContracts.id, contractIds));
+  return {
+    contracts: contractIds.length,
+    vessels: assignments.length,
+    products: products.length,
+    equipment: assetIds.length,
+    certificates,
+    orders: orders.length,
+    installments: installments.length,
+  };
+}
+
 // CONTRACT LIBRARY
 export async function listContractLibrary(contractId: number) {
   return getDb().select().from(opsContractLibrary).where(eq(opsContractLibrary.contractId, contractId));

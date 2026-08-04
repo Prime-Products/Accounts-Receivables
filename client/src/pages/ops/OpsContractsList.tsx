@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { fmtDate, fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
-import { ArrowDown, ArrowUp, ArrowUpDown, FileCheck2, Plus, Search, Ship } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, FileCheck2, FlaskConical, Plus, Search, Ship } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -53,6 +53,23 @@ export default function OpsContractsList() {
   const [sortKey, setSortKey] = useState<SortKey>("startDate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const cols = useResizableColumns("ops-contracts", COL_DEFAULTS);
+
+  /* ─── Sample data cleanup ─── */
+  const { data: sampleStatus } = trpc.opsContracts.sampleDataStatus.useQuery();
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const purgeSamples = trpc.opsContracts.purgeSampleData.useMutation({
+    onSuccess: (res) => {
+      setPurgeOpen(false);
+      toast.success(
+        `Removed ${res.contracts} sample contract${res.contracts !== 1 ? "s" : ""}`,
+        { description: `${res.vessels} vessel assignments · ${res.products} product lines · ${res.equipment} equipment units. The pricelist was left untouched.` },
+      );
+      utils.opsContracts.invalidate();
+      utils.vessels.invalidate();
+      utils.opsAssets.invalidate();
+    },
+    onError: (err) => toast.error(err.message || "Could not remove the sample data"),
+  });
 
   /* ─── Create Dialog ─── */
   const [createOpen, setCreateOpen] = useState(false);
@@ -156,9 +173,22 @@ export default function OpsContractsList() {
             {filtered.length} contract{filtered.length !== 1 ? "s" : ""} · Value: {fmtEur(totals.value)} · Collected: {fmtEur(totals.collected)}
           </p>
         </div>
-        <Button className="gap-2" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" /> New Contract
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Sample data is disposable: offer the cleanup only while demo contracts exist. */}
+          {sampleStatus && sampleStatus.count > 0 && (
+            <Button
+              variant="outline"
+              className="gap-2 text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100"
+              onClick={() => setPurgeOpen(true)}
+            >
+              <FlaskConical className="h-4 w-4" />
+              {sampleStatus.count} sample contract{sampleStatus.count !== 1 ? "s" : ""}
+            </Button>
+          )}
+          <Button className="gap-2" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" /> New Contract
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -389,6 +419,46 @@ export default function OpsContractsList() {
               })}
             >
               {create.isPending ? "Creating..." : "Create Contract"}
+            </Button>
+          </DialogFooter>
+        </ResizableDialogContent>
+      </Dialog>
+
+      {/* Sample data cleanup — irreversible, so state plainly what goes and what stays. */}
+      <Dialog open={purgeOpen} onOpenChange={setPurgeOpen}>
+        <ResizableDialogContent storageKey="ops-purge-samples" defaultWidth={520} defaultHeight={420}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FlaskConical className="h-4 w-4 text-amber-600" /> Remove sample contracts
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            <p className="text-muted-foreground">
+              This deletes the {sampleStatus?.count ?? 0} demo contract{(sampleStatus?.count ?? 0) !== 1 ? "s" : ""} seeded for testing,
+              together with their vessel assignments, product lines, equipment units, certificates and installments.
+            </p>
+            <div className="rounded-md border bg-muted/40 p-3">
+              <p className="font-medium mb-1">Will be removed</p>
+              <ul className="text-xs text-muted-foreground space-y-0.5 list-disc pl-4">
+                {(sampleStatus?.contractNumbers ?? []).map(n => <li key={n}>{n}</li>)}
+              </ul>
+            </div>
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
+              <p className="font-medium text-emerald-900 mb-1">Will be kept</p>
+              <p className="text-xs text-emerald-800">
+                The product pricelist, all real contracts, customers, vessels and their equipment stay exactly as they are.
+              </p>
+            </div>
+            <p className="text-xs text-red-600">This cannot be undone.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPurgeOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={purgeSamples.isPending || (sampleStatus?.count ?? 0) === 0}
+              onClick={() => purgeSamples.mutate()}
+            >
+              {purgeSamples.isPending ? "Removing..." : "Remove sample data"}
             </Button>
           </DialogFooter>
         </ResizableDialogContent>
