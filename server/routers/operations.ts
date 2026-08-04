@@ -1,0 +1,709 @@
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import * as opsDb from "../opsDb";
+import * as db from "../db";
+import { protectedProcedure, router } from "../_core/trpc";
+import {
+  opsQuotationStatuses,
+  opsContractStatuses,
+  opsAssetStatuses,
+  opsOrderStatuses,
+  opsQuotationItemTypes,
+  opsLibraryItemTypes,
+  opsQuotaTypes,
+  opsVesselEventTypes,
+} from "../../drizzle/schema";
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CATALOG ROUTERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const opsCatalogRouter = router({
+  services: router({
+    list: protectedProcedure.query(() => opsDb.listServices()),
+    get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      const item = await opsDb.getService(input.id);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+      return item;
+    }),
+    create: protectedProcedure
+      .input(z.object({ name: z.string().min(1), description: z.string().optional(), defaultCost: z.string().optional(), category: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        const id = await opsDb.createService({ name: input.name, description: input.description, defaultCost: input.defaultCost ?? "0", category: input.category });
+        return { id };
+      }),
+    update: protectedProcedure
+      .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().nullable().optional(), defaultCost: z.string().optional(), category: z.string().nullable().optional(), active: z.boolean().optional() }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await opsDb.updateService(id, data as any);
+        return { success: true };
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await opsDb.deleteService(input.id);
+      return { success: true };
+    }),
+  }),
+  assets: router({
+    list: protectedProcedure.query(() => opsDb.listAssetCatalog()),
+    create: protectedProcedure
+      .input(z.object({ name: z.string().min(1), description: z.string().optional(), defaultCost: z.string().optional(), category: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        const id = await opsDb.createAssetCatalogItem({ name: input.name, description: input.description, defaultCost: input.defaultCost ?? "0", category: input.category });
+        return { id };
+      }),
+    update: protectedProcedure
+      .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().nullable().optional(), defaultCost: z.string().optional(), category: z.string().nullable().optional(), active: z.boolean().optional() }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await opsDb.updateAssetCatalogItem(id, data as any);
+        return { success: true };
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await opsDb.deleteAssetCatalogItem(input.id);
+      return { success: true };
+    }),
+  }),
+  consumables: router({
+    list: protectedProcedure.query(() => opsDb.listConsumableCatalog()),
+    create: protectedProcedure
+      .input(z.object({ name: z.string().min(1), description: z.string().optional(), unit: z.string().optional(), defaultCostPerUnit: z.string().optional(), category: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        const id = await opsDb.createConsumableCatalogItem({ name: input.name, description: input.description, unit: input.unit ?? "pcs", defaultCostPerUnit: input.defaultCostPerUnit ?? "0", category: input.category });
+        return { id };
+      }),
+    update: protectedProcedure
+      .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().nullable().optional(), unit: z.string().optional(), defaultCostPerUnit: z.string().optional(), category: z.string().nullable().optional(), active: z.boolean().optional() }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await opsDb.updateConsumableCatalogItem(id, data as any);
+        return { success: true };
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await opsDb.deleteConsumableCatalogItem(input.id);
+      return { success: true };
+    }),
+  }),
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// QUOTATIONS ROUTER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const opsQuotationsRouter = router({
+  list: protectedProcedure.query(async () => {
+    const [quotations, customers] = await Promise.all([opsDb.listQuotations(), db.listCustomers()]);
+    const byId = new Map(customers.map(c => [c.id, c]));
+    return quotations.map(q => ({
+      ...q,
+      customerName: byId.get(q.customerId)?.name ?? "—",
+      customerGroup: (byId.get(q.customerId)?.customerGroup ?? "").trim() || (byId.get(q.customerId)?.name ?? "—"),
+    }));
+  }),
+  get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+    const quotation = await opsDb.getQuotation(input.id);
+    if (!quotation) throw new TRPCError({ code: "NOT_FOUND" });
+    const items = await opsDb.listQuotationItems(input.id);
+    const customer = await db.getCustomer(quotation.customerId);
+    return { quotation, items, customer };
+  }),
+  create: protectedProcedure
+    .input(z.object({
+      quotationNumber: z.string().min(1),
+      customerId: z.number(),
+      validUntil: z.number().optional(),
+      notes: z.string().optional(),
+      items: z.array(z.object({
+        itemType: z.enum(opsQuotationItemTypes),
+        catalogId: z.number(),
+        name: z.string().min(1),
+        quantity: z.number().int().min(1),
+        unitCost: z.string(),
+        sellingPrice: z.string(),
+        notes: z.string().optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const totalCost = input.items.reduce((s, i) => s + Number(i.unitCost) * i.quantity, 0);
+      const sellingPrice = input.items.reduce((s, i) => s + Number(i.sellingPrice) * i.quantity, 0);
+      const margin = sellingPrice > 0 ? ((sellingPrice - totalCost) / sellingPrice) * 100 : 0;
+      const id = await opsDb.createQuotation({
+        quotationNumber: input.quotationNumber,
+        customerId: input.customerId,
+        totalCost: totalCost.toFixed(2),
+        sellingPrice: sellingPrice.toFixed(2),
+        margin: margin.toFixed(2),
+        validUntil: input.validUntil,
+        notes: input.notes,
+        createdBy: ctx.user.id,
+      });
+      for (const item of input.items) {
+        await opsDb.createQuotationItem({ quotationId: id, ...item });
+      }
+      return { id };
+    }),
+  update: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      status: z.enum(opsQuotationStatuses).optional(),
+      validUntil: z.number().nullable().optional(),
+      notes: z.string().nullable().optional(),
+      items: z.array(z.object({
+        itemType: z.enum(opsQuotationItemTypes),
+        catalogId: z.number(),
+        name: z.string().min(1),
+        quantity: z.number().int().min(1),
+        unitCost: z.string(),
+        sellingPrice: z.string(),
+        notes: z.string().optional(),
+      })).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { id, items, ...data } = input;
+      if (items) {
+        await opsDb.deleteQuotationItems(id);
+        const totalCost = items.reduce((s, i) => s + Number(i.unitCost) * i.quantity, 0);
+        const sellingPrice = items.reduce((s, i) => s + Number(i.sellingPrice) * i.quantity, 0);
+        const margin = sellingPrice > 0 ? ((sellingPrice - totalCost) / sellingPrice) * 100 : 0;
+        await opsDb.updateQuotation(id, { ...data, totalCost: totalCost.toFixed(2), sellingPrice: sellingPrice.toFixed(2), margin: margin.toFixed(2) } as any);
+        for (const item of items) {
+          await opsDb.createQuotationItem({ quotationId: id, ...item });
+        }
+      } else {
+        await opsDb.updateQuotation(id, data as any);
+      }
+      return { success: true };
+    }),
+  delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    await opsDb.deleteQuotationItems(input.id);
+    await opsDb.deleteQuotation(input.id);
+    return { success: true };
+  }),
+  /** Convert an approved quotation into a contract. */
+  convertToContract: protectedProcedure
+    .input(z.object({
+      quotationId: z.number(),
+      contractNumber: z.string().min(1),
+      title: z.string().min(1),
+      startDate: z.number(),
+      endDate: z.number(),
+      installmentCount: z.number().int().min(1).max(30),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const quotation = await opsDb.getQuotation(input.quotationId);
+      if (!quotation) throw new TRPCError({ code: "NOT_FOUND" });
+      if (quotation.status !== "Approved") throw new TRPCError({ code: "BAD_REQUEST", message: "Only approved quotations can be converted" });
+      const items = await opsDb.listQuotationItems(input.quotationId);
+      const totalValue = Number(quotation.sellingPrice);
+      // Create the contract
+      const contractId = await opsDb.createOpsContract({
+        contractNumber: input.contractNumber,
+        quotationId: input.quotationId,
+        customerId: quotation.customerId,
+        title: input.title,
+        status: "Active",
+        totalValue: totalValue.toFixed(2),
+        startDate: input.startDate,
+        endDate: input.endDate,
+        createdBy: ctx.user.id,
+      });
+      // Create library items from quotation items
+      for (const item of items) {
+        await opsDb.createContractLibraryItem({
+          contractId,
+          itemType: item.itemType as any,
+          catalogId: item.catalogId,
+          name: item.name,
+          quantity: item.quantity,
+          quotaType: item.itemType === "Consumable" ? "Annual" : null,
+          quotaLimit: item.itemType === "Consumable" ? item.quantity : null,
+        });
+      }
+      // Generate payment schedule
+      const per = totalValue / input.installmentCount;
+      const start = new Date(input.startDate);
+      for (let i = 0; i < input.installmentCount; i++) {
+        const due = Date.UTC(start.getUTCFullYear() + i, start.getUTCMonth(), start.getUTCDate());
+        const amount = i === input.installmentCount - 1 ? totalValue - per * (input.installmentCount - 1) : per;
+        await opsDb.createPaymentScheduleItem({
+          contractId,
+          installmentNumber: i + 1,
+          dueDate: due,
+          amount: amount.toFixed(2),
+        });
+      }
+      // Mark quotation as converted
+      await opsDb.updateQuotation(input.quotationId, { status: "Approved" });
+      return { contractId };
+    }),
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OPERATIONS CONTRACTS ROUTER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const opsContractsRouter = router({
+  list: protectedProcedure.query(async () => {
+    const [contracts, customers, schedules, assignments] = await Promise.all([
+      opsDb.listOpsContracts(),
+      db.listCustomers(),
+      opsDb.listPaymentSchedule(),
+      opsDb.listVesselAssignments(),
+    ]);
+    const byId = new Map(customers.map(c => [c.id, c]));
+    return contracts.map(c => {
+      const payments = schedules.filter(p => p.contractId === c.id);
+      const vesselCount = assignments.filter(a => a.contractId === c.id).length;
+      return {
+        ...c,
+        customerName: byId.get(c.customerId)?.name ?? "—",
+        customerGroup: (byId.get(c.customerId)?.customerGroup ?? "").trim() || (byId.get(c.customerId)?.name ?? "—"),
+        totalInstallments: payments.length,
+        paidInstallments: payments.filter(p => p.status === "Paid").length,
+        collectedAmount: payments.filter(p => p.status === "Paid").reduce((s, p) => s + Number(p.amount), 0),
+        vesselCount,
+      };
+    });
+  }),
+  get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+    const contract = await opsDb.getOpsContract(input.id);
+    if (!contract) throw new TRPCError({ code: "NOT_FOUND" });
+    const [library, schedule, assignments, customers, vessels] = await Promise.all([
+      opsDb.listContractLibrary(input.id),
+      opsDb.listPaymentSchedule(input.id),
+      opsDb.listVesselAssignments(input.id),
+      db.listCustomers(),
+      db.listVessels(),
+    ]);
+    const customer = customers.find(c => c.id === contract.customerId);
+    const assignedVessels = assignments.map(a => {
+      const v = vessels.find(v => v.id === a.vesselId);
+      return { ...a, vesselName: v?.name ?? "—", vesselImo: v?.imo ?? null };
+    });
+    return { contract, library, schedule, assignments: assignedVessels, customer };
+  }),
+  create: protectedProcedure
+    .input(z.object({
+      contractNumber: z.string().min(1),
+      customerId: z.number(),
+      title: z.string().min(1),
+      totalValue: z.number().positive(),
+      startDate: z.number(),
+      endDate: z.number(),
+      installmentCount: z.number().int().min(1).max(30),
+      notes: z.string().optional(),
+      vesselIds: z.array(z.number()).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.endDate <= input.startDate) throw new TRPCError({ code: "BAD_REQUEST", message: "End date must be after start date" });
+      const id = await opsDb.createOpsContract({
+        contractNumber: input.contractNumber,
+        customerId: input.customerId,
+        title: input.title,
+        status: "Draft",
+        totalValue: input.totalValue.toFixed(2),
+        startDate: input.startDate,
+        endDate: input.endDate,
+        notes: input.notes,
+        createdBy: ctx.user.id,
+      });
+      // Generate payment schedule
+      const per = input.totalValue / input.installmentCount;
+      const start = new Date(input.startDate);
+      for (let i = 0; i < input.installmentCount; i++) {
+        const due = Date.UTC(start.getUTCFullYear() + i, start.getUTCMonth(), start.getUTCDate());
+        const amount = i === input.installmentCount - 1 ? input.totalValue - per * (input.installmentCount - 1) : per;
+        await opsDb.createPaymentScheduleItem({
+          contractId: id,
+          installmentNumber: i + 1,
+          dueDate: due,
+          amount: amount.toFixed(2),
+        });
+      }
+      // Assign vessels if provided
+      if (input.vesselIds && input.vesselIds.length > 0) {
+        for (const vesselId of input.vesselIds) {
+          await opsDb.createVesselAssignment({
+            vesselId,
+            contractId: id,
+            assignedDate: Date.now(),
+            notes: "Assigned at contract creation",
+          });
+        }
+      }
+      return { id };
+    }),
+  update: protectedProcedure
+    .input(z.object({ id: z.number(), title: z.string().optional(), status: z.enum(opsContractStatuses).optional(), notes: z.string().nullable().optional() }))
+    .mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      await opsDb.updateOpsContract(id, data as any);
+      return { success: true };
+    }),
+  /** Assign a vessel to a contract — triggers automation engine. */
+  assignVessel: protectedProcedure
+    .input(z.object({ contractId: z.number(), vesselId: z.number(), notes: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const contract = await opsDb.getOpsContract(input.contractId);
+      if (!contract) throw new TRPCError({ code: "NOT_FOUND" });
+      // Create assignment
+      const assignId = await opsDb.createVesselAssignment({
+        vesselId: input.vesselId,
+        contractId: input.contractId,
+        assignedDate: Date.now(),
+        notes: input.notes,
+      });
+      // AUTOMATION ENGINE: Read contract library and generate asset records
+      const library = await opsDb.listContractLibrary(input.contractId);
+      for (const item of library) {
+        if (item.itemType === "Asset") {
+          for (let i = 0; i < item.quantity; i++) {
+            const serial = `${contract.contractNumber}-${item.catalogId}-${input.vesselId}-${i + 1}`;
+            await opsDb.createAsset({
+              serialNumber: serial,
+              catalogItemId: item.catalogId,
+              name: item.name,
+              vesselId: input.vesselId,
+              contractId: input.contractId,
+              status: "Not Supplied",
+            });
+          }
+        }
+      }
+      // Log history
+      const vessel = await db.getVesselById(input.vesselId);
+      await opsDb.createVesselHistoryEntry({
+        vesselId: input.vesselId,
+        eventType: "AssetAssigned",
+        description: `Vessel assigned to contract ${contract.contractNumber}. Equipment records auto-generated.`,
+        createdBy: ctx.user.id,
+      });
+      return { id: assignId };
+    }),
+  removeVessel: protectedProcedure
+    .input(z.object({ assignmentId: z.number() }))
+    .mutation(async ({ input }) => {
+      await opsDb.deleteVesselAssignment(input.assignmentId);
+      return { success: true };
+    }),
+  /** Add a library item to a contract. */
+  addLibraryItem: protectedProcedure
+    .input(z.object({
+      contractId: z.number(),
+      itemType: z.enum(opsLibraryItemTypes),
+      catalogId: z.number(),
+      name: z.string().min(1),
+      quantity: z.number().int().min(1),
+      quotaType: z.enum(opsQuotaTypes).optional(),
+      quotaLimit: z.number().int().optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const id = await opsDb.createContractLibraryItem(input as any);
+      return { id };
+    }),
+  removeLibraryItem: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      await opsDb.deleteContractLibraryItem(input.id);
+      return { success: true };
+    }),
+  /** Update a payment schedule item status. */
+  updatePayment: protectedProcedure
+    .input(z.object({ id: z.number(), status: z.enum(["Pending", "Invoiced", "Paid"]), invoiceNumber: z.string().optional(), paidDate: z.number().optional() }))
+    .mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      await opsDb.updatePaymentScheduleItem(id, data as any);
+      return { success: true };
+    }),
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ASSETS ROUTER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const opsAssetsRouter = router({
+  list: protectedProcedure
+    .input(z.object({ vesselId: z.number().optional(), contractId: z.number().optional(), status: z.string().optional() }).optional())
+    .query(async ({ input }) => {
+      const assets = await opsDb.listAssets(input ?? undefined);
+      const vessels = await db.listVessels();
+      const vesselMap = new Map(vessels.map(v => [v.id, v]));
+      return assets.map(a => ({
+        ...a,
+        vesselName: a.vesselId ? vesselMap.get(a.vesselId)?.name ?? "—" : null,
+      }));
+    }),
+  get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+    const asset = await opsDb.getAsset(input.id);
+    if (!asset) throw new TRPCError({ code: "NOT_FOUND" });
+    const certificates = await opsDb.listCertificates(input.id);
+    return { asset, certificates };
+  }),
+  create: protectedProcedure
+    .input(z.object({
+      serialNumber: z.string().min(1),
+      name: z.string().min(1),
+      catalogItemId: z.number().optional(),
+      vesselId: z.number().optional(),
+      contractId: z.number().optional(),
+      targetReturnPort: z.string().optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const id = await opsDb.createAsset(input as any);
+      if (input.vesselId) {
+        await opsDb.createVesselHistoryEntry({
+          vesselId: input.vesselId,
+          eventType: "AssetAssigned",
+          description: `Asset "${input.name}" (S/N: ${input.serialNumber}) created and assigned.`,
+          createdBy: ctx.user.id,
+        });
+      }
+      return { id };
+    }),
+  updateStatus: protectedProcedure
+    .input(z.object({ id: z.number(), status: z.enum(opsAssetStatuses), targetReturnPort: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const asset = await opsDb.getAsset(input.id);
+      if (!asset) throw new TRPCError({ code: "NOT_FOUND" });
+      await opsDb.updateAsset(input.id, { status: input.status, targetReturnPort: input.targetReturnPort ?? asset.targetReturnPort });
+      if (asset.vesselId) {
+        await opsDb.createVesselHistoryEntry({
+          vesselId: asset.vesselId,
+          eventType: "StatusChange",
+          description: `Asset "${asset.name}" (S/N: ${asset.serialNumber}) status changed: ${asset.status} → ${input.status}`,
+          metadata: JSON.stringify({ assetId: input.id, from: asset.status, to: input.status }),
+          createdBy: ctx.user.id,
+        });
+      }
+      return { success: true };
+    }),
+  update: protectedProcedure
+    .input(z.object({ id: z.number(), name: z.string().optional(), vesselId: z.number().nullable().optional(), contractId: z.number().nullable().optional(), targetReturnPort: z.string().nullable().optional(), notes: z.string().nullable().optional() }))
+    .mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      await opsDb.updateAsset(id, data as any);
+      return { success: true };
+    }),
+  delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    await opsDb.deleteAsset(input.id);
+    return { success: true };
+  }),
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CERTIFICATES ROUTER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const opsCertificatesRouter = router({
+  list: protectedProcedure
+    .input(z.object({ assetId: z.number().optional() }).optional())
+    .query(async ({ input }) => {
+      const certs = await opsDb.listCertificates(input?.assetId);
+      const assets = await opsDb.listAssets();
+      const vessels = await db.listVessels();
+      const assetMap = new Map(assets.map(a => [a.id, a]));
+      const vesselMap = new Map(vessels.map(v => [v.id, v]));
+      return certs.map(c => {
+        const asset = assetMap.get(c.assetId);
+        return {
+          ...c,
+          assetName: asset?.name ?? "—",
+          assetSerial: asset?.serialNumber ?? "—",
+          vesselName: asset?.vesselId ? vesselMap.get(asset.vesselId)?.name ?? null : null,
+        };
+      });
+    }),
+  create: protectedProcedure
+    .input(z.object({ assetId: z.number(), certificateNumber: z.string().min(1), issueDate: z.number(), expiryDate: z.number(), fileUrl: z.string().optional(), notes: z.string().optional() }))
+    .mutation(async ({ input }) => {
+      const id = await opsDb.createCertificate(input as any);
+      return { id };
+    }),
+  update: protectedProcedure
+    .input(z.object({ id: z.number(), certificateNumber: z.string().optional(), issueDate: z.number().optional(), expiryDate: z.number().optional(), fileUrl: z.string().nullable().optional(), notes: z.string().nullable().optional() }))
+    .mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      await opsDb.updateCertificate(id, data as any);
+      return { success: true };
+    }),
+  delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    await opsDb.deleteCertificate(input.id);
+    return { success: true };
+  }),
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONSUMABLE ORDERS ROUTER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const opsOrdersRouter = router({
+  list: protectedProcedure
+    .input(z.object({ vesselId: z.number().optional(), contractId: z.number().optional(), status: z.string().optional() }).optional())
+    .query(async ({ input }) => {
+      const orders = await opsDb.listConsumableOrders(input ?? undefined);
+      const vessels = await db.listVessels();
+      const vesselMap = new Map(vessels.map(v => [v.id, v]));
+      return orders.map(o => ({
+        ...o,
+        vesselName: vesselMap.get(o.vesselId)?.name ?? "—",
+      }));
+    }),
+  /** Fulfill a consumable order — deducts from contract quota. */
+  create: protectedProcedure
+    .input(z.object({
+      vesselId: z.number(),
+      contractId: z.number(),
+      libraryItemId: z.number(),
+      quantity: z.number().int().min(1),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const id = await opsDb.createConsumableOrder({
+        ...input,
+        orderDate: Date.now(),
+        status: "Pending",
+      });
+      await opsDb.createVesselHistoryEntry({
+        vesselId: input.vesselId,
+        eventType: "OrderFulfilled",
+        description: `Consumable order #${id} created (qty: ${input.quantity})`,
+        metadata: JSON.stringify({ orderId: id, libraryItemId: input.libraryItemId, quantity: input.quantity }),
+        createdBy: ctx.user.id,
+      });
+      return { id };
+    }),
+  updateStatus: protectedProcedure
+    .input(z.object({ id: z.number(), status: z.enum(opsOrderStatuses), shippedDate: z.number().optional(), deliveredDate: z.number().optional() }))
+    .mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      await opsDb.updateConsumableOrder(id, data as any);
+      return { success: true };
+    }),
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VESSEL OPERATIONS ROUTER (COMMAND CENTER)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const opsVesselRouter = router({
+  /** Get full vessel operations dashboard data. */
+  dashboard: protectedProcedure.input(z.object({ vesselId: z.number() })).query(async ({ input }) => {
+    const vessel = await db.getVesselById(input.vesselId);
+    if (!vessel) throw new TRPCError({ code: "NOT_FOUND" });
+    const [assignments, assets, orders, history] = await Promise.all([
+      opsDb.getVesselAssignmentsByVessel(input.vesselId),
+      opsDb.listAssets({ vesselId: input.vesselId }),
+      opsDb.listConsumableOrders({ vesselId: input.vesselId }),
+      opsDb.listVesselHistory(input.vesselId),
+    ]);
+    // Get contract details for each assignment
+    const contractIds = assignments.map(a => a.contractId);
+    const contracts = await Promise.all(contractIds.map(id => opsDb.getOpsContract(id)));
+    const contractMap = new Map(contracts.filter(Boolean).map(c => [c!.id, c!]));
+    // Get certificates for assets
+    const allCerts = await Promise.all(assets.map(a => opsDb.listCertificates(a.id)));
+    const certsByAsset = new Map(assets.map((a, i) => [a.id, allCerts[i]]));
+    // Get library items for quota tracking
+    const libraries = await Promise.all(contractIds.map(id => opsDb.listContractLibrary(id)));
+    const libraryByContract = new Map(contractIds.map((id, i) => [id, libraries[i]]));
+    // Calculate quota usage
+    const quotaUsage = contractIds.map(cId => {
+      const lib = libraryByContract.get(cId) ?? [];
+      const consumables = lib.filter(l => l.itemType === "Consumable" && l.quotaLimit);
+      return consumables.map(c => {
+        const used = orders.filter(o => o.contractId === cId && o.libraryItemId === c.id).reduce((s, o) => s + o.quantity, 0);
+        return { libraryItem: c, used, remaining: (c.quotaLimit ?? 0) - used };
+      });
+    }).flat();
+    return {
+      vessel,
+      assignments: assignments.map(a => ({ ...a, contract: contractMap.get(a.contractId) })),
+      assets: assets.map(a => ({ ...a, certificates: certsByAsset.get(a.id) ?? [] })),
+      orders,
+      history: history.slice(0, 50),
+      quotaUsage,
+    };
+  }),
+  /** Add a comment to vessel history. */
+  addComment: protectedProcedure
+    .input(z.object({ vesselId: z.number(), comment: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const id = await opsDb.createVesselHistoryEntry({
+        vesselId: input.vesselId,
+        eventType: "Comment",
+        description: input.comment,
+        createdBy: ctx.user.id,
+      });
+      return { id };
+    }),
+  history: protectedProcedure.input(z.object({ vesselId: z.number() })).query(({ input }) => opsDb.listVesselHistory(input.vesselId)),
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OPERATIONS DASHBOARD (OVERVIEW)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const opsDashboardRouter = router({
+  summary: protectedProcedure.query(async () => {
+    const [contracts, assets, orders, certs, schedule] = await Promise.all([
+      opsDb.listOpsContracts(),
+      opsDb.listAssets(),
+      opsDb.listConsumableOrders(),
+      opsDb.listCertificates(),
+      opsDb.listPaymentSchedule(),
+    ]);
+    const now = Date.now();
+    const day30 = 30 * 24 * 60 * 60 * 1000;
+    const day60 = 60 * 24 * 60 * 60 * 1000;
+    return {
+      activeContracts: contracts.filter(c => c.status === "Active").length,
+      totalContracts: contracts.length,
+      totalAssets: assets.length,
+      activeAssets: assets.filter(a => a.status === "Active").length,
+      pendingReturns: assets.filter(a => a.status === "Pending Return").length,
+      pendingOrders: orders.filter(o => o.status === "Pending").length,
+      expiringCerts30: certs.filter(c => c.expiryDate > now && c.expiryDate <= now + day30).length,
+      expiringCerts60: certs.filter(c => c.expiryDate > now + day30 && c.expiryDate <= now + day60).length,
+      expiredCerts: certs.filter(c => c.expiryDate <= now).length,
+      pendingPayments: schedule.filter(p => p.status === "Pending").length,
+      overduePayments: schedule.filter(p => p.status === "Pending" && p.dueDate < now).length,
+      totalContractValue: contracts.filter(c => c.status === "Active").reduce((s, c) => s + Number(c.totalValue), 0),
+      collectedAmount: schedule.filter(p => p.status === "Paid").reduce((s, p) => s + Number(p.amount), 0),
+    };
+  }),
+  /** Reverse logistics dashboard: assets pending return. */
+  reverseLogistics: protectedProcedure.query(async () => {
+    const assets = await opsDb.listAssets({ status: "Pending Return" });
+    const vessels = await db.listVessels();
+    const vesselMap = new Map(vessels.map(v => [v.id, v]));
+    return assets.map(a => ({
+      ...a,
+      vesselName: a.vesselId ? vesselMap.get(a.vesselId)?.name ?? "—" : null,
+    }));
+  }),
+  /** Upcoming certificate renewals. */
+  upcomingRenewals: protectedProcedure.query(async () => {
+    const certs = await opsDb.listCertificates();
+    const assets = await opsDb.listAssets();
+    const vessels = await db.listVessels();
+    const assetMap = new Map(assets.map(a => [a.id, a]));
+    const vesselMap = new Map(vessels.map(v => [v.id, v]));
+    const now = Date.now();
+    const day60 = 60 * 24 * 60 * 60 * 1000;
+    return certs
+      .filter(c => c.expiryDate <= now + day60)
+      .map(c => {
+        const asset = assetMap.get(c.assetId);
+        return {
+          ...c,
+          assetName: asset?.name ?? "—",
+          assetSerial: asset?.serialNumber ?? "—",
+          vesselName: asset?.vesselId ? vesselMap.get(asset.vesselId)?.name ?? null : null,
+          daysUntilExpiry: Math.ceil((c.expiryDate - now) / (24 * 60 * 60 * 1000)),
+        };
+      })
+      .sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry);
+  }),
+});

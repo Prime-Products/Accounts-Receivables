@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { monthRange } from "./lib/arLogic";
 import {
   activityLog,
   appSettings,
@@ -9,9 +10,12 @@ import {
   contracts,
   customers,
   emailHistory,
+  emailTemplates,
+  emailTemplateTypes,
   forecastEntries,
   groupConfirmationStatus,
   groupNotes,
+  groupCollectionProfile,
   groupWatchStatus,
   InsertActivityLog,
   InsertContract,
@@ -34,6 +38,8 @@ import {
   tasks,
   taskComments,
   taskInvoices,
+  taskWatchers,
+  customerWatchers,
   userProfiles,
   users,
 } from "../drizzle/schema";
@@ -42,7 +48,25 @@ import {
   InsertPaymentBankDetails,
 } from "../drizzle/schema";
 import { vessels, InsertVessel } from "../drizzle/schema";
+import {
+  creditNotes,
+  creditNoteAllocations,
+  InsertCreditNote,
+  InsertCreditNoteAllocation,
+} from "../drizzle/schema";
 import { teamMembers, InsertTeamMember } from "../drizzle/schema";
+import { noteMentions, InsertNoteMention } from "../drizzle/schema";
+import { contactGifts, giftImportReview, type GiftTier } from "../drizzle/schema";
+import { queryTokens } from "../shared/textMatch";
+import {
+  customFieldDefs,
+  customFieldValues,
+  savedViews,
+  listLayouts,
+  type AddressBookEntity,
+  type InsertCustomFieldDef,
+  type InsertSavedView,
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -416,15 +440,7 @@ export async function addAllocation(receiptId: number, invoiceId: number, amount
   await db.insert(receiptAllocations).values({ receiptId, invoiceId, amount });
 }
 
-export async function listAllocationsForReceipt(receiptId: number) {
-  const db = await requireDb();
-  return db.select().from(receiptAllocations).where(eq(receiptAllocations.receiptId, receiptId));
-}
 
-export async function listAllocationsForInvoice(invoiceId: number) {
-  const db = await requireDb();
-  return db.select().from(receiptAllocations).where(eq(receiptAllocations.invoiceId, invoiceId));
-}
 
 // ---------- Contracts & installments ----------
 export async function listContracts(customerId?: number) {
@@ -531,6 +547,96 @@ export async function deleteTaskComment(id: number) {
   await db.delete(taskComments).where(eq(taskComments.id, id));
 }
 
+// ---------- Task watchers (avatar stack) ----------
+export async function listTaskWatchers(taskId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: taskWatchers.id,
+      taskId: taskWatchers.taskId,
+      memberId: taskWatchers.memberId,
+      name: teamMembers.name,
+      title: teamMembers.title,
+    })
+    .from(taskWatchers)
+    .innerJoin(teamMembers, eq(taskWatchers.memberId, teamMembers.id))
+    .where(eq(taskWatchers.taskId, taskId))
+    .orderBy(taskWatchers.createdAt);
+}
+
+export async function listWatchersForTasks(taskIds: number[]) {
+  if (taskIds.length === 0) return [];
+  const db = await requireDb();
+  return db
+    .select({
+      id: taskWatchers.id,
+      taskId: taskWatchers.taskId,
+      memberId: taskWatchers.memberId,
+      name: teamMembers.name,
+      title: teamMembers.title,
+    })
+    .from(taskWatchers)
+    .innerJoin(teamMembers, eq(taskWatchers.memberId, teamMembers.id))
+    .where(inArray(taskWatchers.taskId, taskIds))
+    .orderBy(taskWatchers.createdAt);
+}
+
+export async function addTaskWatcher(taskId: number, memberId: number) {
+  const db = await requireDb();
+  // Avoid duplicates
+  const existing = await db
+    .select({ id: taskWatchers.id })
+    .from(taskWatchers)
+    .where(and(eq(taskWatchers.taskId, taskId), eq(taskWatchers.memberId, memberId)));
+  if (existing.length > 0) return existing[0].id;
+  const res = await db.insert(taskWatchers).values({ taskId, memberId });
+  return Number((res as any)[0].insertId);
+}
+
+export async function removeTaskWatcher(taskId: number, memberId: number) {
+  const db = await requireDb();
+  await db
+    .delete(taskWatchers)
+    .where(and(eq(taskWatchers.taskId, taskId), eq(taskWatchers.memberId, memberId)));
+}
+// ---------- Customer-group watchers ----------
+/**
+ * Watchers follow a group's receivables card without owning it: they see the
+ * account in their watch list, but the account manager and the collector remain
+ * the responsible people.
+ */
+export async function listCustomerWatchers(groupName: string) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: customerWatchers.id,
+      groupName: customerWatchers.groupName,
+      memberId: customerWatchers.memberId,
+      name: teamMembers.name,
+      title: teamMembers.title,
+    })
+    .from(customerWatchers)
+    .innerJoin(teamMembers, eq(customerWatchers.memberId, teamMembers.id))
+    .where(eq(customerWatchers.groupName, groupName))
+    .orderBy(customerWatchers.createdAt);
+}
+export async function addCustomerWatcher(groupName: string, memberId: number) {
+  const db = await requireDb();
+  const existing = await db
+    .select({ id: customerWatchers.id })
+    .from(customerWatchers)
+    .where(and(eq(customerWatchers.groupName, groupName), eq(customerWatchers.memberId, memberId)));
+  if (existing.length > 0) return existing[0].id;
+  const res = await db.insert(customerWatchers).values({ groupName, memberId });
+  return Number((res as any)[0].insertId);
+}
+export async function removeCustomerWatcher(groupName: string, memberId: number) {
+  const db = await requireDb();
+  await db
+    .delete(customerWatchers)
+    .where(and(eq(customerWatchers.groupName, groupName), eq(customerWatchers.memberId, memberId)));
+}
+
 // ---------- Task ↔ invoice attachments ----------
 export async function listTaskInvoices(taskId: number) {
   const db = await requireDb();
@@ -552,32 +658,8 @@ export async function addTaskInvoices(taskId: number, invoiceIds: number[]) {
 }
 
 
-// ---------- Collection plans & promises ----------
-export async function getPlan(year: number, month: number) {
-  const db = await requireDb();
-  const r = await db
-    .select()
-    .from(collectionPlans)
-    .where(and(eq(collectionPlans.year, year), eq(collectionPlans.month, month)))
-    .limit(1);
-  return r[0];
-}
 
-export async function upsertPlan(year: number, month: number, targetAmount: string, createdBy?: number, notes?: string) {
-  const db = await requireDb();
-  const existing = await getPlan(year, month);
-  if (existing) {
-    await db.update(collectionPlans).set({ targetAmount, notes }).where(eq(collectionPlans.id, existing.id));
-    return existing.id;
-  }
-  const res = await db.insert(collectionPlans).values({ year, month, targetAmount, createdBy, notes });
-  return Number((res as any)[0].insertId);
-}
 
-export async function listPlans() {
-  const db = await requireDb();
-  return db.select().from(collectionPlans).orderBy(desc(collectionPlans.year), desc(collectionPlans.month));
-}
 
 // ---------- Forecast entries (per-customer monthly collection forecast) ----------
 export async function listForecastEntries(year: number, month: number) {
@@ -651,6 +733,12 @@ export async function updateForecastEntry(id: number, data: Partial<InsertForeca
   await db.update(forecastEntries).set(data).where(eq(forecastEntries.id, id));
 }
 
+/** Remove a single forecast entry (used when discarding an entry created on the fly). */
+export async function deleteForecastEntry(id: number) {
+  const db = await requireDb();
+  await db.delete(forecastEntries).where(eq(forecastEntries.id, id));
+}
+
 export async function listForecastMonths() {
   const db = await requireDb();
   return db
@@ -666,11 +754,6 @@ export async function getSetting(key: string) {
   return r[0]?.value;
 }
 
-// ---------- Payment behavior (historical days-to-pay stats) ----------
-export async function listPaymentBehavior() {
-  const db = await requireDb();
-  return db.select().from(paymentBehavior);
-}
 
 export async function getPaymentBehavior(customerId: number) {
   const db = await requireDb();
@@ -703,6 +786,37 @@ export async function setSetting(key: string, value: string, updatedBy?: number)
     .insert(appSettings)
     .values({ key, value, updatedBy })
     .onDuplicateKeyUpdate({ set: { value, updatedBy } });
+}
+
+// ---------- Email templates (editable subject/body per template type) ----------
+export async function listEmailTemplates() {
+  const db = await requireDb();
+  return db.select().from(emailTemplates);
+}
+
+export async function getEmailTemplate(templateType: (typeof emailTemplateTypes)[number]) {
+  const db = await requireDb();
+  const rows = await db.select().from(emailTemplates).where(eq(emailTemplates.templateType, templateType)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertEmailTemplate(data: {
+  templateType: (typeof emailTemplateTypes)[number];
+  subject: string;
+  body: string;
+  updatedBy?: number;
+}) {
+  const db = await requireDb();
+  await db
+    .insert(emailTemplates)
+    .values(data)
+    .onDuplicateKeyUpdate({ set: { subject: data.subject, body: data.body, updatedBy: data.updatedBy } });
+}
+
+/** Drop the stored override so the built-in default text applies again. */
+export async function deleteEmailTemplate(templateType: (typeof emailTemplateTypes)[number]) {
+  const db = await requireDb();
+  await db.delete(emailTemplates).where(eq(emailTemplates.templateType, templateType));
 }
 
 export async function listPromises(customerId?: number) {
@@ -747,6 +861,28 @@ export async function deleteGroupNote(id: number) {
   await db.delete(groupNotes).where(eq(groupNotes.id, id));
 }
 
+// ---------- Group collection profile (call preferences & particularities) ----------
+export async function getGroupCollectionProfile(groupName: string) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(groupCollectionProfile)
+    .where(eq(groupCollectionProfile.groupName, groupName))
+    .limit(1);
+  return rows[0] ?? null;
+}
+export async function upsertGroupCollectionProfile(
+  groupName: string,
+  notes: string,
+  updatedBy: number | null,
+) {
+  const db = await requireDb();
+  await db
+    .insert(groupCollectionProfile)
+    .values({ groupName, notes, updatedBy, updatedAt: Date.now() })
+    .onDuplicateKeyUpdate({ set: { notes, updatedBy, updatedAt: Date.now() } });
+}
+
 // ---------- Group status (unified workflow: Normal → Problematic → Critical → Legal / Resolved) ----------
 export async function listGroupWatchStatuses() {
   const db = await requireDb();
@@ -769,29 +905,6 @@ export async function setGroupWatchStatus(
     .insert(groupWatchStatus)
     .values({ groupName, status, problematicSince, updatedBy, updatedAt: Date.now() })
     .onDuplicateKeyUpdate({ set: { status, problematicSince, updatedBy, updatedAt: Date.now() } });
-}
-/**
- * Ensure the escalation clock is running for a group flagged Problematic by the
- * automatic forecast rule (row may not exist yet). Never overwrites an existing
- * manual status other than "Auto"; only stamps problematicSince when missing.
- */
-export async function ensureProblematicSince(groupName: string, now = Date.now()) {
-  const db = await requireDb();
-  const existing = await getGroupWatchStatus(groupName);
-  if (!existing) {
-    await db.insert(groupWatchStatus).values({ groupName, status: "Auto", problematicSince: now, updatedBy: null, updatedAt: now });
-    return now;
-  }
-  if (existing.problematicSince == null) {
-    await db.update(groupWatchStatus).set({ problematicSince: now, updatedAt: now }).where(eq(groupWatchStatus.groupName, groupName));
-    return now;
-  }
-  return existing.problematicSince;
-}
-/** Clear the escalation clock when a group is no longer problematic (rule stopped firing under Auto). */
-export async function clearProblematicSince(groupName: string) {
-  const db = await requireDb();
-  await db.update(groupWatchStatus).set({ problematicSince: null, updatedAt: Date.now() }).where(eq(groupWatchStatus.groupName, groupName));
 }
 
 // ---------- Audit & sync logs ----------
@@ -844,6 +957,55 @@ export async function addActivityLog(entry: InsertActivityLog) {
   return Number((res as any)[0].insertId);
 }
 
+/**
+ * Record @mentions found in a note. Mentions are references, not work items:
+ * nothing here creates or touches a task.
+ */
+export async function addNoteMentions(rows: InsertNoteMention[]) {
+  if (rows.length === 0) return 0;
+  const db = await requireDb();
+  await db.insert(noteMentions).values(rows);
+  return rows.length;
+}
+
+/** Mentions addressed to one team member, newest first. */
+export async function listMentionsForMember(memberId: number, opts?: { unreadOnly?: boolean; limit?: number }) {
+  const db = await requireDb();
+  const where = opts?.unreadOnly
+    ? and(eq(noteMentions.memberId, memberId), sql`${noteMentions.readAt} is null`)
+    : eq(noteMentions.memberId, memberId);
+  return db
+    .select()
+    .from(noteMentions)
+    .where(where)
+    .orderBy(desc(noteMentions.createdAt))
+    .limit(opts?.limit ?? 100);
+}
+
+export async function countUnreadMentions(memberId: number) {
+  const rows = await listMentionsForMember(memberId, { unreadOnly: true, limit: 500 });
+  return rows.length;
+}
+
+/** Mark one mention, or every mention of a member, as seen. */
+export async function markMentionsRead(memberId: number, mentionId?: number) {
+  const db = await requireDb();
+  const where = mentionId
+    ? and(eq(noteMentions.memberId, memberId), eq(noteMentions.id, mentionId))
+    : eq(noteMentions.memberId, memberId);
+  await db.update(noteMentions).set({ readAt: new Date() }).where(where);
+}
+
+/** Every mention written on a group's notes, for the group card. */
+export async function listMentionsByGroup(groupName: string, limit = 100) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(noteMentions)
+    .where(eq(noteMentions.groupName, groupName))
+    .orderBy(desc(noteMentions.createdAt))
+    .limit(limit);
+}
 export async function listActivityLog(groupName: string, limit = 100) {
   const db = await requireDb();
   return db
@@ -854,9 +1016,74 @@ export async function listActivityLog(groupName: string, limit = 100) {
     .limit(limit);
 }
 
-export async function getActivityLog(id: number) {
+/**
+ * Activity log for a group with the author's display name resolved, so the
+ * communication timeline can show "who did this" without a second round-trip.
+ */
+export async function listActivityLogWithAuthors(groupName: string, limit = 200) {
+  const rows = await listActivityLog(groupName, limit);
+  if (rows.length === 0) return [] as (typeof rows[number] & { authorName: string | null })[];
+  const users = await listUsersWithProfiles().catch(() => []);
+  const names = new Map(users.map(u => [u.id, u.name ?? null]));
+  return rows.map(r => ({ ...r, authorName: r.createdBy ? (names.get(r.createdBy) ?? null) : null }));
+}
+
+/**
+ * Per-group call summary in a single query: when the group was last called, by
+ * whom, and how many calls were logged. Used by the Collections Desk so contact
+ * activity is visible without opening each card. `No Answer` attempts are counted
+ * separately, because a run of unanswered calls is itself the signal.
+ *
+ * A logged call is stored with the activity type of its *outcome* — a call that ends
+ * in a confirmed promise is written as `promise`, not `call`. Filtering on the type
+ * alone therefore lost real calls and the card claimed "Never contacted" while the
+ * same call had just set a Promise to Pay. The call log is identified by its title
+ * prefix instead, which every logCall entry carries.
+ */
+export async function callSummaryByGroup() {
   const db = await requireDb();
-  return db.select().from(activityLog).where(eq(activityLog.id, id)).limit(1);
+  const rows = await db
+    .select({
+      groupName: activityLog.groupName,
+      title: activityLog.title,
+      description: activityLog.description,
+      createdAt: activityLog.createdAt,
+      createdBy: activityLog.createdBy,
+    })
+    .from(activityLog)
+    .where(or(eq(activityLog.activityType, "call"), like(activityLog.title, "Call %")))
+    .orderBy(desc(activityLog.createdAt));
+  const out = new Map<
+    string,
+    {
+      lastCallAt: Date;
+      lastCallBy: number | null;
+      lastCallTitle: string;
+      lastCallNote: string | null;
+      calls: number;
+      noAnswer: number;
+    }
+  >();
+  for (const r of rows) {
+    const key = r.groupName;
+    const entry = out.get(key);
+    const isNoAnswer = (r.title ?? "").includes("No Answer");
+    if (!entry) {
+      // Rows arrive newest first, so the first row per group is the latest call.
+      out.set(key, {
+        lastCallAt: r.createdAt,
+        lastCallBy: r.createdBy ?? null,
+        lastCallTitle: r.title ?? "",
+        lastCallNote: r.description ?? null,
+        calls: 1,
+        noAnswer: isNoAnswer ? 1 : 0,
+      });
+    } else {
+      entry.calls++;
+      if (isNoAnswer) entry.noAnswer++;
+    }
+  }
+  return out;
 }
 
 // ---------- Group Confirmation Status ----------
@@ -897,6 +1124,7 @@ export async function addPaymentContact(contact: InsertPaymentContact) {
   return result[0].insertId;
 }
 
+
 export async function listPaymentContacts(customerId: number) {
   const db = await requireDb();
   return db
@@ -920,9 +1148,140 @@ export async function updatePaymentContact(id: number, updates: Partial<InsertPa
   return db.update(paymentContacts).set(updates).where(eq(paymentContacts.id, id));
 }
 
+/**
+ * Set the Person/Department type on many contacts in one statement. Returns how
+ * many ids matched an existing row.
+ */
+/**
+ * Gift records, optionally narrowed to one year. Kept as a plain list so the
+ * caller can index it by contact; the table is small (a few hundred rows).
+ */
+export async function listContactGifts(year?: number) {
+  const db = await requireDb();
+  if (year === undefined) return db.select().from(contactGifts);
+  return db.select().from(contactGifts).where(eq(contactGifts.year, year));
+}
+
+/** Add a contact to a year's gift list, or change the tier if already there. */
+export async function upsertContactGift(input: {
+  contactId: number;
+  year: number;
+  tier: GiftTier;
+  region?: string | null;
+  sourceName?: string | null;
+  sourceGroup?: string | null;
+  notes?: string | null;
+}) {
+  const db = await requireDb();
+  const existing = await db
+    .select({ id: contactGifts.id })
+    .from(contactGifts)
+    .where(and(eq(contactGifts.contactId, input.contactId), eq(contactGifts.year, input.year)))
+    .limit(1);
+  if (existing.length > 0) {
+    await db
+      .update(contactGifts)
+      .set({
+        tier: input.tier,
+        ...(input.region !== undefined ? { region: input.region } : {}),
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      })
+      .where(eq(contactGifts.id, existing[0].id));
+    return existing[0].id;
+  }
+  await db.insert(contactGifts).values({
+    contactId: input.contactId,
+    year: input.year,
+    tier: input.tier,
+    region: input.region ?? null,
+    sourceName: input.sourceName ?? null,
+    sourceGroup: input.sourceGroup ?? null,
+    notes: input.notes ?? null,
+  });
+  return input.contactId;
+}
+
+/** Remove a contact from a year's gift list. */
+export async function deleteContactGift(contactId: number, year: number) {
+  const db = await requireDb();
+  await db.delete(contactGifts).where(and(eq(contactGifts.contactId, contactId), eq(contactGifts.year, year)));
+  return { ok: true } as const;
+}
+
+/** Gift-list rows awaiting a human decision, newest year first. */
+export async function listGiftReview(status?: "pending" | "resolved" | "dismissed") {
+  const db = await requireDb();
+  const q = db.select().from(giftImportReview);
+  if (!status) return q.orderBy(desc(giftImportReview.year), giftImportReview.sourceName);
+  return q.where(eq(giftImportReview.status, status)).orderBy(desc(giftImportReview.year), giftImportReview.sourceName);
+}
+
+export async function getGiftReviewRow(id: number) {
+  const db = await requireDb();
+  return db.select().from(giftImportReview).where(eq(giftImportReview.id, id)).limit(1);
+}
+
+/** Mark a review row resolved against a chosen contact, or dismissed. */
+export async function setGiftReviewStatus(
+  id: number,
+  status: "pending" | "resolved" | "dismissed",
+  resolvedContactId?: number | null,
+) {
+  const db = await requireDb();
+  await db
+    .update(giftImportReview)
+    .set({ status, resolvedContactId: resolvedContactId ?? null })
+    .where(eq(giftImportReview.id, id));
+  return { ok: true } as const;
+}
+
+/** Dismiss many review rows at once (used by "dismiss all namesakes"). */
+export async function dismissGiftReviewBulk(ids: number[]) {
+  if (ids.length === 0) return 0;
+  const db = await requireDb();
+  await db.update(giftImportReview).set({ status: "dismissed" }).where(inArray(giftImportReview.id, ids));
+  return ids.length;
+}
+
+export async function setPaymentContactTypeBulk(ids: number[], contactType: "Person" | "Department") {
+  if (ids.length === 0) return 0;
+  const db = await requireDb();
+  const existing = await db
+    .select({ id: paymentContacts.id })
+    .from(paymentContacts)
+    .where(inArray(paymentContacts.id, ids));
+  if (existing.length === 0) return 0;
+  await db
+    .update(paymentContacts)
+    .set({ contactType })
+    .where(inArray(paymentContacts.id, existing.map(r => r.id)));
+  return existing.length;
+}
+
 export async function deletePaymentContact(id: number) {
   const db = await requireDb();
   return db.delete(paymentContacts).where(eq(paymentContacts.id, id));
+}
+
+/**
+ * Address Book uses archive instead of delete: the row stays for history but
+ * leaves every directory list and mailing list. `mergedIntoId` is set when the
+ * contact was archived as part of a duplicate merge.
+ */
+export async function archivePaymentContact(id: number, mergedIntoId?: number) {
+  const db = await requireDb();
+  return db
+    .update(paymentContacts)
+    .set({ archived: 1, archivedAt: new Date(), ...(mergedIntoId ? { mergedIntoId } : {}) })
+    .where(eq(paymentContacts.id, id));
+}
+
+export async function restorePaymentContact(id: number) {
+  const db = await requireDb();
+  return db
+    .update(paymentContacts)
+    .set({ archived: 0, archivedAt: null, mergedIntoId: null })
+    .where(eq(paymentContacts.id, id));
 }
 
 // ---------- Aggregations ----------
@@ -948,11 +1307,26 @@ export async function sumInvoicedInRange(start: number, end: number) {
 export async function globalSearch(query: string, limitPerType = 8) {
   const db = await requireDb();
   const q = `%${query}%`;
+  // SQL prefilters loosely on the longest word (accents and word order are then
+  // settled in TypeScript via matchesAllTokens), so a query like
+  // "Μπουκόλος Αντρέας" still reaches rows stored as "Andreas Boukolos".
+  const tokens = queryTokens(query);
+  const longest = tokens.slice().sort((a, b) => b.length - a.length)[0] ?? "";
+  const loose = `%${longest}%`;
   const [custRows, invRows, noteRows, taskRows] = await Promise.all([
     db
       .select({ id: customers.id, name: customers.name, code: customers.code, customerGroup: customers.customerGroup })
       .from(customers)
-      .where(or(like(customers.name, q), like(customers.code, q), like(customers.customerGroup, q), like(customers.vatNumber, q)))
+      .where(
+        or(
+          like(customers.name, q),
+          like(customers.code, q),
+          like(customers.customerGroup, q),
+          like(customers.vatNumber, q),
+          like(customers.name, loose),
+          like(customers.customerGroup, loose),
+        ),
+      )
       .limit(limitPerType * 3),
     db
       .select({
@@ -966,7 +1340,7 @@ export async function globalSearch(query: string, limitPerType = 8) {
       })
       .from(invoices)
       .leftJoin(vessels, eq(invoices.vesselId, vessels.id))
-      .where(or(like(invoices.invoiceNumber, q), like(vessels.name, q)))
+      .where(or(like(invoices.invoiceNumber, q), like(vessels.name, q), like(vessels.name, loose)))
       .limit(limitPerType),
     db
       .select({ id: groupNotes.id, groupName: groupNotes.groupName, content: groupNotes.content, createdAt: groupNotes.createdAt })
@@ -1023,7 +1397,62 @@ export async function globalSearch(query: string, limitPerType = 8) {
     .where(like(invoices.invoiceNumber, q))
     .orderBy(desc(wireTransferAllocations.createdAt))
     .limit(limitPerType);
-  return { customers: custRows, invoices: invRows, notes: noteRows, tasks: taskRows, transfers: transferRows, allocations: allocationRows };
+  // Contacts and vessels: people and ships are what users search for most, so
+  // both are prefiltered loosely and then filtered precisely below.
+  const [contactRows, vesselRows] = await Promise.all([
+    db
+      .select({
+        id: paymentContacts.id,
+        name: paymentContacts.name,
+        email: paymentContacts.email,
+        phone: paymentContacts.phone,
+        title: paymentContacts.title,
+        contactType: paymentContacts.contactType,
+        customerId: paymentContacts.customerId,
+        customerName: customers.name,
+        customerGroup: customers.customerGroup,
+      })
+      .from(paymentContacts)
+      .leftJoin(customers, eq(paymentContacts.customerId, customers.id))
+      .where(
+        and(
+          eq(paymentContacts.archived, 0),
+          or(
+            like(paymentContacts.name, q),
+            like(paymentContacts.email, q),
+            like(paymentContacts.title, q),
+            like(paymentContacts.name, loose),
+            like(paymentContacts.email, loose),
+          ),
+        ),
+      )
+      .limit(limitPerType * 6),
+    db
+      .select({
+        id: vessels.id,
+        name: vessels.name,
+        imo: vessels.imo,
+        vesselType: vessels.vesselType,
+        flag: vessels.flag,
+        customerId: vessels.customerId,
+        customerName: customers.name,
+        customerGroup: customers.customerGroup,
+      })
+      .from(vessels)
+      .leftJoin(customers, eq(vessels.customerId, customers.id))
+      .where(or(like(vessels.name, q), like(vessels.imo, q), like(vessels.name, loose)))
+      .limit(limitPerType * 4),
+  ]);
+  return {
+    customers: custRows,
+    invoices: invRows,
+    notes: noteRows,
+    tasks: taskRows,
+    transfers: transferRows,
+    allocations: allocationRows,
+    contacts: contactRows,
+    vessels: vesselRows,
+  };
 }
 
 export async function listGroupConfirmationStatuses() {
@@ -1091,7 +1520,12 @@ export async function getTeamMemberById(id: number) {
   const rows = await db.select().from(teamMembers).where(eq(teamMembers.id, id)).limit(1);
   return rows[0] ?? null;
 }
-
+/** Team member linked to a signed-in auth user (teamMembers.userId), if any. */
+export async function getTeamMemberByUserId(userId: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(teamMembers).where(eq(teamMembers.userId, userId)).limit(1);
+  return rows[0] ?? null;
+}
 export async function deleteTeamMember(id: number) {
   const db = await requireDb();
   // Detach from customers and tasks first, then delete.
@@ -1180,10 +1614,6 @@ export async function listAllWireTransfers() {
   return db.select().from(wireTransfers).orderBy(desc(wireTransfers.transferDate));
 }
 
-export async function listWireTransfersByStatus(status: "Pending" | "Received") {
-  const db = await requireDb();
-  return db.select().from(wireTransfers).where(eq(wireTransfers.status, status)).orderBy(desc(wireTransfers.transferDate));
-}
 
 /**
  * Received wire transfers whose effective date (receivedDate, falling back to
@@ -1342,4 +1772,302 @@ export async function listIncomingAllocationsByCustomer(customerId: number) {
     .innerJoin(wireTransfers, eq(wireTransferAllocations.wireTransferId, wireTransfers.id))
     .where(eq(invoices.customerId, customerId))
     .orderBy(desc(wireTransferAllocations.createdAt));
+}
+
+/* ------------------------------------------------------------------ *
+ * Credit notes (πιστωτικά) — open documents not yet matched to invoices
+ * ------------------------------------------------------------------ */
+
+
+
+/** Credit notes of several customers (a group), newest document first. */
+export async function listCreditNotesByCustomerIds(customerIds: number[]) {
+  if (customerIds.length === 0) return [];
+  const db = await requireDb();
+  return db
+    .select()
+    .from(creditNotes)
+    .where(inArray(creditNotes.customerId, customerIds))
+    .orderBy(desc(creditNotes.docDate));
+}
+
+export async function getCreditNote(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(creditNotes).where(eq(creditNotes.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createCreditNote(data: InsertCreditNote) {
+  const db = await requireDb();
+  const res = await db.insert(creditNotes).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+
+export async function deleteCreditNote(id: number) {
+  const db = await requireDb();
+  await db.delete(creditNotes).where(eq(creditNotes.id, id));
+}
+
+/** Sum of manual allocations per credit note id (for "still open" computations). */
+export async function sumAllocationsByCreditNoteIds(ids: number[]) {
+  const map = new Map<number, number>();
+  if (ids.length === 0) return map;
+  const db = await requireDb();
+  const rows = await db
+    .select({
+      creditNoteId: creditNoteAllocations.creditNoteId,
+      total: sql<string>`SUM(${creditNoteAllocations.amount})`,
+    })
+    .from(creditNoteAllocations)
+    .where(inArray(creditNoteAllocations.creditNoteId, ids))
+    .groupBy(creditNoteAllocations.creditNoteId);
+  for (const r of rows) map.set(r.creditNoteId, Number(r.total ?? 0));
+  return map;
+}
+
+export async function listAllocationsByCreditNote(creditNoteId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(creditNoteAllocations)
+    .where(eq(creditNoteAllocations.creditNoteId, creditNoteId));
+}
+
+/**
+ * Allocations of a credit note joined with the invoice they were matched to, so
+ * the matching dialog can show what has already been settled without a second
+ * round of queries.
+ */
+export async function listAllocationsByCreditNoteJoined(creditNoteId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      id: creditNoteAllocations.id,
+      creditNoteId: creditNoteAllocations.creditNoteId,
+      invoiceId: creditNoteAllocations.invoiceId,
+      amount: creditNoteAllocations.amount,
+      createdAt: creditNoteAllocations.createdAt,
+      invoiceNumber: invoices.invoiceNumber,
+      invoiceCompany: invoices.company,
+      invoiceCurrency: invoices.currency,
+      invoiceStatus: invoices.status,
+      invoiceCustomerId: invoices.customerId,
+    })
+    .from(creditNoteAllocations)
+    .leftJoin(invoices, eq(creditNoteAllocations.invoiceId, invoices.id))
+    .where(eq(creditNoteAllocations.creditNoteId, creditNoteId));
+}
+
+/** One allocation row by id (used when removing an allocation). */
+export async function getCreditNoteAllocation(id: number) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(creditNoteAllocations)
+    .where(eq(creditNoteAllocations.id, id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createCreditNoteAllocation(data: InsertCreditNoteAllocation) {
+  const db = await requireDb();
+  const res = await db.insert(creditNoteAllocations).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function deleteCreditNoteAllocation(id: number) {
+  const db = await requireDb();
+  await db.delete(creditNoteAllocations).where(eq(creditNoteAllocations.id, id));
+}
+
+// ---------------------------------------------------------------------------
+// Address Book: custom field definitions, values, saved views, list layouts
+// ---------------------------------------------------------------------------
+
+/** All non-archived field definitions, optionally for a single entity. */
+export async function listCustomFieldDefs(entity?: AddressBookEntity) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(customFieldDefs)
+    .where(entity ? and(eq(customFieldDefs.archived, 0), eq(customFieldDefs.entity, entity)) : eq(customFieldDefs.archived, 0))
+    .orderBy(customFieldDefs.sortOrder, customFieldDefs.id);
+  return rows;
+}
+
+export async function getCustomFieldDef(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(customFieldDefs).where(eq(customFieldDefs.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createCustomFieldDef(data: InsertCustomFieldDef) {
+  const db = await requireDb();
+  const res = await db.insert(customFieldDefs).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function updateCustomFieldDef(id: number, data: Partial<InsertCustomFieldDef>) {
+  const db = await requireDb();
+  await db.update(customFieldDefs).set(data).where(eq(customFieldDefs.id, id));
+}
+
+/** Soft delete: values are kept so the field can be restored. */
+export async function archiveCustomFieldDef(id: number) {
+  const db = await requireDb();
+  await db.update(customFieldDefs).set({ archived: 1 }).where(eq(customFieldDefs.id, id));
+}
+
+/** All custom values for one entity type, keyed by `recordKey` then `fieldId`. */
+export async function listCustomFieldValues(entity: AddressBookEntity, recordKeys?: string[]) {
+  const db = await requireDb();
+  const where =
+    recordKeys && recordKeys.length > 0
+      ? and(eq(customFieldValues.entity, entity), inArray(customFieldValues.recordKey, recordKeys))
+      : eq(customFieldValues.entity, entity);
+  return db.select().from(customFieldValues).where(where);
+}
+
+/**
+ * Upsert one custom-field value. An empty string clears the value so the record
+ * shows the field as blank rather than keeping a stale entry.
+ */
+export async function setCustomFieldValue(args: {
+  fieldId: number;
+  entity: AddressBookEntity;
+  recordKey: string;
+  value: string | null;
+  updatedBy?: number | null;
+}) {
+  const db = await requireDb();
+  const existing = await db
+    .select()
+    .from(customFieldValues)
+    .where(and(eq(customFieldValues.fieldId, args.fieldId), eq(customFieldValues.recordKey, args.recordKey)))
+    .limit(1);
+  if (existing[0]) {
+    await db
+      .update(customFieldValues)
+      .set({ value: args.value, updatedBy: args.updatedBy ?? null })
+      .where(eq(customFieldValues.id, existing[0].id));
+    return existing[0].id;
+  }
+  const res = await db.insert(customFieldValues).values({
+    fieldId: args.fieldId,
+    entity: args.entity,
+    recordKey: args.recordKey,
+    value: args.value,
+    updatedBy: args.updatedBy ?? null,
+  });
+  return Number((res as any)[0].insertId);
+}
+
+/** Saved views visible to a user: their own plus every shared one. */
+export async function listSavedViews(entity: AddressBookEntity, userId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(savedViews)
+    .where(and(eq(savedViews.entity, entity), or(eq(savedViews.shared, 1), eq(savedViews.ownerId, userId))))
+    .orderBy(savedViews.name);
+}
+
+export async function getSavedView(id: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(savedViews).where(eq(savedViews.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createSavedView(data: InsertSavedView) {
+  const db = await requireDb();
+  const res = await db.insert(savedViews).values(data);
+  return Number((res as any)[0].insertId);
+}
+
+export async function updateSavedView(id: number, data: Partial<InsertSavedView>) {
+  const db = await requireDb();
+  await db.update(savedViews).set(data).where(eq(savedViews.id, id));
+}
+
+export async function deleteSavedView(id: number) {
+  const db = await requireDb();
+  await db.delete(savedViews).where(eq(savedViews.id, id));
+}
+
+/** Per-user column visibility/order for one list. */
+export async function getListLayout(userId: number, listKey: string) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(listLayouts)
+    .where(and(eq(listLayouts.userId, userId), eq(listLayouts.listKey, listKey)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function setListLayout(userId: number, listKey: string, config: string) {
+  const db = await requireDb();
+  const existing = await getListLayout(userId, listKey);
+  if (existing) {
+    await db.update(listLayouts).set({ config }).where(eq(listLayouts.id, existing.id));
+    return existing.id;
+  }
+  const res = await db.insert(listLayouts).values({ userId, listKey, config });
+  return Number((res as any)[0].insertId);
+}
+
+/** Historical forecast performance for a group (last N months). */
+export async function getForecastHistory(groupKey: string, limit = 6) {
+  const db = await requireDb();
+  const entries = await db
+    .select()
+    .from(forecastEntries)
+    .where(eq(forecastEntries.customerGroup, groupKey))
+    .orderBy(desc(forecastEntries.year), desc(forecastEntries.month))
+    .limit(limit);
+
+  // Get group members
+  const members = await db.select({ id: customers.id }).from(customers).where(or(eq(customers.customerGroup, groupKey), eq(customers.name, groupKey)));
+  const groupMemberIds = members.map(m => m.id);
+
+  if (groupMemberIds.length === 0) return [];
+
+  const results = [];
+  for (const e of entries) {
+    const { start, end } = monthRange(e.year, e.month);
+    const [receiptsRows, wires] = await Promise.all([
+      db.select().from(receipts).where(
+        and(
+          inArray(receipts.customerId, groupMemberIds),
+          gte(receipts.receiptDate, start),
+          lt(receipts.receiptDate, end)
+        )
+      ),
+      db.select().from(wireTransfers).where(
+        and(
+          inArray(wireTransfers.customerId, groupMemberIds),
+          eq(wireTransfers.status, "Received")
+        )
+      )
+    ]);
+
+    const collectedWires = wires.filter(w => {
+      const ts = w.receivedDate ?? w.transferDate;
+      return ts >= start && ts < end;
+    });
+
+    const collected = receiptsRows.reduce((s, r) => s + Number(r.amount), 0) +
+                    collectedWires.reduce((s, w) => s + Number(w.amount), 0);
+
+    results.push({
+      year: e.year,
+      month: e.month,
+      aiSuggested: Number(e.aiSuggestedAmount),
+      expected: Number(e.expectedAmount),
+      collected,
+      userAdjusted: !!e.userAdjusted,
+    });
+  }
+  return results;
 }

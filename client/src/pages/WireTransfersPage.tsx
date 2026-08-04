@@ -9,7 +9,7 @@ import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Check, ChevronsUpDown, ChevronRight, ChevronDown, CornerDownRight } from "lucide-react";
+import { Check, ChevronsUpDown, ChevronRight, ChevronDown, CornerDownRight, Building2 } from "lucide-react";
 import { X } from "lucide-react";
 import {
   AlertDialog,
@@ -25,12 +25,71 @@ import {
 import { Fragment } from "react";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
+import { matchesAllTokens, matchScore } from "@shared/textMatch";
+import {
+  DEFAULT_REMITTANCE_METHOD,
+  REMITTANCE_METHODS,
+  normalizeRemittanceMethod,
+  type RemittanceMethod,
+} from "@shared/remittanceMethods";
 import { fmtDate, fmtCur } from "@/lib/format";
 import { toast } from "sonner";
 import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDialog";
 
-type Company = { id: number; name: string };
+type Company = { id: number; name: string; code?: string | null; group?: string | null };
 const CURRENCIES = ["EUR", "USD", "AED", "SGD", "GBP", "NOK", "JPY"];
+/**
+ * How the customer remitted the money. Kept in one place so the create form, the
+ * filter and the table badges cannot drift apart.
+ */
+const METHODS = REMITTANCE_METHODS;
+type Method = RemittanceMethod;
+const METHOD_STYLES: Record<Method, string> = {
+  Transfer: "bg-sky-50 text-sky-700 border-sky-200",
+  Cheque: "bg-amber-50 text-amber-800 border-amber-200",
+  "Credit Card": "bg-violet-50 text-violet-700 border-violet-200",
+};
+/** Compact badge used in the remittances table and on allocation rows. */
+function MethodBadge({ method }: { method?: string | null }) {
+  const m = normalizeRemittanceMethod(method);
+  return (
+    <span className={cn("inline-block rounded border px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap", METHOD_STYLES[m])}>
+      {m}
+    </span>
+  );
+}
+
+/**
+ * Bank and due date of a cheque, shown under the method badge. Nothing renders
+ * for transfers or card payments, and a cheque still pending past its due date
+ * is called out because it should have been cashed by then.
+ */
+function ChequeDetails({
+  method,
+  bank,
+  dueDate,
+  status,
+}: {
+  method?: string | null;
+  bank?: string | null;
+  dueDate?: number | null;
+  status?: string | null;
+}) {
+  if (normalizeRemittanceMethod(method) !== "Cheque") return null;
+  if (!bank && !dueDate) return null;
+  const overdue = !!dueDate && status !== "Received" && dueDate < Date.now();
+  return (
+    <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+      {bank && <div className="truncate max-w-[130px]" title={bank}>{bank}</div>}
+      {dueDate && (
+        <div className={overdue ? "font-medium text-red-600" : undefined}>
+          due {fmtDate(Number(dueDate))}
+          {overdue ? " · overdue" : ""}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Cancel a single allocation from the transfer side: reverts the invoice, frees the amount, deletes the derived internal transfer. */
 function CancelAllocationButton({
@@ -71,7 +130,7 @@ function CancelAllocationButton({
           <AlertDialogDescription>
             The allocation of <span className="font-mono font-semibold">{amountLabel}</span> to invoice{" "}
             <span className="font-mono font-semibold">{invoiceLabel}</span> will be removed. The invoice
-            reverts to its previous status, the amount becomes available on the wire transfer again, and any
+            reverts to its previous status, the amount becomes available on the remittance again, and any
             derived internal transfer is deleted.
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -90,7 +149,17 @@ function CancelAllocationButton({
   );
 }
 
-/** Searchable customer combobox for large customer lists. */
+/**
+ * Searchable customer combobox.
+ *
+ * The directory holds thousands of companies, so cmdk's built-in filtering is
+ * switched off (`shouldFilter={false}`): it only scores the items it has mounted,
+ * which silently hid anything past the first few hundred rows — typing "mage"
+ * found nothing even though MAGE SHIPPING LIMITED exists. Filtering happens here
+ * over the full list with the same matcher the rest of the app uses (accents,
+ * Greek/Latin spellings, any word order), and only the top hits are rendered so
+ * the popover stays fast.
+ */
 function CustomerCombobox({
   companies,
   value,
@@ -105,13 +174,40 @@ function CustomerCombobox({
   allowAll?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const selectedLabel =
     value === "all"
       ? "All customers"
       : companies.find(c => String(c.id) === value)?.name || placeholder;
 
+  /** Best matches first, capped — 3,400 mounted rows make the popover crawl. */
+  const MAX_VISIBLE = 60;
+  const matches = useMemo(() => {
+    const q = query.trim();
+    if (!q) return companies.slice(0, MAX_VISIBLE);
+    return companies
+      .filter(c => matchesAllTokens(q, [c.name, c.code, c.group]))
+      .sort(
+        (a, b) =>
+          matchScore(q, [b.name, b.code, b.group]) - matchScore(q, [a.name, a.code, a.group]) ||
+          a.name.localeCompare(b.name),
+      )
+      .slice(0, MAX_VISIBLE);
+  }, [companies, query]);
+  const hiddenCount = useMemo(() => {
+    const q = query.trim();
+    const total = q ? companies.filter(c => matchesAllTokens(q, [c.name, c.code, c.group])).length : companies.length;
+    return Math.max(0, total - matches.length);
+  }, [companies, query, matches.length]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={o => {
+        setOpen(o);
+        if (!o) setQuery("");
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -124,9 +220,9 @@ function CustomerCombobox({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[320px] p-0" align="start">
-        <Command>
-          <CommandInput placeholder="Type to search..." />
-          <CommandList>
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Type to search..." value={query} onValueChange={setQuery} />
+          <CommandList className="max-h-72">
             <CommandEmpty>No customer found.</CommandEmpty>
             <CommandGroup>
               {allowAll && (
@@ -135,27 +231,39 @@ function CustomerCombobox({
                   onSelect={() => {
                     onChange("all");
                     setOpen(false);
+                    setQuery("");
                   }}
                 >
                   <Check className={cn("mr-2 h-4 w-4", value === "all" ? "opacity-100" : "opacity-0")} />
                   All customers
                 </CommandItem>
               )}
-              {companies.map(c => (
+              {matches.map(c => (
                 <CommandItem
                   key={c.id}
-                  value={c.name}
+                  value={String(c.id)}
                   onSelect={() => {
                     onChange(String(c.id));
                     setOpen(false);
+                    setQuery("");
                   }}
                 >
                   <Check
                     className={cn("mr-2 h-4 w-4", value === String(c.id) ? "opacity-100" : "opacity-0")}
                   />
-                  <span className="truncate">{c.name}</span>
+                  <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                  {c.group && c.group.trim() && c.group.trim() !== c.name && (
+                    <span className="ml-2 shrink-0 text-xs text-muted-foreground truncate max-w-[90px]">
+                      {c.group}
+                    </span>
+                  )}
                 </CommandItem>
               ))}
+              {hiddenCount > 0 && (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  +{hiddenCount} more — keep typing to narrow down
+                </div>
+              )}
             </CommandGroup>
           </CommandList>
         </Command>
@@ -165,13 +273,14 @@ function CustomerCombobox({
 }
 
 export default function WireTransfersPage() {
-  const wtpCols = useResizableColumns("wire-transfers-page", {
+  const wtpCols = useResizableColumns("remittances-page", {
     chevron: 36,
+    date: 120,
     customer: 280,
+    method: 120,
     branch: 160,
     amount: 110,
     allocated: 100,
-    date: 120,
     status: 100,
     ref: 130,
     actions: 170,
@@ -179,7 +288,14 @@ export default function WireTransfersPage() {
   const [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "Received">("All");
   const [customerFilter, setCustomerFilter] = useState("all");
   const [branchFilter, setBranchFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState<"all" | "customer" | "internal">("all");
+  /** Filter by the instrument the money arrived on (bank wire, cheque, card). */
+  const [methodFilter, setMethodFilter] = useState<"all" | Method>("all");
+  /**
+   * Internal (inter-office) transfers are noise for collections work, so the
+   * list shows only the money that came from clients. The toggle brings the
+   * intercompany movements in when they are actually needed.
+   */
+  const [showInternal, setShowInternal] = useState(false);
   const [allocationFilter, setAllocationFilter] = useState<"all" | "unallocated" | "partial" | "full">("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -199,8 +315,10 @@ export default function WireTransfersPage() {
       if (statusFilter !== "All" && t.status !== statusFilter) return false;
       if (customerFilter !== "all" && t.customerId !== Number(customerFilter)) return false;
       if (branchFilter !== "all" && t.branch !== branchFilter) return false;
-      if (typeFilter === "customer" && t.isInternal) return false;
-      if (typeFilter === "internal" && !t.isInternal) return false;
+      // Internal inter-office movements carry no customer instrument, so a method
+      // filter is a customer-money filter and excludes them.
+      if (methodFilter !== "all" && (normalizeRemittanceMethod(t.method) !== methodFilter || t.isInternal)) return false;
+      if (!showInternal && t.isInternal) return false;
       if (allocationFilter !== "all") {
         // Allocation state only meaningful for received customer transfers
         if (t.isInternal) return false;
@@ -214,7 +332,22 @@ export default function WireTransfersPage() {
       if (dateTo && new Date(Number(t.transferDate)) > new Date(dateTo + "T23:59:59")) return false;
       return true;
     });
-  }, [allTransfers, statusFilter, customerFilter, branchFilter, typeFilter, allocationFilter, dateFrom, dateTo]);
+  }, [allTransfers, statusFilter, customerFilter, branchFilter, methodFilter, showInternal, allocationFilter, dateFrom, dateTo]);
+
+  /** How many intercompany transfers the toggle would reveal under the current filters. */
+  const internalCount = useMemo(
+    () =>
+      (allTransfers as any[]).filter((t: any) => {
+        if (!t.isInternal) return false;
+        if (statusFilter !== "All" && t.status !== statusFilter) return false;
+        if (customerFilter !== "all" && t.customerId !== Number(customerFilter)) return false;
+        if (branchFilter !== "all" && t.branch !== branchFilter) return false;
+        if (dateFrom && new Date(Number(t.transferDate)) < new Date(dateFrom)) return false;
+        if (dateTo && new Date(Number(t.transferDate)) > new Date(dateTo + "T23:59:59")) return false;
+        return true;
+      }).length,
+    [allTransfers, statusFilter, customerFilter, branchFilter, dateFrom, dateTo]
+  );
 
   // Calculate totals
   const totals = useMemo(() => {
@@ -234,14 +367,19 @@ export default function WireTransfersPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Wire Transfers</h1>
+        <div>
+          <h1 className="text-3xl font-bold">Remittances</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Money received from customers — bank wires, cheques and credit-card payments.
+          </p>
+        </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
-            <Button>New Wire Transfer</Button>
+            <Button>New Remittance</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create Wire Transfer</DialogTitle>
+              <DialogTitle>Record Remittance</DialogTitle>
             </DialogHeader>
             <CreateWireTransferForm
               onSuccess={() => setIsCreateOpen(false)}
@@ -261,7 +399,7 @@ export default function WireTransfersPage() {
           <CardContent>
             <div className="text-2xl font-bold">{fmtCur(totals.pending, "EUR")}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {filteredTransfers.filter((t: any) => t.status === "Pending").length} transfers
+              {filteredTransfers.filter((t: any) => t.status === "Pending").length} remittances
             </p>
           </CardContent>
         </Card>
@@ -273,7 +411,7 @@ export default function WireTransfersPage() {
           <CardContent>
             <div className="text-2xl font-bold">{fmtCur(totals.received, "EUR")}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {filteredTransfers.filter((t: any) => t.status === "Received").length} transfers
+              {filteredTransfers.filter((t: any) => t.status === "Received").length} remittances
             </p>
           </CardContent>
         </Card>
@@ -284,7 +422,7 @@ export default function WireTransfersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{fmtCur(totals.pending + totals.received, "EUR")}</div>
-            <p className="text-xs text-muted-foreground mt-1">{filteredTransfers.length} transfers</p>
+            <p className="text-xs text-muted-foreground mt-1">{filteredTransfers.length} remittances</p>
           </CardContent>
         </Card>
 
@@ -294,7 +432,7 @@ export default function WireTransfersPage() {
             allocationFilter === "unallocated" ? "border-amber-500 bg-amber-50/50" : "hover:border-amber-300"
           )}
           onClick={() => setAllocationFilter(allocationFilter === "unallocated" ? "all" : "unallocated")}
-          title="Click to show only transfers with unallocated amounts"
+          title="Click to show only remittances with unallocated amounts"
         >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-amber-700">Unallocated</CardTitle>
@@ -302,7 +440,7 @@ export default function WireTransfersPage() {
           <CardContent>
             <div className="text-2xl font-bold text-amber-700">{fmtCur(totals.unallocated, "EUR")}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {totals.unallocatedCount} transfer(s) not fully allocated
+              {totals.unallocatedCount} remittance(s) not fully allocated
             </p>
           </CardContent>
         </Card>
@@ -330,15 +468,47 @@ export default function WireTransfersPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="type-filter">Type</Label>
-              <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as any)}>
-                <SelectTrigger id="type-filter">
+              <Label>Type</Label>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowInternal(v => !v)}
+                aria-pressed={showInternal}
+                title={
+                  showInternal
+                    ? "Hide the intercompany transfers between our own offices"
+                    : "Also show the intercompany transfers between our own offices"
+                }
+                className={cn(
+                  "w-full justify-start gap-2 font-normal",
+                  showInternal
+                    ? "border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                    : "text-muted-foreground"
+                )}
+              >
+                <Building2 className="h-4 w-4 shrink-0" />
+                <span className="truncate">
+                  {showInternal ? "Client + internal" : "Client remittances only"}
+                </span>
+                {!showInternal && internalCount > 0 && (
+                  <span className="ml-auto rounded bg-muted px-1.5 text-xs tabular-nums">+{internalCount}</span>
+                )}
+              </Button>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="method-filter">Method</Label>
+              <Select value={methodFilter} onValueChange={v => setMethodFilter(v as any)}>
+                <SelectTrigger id="method-filter">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All types</SelectItem>
-                  <SelectItem value="customer">Customer transfers</SelectItem>
-                  <SelectItem value="internal">Internal (inter-office)</SelectItem>
+                  <SelectItem value="all">All methods</SelectItem>
+                  {METHODS.map(m => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -408,13 +578,13 @@ export default function WireTransfersPage() {
         </CardContent>
       </Card>
 
-      {/* Wire Transfers Table */}
+      {/* Remittances table */}
       <Card>
         <CardContent className="pt-6">
           {isLoading ? (
             <div className="text-center py-8 text-muted-foreground">Loading...</div>
           ) : filteredTransfers.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">No wire transfers found</div>
+            <div className="text-center py-8 text-muted-foreground">No remittances found</div>
           ) : (
             <div className="overflow-x-auto">
               <Table className="table-fixed" style={{ width: wtpCols.totalWidth, minWidth: "100%" }}>
@@ -423,11 +593,12 @@ export default function WireTransfersPage() {
                     <TableCell style={wtpCols.style("chevron")}></TableCell>
                     {(
                       [
+                        ["date", "Date"],
                         ["customer", "Customer"],
                         ["branch", "Branch"],
+                        ["method", "Method"],
                         ["amount", "Amount"],
                         ["allocated", "Allocated"],
-                        ["date", "Date"],
                         ["status", "Status"],
                         ["ref", "Ref / Notes"],
                       ] as const
@@ -459,6 +630,7 @@ export default function WireTransfersPage() {
                               )
                             ) : null}
                           </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm">{fmtDate(Number(t.transferDate))}</TableCell>
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
                               {t.isInternal && (
@@ -477,6 +649,21 @@ export default function WireTransfersPage() {
                             )}
                           </TableCell>
                           <TableCell className="text-sm truncate" title={t.branch || undefined}>{t.branch || "-"}</TableCell>
+                          <TableCell className="text-sm">
+                            {t.isInternal ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              <>
+                                <MethodBadge method={t.method} />
+                                <ChequeDetails
+                                  method={t.method}
+                                  bank={(t as any).chequeBank}
+                                  dueDate={(t as any).chequeDueDate}
+                                  status={t.status}
+                                />
+                              </>
+                            )}
+                          </TableCell>
                           <TableCell>{fmtCur(Number(t.amount), t.currency)}</TableCell>
                           <TableCell className="text-sm font-mono">
                             {Number(t.allocatedAmount) > 0 ? (
@@ -496,7 +683,6 @@ export default function WireTransfersPage() {
                               "-"
                             )}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm">{fmtDate(Number(t.transferDate))}</TableCell>
                           <TableCell>
                             <span
                               className={`px-2 py-1 rounded text-xs font-medium ${
@@ -525,7 +711,7 @@ export default function WireTransfersPage() {
                         {hasAllocs && isOpen && (
                           <TableRow className="bg-muted/40 hover:bg-muted/40">
                             <TableCell></TableCell>
-                            <TableCell colSpan={8} className="py-2">
+                            <TableCell colSpan={9} className="py-2">
                               <div className="space-y-1">
                                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                                   Allocation breakdown — where this transfer went
@@ -596,15 +782,21 @@ function CreateWireTransferForm({
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("EUR");
   const [branch, setBranch] = useState("none");
+  /** Bank wire is the common case, so it is the default instrument. */
+  const [method, setMethod] = useState<Method>(DEFAULT_REMITTANCE_METHOD);
   const [transferDate, setTransferDate] = useState(new Date().toISOString().split("T")[0]);
   const [status, setStatus] = useState<"Pending" | "Received">("Pending");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [notes, setNotes] = useState("");
+  /** Cheque-only: the issuing bank and the date the cheque can be cashed. */
+  const [chequeBank, setChequeBank] = useState("");
+  const [chequeDueDate, setChequeDueDate] = useState("");
+  const isCheque = method === "Cheque";
 
   const utils = trpc.useUtils();
   const createMutation = trpc.customers.createWireTransfer.useMutation({
     onSuccess: () => {
-      toast.success("Wire transfer created");
+      toast.success("Remittance recorded");
       utils.customers.getAllWireTransfers.invalidate();
       onSuccess();
     },
@@ -624,11 +816,15 @@ function CreateWireTransferForm({
       amount: Number(amount),
       currency,
       branch: branch !== "none" ? branch : null,
+      method,
       transferDate: new Date(transferDate).getTime(),
       status,
       referenceNumber: referenceNumber || null,
       notes: notes || null,
       receivedDate: status === "Received" ? new Date().getTime() : null,
+      // Cheque details are meaningless for a transfer or a card payment.
+      chequeBank: isCheque ? chequeBank.trim() || null : null,
+      chequeDueDate: isCheque && chequeDueDate ? new Date(chequeDueDate).getTime() : null,
     });
   };
 
@@ -675,6 +871,46 @@ function CreateWireTransferForm({
       </div>
 
       <div className="space-y-1.5">
+        <Label htmlFor="method">Method *</Label>
+        <Select value={method} onValueChange={v => setMethod(v as Method)}>
+          <SelectTrigger id="method">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {METHODS.map(m => (
+              <SelectItem key={m} value={m}>
+                {m}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {isCheque && (
+        <div className="grid grid-cols-2 gap-4 rounded-md border border-dashed border-border/70 bg-muted/30 p-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="cheque-bank">Bank</Label>
+            <Input
+              id="cheque-bank"
+              value={chequeBank}
+              onChange={e => setChequeBank(e.target.value)}
+              placeholder="Issuing bank, e.g. Alpha Bank"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cheque-due">Due date</Label>
+            <Input
+              id="cheque-due"
+              type="date"
+              value={chequeDueDate}
+              onChange={e => setChequeDueDate(e.target.value)}
+            />
+            <p className="text-[11px] text-muted-foreground">Date the cheque can be cashed.</p>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
         <Label htmlFor="branch">Branch (received at)</Label>
         <Select value={branch} onValueChange={setBranch}>
           <SelectTrigger id="branch">
@@ -693,7 +929,7 @@ function CreateWireTransferForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1.5">
-          <Label htmlFor="transfer-date">Transfer Date</Label>
+          <Label htmlFor="transfer-date">{method === "Cheque" ? "Cheque date" : "Payment date"}</Label>
           <Input
             id="transfer-date"
             type="date"
@@ -722,7 +958,13 @@ function CreateWireTransferForm({
           id="reference"
           value={referenceNumber}
           onChange={(e) => setReferenceNumber(e.target.value)}
-          placeholder="Bank reference or transaction ID"
+          placeholder={
+            method === "Cheque"
+              ? "Cheque number"
+              : method === "Credit Card"
+                ? "Card authorisation / transaction ID"
+                : "Bank reference or transaction ID"
+          }
         />
       </div>
 
@@ -737,7 +979,7 @@ function CreateWireTransferForm({
       </div>
 
       <Button onClick={handleSubmit} disabled={createMutation.isPending} className="w-full">
-        {createMutation.isPending ? "Creating..." : "Create Wire Transfer"}
+        {createMutation.isPending ? "Saving..." : "Record Remittance"}
       </Button>
     </div>
   );
@@ -754,17 +996,27 @@ function UpdateWireTransferDialog({
     amount: string | number;
     currency: string;
     branch?: string | null;
+    method?: string | null;
+    chequeBank?: string | null;
+    chequeDueDate?: number | null;
   };
   branches: string[];
 }) {
   const [newStatus, setNewStatus] = useState(transfer.status);
   const [newBranch, setNewBranch] = useState(transfer.branch || "none");
+  const [newMethod, setNewMethod] = useState<Method>(
+    normalizeRemittanceMethod(transfer.method),
+  );
+  const [newChequeBank, setNewChequeBank] = useState(transfer.chequeBank ?? "");
+  const [newChequeDue, setNewChequeDue] = useState(
+    transfer.chequeDueDate ? new Date(transfer.chequeDueDate).toISOString().split("T")[0] : "",
+  );
   const [isOpen, setIsOpen] = useState(false);
 
   const utils = trpc.useUtils();
   const updateMutation = trpc.customers.updateWireTransfer.useMutation({
     onSuccess: () => {
-      toast.success("Wire transfer updated");
+      toast.success("Remittance updated");
       utils.customers.getAllWireTransfers.invalidate();
       setIsOpen(false);
     },
@@ -775,7 +1027,7 @@ function UpdateWireTransferDialog({
 
   const deleteMutation = trpc.customers.deleteWireTransfer.useMutation({
     onSuccess: () => {
-      toast.success("Wire transfer deleted");
+      toast.success("Remittance deleted");
       utils.customers.getAllWireTransfers.invalidate();
       setIsOpen(false);
     },
@@ -790,7 +1042,10 @@ function UpdateWireTransferDialog({
       customerId: transfer.customerId,
       status: newStatus,
       branch: newBranch !== "none" ? newBranch : null,
+      method: newMethod,
       receivedDate: newStatus === "Received" ? new Date().getTime() : null,
+      chequeBank: newMethod === "Cheque" ? newChequeBank.trim() || null : null,
+      chequeDueDate: newMethod === "Cheque" && newChequeDue ? new Date(newChequeDue).getTime() : null,
     });
   };
 
@@ -803,7 +1058,7 @@ function UpdateWireTransferDialog({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Update Wire Transfer</DialogTitle>
+          <DialogTitle>Update Remittance</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div>
@@ -821,6 +1076,43 @@ function UpdateWireTransferDialog({
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="update-method">Method</Label>
+            <Select value={newMethod} onValueChange={v => setNewMethod(v as Method)}>
+              <SelectTrigger id="update-method">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {METHODS.map(m => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {newMethod === "Cheque" && (
+            <div className="grid grid-cols-2 gap-4 rounded-md border border-dashed border-border/70 bg-muted/30 p-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="update-cheque-bank">Bank</Label>
+                <Input
+                  id="update-cheque-bank"
+                  value={newChequeBank}
+                  onChange={e => setNewChequeBank(e.target.value)}
+                  placeholder="Issuing bank"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="update-cheque-due">Due date</Label>
+                <Input
+                  id="update-cheque-due"
+                  type="date"
+                  value={newChequeDue}
+                  onChange={e => setNewChequeDue(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="update-branch">Branch (received at)</Label>
             <Select value={newBranch} onValueChange={setNewBranch}>

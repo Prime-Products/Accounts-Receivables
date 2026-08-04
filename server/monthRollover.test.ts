@@ -5,6 +5,22 @@ import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
 import type { AuthenticatedUser } from "./_core/context";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, createTestInvoice, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) {
+    __fx = await createTestCustomer();
+    // customers.groups lists invoiced groups only — directory-only companies are excluded.
+    await createTestInvoice(__fx);
+  }
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 function createAuthContext(): TrpcContext {
   const user: AuthenticatedUser = {
     id: 1,
@@ -42,8 +58,7 @@ afterAll(async () => {
 describe("promise carryover — statuses stay active until their target date", () => {
   it("a Promise to Pay recorded last month stays Confirmed; when its date passes it stays Confirmed but flags taskOverdue", async () => {
     const caller = appRouter.createCaller(createAuthContext());
-    const customers = await db.listCustomers();
-    const cust = customers[0];
+    const cust = await getFixtureCustomer();
     expect(cust).toBeTruthy();
     const group = (cust.customerGroup ?? "").trim() || cust.name;
 
@@ -93,9 +108,10 @@ describe("promise carryover — statuses stay active until their target date", (
 describe("stale open promises — Not Contacted sweeps them", () => {
   it("a promise created directly (no Confirmed status) is cancelled when status is set to Not Contacted", async () => {
     const caller = appRouter.createCaller(createAuthContext());
-    const customers = await db.listCustomers();
+    const __fxc = await getFixtureCustomer();
+    const customers = [__fxc];
     const groupOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
-    const firstGroup = customers[0] ? groupOf(customers[0]) : "";
+    const firstGroup = groupOf(__fxc);
     // Pick a customer whose group differs from customers[0]'s group — groupForecast.test.ts
     // uses customers[0] concurrently, and our Not Contacted sweep would cancel its promise task.
     const cust = customers.find(c => groupOf(c) !== firstGroup) ?? customers[0];
@@ -117,12 +133,50 @@ describe("stale open promises — Not Contacted sweeps them", () => {
   });
 });
 
+/*
+ * User rule: "promise broken status at the new month should remain promise broken".
+ * A refusal is unfinished business — if it reset to "Not Contacted" with the month
+ * change, the group would look untouched and the refusal would disappear from the
+ * Desk. Only "Paid" closes a cycle and resets, because that money is in.
+ */
+describe("month rollover — Promise Broken carries over", () => {
+  it("keeps a refusal recorded last month as 'Promise Broken', while Paid resets to Not Contacted", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+    const cust = await getFixtureCustomer();
+    const group = (cust.customerGroup ?? "").trim() || cust.name;
+
+    // Record the refusal, then pretend the month has changed.
+    await caller.calls.updateConfirmationStatus({ group, status: "Broken", notes: "refused to commit" });
+    await backdateConfirmation(group);
+
+    const carried = await caller.calls.getConfirmationStatus({ group });
+    expect(carried?.status).toBe("Broken");
+    expect((carried as any)?.carriedOver).toBe(true);
+
+    // The Collections Desk list must agree, and must not forecast money for it.
+    const groups = await caller.customers.groups();
+    const row = groups.find((g: any) => g.group === group) as any;
+    expect(row).toBeTruthy();
+    expect(row.confirmationStatus).toBe("Broken");
+    expect(row.expectedToCollect).toBe(0);
+
+    // Contrast: Paid from last month IS a closed cycle → resets to Not Contacted.
+    await caller.calls.updateConfirmationStatus({ group, status: "Kept", amount: 500 });
+    await backdateConfirmation(group);
+    const paid = await caller.calls.getConfirmationStatus({ group });
+    expect(paid?.status).toBe("Not Contacted");
+
+    await caller.calls.updateConfirmationStatus({ group, status: "Not Contacted" });
+  });
+});
+
 describe("groups payload — promise date under badge", () => {
   it("a Confirmed group with an open promise exposes confirmationPromiseDate", async () => {
     const caller = appRouter.createCaller(createAuthContext());
-    const customers = await db.listCustomers();
+    const __fxc = await getFixtureCustomer();
+    const customers = [__fxc];
     const groupOf = (c: { customerGroup: string | null; name: string }) => (c.customerGroup ?? "").trim() || c.name;
-    const firstGroup = customers[0] ? groupOf(customers[0]) : "";
+    const firstGroup = groupOf(__fxc);
     const candidates = customers.filter(c => groupOf(c) !== firstGroup);
     const cust = candidates[1] ?? candidates[0] ?? customers[0];
     expect(cust).toBeTruthy();

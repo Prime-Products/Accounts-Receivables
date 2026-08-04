@@ -45,6 +45,10 @@ export interface IdSnapshot {
   groupNotes: number;
   emailHistory: number;
   confirmations: number;
+  noteMentions: number;
+  paymentContacts: number;
+  /** Audit rows are written by every mutation, so they need sweeping too. */
+  auditLogs: number;
 }
 
 async function maxId(table: string): Promise<number> {
@@ -57,15 +61,18 @@ async function maxId(table: string): Promise<number> {
 }
 
 export async function snapshotIds(): Promise<IdSnapshot> {
-  const [tasks, promises, activity, groupNotes, emailHistory, confirmations] = await Promise.all([
+  const [tasks, promises, activity, groupNotes, emailHistory, confirmations, noteMentions, paymentContacts, auditLogs] = await Promise.all([
     maxId("tasks"),
     maxId("promises_to_pay"),
     maxId("activity_log"),
     maxId("group_notes"),
     maxId("email_history"),
     maxId("group_confirmation_status"),
+    maxId("note_mentions"),
+    maxId("payment_contacts"),
+    maxId("audit_logs"),
   ]);
-  return { tasks, promises, activity, groupNotes, emailHistory, confirmations };
+  return { tasks, promises, activity, groupNotes, emailHistory, confirmations, noteMentions, paymentContacts, auditLogs };
 }
 
 export async function cleanupSince(snap: IdSnapshot): Promise<void> {
@@ -80,4 +87,27 @@ export async function cleanupSince(snap: IdSnapshot): Promise<void> {
   await run(`DELETE FROM group_notes WHERE id > ${snap.groupNotes}`);
   await run(`DELETE FROM email_history WHERE id > ${snap.emailHistory}`);
   await run(`DELETE FROM group_confirmation_status WHERE id > ${snap.confirmations}`);
+  await run(`DELETE FROM note_mentions WHERE id > ${snap.noteMentions}`);
+  await run(`DELETE FROM payment_contacts WHERE id > ${snap.paymentContacts}`);
+  // Only rows authored by the fake test users, so a real action running
+  // concurrently in the preview is never erased.
+  await run(
+    `DELETE FROM audit_logs WHERE id > ${snap.auditLogs} AND userName IN ('Test User','Sample User','Tester','Test Bank User','Vitest','Test')`,
+  );
+}
+
+/**
+ * Delete every audit row authored by the fake test users.
+ *
+ * Suites that mutate data without taking an id snapshot can call this from
+ * `afterAll` to keep the audit trail free of test noise.
+ */
+export async function purgeTestAuditRows(): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .execute(
+      sql`DELETE FROM audit_logs WHERE userName IN ('Test User','Sample User','Tester','Test Bank User','Vitest','Test')`,
+    )
+    .catch(() => undefined);
 }

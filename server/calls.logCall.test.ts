@@ -4,6 +4,18 @@ import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
 function createAuthContext(): TrpcContext {
@@ -35,8 +47,7 @@ describe("calls.logCall", () => {
   });
 
   it("records a call in the activity log with outcome and details", async () => {
-    const customers = await db.listCustomers();
-    const target = customers[0];
+    const target = await getFixtureCustomer();
     expect(target).toBeDefined();
     const group = (target.customerGroup ?? "").trim() || target.name;
     const caller = appRouter.createCaller(createAuthContext());
@@ -59,8 +70,7 @@ describe("calls.logCall", () => {
   });
 
   it("rejects an invalid outcome", async () => {
-    const customers = await db.listCustomers();
-    const target = customers[0];
+    const target = await getFixtureCustomer();
     const group = (target.customerGroup ?? "").trim() || target.name;
     const caller = appRouter.createCaller(createAuthContext());
     await expect(caller.calls.logCall({ group, outcome: "Nonsense" as any })).rejects.toThrow();

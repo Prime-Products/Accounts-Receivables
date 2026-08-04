@@ -5,6 +5,18 @@ import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
 import type { AuthenticatedUser } from "./_core/context";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 function createAuthContext(): TrpcContext {
   const user: AuthenticatedUser = {
     id: 1,
@@ -40,14 +52,13 @@ describe("follow-up task cleanup across status sequences", () => {
     await cleanupSince(__snap);
   });
 
-  it("Pending Follow-up → Confirmed → Broken leaves no open follow-up task (regression: MSC case)", async () => {
+  it("Pending Follow-up → Confirmed → Broken never produces a follow-up task (regression: MSC case)", async () => {
     const caller = appRouter.createCaller(createAuthContext());
-    const customers = await db.listCustomers();
-    const cust = customers[0];
+    const cust = await getFixtureCustomer();
     expect(cust).toBeTruthy();
     const group = (cust.customerGroup ?? "").trim() || cust.name;
 
-    // 1) Pending Follow-up with a date → creates an open follow-up task
+    // 1) Pending Follow-up with a date → status only, no task
     await caller.calls.logCall({
       group,
       customerId: cust.id,
@@ -56,9 +67,9 @@ describe("follow-up task cleanup across status sequences", () => {
       confirmationAmount: 1000,
       followUpDate: Date.now() + 4 * 24 * 60 * 60 * 1000,
     });
-    expect((await openFollowUpTasks(group)).length).toBeGreaterThan(0);
+    expect((await openFollowUpTasks(group)).length).toBe(0);
 
-    // 2) Confirmed (Promise to Pay) → the follow-up task must be cancelled
+    // 2) Confirmed (Promise to Pay) → still no task
     await caller.calls.logCall({
       group,
       customerId: cust.id,

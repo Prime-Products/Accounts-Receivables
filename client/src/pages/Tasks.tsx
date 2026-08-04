@@ -1,23 +1,21 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import NewTaskDialog from "@/components/NewTaskDialog";
-import NextActionDialog from "@/components/NextActionDialog";
-import { TeamMemberSelect } from "@/components/TeamMemberSelect";
-import TaskCommentsThread from "@/components/TaskCommentsThread";
+import TaskDetailDialog from "@/components/TaskDetailDialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
-import { fmtDate, fmtEurFull, taskStatusColors, taskTypeColors } from "@/lib/format";
+import { WatcherStack } from "@/components/WatcherStack";
+import { fmtDate, taskStatusColors, taskTypeColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { CalendarClock, CheckCircle2, FileText, HandCoins, ListChecks, Search, ThumbsDown, ThumbsUp, User as UserIcon, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, ListChecks, Search, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Link, useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 
 export default function Tasks() {
   const cols = useResizableColumns("tasks", {
@@ -26,6 +24,7 @@ export default function Tasks() {
     task: 280,
     invoice: 120,
     assignee: 150,
+    watchers: 110,
     due: 110,
     status: 110,
     actions: 120,
@@ -33,15 +32,13 @@ export default function Tasks() {
   const { data: tasks, isLoading } = trpc.tasks.list.useQuery();
   const { data: teamMembers } = trpc.team.list.useQuery();
   const utils = trpc.useUtils();
+  const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("Pending");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   /** Inbox scope: all | mine (assigned to my linked team member) | created (created by me). */
   const [scopeFilter, setScopeFilter] = useState<string>("all");
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
-  const [nextActionGroup, setNextActionGroup] = useState<string | null>(null);
-  const [editingDue, setEditingDue] = useState(false);
-  const [newDue, setNewDue] = useState("");
   // Deep link: /tasks?task=<id> opens that task's detail dialog (used by the
   // confirmation badges in the groups list).
   const searchString = useSearch();
@@ -63,39 +60,11 @@ export default function Tasks() {
     onError: e => toast.error(e.message),
   });
 
-  const setPromiseStatus = trpc.forecast.updatePromise.useMutation({
-    onSuccess: (_r, vars) => {
-      toast.success(`Promise marked ${vars.status} — follow-up task completed`);
-      utils.tasks.list.invalidate();
-      utils.customers.groups.invalidate();
-      utils.customers.groupDetail.invalidate();
-      if (vars.status === "Broken" && openTask) {
-        // The customer did not pay — ask the user what happens next.
-        setNextActionGroup(((openTask as any).groupName as string) ?? openTask.customerName ?? null);
-      }
-      // Close the detail dialog — the linked task has just been auto-completed.
-      setOpenTaskId(null);
-    },
-    onError: e => toast.error(e.message),
-  });
-
   const assignTask = trpc.tasks.assign.useMutation({
     onSuccess: () => {
       toast.success("Task assignment updated");
       utils.tasks.list.invalidate();
       utils.team.workload.invalidate();
-    },
-    onError: e => toast.error(e.message),
-  });
-
-  const reschedule = trpc.tasks.reschedule.useMutation({
-    onSuccess: r => {
-      toast.success(`Due date updated${r.rescheduleCount > 0 ? ` — rescheduled ×${r.rescheduleCount}` : ""}`);
-      setEditingDue(false);
-      utils.tasks.list.invalidate();
-      utils.customers.groups.invalidate();
-      utils.customers.groupDetail.invalidate();
-      utils.calls.getOpenFollowUpTask.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -120,13 +89,6 @@ export default function Tasks() {
     });
   }, [tasks, statusFilter, assigneeFilter, scopeFilter, search]);
 
-  const openTask = useMemo(() => (tasks ?? []).find(t => t.id === openTaskId) ?? null, [tasks, openTaskId]);
-  const promiseStatusColors: Record<string, string> = {
-    Pending: "bg-amber-100 text-amber-700 border-amber-200",
-    Kept: "bg-emerald-100 text-emerald-700 border-emerald-200",
-    Broken: "bg-red-100 text-red-700 border-red-200",
-  };
-
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -135,7 +97,7 @@ export default function Tasks() {
             <ListChecks className="h-6 w-6" /> Tasks
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manual tasks, promise follow-ups and internal assignments between colleagues
+            Manual tasks, promise follow-ups and help requests between colleagues
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -198,7 +160,7 @@ export default function Tasks() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="p-10 text-center text-muted-foreground">
-              No tasks match the filters. Create one with "New Task" or send invoices to a colleague from the Invoices page.
+              No tasks match the filters. Create one with "New Task", or use "Ask for help" on a group, a company or selected invoices.
             </div>
           ) : (
             <Table className="table-fixed" style={{ width: cols.totalWidth, minWidth: "100%" }}>
@@ -210,7 +172,8 @@ export default function Tasks() {
                       ["customer", "Group"],
                       ["task", "Task"],
                       ["invoice", "Invoice"],
-                      ["assignee", "Assignee"],
+                      ["assignee", "Assigned to"],
+                      ["watchers", "Watchers"],
                       ["due", "Due"],
                       ["status", "Status"],
                     ] as const
@@ -246,9 +209,23 @@ export default function Tasks() {
                       )}
                     </TableCell>
                     <TableCell className="font-medium overflow-hidden">
-                      <span className="block truncate" title={(t as any).groupName ?? t.customerName ?? undefined}>
-                        {(t as any).groupName ?? t.customerName ?? "—"}
-                      </span>
+                      {t.customerId ? (
+                        <button
+                          type="button"
+                          className="block w-full truncate text-left hover:text-primary hover:underline"
+                          title={`Open the card of ${t.customerName ?? (t as any).groupName ?? ""}`}
+                          onClick={e => {
+                            e.stopPropagation();
+                            navigate(`/customers/${t.customerId}`);
+                          }}
+                        >
+                          {(t as any).groupName ?? t.customerName ?? "—"}
+                        </button>
+                      ) : (
+                        <span className="block truncate" title={(t as any).groupName ?? t.customerName ?? undefined}>
+                          {(t as any).groupName ?? t.customerName ?? "—"}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm overflow-hidden">
                       <span className="block truncate" title={t.title}>
@@ -282,6 +259,9 @@ export default function Tasks() {
                           ))}
                         </SelectContent>
                       </Select>
+                    </TableCell>
+                    <TableCell className="overflow-hidden">
+                      <WatcherStack watchers={((t as any).watchers ?? []) as any} max={3} size="sm" />
                     </TableCell>
                     <TableCell className="text-sm">
                       {fmtDate(t.dueDate)}
@@ -330,231 +310,11 @@ export default function Tasks() {
         </CardContent>
       </Card>
 
-      <Dialog open={openTask !== null} onOpenChange={o => { if (!o) { setOpenTaskId(null); setEditingDue(false); } }}>
-        <DialogContent className="sm:max-w-lg">
-          {openTask && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="pr-6">{openTask.title}</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" className={taskTypeColors[openTask.type] ?? ""}>{openTask.type}</Badge>
-                  <Badge variant="outline" className={taskStatusColors[openTask.status] ?? ""}>{openTask.status}</Badge>
-                  {openTask.promise && (
-                    <Badge variant="outline" className={promiseStatusColors[openTask.promise.status] ?? ""}>
-                      Promise {openTask.promise.status === "Broken" ? "Not Confirmed" : openTask.promise.status}
-                    </Badge>
-                  )}
-                  {((openTask as any).rescheduleCount ?? 0) > 0 && (
-                    <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-200">
-                      Rescheduled ×{(openTask as any).rescheduleCount}
-                    </Badge>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Group</div>
-                    <Link
-                      href={`/groups/${encodeURIComponent((openTask as any).groupName ?? openTask.customerName ?? "")}`}
-                      className="font-medium text-primary hover:underline"
-                      onClick={() => setOpenTaskId(null)}
-                    >
-                      {(openTask as any).groupName ?? openTask.customerName}
-                    </Link>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Due date</div>
-                    {editingDue && (openTask.status === "Pending" || openTask.status === "In Progress") ? (
-                      <div className="flex items-center gap-1.5">
-                        <Input
-                          type="date"
-                          className="h-7 w-36 text-xs"
-                          value={newDue}
-                          onChange={e => setNewDue(e.target.value)}
-                        />
-                        <Button
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          disabled={!newDue || reschedule.isPending}
-                          onClick={() => reschedule.mutate({ id: openTask.id, dueDate: new Date(`${newDue}T12:00:00`).getTime() })}
-                        >
-                          Save
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditingDue(false)}>
-                          ✕
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="font-medium flex items-center gap-1.5">
-                        {fmtDate(openTask.dueDate)}
-                        {(openTask.status === "Pending" || openTask.status === "In Progress") && (
-                          <button
-                            type="button"
-                            className="text-muted-foreground hover:text-foreground"
-                            title="Change due date"
-                            onClick={() => {
-                              setNewDue(new Date(openTask.dueDate).toISOString().slice(0, 10));
-                              setEditingDue(true);
-                            }}
-                          >
-                            <CalendarClock className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="col-span-2">
-                    <div className="text-xs text-muted-foreground mb-1">Assignee</div>
-                    <TeamMemberSelect
-                      value={openTask.assigneeId ?? null}
-                      onChange={id => assignTask.mutate({ id: openTask.id, assigneeId: id })}
-                    />
-                  </div>
-                  {openTask.invoiceNumber && (
-                    <div>
-                      <div className="text-xs text-muted-foreground">Invoice</div>
-                      <div className="font-mono">{openTask.invoiceNumber}</div>
-                    </div>
-                  )}
-                  {(() => {
-                    const m = openTask.description?.match(/Contact: ([^.·]+)[.·]/);
-                    return m ? (
-                      <div>
-                        <div className="text-xs text-muted-foreground">Contact</div>
-                        <div className="flex items-center gap-1"><UserIcon className="h-3.5 w-3.5 text-muted-foreground" />{m[1].trim()}</div>
-                      </div>
-                    ) : null;
-                  })()}
-                  {openTask.completedAt && (
-                    <div>
-                      <div className="text-xs text-muted-foreground">Completed</div>
-                      <div>{fmtDate(openTask.completedAt)}</div>
-                    </div>
-                  )}
-                </div>
-                {openTask.description && (
-                  <div className="text-sm text-muted-foreground bg-muted/40 rounded-md p-3 whitespace-pre-wrap">
-                    {openTask.description}
-                  </div>
-                )}
-                {openTask.completionNotes && (
-                  <div className="text-sm">
-                    <div className="text-xs text-muted-foreground">Completion notes</div>
-                    <div>{openTask.completionNotes}</div>
-                  </div>
-                )}
-
-                {(openTask as any).attachedInvoices?.length > 0 && (
-                  <div className="rounded-md border p-3 space-y-2">
-                    <div className="text-sm font-medium flex items-center gap-1.5">
-                      <FileText className="h-4 w-4" /> Attached invoices ({(openTask as any).attachedInvoices.length})
-                    </div>
-                    <div className="max-h-40 overflow-y-auto space-y-1">
-                      {(openTask as any).attachedInvoices.map((inv: any) => (
-                        <a
-                          key={inv.id}
-                          href={`/invoices?q=${encodeURIComponent(inv.invoiceNumber)}`}
-                          className="flex items-center justify-between text-xs border-b last:border-b-0 py-1 hover:bg-muted/50 rounded px-1 -mx-1 cursor-pointer"
-                          title="Open this invoice in the Invoices page"
-                        >
-                          <span className="font-mono text-blue-700 hover:underline">{inv.invoiceNumber}</span>
-                          <span className="text-muted-foreground truncate max-w-32" title={inv.customerName}>{inv.customerName}</span>
-                          <span className="text-muted-foreground">{fmtDate(inv.dueDate)}</span>
-                          <span className="font-mono font-medium">
-                            {inv.currency && inv.currency !== "EUR" ? `${inv.currency} ` : "€"}
-                            {Number(inv.amount).toLocaleString()}
-                          </span>
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {openTask.promise && (
-                  <div className="rounded-md border p-3 space-y-2">
-                    <div className="text-sm font-medium flex items-center gap-1.5">
-                      <HandCoins className="h-4 w-4" /> Promise-to-Pay
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div>
-                        <div className="text-xs text-muted-foreground">Amount</div>
-                        <div className="font-mono font-semibold">{fmtEurFull(openTask.promise.amount)}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground">Promised date</div>
-                        <div>{fmtDate(openTask.promise.promisedDate)}</div>
-                      </div>
-                    </div>
-                    {openTask.promise.notes && (
-                      <div className="text-xs text-muted-foreground">{openTask.promise.notes}</div>
-                    )}
-                    {openTask.promise.status === "Pending" && (
-                      <div className="flex gap-2 pt-1">
-                        <Button
-                          size="sm"
-                          className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                          disabled={setPromiseStatus.isPending}
-                          onClick={() => setPromiseStatus.mutate({ id: openTask.promise!.id, status: "Kept" })}
-                        >
-                          <ThumbsUp className="h-4 w-4" /> Kept
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          className="gap-1"
-                          disabled={setPromiseStatus.isPending}
-                          onClick={() => setPromiseStatus.mutate({ id: openTask.promise!.id, status: "Broken" })}
-                        >
-                          <ThumbsDown className="h-4 w-4" /> Not Confirmed
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {(openTask.status === "Pending" || openTask.status === "In Progress") && (
-                  <div className="flex gap-2 justify-end pt-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1 text-emerald-700"
-                      onClick={() => {
-                        setStatus.mutate({ id: openTask.id, status: "Completed" });
-                        setOpenTaskId(null);
-                      }}
-                    >
-                      <CheckCircle2 className="h-4 w-4" /> Mark Done
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1 text-muted-foreground"
-                      onClick={() => {
-                        setStatus.mutate({ id: openTask.id, status: "Cancelled" });
-                        setOpenTaskId(null);
-                      }}
-                    >
-                      <XCircle className="h-4 w-4" /> Cancel Task
-                    </Button>
-                  </div>
-                )}
-
-                <TaskCommentsThread taskId={openTask.id} />
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-      {nextActionGroup && (
-        <NextActionDialog
-          group={nextActionGroup}
-          open={nextActionGroup != null}
-          onOpenChange={v => {
-            if (!v) setNextActionGroup(null);
-          }}
-        />
-      )}
+      <TaskDetailDialog
+        taskId={openTaskId}
+        open={openTaskId !== null}
+        onOpenChange={o => { if (!o) setOpenTaskId(null); }}
+      />
     </div>
   );
 }

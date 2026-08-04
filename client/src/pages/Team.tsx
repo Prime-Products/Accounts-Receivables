@@ -31,8 +31,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Pencil, Plus, Trash2, UserRound, Users } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { AtSign, Pencil, Plus, Trash2, UserRound, Users } from "lucide-react";
 import { toast } from "sonner";
+
+/** Sentinel for "no sign-in account": Select.Item values must never be empty. */
+const NO_LOGIN = "none";
 
 type MemberForm = {
   id?: number;
@@ -52,6 +62,7 @@ const emptyForm: MemberForm = { name: "", email: "", phone: "", title: "" };
 export default function Team() {
   const utils = trpc.useUtils();
   const { data: members, isLoading } = trpc.team.workload.useQuery();
+  const { data: logins } = trpc.team.linkableUsers.useQuery();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<MemberForm>(emptyForm);
   const [deleteId, setDeleteId] = useState<number | null>(null);
@@ -59,6 +70,7 @@ export default function Team() {
   const invalidate = () => {
     utils.team.list.invalidate();
     utils.team.workload.invalidate();
+    utils.team.linkableUsers.invalidate();
   };
 
   const createMember = trpc.team.create.useMutation({
@@ -82,6 +94,18 @@ export default function Team() {
       toast.success("Team member deleted");
       invalidate();
       setDeleteId(null);
+    },
+    onError: e => toast.error(e.message),
+  });
+  const setUserLink = trpc.team.setUserLink.useMutation({
+    onSuccess: (_d, vars) => {
+      toast.success(
+        vars.userId === null
+          ? "Sign-in account unlinked"
+          : "Sign-in account linked — @mentions will now reach this person",
+      );
+      invalidate();
+      utils.team.myMentions.invalidate();
     },
     onError: e => toast.error(e.message),
   });
@@ -120,6 +144,7 @@ export default function Team() {
           </h1>
           <p className="text-sm text-muted-foreground">
             Collaborators who manage customers and take on tasks. Assign a responsible person on any customer, group or task.
+            Link a member to their sign-in account so <span className="font-medium">@mentions</span> reach their inbox.
           </p>
         </div>
         <Button onClick={openNew}>
@@ -151,10 +176,7 @@ export default function Team() {
                   <TableHead>Title</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Phone</TableHead>
-                  <TableHead className="text-center">Groups</TableHead>
-                  <TableHead className="text-center">Companies</TableHead>
-                  <TableHead className="text-center" title="Groups assigned for collection">Collecting</TableHead>
-                  <TableHead className="text-center">Open Tasks</TableHead>
+                  <TableHead className="min-w-56">Sign-in account</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-24"></TableHead>
                 </TableRow>
@@ -166,10 +188,43 @@ export default function Team() {
                     <TableCell className="text-sm text-muted-foreground">{m.title || "—"}</TableCell>
                     <TableCell className="text-sm">{m.email || "—"}</TableCell>
                     <TableCell className="text-sm">{m.phone || "—"}</TableCell>
-                    <TableCell className="text-center font-mono text-sm">{m.groups}</TableCell>
-                    <TableCell className="text-center font-mono text-sm">{m.companies}</TableCell>
-                    <TableCell className="text-center font-mono text-sm">{(m as any).collectingGroups ?? 0}</TableCell>
-                    <TableCell className="text-center font-mono text-sm">{m.openTasks}</TableCell>
+                    <TableCell>
+                      <Select
+                        value={m.userId ? String(m.userId) : NO_LOGIN}
+                        onValueChange={v =>
+                          setUserLink.mutate({ id: m.id, userId: v === NO_LOGIN ? null : Number(v) })
+                        }
+                        disabled={setUserLink.isPending}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Not linked" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NO_LOGIN}>Not linked</SelectItem>
+                          {(logins ?? []).map(u => (
+                            <SelectItem
+                              key={u.id}
+                              value={String(u.id)}
+                              disabled={u.linkedToMemberId !== null && u.linkedToMemberId !== m.id}
+                            >
+                              {u.name}
+                              {u.linkedToMemberId !== null && u.linkedToMemberId !== m.id
+                                ? ` — linked to ${u.linkedToMemberName}`
+                                : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {m.userId ? (
+                        <span className="mt-1 flex items-center gap-1 text-[11px] text-emerald-700">
+                          <AtSign className="h-3 w-3" /> receives mentions
+                        </span>
+                      ) : (
+                        <span className="mt-1 block text-[11px] text-amber-700">
+                          cannot receive @mentions
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={m.active ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-gray-100 text-gray-500"}>
                         {m.active ? "Active" : "Inactive"}

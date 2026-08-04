@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { Trash2, Search, X } from "lucide-react";
 
 /**
- * Allocation (συμψηφισμός) dialog: match a RECEIVED wire transfer against open
+ * Allocation (συμψηφισμός) dialog: match a RECEIVED remittance against open
  * invoices of ANY company in the sender's group. E.g. a DYNACOM transfer can
  * settle CREST invoices — the settled amount is credited to the invoice's company.
  */
@@ -27,6 +27,8 @@ export function AllocateWireTransferDialog({
     currency: string;
     status: "Pending" | "Received";
     allocatedAmount?: number;
+    /** Transfer / Cheque / Credit Card — shown in the title for context. */
+    method?: string | null;
   };
   trigger?: React.ReactNode;
 }) {
@@ -94,6 +96,8 @@ export function AllocateWireTransferDialog({
       utils.customers.listGroupOpenInvoices.invalidate({ customerId: transfer.customerId });
       utils.customers.getAllWireTransfers.invalidate();
       utils.invoices.invalidate();
+      utils.customers.get360.invalidate();
+      utils.customers.groupDetail.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -105,6 +109,10 @@ export function AllocateWireTransferDialog({
       utils.customers.listGroupOpenInvoices.invalidate({ customerId: transfer.customerId });
       utils.customers.getAllWireTransfers.invalidate();
       utils.invoices.invalidate();
+      // The transactions list on the customer/group card carries the payment
+      // rows, so both cards must refetch after a match changes.
+      utils.customers.get360.invalidate();
+      utils.customers.groupDetail.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -118,7 +126,7 @@ export function AllocateWireTransferDialog({
       return;
     }
     if (overAllocated) {
-      toast.error("Total exceeds the remaining unallocated amount of the transfer");
+      toast.error("Total exceeds the remaining unallocated amount of the remittance");
       return;
     }
     if (invalidRows.length > 0) {
@@ -140,14 +148,15 @@ export function AllocateWireTransferDialog({
       <ResizableDialogContent storageKey="allocate-wire" className="sm:max-w-none w-[96vw] max-w-[1200px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            Allocate Wire Transfer — {transfer.customerName ?? `Customer #${transfer.customerId}`}
+            Allocate Remittance{transfer.method ? ` (${transfer.method})` : ""} —{" "}
+            {transfer.customerName ?? `Customer #${transfer.customerId}`}
           </DialogTitle>
         </DialogHeader>
 
         {/* Totals bar */}
         <div className="grid grid-cols-3 gap-3 text-sm">
           <div className="rounded-md border p-3">
-            <div className="text-muted-foreground">Transfer amount</div>
+            <div className="text-muted-foreground">Remittance amount</div>
             <div className="font-mono font-semibold">{fmtCur(Number(transfer.amount), transfer.currency)}</div>
           </div>
           <div className="rounded-md border p-3">

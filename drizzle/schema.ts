@@ -1,4 +1,4 @@
-import { bigint, boolean, decimal, double, index, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { bigint, boolean, decimal, double, index, int, mysqlEnum, mysqlTable, text, timestamp, unique, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -111,7 +111,12 @@ export const customers = mysqlTable("customers", {
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, t => [
+  // Every group-level screen (Desk, Address Book, forecast) buckets customers by
+  // this column, so it must not be a full scan.
+  index("idx_customers_customerGroup").on(t.customerGroup),
+  index("idx_customers_name").on(t.name),
+]);
 
 export const invoiceStatuses = ["Open", "Partially Paid", "Paid", "Overdue", "Disputed"] as const;
 
@@ -195,7 +200,11 @@ export const contractInstallments = mysqlTable("contract_installments", {
 });
 
 /** SOP follow-up offsets in days from invoice due date: +2, +15, +20, +30 */
-export const taskTypes = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual"] as const;
+/**
+ * `Help` is a request for help addressed to a colleague ("ask a colleague"):
+ * deliberately a normal task, so there is one queue and one place to look.
+ */
+export const taskTypes = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual", "Help"] as const;
 export const taskStatuses = ["Pending", "In Progress", "Completed", "Cancelled"] as const;
 
 export const tasks = mysqlTable("tasks", {
@@ -211,6 +220,18 @@ export const tasks = mysqlTable("tasks", {
   assignedTo: int("assignedTo"),
   /** Team member responsible for the task; FK to team_members.id. */
   assigneeId: int("assigneeId"),
+  /**
+   * Collections group this task belongs to, stored explicitly.
+   *
+   * Historically the link lived only inside `description` as a
+   * `(Follow-up: <group>)` marker, which broke for group names containing a
+   * closing parenthesis. The marker is still written for readability and for
+   * rows created before this column existed, but all new code should read this
+   * column (see `server/taskMarkers.ts` → `taskGroup()`).
+   */
+  customerGroup: varchar("customerGroup", { length: 255 }),
+  /** Promise this task checks on, when it is a promise-check task. */
+  promiseId: int("promiseId"),
   completedAt: bigint("completedAt", { mode: "number" }),
   completionNotes: text("completionNotes"),
   /** How many times the task's due date has been pushed back (follow-up reschedules). */
@@ -222,6 +243,8 @@ export const tasks = mysqlTable("tasks", {
   index("idx_tasks_status").on(t.status),
   index("idx_tasks_assigneeId").on(t.assigneeId),
   index("idx_tasks_dueDate").on(t.dueDate),
+  // The Desk resolves "does this group have an open call task?" on every load.
+  index("idx_tasks_customerGroup").on(t.customerGroup),
 ]);
 
 /** Free-form discussion thread on a task — used for internal collaboration between colleagues. */
@@ -247,6 +270,32 @@ export const taskInvoices = mysqlTable("task_invoices", {
 export type TaskInvoice = typeof taskInvoices.$inferSelect;
 export type InsertTaskInvoice = typeof taskInvoices.$inferInsert;
 
+/** Team members watching a task's progress — shown as an avatar stack on the task. */
+export const taskWatchers = mysqlTable("task_watchers", {
+  id: int("id").autoincrement().primaryKey(),
+  taskId: int("taskId").notNull(),
+  /** team_members.id of the watcher. */
+  memberId: int("memberId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [index("idx_task_watchers_taskId").on(t.taskId)]);
+export type TaskWatcher = typeof taskWatchers.$inferSelect;
+export type InsertTaskWatcher = typeof taskWatchers.$inferInsert;
+/**
+ * Team members following a customer group's receivables card. Watchers are
+ * interested parties (sales, accounting, management) who want visibility on the
+ * account without owning it — ownership stays with the account manager and the
+ * collector. Stored per group name so it survives company-level churn.
+ */
+export const customerWatchers = mysqlTable("customer_watchers", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Group name (customers.group) the watcher follows. */
+  groupName: varchar("groupName", { length: 191 }).notNull(),
+  /** team_members.id of the watcher. */
+  memberId: int("memberId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [index("idx_customer_watchers_group").on(t.groupName)]);
+export type CustomerWatcher = typeof customerWatchers.$inferSelect;
+export type InsertCustomerWatcher = typeof customerWatchers.$inferInsert;
 export const onHoldStatuses = ["Under Review", "Eligible for On Hold", "On Hold", "Legal", "Rejected", "Resolved"] as const;
 
 export const onHoldProposals = mysqlTable("on_hold_proposals", {
@@ -329,8 +378,23 @@ export const groupNotes = mysqlTable("group_notes", {
   content: text("content").notNull(),
   createdBy: int("createdBy").notNull(),
   createdAt: bigint("createdAt", { mode: "number" }).notNull(),
-});
+}, t => [index("idx_group_notes_groupName").on(t.groupName)]);
 export type GroupNote = typeof groupNotes.$inferSelect;
+
+/**
+ * Per-group collection profile: free-text particularities that collectors must
+ * remember before contacting the customer (best call days/hours, preferred
+ * contact person, payment quirks, language, etc.). Always visible on the
+ * group card and inside the Log Call dialog.
+ */
+export const groupCollectionProfile = mysqlTable("group_collection_profile", {
+  id: int("id").autoincrement().primaryKey(),
+  groupName: varchar("groupName", { length: 255 }).notNull().unique(),
+  notes: text("notes").notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),
+});
+export type GroupCollectionProfile = typeof groupCollectionProfile.$inferSelect;
 
 /**
  * Manual watch-status override per customer group.
@@ -366,10 +430,15 @@ export const promisesToPay = mysqlTable("promises_to_pay", {
   amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
   status: mysqlEnum("status", promiseStatuses).default("Pending").notNull(),
   notes: text("notes"),
+  rescheduleCount: int("rescheduleCount").default(0).notNull(),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, t => [
+  index("idx_promises_customerId").on(t.customerId),
+  index("idx_promises_status").on(t.status),
+  index("idx_promises_promisedDate").on(t.promisedDate),
+]);
 
 export const auditLogs = mysqlTable("audit_logs", {
   id: int("id").autoincrement().primaryKey(),
@@ -392,7 +461,7 @@ export const syncLogs = mysqlTable("sync_logs", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-export const emailTemplateTypes = ["Friendly Reminder", "Final Notice", "Statement", "Custom"] as const;
+export const emailTemplateTypes = ["SOA", "Payment Reminder", "Overdue Notice", "Friendly Reminder", "Final Notice", "Statement", "Custom"] as const;
 
 export const activityTypes = ["note", "task", "promise", "email", "call", "status_change"] as const;
 
@@ -422,9 +491,57 @@ export const activityLog = mysqlTable("activity_log", {
   metadata: text("metadata"),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, t => [
+  // Timeline reads are always "this group, newest first"; the call summary reads
+  // "all calls, newest first".
+  index("idx_activity_group_created").on(t.groupName, t.createdAt),
+  index("idx_activity_type_created").on(t.activityType, t.createdAt),
+]);
 
 export type UserProfile = typeof userProfiles.$inferSelect;
+
+/**
+ * @mentions of internal team members inside notes (call notes, collection notes).
+ *
+ * A mention is a reference — "I informed X" / "X should know" — not an assignment,
+ * so it deliberately carries no due date and no status: it never becomes work.
+ * Rows are keyed by the member so "what mentions me" is a single indexed lookup.
+ */
+export const noteMentions = mysqlTable("note_mentions", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Team member being referred to (team_members.id). */
+  memberId: int("memberId").notNull(),
+  /** Group the note belongs to, so the mention can link back to the card. */
+  groupName: varchar("groupName", { length: 255 }).notNull(),
+  /** Where the mention was written: a call/collection note is always tied to a group. */
+  source: mysqlEnum("source", ["call", "collectionNotes", "groupNote"]).notNull(),
+  /** Activity-log row that contains the note, when there is one. */
+  activityId: int("activityId"),
+  /** The note text (with markers) at the time of writing, for the mentions list. */
+  excerpt: varchar("excerpt", { length: 500 }),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  /** Set when the mentioned member marks it as seen. */
+  readAt: timestamp("readAt"),
+});
+
+export type NoteMention = typeof noteMentions.$inferSelect;
+export type InsertNoteMention = typeof noteMentions.$inferInsert;
+
+/**
+ * Editable email templates used by the Send Email dialog. One row per template
+ * type; the body/subject may contain {{placeholders}} that are substituted with
+ * live customer figures when the dialog is opened.
+ */
+export const emailTemplates = mysqlTable("email_templates", {
+  id: int("id").autoincrement().primaryKey(),
+  templateType: mysqlEnum("templateType", emailTemplateTypes).notNull().unique(),
+  subject: varchar("subject", { length: 500 }).notNull(),
+  body: text("body").notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = typeof customers.$inferInsert;
 export type Invoice = typeof invoices.$inferSelect;
@@ -451,6 +568,12 @@ export type InsertEmailHistory = typeof emailHistory.$inferInsert & { attachment
 export type ActivityLog = typeof activityLog.$inferSelect;
 export type InsertActivityLog = typeof activityLog.$inferInsert;
 
+/**
+ * A directory entry is either a real person or a departmental / shared mailbox.
+ * Kept deliberately to two values — the team asked for no further breakdown.
+ */
+export const contactTypes = ["Person", "Department"] as const;
+export type ContactType = (typeof contactTypes)[number];
 export const paymentContacts = mysqlTable("payment_contacts", {
   id: int("id").autoincrement().primaryKey(),
   customerId: int("customerId").notNull(),
@@ -458,14 +581,33 @@ export const paymentContacts = mysqlTable("payment_contacts", {
   email: varchar("email", { length: 320 }).notNull(),
   phone: varchar("phone", { length: 20 }),
   title: varchar("title", { length: 255 }),
+  /**
+   * Whether this entry is a real person or a departmental / shared mailbox
+   * (accounts@, operations@ ...). Departments are addressed as a unit when
+   * sending email, so the directory has to tell them apart from people.
+   */
+  contactType: mysqlEnum("contactType", contactTypes).default("Person").notNull(),
+  /**
+   * Address Book archives contacts instead of deleting them: an archived contact
+   * disappears from the directory and from mailing lists but its history and
+   * custom-field values remain intact and it can be restored.
+   */
+  archived: int("archived").default(0).notNull(),
+  archivedAt: timestamp("archivedAt"),
+  /** Set when the contact was merged away; points at the surviving contact. */
+  mergedIntoId: int("mergedIntoId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, t => [
+  index("idx_payment_contacts_customerId").on(t.customerId),
+  index("idx_payment_contacts_email").on(t.email),
+  index("idx_payment_contacts_archived").on(t.archived),
+]);
 
 export type PaymentContact = typeof paymentContacts.$inferSelect;
 export type InsertPaymentContact = typeof paymentContacts.$inferInsert;
 
-export const confirmationStatuses = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken", "Kept"] as const;
+export const confirmationStatuses = ["Not Contacted", "Confirmed", "Pending Follow-up", "Broken", "Kept", "Escalated"] as const;
 export type ConfirmationStatus = (typeof confirmationStatuses)[number];
 
 /**
@@ -533,7 +675,18 @@ export const wireTransfers = mysqlTable("wire_transfers", {
   currency: varchar("currency", { length: 8 }).default("EUR").notNull(),
   transferDate: bigint("transferDate", { mode: "number" }).notNull(), // Unix timestamp in milliseconds
   branch: varchar("branch", { length: 128 }), // Our branch where the customer sent the transfer (same values as invoice branches)
+
+  // How the customer remitted the money. The table is a REMITTANCE ledger: a bank
+  // wire is the common case, but a cheque or a credit-card payment is recorded the
+  // same way and allocated against invoices with the same flow.
+  method: mysqlEnum("method", ["Transfer", "Cheque", "Credit Card"]).default("Transfer").notNull(),
   
+  // Cheque-only details. A cheque is a promise dated in the future, so the
+  // collector needs the issuing bank and the date it can be cashed; both stay
+  // null for transfers and card payments.
+  chequeBank: varchar("chequeBank", { length: 128 }),
+  chequeDueDate: bigint("chequeDueDate", { mode: "number" }), // Unix ms — date the cheque matures / expires
+
   // Status tracking: Pending (waiting to receive) or Received
   status: mysqlEnum("status", ["Pending", "Received"]).default("Pending").notNull(),
   receivedDate: bigint("receivedDate", { mode: "number" }), // Unix timestamp when payment was received (null if still pending)
@@ -561,6 +714,7 @@ export const wireTransfers = mysqlTable("wire_transfers", {
   index("idx_wire_transfers_status").on(t.status),
   index("idx_wire_transfers_transferDate").on(t.transferDate),
   index("idx_wire_transfers_sourceWireTransferId").on(t.sourceWireTransferId),
+  index("idx_wire_transfers_chequeDueDate").on(t.chequeDueDate),
 ]);
 
 export type WireTransfer = typeof wireTransfers.$inferSelect;
@@ -616,69 +770,519 @@ export const vessels = mysqlTable(
 export type Vessel = typeof vessels.$inferSelect;
 export type InsertVessel = typeof vessels.$inferInsert;
 
-export const requestStatuses = ["Open", "Answered", "Closed", "Cancelled"] as const;
-export type RequestStatus = (typeof requestStatuses)[number];
+// ---------- Address Book: custom fields, saved views, column layouts ----------
 
-export const departmentOptions = ["Contracts", "Logistics", "Operations", "Finance", "Legal", "Sales", "Other"] as const;
-export type Department = (typeof departmentOptions)[number];
+/** The four record types the Address Book manages. */
+export const addressBookEntities = ["group", "customer", "vessel", "contact"] as const;
+export type AddressBookEntity = (typeof addressBookEntities)[number];
 
-export const requests = mysqlTable(
-  "requests",
+/** Data types a user-defined field can take. */
+/**
+ * Gift tiers used on the yearly corporate gift list. The tier is expressed in
+ * the source workbook by which column a name sits in, not by a written value.
+ */
+export const giftTiers = ["Small", "Medium", "Special", "Super Special", "Whiskey"] as const;
+export type GiftTier = (typeof giftTiers)[number];
+
+/**
+ * Who receives a gift, per year. Kept as its own table rather than a flag on the
+ * contact because the list is rebuilt every year and the history matters ("did we
+ * send something last year?"), and because a contact may move company.
+ */
+export const contactGifts = mysqlTable(
+  "contact_gifts",
   {
     id: int("id").autoincrement().primaryKey(),
-    customerId: int("customerId"),
-    groupName: varchar("groupName", { length: 255 }),
-    createdBy: int("createdBy").notNull(), // FK to users.id
-    requestedDepartment: mysqlEnum("requestedDepartment", departmentOptions).notNull(),
-    question: text("question").notNull(),
-    status: mysqlEnum("status", requestStatuses).default("Open").notNull(),
-    createdAt: bigint("createdAt", { mode: "number" }).notNull(),
-    updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),
+    contactId: int("contactId").notNull(),
+    year: int("year").notNull(),
+    tier: mysqlEnum("tier", giftTiers).default("Small").notNull(),
+    /** Region column from the source list (ΑΘΗΝΑ, ΠΕΙΡΑΙΑΣ ...). */
+    region: varchar("region", { length: 120 }),
+    /** Exactly how the recipient was written on the source list, for traceability. */
+    sourceName: varchar("sourceName", { length: 255 }),
+    /** Group as written on the source list, which may differ from the ERP group. */
+    sourceGroup: varchar("sourceGroup", { length: 255 }),
+    notes: varchar("notes", { length: 500 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    contactYearIdx: unique("contact_gifts_contact_year_idx").on(table.contactId, table.year),
+    yearIdx: index("contact_gifts_year_idx").on(table.year),
+  }),
+);
+
+export type ContactGift = typeof contactGifts.$inferSelect;
+export type InsertContactGift = typeof contactGifts.$inferInsert;
+
+/** Review states for a gift-list row that could not be auto-matched with certainty. */
+export const giftReviewStatuses = ["pending", "resolved", "dismissed"] as const;
+export type GiftReviewStatus = (typeof giftReviewStatuses)[number];
+
+/**
+ * Rows from an imported gift workbook that need a human decision: the name was
+ * matched only probably, matched nothing, or was a quantity instead of a person.
+ * Resolving a row writes into contact_gifts and marks the row resolved, so the
+ * queue shrinks as it is worked through and nothing is silently guessed.
+ */
+export const giftImportReview = mysqlTable(
+  "gift_import_review",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    year: int("year").notNull(),
+    /** Recipient exactly as written on the list. */
+    sourceName: varchar("sourceName", { length: 255 }).notNull(),
+    sourceGroup: varchar("sourceGroup", { length: 255 }),
+    region: varchar("region", { length: 120 }),
+    tier: mysqlEnum("tier", giftTiers).default("Small").notNull(),
+    comment: varchar("comment", { length: 500 }),
+    /** Matcher verdict: probable | weak | unmatched | count_request. */
+    matchKind: varchar("matchKind", { length: 32 }).notNull(),
+    /** Suggested contacts as JSON, best first: [{id,name,email,company,group,score}]. */
+    candidates: text("candidates"),
+    status: mysqlEnum("status", giftReviewStatuses).default("pending").notNull(),
+    /** Contact chosen by the reviewer, once resolved. */
+    resolvedContactId: int("resolvedContactId"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    yearStatusIdx: index("gift_review_year_status_idx").on(table.year, table.status),
+  }),
+);
+
+export type GiftImportReview = typeof giftImportReview.$inferSelect;
+export type InsertGiftImportReview = typeof giftImportReview.$inferInsert;
+
+export const customFieldTypes = ["text", "longtext", "number", "date", "select", "checkbox", "email", "phone", "url"] as const;
+export type CustomFieldType = (typeof customFieldTypes)[number];
+
+/**
+ * Definition of a user-added field on an Address Book entity. Values live in
+ * `custom_field_values`, so adding a field never requires a schema migration and
+ * never interferes with the ERP sync.
+ */
+export const customFieldDefs = mysqlTable(
+  "custom_field_defs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    entity: mysqlEnum("entity", addressBookEntities).notNull(),
+    /** Stable machine key, unique per entity, e.g. "base_port". */
+    fieldKey: varchar("fieldKey", { length: 64 }).notNull(),
+    /** Human label shown on cards, columns and exports. */
+    label: varchar("label", { length: 128 }).notNull(),
+    fieldType: mysqlEnum("fieldType", customFieldTypes).default("text").notNull(),
+    /** JSON array of allowed values, for fieldType = "select". */
+    options: text("options"),
+    /** Optional helper text shown under the input. */
+    helpText: varchar("helpText", { length: 255 }),
+    required: int("required").default(0).notNull(),
+    /** Display order within the "Custom fields" block on the card. */
+    sortOrder: int("sortOrder").default(0).notNull(),
+    /** Soft delete: archived definitions keep their values but disappear from the UI. */
+    archived: int("archived").default(0).notNull(),
+    createdBy: int("createdBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  t => [unique("uq_custom_field_entity_key").on(t.entity, t.fieldKey)]
+);
+
+export type CustomFieldDef = typeof customFieldDefs.$inferSelect;
+export type InsertCustomFieldDef = typeof customFieldDefs.$inferInsert;
+
+/**
+ * A single custom-field value for one record. `recordKey` is the record identity:
+ * the numeric id as text for customers/vessels/contacts, and the group name for
+ * groups (groups are derived from customers and have no id of their own).
+ */
+export const customFieldValues = mysqlTable(
+  "custom_field_values",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    fieldId: int("fieldId").notNull(),
+    entity: mysqlEnum("entity", addressBookEntities).notNull(),
+    recordKey: varchar("recordKey", { length: 255 }).notNull(),
+    value: text("value"),
+    updatedBy: int("updatedBy"),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   t => [
-    index("idx_requests_customerId").on(t.customerId),
-    index("idx_requests_groupName").on(t.groupName),
-    index("idx_requests_createdBy").on(t.createdBy),
-    index("idx_requests_status").on(t.status),
+    unique("uq_custom_value_field_record").on(t.fieldId, t.recordKey),
+    index("idx_custom_value_entity_record").on(t.entity, t.recordKey),
   ]
 );
 
-export type Request = typeof requests.$inferSelect;
-export type InsertRequest = typeof requests.$inferInsert;
+export type CustomFieldValue = typeof customFieldValues.$inferSelect;
+export type InsertCustomFieldValue = typeof customFieldValues.$inferInsert;
 
-export const requestResponses = mysqlTable(
-  "request_responses",
+/**
+ * A named, reusable list: filters + visible columns + sort for one Address Book tab.
+ * Personal by default; `shared = 1` publishes it to the whole team.
+ */
+export const savedViews = mysqlTable(
+  "saved_views",
   {
     id: int("id").autoincrement().primaryKey(),
-    requestId: int("requestId").notNull(),
-    respondedBy: int("respondedBy").notNull(), // FK to users.id
-    response: text("response").notNull(),
-    respondedAt: bigint("respondedAt", { mode: "number" }).notNull(),
+    entity: mysqlEnum("entity", addressBookEntities).notNull(),
+    name: varchar("name", { length: 128 }).notNull(),
+    /** JSON: { search, filters, columns, columnOrder, sortKey, sortDir }. */
+    config: text("config").notNull(),
+    shared: int("shared").default(0).notNull(),
+    ownerId: int("ownerId"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
-  t => [
-    index("idx_requestResponses_requestId").on(t.requestId),
-    index("idx_requestResponses_respondedBy").on(t.respondedBy),
-  ]
+  t => [index("idx_saved_views_entity").on(t.entity)]
 );
 
-export type RequestResponse = typeof requestResponses.$inferSelect;
-export type InsertRequestResponse = typeof requestResponses.$inferInsert;
+export type SavedView = typeof savedViews.$inferSelect;
+export type InsertSavedView = typeof savedViews.$inferInsert;
 
-export const requestNotifications = mysqlTable(
-  "request_notifications",
+/**
+ * Per-user column visibility and order for one Address Book tab. Column widths keep
+ * living in localStorage (they are pure presentation), this table stores the choices
+ * that must follow the user across devices.
+ */
+export const listLayouts = mysqlTable(
+  "list_layouts",
   {
     id: int("id").autoincrement().primaryKey(),
-    requestId: int("requestId").notNull(),
-    userId: int("userId").notNull(), // FK to users.id (recipient)
-    isRead: boolean("isRead").default(false).notNull(),
-    createdAt: bigint("createdAt", { mode: "number" }).notNull(),
+    userId: int("userId").notNull(),
+    /** Table identity, e.g. "addressbook:contact". */
+    listKey: varchar("listKey", { length: 64 }).notNull(),
+    /** JSON: { hidden: string[], order: string[] }. */
+    config: text("config").notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
-  t => [
-    index("idx_requestNotifications_requestId").on(t.requestId),
-    index("idx_requestNotifications_userId").on(t.userId),
-    index("idx_requestNotifications_isRead").on(t.isRead),
-  ]
+  t => [unique("uq_list_layout_user_list").on(t.userId, t.listKey)]
 );
 
-export type RequestNotification = typeof requestNotifications.$inferSelect;
-export type InsertRequestNotification = typeof requestNotifications.$inferInsert;
+export type ListLayout = typeof listLayouts.$inferSelect;
+export type InsertListLayout = typeof listLayouts.$inferInsert;
+/**
+ * Credit notes (πιστωτικά) that are still open, i.e. not yet matched against an
+ * invoice. They reduce the customer's outstanding balance but are NEVER matched
+ * automatically — allocation is a manual decision, like wire transfers.
+ */
+export const creditNotes = mysqlTable(
+  "credit_notes",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    customerId: int("customerId").notNull(),
+    /** Document number as issued by the ERP, e.g. "CNV-000035" or "ΠΦΠ-Γ02453". */
+    docNumber: varchar("docNumber", { length: 64 }).notNull(),
+    /** Issue date of the credit note (unix ms, UTC). */
+    docDate: bigint("docDate", { mode: "number" }).notNull(),
+    /** Our issuing branch, same values as invoice branches. */
+    branch: varchar("branch", { length: 128 }),
+    currency: varchar("currency", { length: 8 }).default("EUR").notNull(),
+    /** Original document value, stored positive. */
+    amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+    /** Still unmatched (open) part of the credit note, stored positive. */
+    openAmount: decimal("openAmount", { precision: 14, scale: 2 }).notNull(),
+    /** openAmount converted to EUR with the FX rates in app settings. */
+    openAmountEur: decimal("openAmountEur", { precision: 14, scale: 2 }),
+    /** Optional vessel the credit note concerns; FK to vessels.id. */
+    vesselId: int("vesselId"),
+    /** Contract number as printed on the ERP document (free text). */
+    contractNo: varchar("contractNo", { length: 64 }),
+    notes: text("notes"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  t => [
+    index("idx_credit_notes_customerId").on(t.customerId),
+    index("idx_credit_notes_docNumber").on(t.docNumber),
+    index("idx_credit_notes_docDate").on(t.docDate),
+    index("idx_credit_notes_branch").on(t.branch),
+  ]
+);
+export type CreditNote = typeof creditNotes.$inferSelect;
+export type InsertCreditNote = typeof creditNotes.$inferInsert;
+/** Manual allocation of a credit note against an invoice (συμψηφισμός). */
+export const creditNoteAllocations = mysqlTable(
+  "credit_note_allocations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    creditNoteId: int("creditNoteId").notNull(),
+    invoiceId: int("invoiceId").notNull(),
+    amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+    createdBy: int("createdBy"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  t => [
+    index("idx_cna_creditNoteId").on(t.creditNoteId),
+    index("idx_cna_invoiceId").on(t.invoiceId),
+  ]
+);
+export type CreditNoteAllocation = typeof creditNoteAllocations.$inferSelect;
+export type InsertCreditNoteAllocation = typeof creditNoteAllocations.$inferInsert;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OPERATIONS MODULE — Contracts & Maritime Operations Management
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Catalog of services offered by Prime Products. */
+export const opsServices = mysqlTable("ops_services", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  defaultCost: decimal("defaultCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  category: varchar("category", { length: 100 }),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type OpsService = typeof opsServices.$inferSelect;
+export type InsertOpsService = typeof opsServices.$inferInsert;
+
+/** Catalog of equipment/assets (e.g., gas meters) that can be quoted and supplied. */
+export const opsAssetCatalog = mysqlTable("ops_asset_catalog", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  defaultCost: decimal("defaultCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  category: varchar("category", { length: 100 }),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type OpsAssetCatalog = typeof opsAssetCatalog.$inferSelect;
+export type InsertOpsAssetCatalog = typeof opsAssetCatalog.$inferInsert;
+
+/** Catalog of consumables (e.g., calibration ampoules). */
+export const opsConsumableCatalog = mysqlTable("ops_consumable_catalog", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  unit: varchar("unit", { length: 50 }).default("pcs").notNull(),
+  defaultCostPerUnit: decimal("defaultCostPerUnit", { precision: 12, scale: 2 }).default("0").notNull(),
+  category: varchar("category", { length: 100 }),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type OpsConsumableCatalog = typeof opsConsumableCatalog.$inferSelect;
+export type InsertOpsConsumableCatalog = typeof opsConsumableCatalog.$inferInsert;
+
+/** Quotation statuses. */
+export const opsQuotationStatuses = ["Draft", "Sent", "Approved", "Rejected", "Expired"] as const;
+
+/** Quotations — draft proposals before contract approval. */
+export const opsQuotations = mysqlTable("ops_quotations", {
+  id: int("id").autoincrement().primaryKey(),
+  quotationNumber: varchar("quotationNumber", { length: 50 }).notNull().unique(),
+  /** Links to existing AR customers table. */
+  customerId: int("customerId").notNull(),
+  status: mysqlEnum("status", opsQuotationStatuses).default("Draft").notNull(),
+  totalCost: decimal("totalCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  sellingPrice: decimal("sellingPrice", { precision: 12, scale: 2 }).default("0").notNull(),
+  margin: decimal("margin", { precision: 5, scale: 2 }).default("0").notNull(),
+  validUntil: bigint("validUntil", { mode: "number" }),
+  notes: text("notes"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_quotations_customerId").on(t.customerId),
+  index("idx_ops_quotations_status").on(t.status),
+]);
+export type OpsQuotation = typeof opsQuotations.$inferSelect;
+export type InsertOpsQuotation = typeof opsQuotations.$inferInsert;
+
+/** Line item types in a quotation. */
+export const opsQuotationItemTypes = ["Service", "Asset", "Consumable"] as const;
+
+/** Individual line items within a quotation. */
+export const opsQuotationItems = mysqlTable("ops_quotation_items", {
+  id: int("id").autoincrement().primaryKey(),
+  quotationId: int("quotationId").notNull(),
+  itemType: mysqlEnum("itemType", opsQuotationItemTypes).notNull(),
+  /** References the respective catalog (ops_services, ops_asset_catalog, or ops_consumable_catalog). */
+  catalogId: int("catalogId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  quantity: int("quantity").default(1).notNull(),
+  unitCost: decimal("unitCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  sellingPrice: decimal("sellingPrice", { precision: 12, scale: 2 }).default("0").notNull(),
+  notes: text("notes"),
+}, t => [index("idx_ops_quotation_items_quotationId").on(t.quotationId)]);
+export type OpsQuotationItem = typeof opsQuotationItems.$inferSelect;
+export type InsertOpsQuotationItem = typeof opsQuotationItems.$inferInsert;
+
+/** Operations contract statuses. */
+export const opsContractStatuses = ["Draft", "Sent", "Active", "Expired", "Terminated"] as const;
+
+/** Operations contracts — umbrella agreements created from approved quotations. */
+export const opsContracts = mysqlTable("ops_contracts", {
+  id: int("id").autoincrement().primaryKey(),
+  contractNumber: varchar("contractNumber", { length: 50 }).notNull().unique(),
+  quotationId: int("quotationId"),
+  /** Links to existing AR customers table. */
+  customerId: int("customerId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  status: mysqlEnum("status", opsContractStatuses).default("Draft").notNull(),
+  totalValue: decimal("totalValue", { precision: 12, scale: 2 }).default("0").notNull(),
+  startDate: bigint("startDate", { mode: "number" }).notNull(),
+  endDate: bigint("endDate", { mode: "number" }).notNull(),
+  notes: text("notes"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_contracts_customerId").on(t.customerId),
+  index("idx_ops_contracts_status").on(t.status),
+]);
+export type OpsContract = typeof opsContracts.$inferSelect;
+export type InsertOpsContract = typeof opsContracts.$inferInsert;
+
+/** Contract library item types. */
+export const opsLibraryItemTypes = ["Service", "Asset", "Consumable"] as const;
+/** Quota types for consumables. */
+export const opsQuotaTypes = ["Annual", "ContractLife"] as const;
+
+/** Contract Library — blueprint of agreed services, assets, and consumable quotas. */
+export const opsContractLibrary = mysqlTable("ops_contract_library", {
+  id: int("id").autoincrement().primaryKey(),
+  contractId: int("contractId").notNull(),
+  itemType: mysqlEnum("itemType", opsLibraryItemTypes).notNull(),
+  catalogId: int("catalogId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  quantity: int("quantity").default(1).notNull(),
+  /** For consumables: Annual or ContractLife limit type. */
+  quotaType: mysqlEnum("quotaType", opsQuotaTypes),
+  /** Maximum quantity allowed under the quota. */
+  quotaLimit: int("quotaLimit"),
+  notes: text("notes"),
+}, t => [index("idx_ops_contract_library_contractId").on(t.contractId)]);
+export type OpsContractLibrary = typeof opsContractLibrary.$inferSelect;
+export type InsertOpsContractLibrary = typeof opsContractLibrary.$inferInsert;
+
+/** Payment schedule statuses. */
+export const opsPaymentStatuses = ["Pending", "Invoiced", "Paid"] as const;
+
+/** Payment Schedule — auto-generated billing installments. */
+export const opsPaymentSchedule = mysqlTable("ops_payment_schedule", {
+  id: int("id").autoincrement().primaryKey(),
+  contractId: int("contractId").notNull(),
+  installmentNumber: int("installmentNumber").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  dueDate: bigint("dueDate", { mode: "number" }).notNull(),
+  status: mysqlEnum("status", opsPaymentStatuses).default("Pending").notNull(),
+  invoiceNumber: varchar("invoiceNumber", { length: 50 }),
+  paidDate: bigint("paidDate", { mode: "number" }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_payment_schedule_contractId").on(t.contractId),
+  index("idx_ops_payment_schedule_status").on(t.status),
+]);
+export type OpsPaymentSchedule = typeof opsPaymentSchedule.$inferSelect;
+export type InsertOpsPaymentSchedule = typeof opsPaymentSchedule.$inferInsert;
+
+/** Vessel assignment to an operations contract. */
+export const opsVesselAssignments = mysqlTable("ops_vessel_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Links to existing AR vessels table. */
+  vesselId: int("vesselId").notNull(),
+  contractId: int("contractId").notNull(),
+  assignedDate: bigint("assignedDate", { mode: "number" }).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [
+  index("idx_ops_vessel_assignments_vesselId").on(t.vesselId),
+  index("idx_ops_vessel_assignments_contractId").on(t.contractId),
+]);
+export type OpsVesselAssignment = typeof opsVesselAssignments.$inferSelect;
+export type InsertOpsVesselAssignment = typeof opsVesselAssignments.$inferInsert;
+
+/** Asset status workflow. */
+export const opsAssetStatuses = ["Not Supplied", "In Transit", "Active", "Pending Return", "Returned"] as const;
+
+/** Physical assets (equipment/gas meters) tracked per vessel. */
+export const opsAssets = mysqlTable("ops_assets", {
+  id: int("id").autoincrement().primaryKey(),
+  serialNumber: varchar("serialNumber", { length: 100 }).notNull().unique(),
+  catalogItemId: int("catalogItemId"),
+  name: varchar("name", { length: 255 }).notNull(),
+  /** Links to existing AR vessels table. */
+  vesselId: int("vesselId"),
+  contractId: int("contractId"),
+  status: mysqlEnum("status", opsAssetStatuses).default("Not Supplied").notNull(),
+  targetReturnPort: varchar("targetReturnPort", { length: 255 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_assets_vesselId").on(t.vesselId),
+  index("idx_ops_assets_contractId").on(t.contractId),
+  index("idx_ops_assets_status").on(t.status),
+]);
+export type OpsAsset = typeof opsAssets.$inferSelect;
+export type InsertOpsAsset = typeof opsAssets.$inferInsert;
+
+/** Certificates linked to assets. */
+export const opsCertificates = mysqlTable("ops_certificates", {
+  id: int("id").autoincrement().primaryKey(),
+  assetId: int("assetId").notNull(),
+  certificateNumber: varchar("certificateNumber", { length: 100 }).notNull(),
+  issueDate: bigint("issueDate", { mode: "number" }).notNull(),
+  expiryDate: bigint("expiryDate", { mode: "number" }).notNull(),
+  fileUrl: text("fileUrl"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_certificates_assetId").on(t.assetId),
+  index("idx_ops_certificates_expiryDate").on(t.expiryDate),
+]);
+export type OpsCertificate = typeof opsCertificates.$inferSelect;
+export type InsertOpsCertificate = typeof opsCertificates.$inferInsert;
+
+/** Consumable order statuses. */
+export const opsOrderStatuses = ["Pending", "Shipped", "Delivered"] as const;
+
+/** Consumable orders — fulfillment deducting from contract quota. */
+export const opsConsumableOrders = mysqlTable("ops_consumable_orders", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Links to existing AR vessels table. */
+  vesselId: int("vesselId").notNull(),
+  contractId: int("contractId").notNull(),
+  libraryItemId: int("libraryItemId").notNull(),
+  quantity: int("quantity").notNull(),
+  status: mysqlEnum("status", opsOrderStatuses).default("Pending").notNull(),
+  orderDate: bigint("orderDate", { mode: "number" }).notNull(),
+  shippedDate: bigint("shippedDate", { mode: "number" }),
+  deliveredDate: bigint("deliveredDate", { mode: "number" }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, t => [
+  index("idx_ops_consumable_orders_vesselId").on(t.vesselId),
+  index("idx_ops_consumable_orders_contractId").on(t.contractId),
+  index("idx_ops_consumable_orders_status").on(t.status),
+]);
+export type OpsConsumableOrder = typeof opsConsumableOrders.$inferSelect;
+export type InsertOpsConsumableOrder = typeof opsConsumableOrders.$inferInsert;
+
+/** Vessel history event types. */
+export const opsVesselEventTypes = ["StatusChange", "Shipment", "AssetAssigned", "AssetRemoved", "Comment", "OrderFulfilled"] as const;
+
+/** Vessel history — audit log for vessel operations. */
+export const opsVesselHistory = mysqlTable("ops_vessel_history", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Links to existing AR vessels table. */
+  vesselId: int("vesselId").notNull(),
+  eventType: mysqlEnum("eventType", opsVesselEventTypes).notNull(),
+  description: text("description").notNull(),
+  /** JSON metadata for structured event data. */
+  metadata: text("metadata"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [
+  index("idx_ops_vessel_history_vesselId").on(t.vesselId),
+  index("idx_ops_vessel_history_eventType").on(t.eventType),
+]);
+export type OpsVesselHistory = typeof opsVesselHistory.$inferSelect;
+export type InsertOpsVesselHistory = typeof opsVesselHistory.$inferInsert;

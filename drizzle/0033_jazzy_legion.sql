@@ -1,0 +1,1 @@
+ALTER TABLE `promises_to_pay` ADD `rescheduleCount` int DEFAULT 0 NOT NULL;

@@ -3,6 +3,18 @@ import { snapshotIds, cleanupSince, type IdSnapshot } from "./testCleanup";
 import { appRouter } from "./routers";
 import * as db from "./db";
 
+// --- isolated fixture customer (post-incident: never touch real customers) ---
+import { createTestCustomer, cleanupTestCustomer, type TestCustomerFixture } from "./testFixtures";
+let __fx: TestCustomerFixture | null = null;
+async function getFixtureCustomer() {
+  if (!__fx) __fx = await createTestCustomer();
+  return { id: __fx.id, name: __fx.name, customerGroup: __fx.group };
+}
+afterAll(async () => {
+  if (__fx) await cleanupTestCustomer(__fx);
+});
+
+
 function makeCtx() {
   return {
     user: { id: 1, openId: "test-open-id", name: "Test User", role: "admin" as const },
@@ -14,17 +26,32 @@ function makeCtx() {
 const caller = appRouter.createCaller(makeCtx() as any);
 const suffix = Date.now().toString(36);
 
+// Track every team member created in this file so afterAll can force-delete
+// them even if an assertion fails before the in-test cleanup runs.
+const createdMemberIds: number[] = [];
+async function createMember(input: { name: string; email?: string }) {
+  const m = await caller.team.create(input);
+  createdMemberIds.push(m.id);
+  return m;
+}
+
 describe("team members", () => {
   let __snap: IdSnapshot;
   beforeAll(async () => {
     __snap = await snapshotIds();
   });
   afterAll(async () => {
+    // Force-delete any test members that survived (e.g. a failed assertion
+    // skipped the in-test remove calls). deleteTeamMember detaches them from
+    // customers/tasks first, so this is safe to run repeatedly.
+    for (const id of createdMemberIds) {
+      await db.deleteTeamMember(id).catch(() => {});
+    }
     await cleanupSince(__snap);
   });
 
   it("creates, lists, updates and deactivates a team member", async () => {
-    const created = await caller.team.create({ name: `TM Alpha ${suffix}`, email: `alpha-${suffix}@test.gr` });
+    const created = await createMember({ name: `TM Alpha ${suffix}`, email: `alpha-${suffix}@test.gr` });
     expect(created.id).toBeGreaterThan(0);
 
     const list = await caller.team.list();
@@ -40,11 +67,9 @@ describe("team members", () => {
   });
 
   it("assigns and re-assigns an account manager on a customer", async () => {
-    const m1 = await caller.team.create({ name: `TM Mgr1 ${suffix}` });
-    const m2 = await caller.team.create({ name: `TM Mgr2 ${suffix}` });
-    const customers = await db.listCustomers();
-    expect(customers.length).toBeGreaterThan(0);
-    const cust = customers[0];
+    const m1 = await createMember({ name: `TM Mgr1 ${suffix}` });
+    const m2 = await createMember({ name: `TM Mgr2 ${suffix}` });
+    const cust = await getFixtureCustomer();
 
     // assign
     const r1 = await caller.customers.setAccountManager({ customerId: cust.id, managerId: m1.id });
@@ -67,7 +92,7 @@ describe("team members", () => {
   });
 
   it("assigns a manager to a whole group", async () => {
-    const m = await caller.team.create({ name: `TM GroupMgr ${suffix}` });
+    const m = await createMember({ name: `TM GroupMgr ${suffix}` });
     const groups = await caller.customers.groups();
     const grp = groups.find(g => g.companyCount > 1) ?? groups[0];
     expect(grp).toBeTruthy();
@@ -85,10 +110,9 @@ describe("team members", () => {
   });
 
   it("creates a task with an assignee and re-assigns it", async () => {
-    const m1 = await caller.team.create({ name: `TM Task1 ${suffix}` });
-    const m2 = await caller.team.create({ name: `TM Task2 ${suffix}` });
-    const customers = await db.listCustomers();
-    const cust = customers[0];
+    const m1 = await createMember({ name: `TM Task1 ${suffix}` });
+    const m2 = await createMember({ name: `TM Task2 ${suffix}` });
+    const cust = await getFixtureCustomer();
 
     const task = await caller.tasks.create({
       customerId: cust.id,

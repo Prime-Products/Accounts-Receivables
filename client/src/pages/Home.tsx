@@ -19,19 +19,16 @@ import {
   Wallet,
   FileSignature,
 } from "lucide-react";
-import { useState } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { lazy, Suspense, useState } from "react";
+const CashFlowChart = lazy(() => import("@/components/CashFlowChart"));
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+
+/** "31 Aug" — the last day of the month the projection refers to. */
+function monthEndLabel(ts: number | undefined): string {
+  if (!ts) return "month end";
+  return new Date(ts).toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" });
+}
 
 export default function Home() {
   const { data, isLoading } = trpc.forecast.dashboard.useQuery();
@@ -114,6 +111,17 @@ export default function Home() {
               <p className="text-[11px] text-muted-foreground font-mono mt-1 truncate" title={fmtByCurrency((data.aging as any).totalByCurrency)}>
                 {fmtByCurrency((data.aging as any).totalByCurrency)}
               </p>
+            )}
+            {(data as any).overdueEom !== undefined && (
+              <div className="mt-2.5 pt-2.5 border-t">
+                <div className="text-[11px] font-medium text-muted-foreground">Overdue end of month</div>
+                <div className="text-lg font-bold font-mono text-red-600 leading-tight">
+                  {fmtEur((data as any).overdueEom)}
+                </div>
+                <p className="text-[11px] text-muted-foreground/80">
+                  {(data as any).overdueEomCount} invoice(s) due by {monthEndLabel((data as any).overdueEomDate)}
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -203,39 +211,9 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 8, right: 12, left: 8, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="gInv" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="oklch(0.55 0.14 255)" stopOpacity={0.35} />
-                      <stop offset="95%" stopColor="oklch(0.55 0.14 255)" stopOpacity={0.03} />
-                    </linearGradient>
-                    <linearGradient id="gCon" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="oklch(0.65 0.12 175)" stopOpacity={0.35} />
-                      <stop offset="95%" stopColor="oklch(0.65 0.12 175)" stopOpacity={0.03} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.91 0.006 250)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={v => `€${(v / 1000).toFixed(0)}K`} />
-                  <Tooltip formatter={(v: number) => fmtEur(v)} />
-                  <Legend />
-                  <Area
-                    type="monotone"
-                    dataKey="From Invoices"
-                    stroke="oklch(0.55 0.14 255)"
-                    fill="url(#gInv)"
-                    strokeWidth={2}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="From Contracts"
-                    stroke="oklch(0.65 0.12 175)"
-                    fill="url(#gCon)"
-                    strokeWidth={2}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              <Suspense fallback={<Skeleton className="h-full w-full" />}>
+                <CashFlowChart data={chartData} formatValue={fmtEur} />
+              </Suspense>
             </div>
           </CardContent>
         </Card>

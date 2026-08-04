@@ -32,20 +32,20 @@ describe("suggestNextAction rule engine", () => {
     expect(s.action).toBe("legal_review");
   });
 
-  it("escalates to account manager when a broken promise was just recorded", () => {
+  it("suggests raising the account to Critical when a broken promise was just recorded", () => {
     const s = suggestNextAction({ ...base, confirmationStatus: "Broken" });
-    expect(s.action).toBe("escalate_account_manager");
+    expect(s.action).toBe("mark_critical");
     expect(s.severity).toBe("critical");
   });
 
-  it("escalates when 2+ broken promises exist in history", () => {
+  it("suggests Critical when 2+ broken promises exist in history", () => {
     const s = suggestNextAction({ ...base, promisesBroken: 2 });
-    expect(s.action).toBe("escalate_account_manager");
+    expect(s.action).toBe("mark_critical");
   });
 
-  it("escalates after 3 consecutive unanswered calls", () => {
+  it("suggests Critical after 3 consecutive unanswered calls", () => {
     const s = suggestNextAction({ ...base, outcome: "No Answer", consecutiveNoAnswer: 3 });
-    expect(s.action).toBe("escalate_account_manager");
+    expect(s.action).toBe("mark_critical");
     expect(s.severity).toBe("warning");
   });
 

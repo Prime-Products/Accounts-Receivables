@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "26ce99e5-653a-417e-a81f-2a7b608d7ee4",
-  "prevId": "368baf6a-f157-4079-9b81-70b0656584f6",
+  "id": "d397f095-63ec-47f6-a12d-5c8d65de5b17",
+  "prevId": "c4bb8041-fc38-48b9-a3e6-af082c361b2a",
   "tables": {
     "activity_log": {
       "name": "activity_log",
@@ -552,13 +552,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "masterSoftoneId": {
-          "name": "masterSoftoneId",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "tier": {
           "name": "tier",
           "type": "enum('Platinum','Gold','Silver','Bronze','New')",
@@ -597,76 +590,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "turnoverTwoYearsAgo": {
-          "name": "turnoverTwoYearsAgo",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "balance": {
-          "name": "balance",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "uncovered": {
-          "name": "uncovered",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "unpaid": {
-          "name": "unpaid",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "overdue": {
-          "name": "overdue",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "overdueEndOfMonth": {
-          "name": "overdueEndOfMonth",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "averageOverdueDays": {
-          "name": "averageOverdueDays",
-          "type": "decimal(12,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "openOrders": {
-          "name": "openOrders",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ordersAmount": {
-          "name": "ordersAmount",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "collections": {
-          "name": "collections",
-          "type": "decimal(18,4)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "onHoldStatus": {
           "name": "onHoldStatus",
           "type": "enum('Active','Under Review','Eligible for On Hold','On Hold','Legal')",
@@ -692,13 +615,6 @@
         "softoneId": {
           "name": "softoneId",
           "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "softoneSyncedAt": {
-          "name": "softoneSyncedAt",
-          "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -994,6 +910,65 @@
         }
       },
       "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "group_collection_profile": {
+      "name": "group_collection_profile",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "groupName": {
+          "name": "groupName",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "group_collection_profile_id": {
+          "name": "group_collection_profile_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "group_collection_profile_groupName_unique": {
+          "name": "group_collection_profile_groupName_unique",
+          "columns": [
+            "groupName"
+          ]
+        }
+      },
       "checkConstraint": {}
     },
     "group_confirmation_status": {
@@ -1355,10 +1330,10 @@
         }
       },
       "uniqueConstraints": {
-        "invoices_softoneId_unique": {
-          "name": "invoices_softoneId_unique",
+        "invoices_invoiceNumber_unique": {
+          "name": "invoices_invoiceNumber_unique",
           "columns": [
-            "softoneId"
+            "invoiceNumber"
           ]
         }
       },

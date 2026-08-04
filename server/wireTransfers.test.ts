@@ -172,6 +172,56 @@ describe("Wire Transfers", () => {
     expect(branches.every((b) => typeof b === "string" && b.length > 0)).toBe(true);
   });
 
+  /**
+   * A remittance can arrive as a bank wire, a cheque or a card payment. Callers
+   * that do not say (ERP imports, older code) must keep behaving as bank wires.
+   */
+  it("defaults the remittance method to Transfer and persists cheque/card", async () => {
+    const wire = await caller.customers.createWireTransfer({
+      customerId: testCustomerId,
+      amount: 400,
+      currency: "EUR",
+      transferDate: Date.now(),
+      status: "Pending",
+    });
+    const cheque = await caller.customers.createWireTransfer({
+      customerId: testCustomerId,
+      amount: 410,
+      currency: "EUR",
+      transferDate: Date.now(),
+      status: "Pending",
+      method: "Cheque",
+      referenceNumber: "CHQ-0001",
+    });
+    const card = await caller.customers.createWireTransfer({
+      customerId: testCustomerId,
+      amount: 420,
+      currency: "EUR",
+      transferDate: Date.now(),
+      status: "Pending",
+      method: "Credit Card",
+    });
+
+    const rows = await caller.customers.listWireTransfers({ customerId: testCustomerId });
+    const byId = new Map(rows.map((r: any) => [r.id, r]));
+    expect((byId.get(wire.id) as any).method).toBe("Transfer");
+    expect((byId.get(cheque.id) as any).method).toBe("Cheque");
+    expect((byId.get(card.id) as any).method).toBe("Credit Card");
+
+    // The method can be corrected later (e.g. a cheque logged as a wire).
+    await caller.customers.updateWireTransfer({
+      id: wire.id,
+      customerId: testCustomerId,
+      method: "Cheque",
+    });
+    const after = await caller.customers.listWireTransfers({ customerId: testCustomerId });
+    expect((after.find((r: any) => r.id === wire.id) as any).method).toBe("Cheque");
+
+    // The method reaches the global list too, which is what the page renders.
+    const all = await caller.customers.getAllWireTransfers();
+    expect((all.find((r: any) => r.id === card.id) as any).method).toBe("Credit Card");
+  });
+
   it("should count received wire transfers as collected in groupForecast", async () => {
     const cust = await db.getCustomer(testCustomerId);
     const groupKey = (cust?.customerGroup ?? "").trim() || cust?.name;
@@ -291,8 +341,15 @@ describe("Wire Transfer Allocation (Συμψηφισμός, group-level)", () =>
   afterAll(async () => {
     // Remove allocations first, then transfers, invoices, customers
     for (const tid of createdTransfers) {
+      // Cross-branch allocations auto-create derived inter-office transfers;
+      // drop them too, or they linger as orphan rows once the fixture
+      // customers are purged.
+      await db.deleteInternalTransfersBySource(tid);
       const allocs = await db.listAllocationsByWireTransfer(tid);
-      for (const a of allocs) await db.deleteWireTransferAllocation(a.id);
+      for (const a of allocs) {
+        await db.deleteInternalTransfersByAllocation(a.id);
+        await db.deleteWireTransferAllocation(a.id);
+      }
       await db.deleteWireTransfer(tid);
     }
     // Mark fixture invoices as Paid so they never appear in open-invoice lists

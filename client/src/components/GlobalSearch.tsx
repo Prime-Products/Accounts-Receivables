@@ -1,7 +1,9 @@
 import { Badge } from "@/components/ui/badge";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeftRight, Banknote, Building2, FileText, ListChecks, Loader2, Search, StickyNote, Users, X } from "lucide-react";
+import { scrollPageToTop } from "@/lib/scrollToTop";
+import { normalizeRemittanceMethod } from "@shared/remittanceMethods";
+import { ArrowLeftRight, Banknote, Building2, FileText, ListChecks, Loader2, Mail, Search, Ship, StickyNote, Users, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 
@@ -54,12 +56,15 @@ export default function GlobalSearch() {
     setOpen(false);
     setQuery("");
     navigate(path);
+    scrollPageToTop();
   };
 
   const hasResults =
     !!data &&
     (data.groups.length > 0 ||
       data.companies.length > 0 ||
+      (data.contacts?.length ?? 0) > 0 ||
+      (data.vessels?.length ?? 0) > 0 ||
       data.invoices.length > 0 ||
       data.notes.length > 0 ||
       data.tasks.length > 0 ||
@@ -103,7 +108,7 @@ export default function GlobalSearch() {
               inputRef.current?.blur();
             }
           }}
-          placeholder="Search groups, invoices, notes…"
+          placeholder="Search people, vessels, companies, invoices…"
           className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground min-w-0"
         />
         {isFetching && enabled ? (
@@ -147,6 +152,49 @@ export default function GlobalSearch() {
                   ))}
                 </Section>
               )}
+              {(data!.contacts?.length ?? 0) > 0 && (
+                <Section title="People & departments">
+                  {data!.contacts!.map(p => (
+                    <Row
+                      key={`ct-${p.id}`}
+                      onClick={() =>
+                        // Land on the contacts tab pre-filtered to this person, so the
+                        // record card is one click away.
+                        go(`/address-book?tab=contact&q=${encodeURIComponent(p.name)}`)
+                      }
+                    >
+                      <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">{p.name}</span>
+                          {p.contactType === "Department" && (
+                            <Badge variant="outline" className="shrink-0 text-[10px]">Dept</Badge>
+                          )}
+                        </div>
+                        <div className="truncate text-[10px] text-muted-foreground">
+                          {[p.title, p.companyName ?? p.group, p.email].filter(Boolean).join(" · ")}
+                        </div>
+                      </div>
+                    </Row>
+                  ))}
+                </Section>
+              )}
+              {(data!.vessels?.length ?? 0) > 0 && (
+                <Section title="Vessels">
+                  {data!.vessels!.map(v => (
+                    <Row key={`v-${v.id}`} onClick={() => go(`/vessels?q=${encodeURIComponent(v.name)}`)}>
+                      <Ship className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">{v.name}</div>
+                        <div className="truncate text-[10px] text-muted-foreground">
+                          {[v.vesselType, v.flag, v.companyName ?? v.group].filter(Boolean).join(" · ")}
+                        </div>
+                      </div>
+                      {v.imo && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">IMO {v.imo}</span>}
+                    </Row>
+                  ))}
+                </Section>
+              )}
               {data!.invoices.length > 0 && (
                 <Section title="Invoices">
                   {data!.invoices.map(i => (
@@ -166,7 +214,7 @@ export default function GlobalSearch() {
               {(data!.payments?.length ?? 0) > 0 && (
                 <Section title="Payments (allocations)">
                   {data!.payments!.map((p: any) => (
-                    <Row key={`p-${p.id}`} onClick={() => go("/wire-transfers")}>
+                    <Row key={`p-${p.id}`} onClick={() => go("/remittances")}>
                       <Banknote className="h-4 w-4 text-muted-foreground shrink-0" />
                       <div className="flex-1 min-w-0">
                         <div className="truncate text-sm">
@@ -175,7 +223,7 @@ export default function GlobalSearch() {
                           {p.payerName}
                         </div>
                         <div className="text-[10px] text-muted-foreground truncate">
-                          from transfer {p.transferAmount?.toLocaleString()} {p.currency}
+                          from remittance {p.transferAmount?.toLocaleString()} {p.currency}
                           {p.transferReference ? ` · ref ${p.transferReference}` : ""} ·{" "}
                           {new Date(Number(p.transferDate)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                         </div>
@@ -188,14 +236,19 @@ export default function GlobalSearch() {
                 </Section>
               )}
               {(data!.transfers?.length ?? 0) > 0 && (
-                <Section title="Wire transfers">
+                <Section title="Remittances">
                   {data!.transfers!.map((t: any) => (
-                    <Row key={`w-${t.id}`} onClick={() => go("/wire-transfers")}>
+                    <Row key={`w-${t.id}`} onClick={() => go("/remittances")}>
                       <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="flex-1 truncate">
                         {t.isInternal ? "Internal · " : ""}
                         {t.customerName}
                       </span>
+                      {!t.isInternal && t.method && normalizeRemittanceMethod(t.method) !== "Transfer" && (
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          {normalizeRemittanceMethod(t.method)}
+                        </span>
+                      )}
                       <span className="font-mono text-xs shrink-0">
                         {Number(t.amount).toLocaleString()} {t.currency}
                       </span>

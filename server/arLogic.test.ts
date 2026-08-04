@@ -6,6 +6,7 @@ import {
   computeDso,
   daysOverdue,
   deriveInvoiceStatus,
+  isOverdue,
   dueSopOffsets,
   DAY_MS,
   SOP_OFFSETS,
@@ -97,8 +98,22 @@ describe("misc", () => {
   it("invoice status derivation", () => {
     expect(deriveInvoiceStatus(100, 100, NOW + DAY_MS, NOW, "Open")).toBe("Paid");
     expect(deriveInvoiceStatus(100, 50, NOW + DAY_MS, NOW, "Open")).toBe("Partially Paid");
-    expect(deriveInvoiceStatus(100, 0, NOW - DAY_MS, NOW, "Open")).toBe("Overdue");
+    // Overdue is derived from the due date, never stored: a past-due unpaid
+    // invoice keeps its settlement status.
+    expect(deriveInvoiceStatus(100, 0, NOW - DAY_MS, NOW, "Open")).toBe("Open");
+    expect(deriveInvoiceStatus(100, 50, NOW - DAY_MS, NOW, "Open")).toBe("Partially Paid");
     expect(deriveInvoiceStatus(100, 0, NOW + DAY_MS, NOW, "Open")).toBe("Open");
     expect(deriveInvoiceStatus(100, 0, NOW - DAY_MS, NOW, "Disputed")).toBe("Disputed");
+  });
+  it("overdue is derived from the due date, independent of the status", () => {
+    // Open + past due → overdue; the status itself stays Open.
+    expect(isOverdue({ dueDate: NOW - DAY_MS, amount: "100", paidAmount: "0", status: "Open" }, NOW)).toBe(true);
+    // Disputed invoices can be overdue too — the two dimensions are orthogonal.
+    expect(isOverdue({ dueDate: NOW - DAY_MS, amount: "100", paidAmount: "0", status: "Disputed" }, NOW)).toBe(true);
+    // Partially paid with a remaining balance past due is overdue.
+    expect(isOverdue({ dueDate: NOW - DAY_MS, amount: "100", paidAmount: "40", status: "Partially Paid" }, NOW)).toBe(true);
+    // Not yet due, and fully settled invoices, are never overdue.
+    expect(isOverdue({ dueDate: NOW + DAY_MS, amount: "100", paidAmount: "0", status: "Open" }, NOW)).toBe(false);
+    expect(isOverdue({ dueDate: NOW - DAY_MS, amount: "100", paidAmount: "100", status: "Paid" }, NOW)).toBe(false);
   });
 });

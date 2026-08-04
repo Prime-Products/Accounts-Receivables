@@ -24,7 +24,8 @@ export function AccountManagerControl({
   onChanged,
   role = "manager",
 }: {
-  manager: { id: number; name: string } | null;
+  /** `title` is the person's job title (e.g. "Credit Controller") when recorded. */
+  manager: { id: number; name: string; title?: string | null } | null;
   customerId?: number;
   groupName?: string;
   onChanged?: () => void;
@@ -33,6 +34,12 @@ export function AccountManagerControl({
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
   const isCollector = role === "collector";
+  /**
+   * The chip carries the role, not just the name: "Faye Vanou · Controller" tells
+   * the reader in one glance which hat that person wears on this account. It falls
+   * back to the generic role label when no job title is recorded.
+   */
+  const roleLabel = (manager?.title ?? "").trim() || (isCollector ? "Collector" : "Account Manager");
 
   const setManager = trpc.customers.setAccountManager.useMutation({
     onSuccess: res => {
@@ -76,7 +83,16 @@ export function AccountManagerControl({
             }
           >
             {isCollector ? <HandCoins className="h-3 w-3" /> : <UserRound className="h-3 w-3" />}
-            {manager ? manager.name : isCollector ? "No collector" : "No manager"}
+            {manager ? (
+              <>
+                {manager.name}
+                <span className="opacity-70 font-normal">· {roleLabel}</span>
+              </>
+            ) : isCollector ? (
+              "No collector"
+            ) : (
+              "No manager"
+            )}
           </Badge>
         </Button>
       </PopoverTrigger>

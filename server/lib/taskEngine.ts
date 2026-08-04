@@ -27,7 +27,8 @@ export async function runTaskEngine(now = Date.now()) {
         title: `${off.label}: ${customer?.name ?? "Customer"} — Invoice ${inv.invoiceNumber}`,
         description: `SOP ${off.label} (${off.days} days after due date) for invoice ${inv.invoiceNumber}.`,
         dueDate: inv.dueDate + off.days * 24 * 60 * 60 * 1000,
-      });
+        customerGroup: customer ? (customer.customerGroup ?? "").trim() || customer.name : null,
+      } as any);
       created++;
     }
   }
@@ -49,7 +50,8 @@ export async function runTaskEngine(now = Date.now()) {
           title: `Contract expiring: ${customer?.name ?? "Customer"} — ${c.contractNumber}`,
           description: `Contract "${c.title}" expires on ${new Date(c.endDate).toISOString().slice(0, 10)}. Initiate renewal discussion.`,
           dueDate: c.endDate - CONTRACT_EXPIRY_LEAD_MS,
-        });
+          customerGroup: customer ? (customer.customerGroup ?? "").trim() || customer.name : null,
+        } as any);
         created++;
       }
     } else if (now >= c.endDate && status !== "Expired") {
@@ -57,14 +59,12 @@ export async function runTaskEngine(now = Date.now()) {
     }
   }
 
-  // 3) Refresh invoice Overdue statuses
-  for (const inv of invoices) {
-    if (isOpenInvoice(inv) && now > inv.dueDate && inv.status !== "Overdue" && inv.status !== "Disputed" && inv.status !== "Partially Paid") {
-      await db.updateInvoice(inv.id, { status: "Overdue" });
-    }
-  }
+  // 3) Invoice overdue state is derived from the due date at read time
+  //    (see arLogic.isOverdue) and never written into invoices.status: an invoice
+  //    stays Open / Partially Paid / Disputed and is flagged overdue on top of that.
+  //    Nothing to sweep here.
 
-  // 4) Mark overdue installments
+  // 4) Mark overdue installments (installments keep their own lifecycle status)
   const installments = await db.listInstallments();
   for (const inst of installments) {
     if (inst.status === "Upcoming" && now > inst.dueDate) {

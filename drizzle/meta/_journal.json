@@ -232,6 +232,111 @@
       "when": 1785398958075,
       "tag": "0032_tough_toro",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1785403686133,
+      "tag": "0032_complex_hedge_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1785435698879,
+      "tag": "0033_jazzy_legion",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "5",
+      "when": 1785441067757,
+      "tag": "0034_ambiguous_speedball",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "5",
+      "when": 1785445264279,
+      "tag": "0035_right_omega_red",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1785450494728,
+      "tag": "0036_groovy_wildside",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1785494099191,
+      "tag": "0037_milky_mantis",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1785528308829,
+      "tag": "0038_wealthy_betty_brant",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "5",
+      "when": 1785562295368,
+      "tag": "0039_spotty_shinobi_shaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "5",
+      "when": 1785563496191,
+      "tag": "0040_uneven_blue_shield",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "5",
+      "when": 1785590685480,
+      "tag": "0041_friendly_reavers",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "5",
+      "when": 1785595325389,
+      "tag": "0042_simple_marten_broadcloak",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "5",
+      "when": 1785596277737,
+      "tag": "0043_tranquil_garia",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "5",
+      "when": 1785632647498,
+      "tag": "0044_parched_omega_red",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "5",
+      "when": 1785660687055,
+      "tag": "0045_right_ma_gnuci",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "5",
+      "when": 1785662510395,
+      "tag": "0046_panoramic_malcolm_colcord",
+      "breakpoints": true
     }
   ]
 }
