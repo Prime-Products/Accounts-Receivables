@@ -38,7 +38,6 @@ import {
   LogOut,
   PanelLeft,
   Phone,
-  ScrollText,
   Settings,
   Ship,
   TrendingUp,
@@ -50,7 +49,6 @@ import {
   Briefcase,
   FileCheck2,
   Package,
-  RotateCcw,
   ShieldCheck,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -86,7 +84,6 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
     items: [
       { icon: Contact, label: "Address Book", path: "/address-book" },
       { icon: Ship, label: "Vessels", path: "/vessels" },
-      { icon: ScrollText, label: "Contracts", path: "/contracts" },
     ],
   },
   {
@@ -96,7 +93,6 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
       { icon: FileCheck2, label: "Contracts", path: "/ops/contracts" },
       { icon: Package, label: "Equipment", path: "/ops/assets" },
       { icon: ShieldCheck, label: "Certificates", path: "/ops/certificates" },
-      { icon: RotateCcw, label: "Returns", path: "/ops/returns" },
       { icon: Settings, label: "Catalog", path: "/ops/catalog" },
     ],
   },

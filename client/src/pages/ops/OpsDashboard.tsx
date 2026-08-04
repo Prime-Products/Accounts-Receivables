@@ -87,7 +87,7 @@ export default function OpsDashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card
           className={`cursor-pointer hover:shadow-md transition-shadow ${data.pendingReturns > 0 ? "border-amber-200 bg-amber-50/50" : ""}`}
-          onClick={() => navigate("/ops/returns")}
+          onClick={() => navigate("/ops/assets?status=Pending+Return")}
         >
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">Pending Returns</CardTitle>

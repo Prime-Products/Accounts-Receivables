@@ -17,7 +17,6 @@ const catalogPage = read("client/src/pages/ops/OpsCatalog.tsx");
 const sidebar = read("client/src/components/DashboardLayout.tsx");
 const opsDashboard = read("client/src/pages/ops/OpsDashboard.tsx");
 const vesselDashboard = read("client/src/pages/ops/OpsVesselDashboard.tsx");
-const returnsPage = read("client/src/pages/ops/OpsReturns.tsx");
 const certificatesPage = read("client/src/pages/ops/OpsCertificates.tsx");
 
 describe("equipment terminology (renamed from Assets)", () => {
@@ -28,7 +27,7 @@ describe("equipment terminology (renamed from Assets)", () => {
 
   it("the page is titled Equipment on Vessels and explains one row per serial", () => {
     expect(equipmentPage).toContain("Equipment on Vessels");
-    expect(equipmentPage).toContain("one row per physical item with its own serial number");
+    expect(equipmentPage).toContain("one row per serial number, from supply through return");
     expect(equipmentPage).not.toContain("Asset Tracking");
   });
 
@@ -86,10 +85,9 @@ describe("equipment wording across the other ops screens", () => {
     expect(opsDashboard).toContain("Equipment awaiting collection");
   });
 
-  it("returns page confirms with Equipment wording", () => {
-    expect(returnsPage).toContain('toast.success("Equipment marked as returned")');
-    expect(returnsPage).toContain("awaiting collection");
-    expect(returnsPage).not.toContain('toast.success("Asset marked as returned")');
+  it("the return workflow now lives on the Equipment page", () => {
+    expect(equipmentPage).toContain("awaiting collection");
+    expect(equipmentPage).not.toContain('toast.success("Asset marked as returned")');
   });
 
   it("certificates table column is Equipment while the sort key stays assetName", () => {

@@ -1975,7 +1975,7 @@ destination of the record is group-level.
 - [x] BUG: `/ops` prefix match makes Ops Dashboard look active on every ops page
 - [x] Rename sidebar section "Operations" to "Prime 247"
 - [x] Rename "Ops Contracts" to "Contracts"
-- [ ] Raise duplicate Contracts entries (CRM legacy vs Prime 247) with the user
+- [x] Raise duplicate Contracts entries (CRM legacy vs Prime 247) with the user — decision: delete the legacy CRM one
 - [x] Add certificate expiry date field on equipment (issue + expiry, cert number)
 - [x] Reminder logic at 60 and 15 days before expiry
 - [x] Surface expiring certificates on Ops Dashboard and Certificates page
@@ -1999,3 +1999,16 @@ destination of the record is group-level.
 - [x] Vitest coverage for product grouping order and the tab structure (17 tests)
 - [x] Remove "Orders" (Consumable Orders) from the Prime 247 menu — orders belong to the ERP; keep tables/procedures for a future ERP feed
 - [x] Schema: payment method + payment terms fields on ops contracts (applied to live DB)
+
+## Retire legacy CRM Contracts (user decision 4/8: "το παλιο σβηστο")
+- [x] Remove the "Contracts" entry from the CRM sidebar section
+- [x] Remove the `/contracts` route and delete the legacy Contracts page
+- [x] Keep the customer/group Contracts tabs working (they read the same legacy rows) — tabs left intact, no links to the removed page
+- [x] Keep contract-installment invoice tracking on the AR dashboard intact (6 flagged invoices)
+- [x] Vitest coverage asserting the legacy page/route/menu entry are gone and nothing else broke
+## Retire Returns into Equipment (user decision 4/8)
+- [x] Remove "Returns" from the Prime 247 menu and delete the Returns page/route
+- [x] Equipment: status filter including Pending Return, seeded from the ?status= query param
+- [x] Equipment: inline return-port editing plus "Request return" / "Returned" actions
+- [x] Overview: point the Pending Returns KPI at Equipment filtered by Pending Return
+- [x] Vitest coverage for the Returns removal and the Equipment return workflow (919 tests passing)

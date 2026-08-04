@@ -50,7 +50,6 @@ describe("customers.groupMembers — one group's companies", () => {
 
 describe("pickers do not pull the scored customer list", () => {
   const files = [
-    "client/src/pages/Contracts.tsx",
     "client/src/pages/Reports.tsx",
     "client/src/pages/Invoices.tsx",
     "client/src/components/ContactFormDialog.tsx",

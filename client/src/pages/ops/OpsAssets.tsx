@@ -14,9 +14,10 @@ import { fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
 import { certUrgencyClass } from "@shared/certificateExpiry";
-import { ArrowDown, ArrowUp, ArrowUpDown, Package, Plus, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Package, Plus, RotateCcw, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useSearch } from "wouter";
 
 const statusColors: Record<string, string> = {
   "Not Supplied": "bg-gray-100 text-gray-700 border-gray-200",
@@ -39,6 +40,7 @@ const COL_DEFAULTS: Record<string, number> = {
   certificate: 150,
   returnPort: 130,
   updated: 120,
+  action: 110,
 };
 
 export default function OpsAssets() {
@@ -48,10 +50,24 @@ export default function OpsAssets() {
   const { data: vessels } = trpc.vessels.list.useQuery();
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  /**
+   * The retired Returns page lived at /ops/returns; its work now happens here.
+   * The Overview "Pending Returns" card links in with ?status=Pending Return,
+   * so the filter has to be seeded from the URL and stay in sync with it.
+   */
+  const searchStr = useSearch();
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    const p = new URLSearchParams(window.location.search).get("status");
+    return p && (ASSET_STATUSES as readonly string[]).includes(p) ? p : "all";
+  });
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const cols = useResizableColumns("ops-assets", COL_DEFAULTS);
+
+  useEffect(() => {
+    const p = new URLSearchParams(searchStr).get("status");
+    if (p && (ASSET_STATUSES as readonly string[]).includes(p)) setStatusFilter(p);
+  }, [searchStr]);
 
   /* ─── Create Dialog ─── */
   const [createOpen, setCreateOpen] = useState(false);
@@ -100,6 +116,21 @@ export default function OpsAssets() {
     onError: (e) => toast.error(e.message),
   });
 
+  /** Return port is edited inline — it was the one field the Returns page owned. */
+  const [portDraft, setPortDraft] = useState<{ id: number; value: string } | null>(null);
+  const updateAsset = trpc.opsAssets.update.useMutation({
+    onSuccess: () => {
+      toast.success("Return port saved");
+      utils.opsAssets.list.invalidate();
+      setPortDraft(null);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const savePort = () => {
+    if (!portDraft) return;
+    updateAsset.mutate({ id: portDraft.id, targetReturnPort: portDraft.value.trim() || null });
+  };
+
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
     else { setSortKey(key); setSortDir("desc"); }
@@ -141,7 +172,9 @@ export default function OpsAssets() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Equipment on Vessels</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {filtered.length} unit{filtered.length !== 1 ? "s" : ""} tracked — one row per physical item with its own serial number
+            {statusFilter === "Pending Return"
+              ? `${filtered.length} unit${filtered.length !== 1 ? "s" : ""} awaiting collection — set the port, then mark returned`
+              : `${filtered.length} unit${filtered.length !== 1 ? "s" : ""} tracked — one row per serial number, from supply through return`}
           </p>
         </div>
         <Button className="gap-2" onClick={() => setCreateOpen(true)}>
@@ -197,14 +230,18 @@ export default function OpsAssets() {
                     <span className="flex items-center">Updated <SortIcon col="updatedAt" /></span>
                     <ColResizer col="updated" api={cols} />
                   </TableHead>
+                  <TableHead style={cols.style("action")} className="relative">
+                    <span>Action</span>
+                    <ColResizer col="action" api={cols} />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                       <Package className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                      <p>No equipment yet</p>
+                      <p>{statusFilter === "Pending Return" ? "Nothing awaiting collection" : "No equipment yet"}</p>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -237,8 +274,54 @@ export default function OpsAssets() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm">{a.targetReturnPort ?? "—"}</TableCell>
+                      <TableCell className="text-sm">
+                        {portDraft?.id === a.id ? (
+                          <Input
+                            autoFocus
+                            value={portDraft.value}
+                            onChange={e => setPortDraft({ id: a.id, value: e.target.value })}
+                            onBlur={savePort}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") savePort();
+                              if (e.key === "Escape") setPortDraft(null);
+                            }}
+                            placeholder="e.g. Piraeus"
+                            className="h-7 text-xs"
+                          />
+                        ) : (
+                          <button
+                            className="text-left w-full hover:underline decoration-dotted"
+                            title="Click to set the collection port"
+                            onClick={() => setPortDraft({ id: a.id, value: a.targetReturnPort ?? "" })}
+                          >
+                            {a.targetReturnPort ?? <span className="text-muted-foreground">—</span>}
+                          </button>
+                        )}
+                      </TableCell>
                       <TableCell className="text-sm">{fmtDate(new Date(a.updatedAt).getTime())}</TableCell>
+                      <TableCell>
+                        {a.status === "Pending Return" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 gap-1.5 text-xs"
+                            disabled={updateStatus.isPending}
+                            onClick={() => updateStatus.mutate({ id: a.id, status: "Returned" })}
+                          >
+                            <RotateCcw className="h-3 w-3" /> Returned
+                          </Button>
+                        ) : a.status === "Active" ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs text-muted-foreground"
+                            disabled={updateStatus.isPending}
+                            onClick={() => updateStatus.mutate({ id: a.id, status: "Pending Return" })}
+                          >
+                            Request return
+                          </Button>
+                        ) : null}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}

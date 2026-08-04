@@ -126,7 +126,7 @@ describe("consumable orders retired from the app", () => {
   });
 
   it("keeps the other Prime 247 destinations intact", () => {
-    for (const path of ["/ops", "/ops/contracts", "/ops/assets", "/ops/certificates", "/ops/returns", "/ops/catalog"]) {
+    for (const path of ["/ops", "/ops/contracts", "/ops/assets", "/ops/certificates", "/ops/catalog"]) {
       expect(sidebar).toContain(`path: "${path}"`);
     }
   });

@@ -16,7 +16,6 @@ const Customers = lazy(() => import("./pages/Customers"));
 const CustomerDetail = lazy(() => import("@/pages/CustomerDetail"));
 const GroupDetail = lazy(() => import("@/pages/GroupDetail"));
 const Invoices = lazy(() => import("./pages/Invoices"));
-const Contracts = lazy(() => import("./pages/Contracts"));
 const AddressBook = lazy(() => import("./pages/AddressBook"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Reports = lazy(() => import("./pages/Reports"));
@@ -32,7 +31,6 @@ const OpsContractsList = lazy(() => import("./pages/ops/OpsContractsList"));
 const OpsContractDetail = lazy(() => import("./pages/ops/OpsContractDetail"));
 const OpsAssets = lazy(() => import("./pages/ops/OpsAssets"));
 const OpsCertificates = lazy(() => import("./pages/ops/OpsCertificates"));
-const OpsReturns = lazy(() => import("./pages/ops/OpsReturns"));
 const OpsVesselDashboard = lazy(() => import("./pages/ops/OpsVesselDashboard"));
 
 function PageFallback() {
@@ -74,7 +72,6 @@ function Router() {
           <Route path={"/invoices"} component={Invoices} />
           <Route path={"/vessels"} component={Vessels} />
           <Route path={"/vessels/:id"} component={VesselDetail} />
-          <Route path={"/contracts"} component={Contracts} />
           <Route path={"/address-book"} component={AddressBook} />
           {/* Legacy path kept so old links and bookmarks still land somewhere useful. */}
           <Route path={"/contacts"} component={AddressBook} />
@@ -98,7 +95,6 @@ function Router() {
           <Route path={"/ops/contracts/:id"} component={OpsContractDetail} />
           <Route path={"/ops/assets"} component={OpsAssets} />
           <Route path={"/ops/certificates"} component={OpsCertificates} />
-          <Route path={"/ops/returns"} component={OpsReturns} />
           <Route path={"/ops/vessel/:id"} component={OpsVesselDashboard} />
           <Route path={"/ops/catalog"} component={OpsCatalog} />
           <Route path={"/404"} component={NotFound} />
