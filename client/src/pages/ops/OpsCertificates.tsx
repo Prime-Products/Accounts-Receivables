@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { VesselLink } from "@/components/VesselLink";
 import { fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { CERT_REMINDER_DAYS, certUrgencyClass, type CertUrgency } from "@shared/certificateExpiry";
@@ -306,7 +307,9 @@ export default function OpsCertificates() {
                           <div className="font-medium truncate">{c.assetName}</div>
                           <div className="text-xs text-muted-foreground truncate">{c.assetSerial}</div>
                         </TableCell>
-                        <TableCell className="text-sm truncate">{c.vesselName ?? "—"}</TableCell>
+                        <TableCell className="text-sm truncate">
+                          <VesselLink vesselId={c.vesselId} name={c.vesselName} />
+                        </TableCell>
                         <TableCell className="text-sm">{fmtDate(c.issueDate)}</TableCell>
                         <TableCell className="text-sm">{fmtDate(c.expiryDate)}</TableCell>
                         <TableCell className="text-center text-sm">

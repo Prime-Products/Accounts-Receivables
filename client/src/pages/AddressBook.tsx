@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
+import { useVesselModal } from "@/contexts/VesselModalContext";
 import { matchesAllTokens } from "@shared/textMatch";
 import {
   Archive,
@@ -95,6 +96,8 @@ type ViewConfig = {
 
 export default function AddressBook() {
   const [, navigate] = useLocation();
+  // Vessels open in the app-wide vessel modal, the same view used everywhere else.
+  const { openVessel } = useVesselModal();
   // Tab lives in the URL (?tab=contact) so a tab can be linked, bookmarked and survives a reload.
   const [entity, setEntity] = useState<Entity>(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
@@ -1009,6 +1012,10 @@ export default function AddressBook() {
           }
           if (entity === "customer") {
             navigate(`/customers/${any.id}`);
+            return;
+          }
+          if (entity === "vessel" && any.id) {
+            openVessel(Number(any.id));
             return;
           }
           openRecord({

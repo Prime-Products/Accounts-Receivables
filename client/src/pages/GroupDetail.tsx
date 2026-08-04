@@ -8,6 +8,7 @@ import { buildTimeline } from "@/lib/timeline";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { PeopleRow } from "@/components/PeopleRow";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { VesselLink } from "@/components/VesselLink";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1233,7 +1234,7 @@ export default function GroupDetail() {
                         // Outstanding per vessel, converted to EUR the same way as the
                         // By branch view. Invoices without a vessel roll up into a
                         // single "No vessel" row so the totals still reconcile.
-                        const byVessel = new Map<string, { label: string; count: number; totalEur: number }>();
+                        const byVessel = new Map<string, { label: string; vesselId: number | null; count: number; totalEur: number }>();
                         for (const i of filteredInvoices) {
                           const raw = Number(i.amount) - Number(i.paidAmount);
                           if (raw <= 0.005) continue;
@@ -1241,7 +1242,7 @@ export default function GroupDetail() {
                           const vid = ((i as any).vesselId ?? null) as number | null;
                           const key = vid != null ? String(vid) : "none";
                           const label = (((i as any).vesselName as string | null) ?? "No vessel") || "No vessel";
-                          const cur = byVessel.get(key) ?? { label, count: 0, totalEur: 0 };
+                          const cur = byVessel.get(key) ?? { label, vesselId: vid, count: 0, totalEur: 0 };
                           cur.count += 1;
                           cur.totalEur += raw * ratio;
                           byVessel.set(key, cur);
@@ -1270,7 +1271,13 @@ export default function GroupDetail() {
                               setInvoiceView("list");
                             }}
                           >
-                            <TableCell className={key === "none" ? "text-muted-foreground" : "font-medium"}>{v.label}</TableCell>
+                            <TableCell className={key === "none" ? "text-muted-foreground" : "font-medium"}>
+                              {v.vesselId != null ? (
+                                <VesselLink vesselId={v.vesselId} name={v.label} className="font-medium" />
+                              ) : (
+                                v.label
+                              )}
+                            </TableCell>
                             <TableCell className="text-right font-mono">{v.count}</TableCell>
                             <TableCell className="text-right font-mono font-semibold">{fmtEur(v.totalEur)}</TableCell>
                             <TableCell className="text-right font-mono text-sm text-muted-foreground">

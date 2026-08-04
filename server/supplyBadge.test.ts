@@ -54,8 +54,10 @@ describe("SupplyBadge component", () => {
   });
 });
 
-describe("vessel page badges every item line", () => {
-  const page = read("client/src/pages/VesselDetail.tsx");
+describe("vessel products table badges every item line", () => {
+  // A vessel opens as a modal now; its Products card lives in the shared table component.
+  const page = read("client/src/components/VesselProductsTable.tsx");
+  const modal = read("client/src/components/VesselDetailDialog.tsx");
 
   it("uses the shared badge instead of inline badge markup", () => {
     expect(page).toContain('import { SupplyBadge } from "@/components/SupplyBadge"');
@@ -66,11 +68,11 @@ describe("vessel page badges every item line", () => {
   it("summarises the vessel's outstanding units in the card header", () => {
     // The header carries the ratio; the total row restates it in words.
     expect(page).toContain("${unitsSupplied} of ${unitsTotal} unit(s) supplied");
-    expect(page).toContain("line(s) still to deliver");
+    expect(modal).toContain("line(s) still to deliver");
   });
 
   it("counts units from the expected quantity, so consumables are included", () => {
-    expect(page).toContain("contractItems.reduce((s, i) => s + i.unitsExpected, 0)");
+    expect(page).toContain("items.reduce((s, i) => s + i.unitsExpected, 0)");
   });
 });
 

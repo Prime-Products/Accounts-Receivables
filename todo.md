@@ -2076,3 +2076,8 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Contracts list: KPI dashboard row (agreed vs activated value and vessels, collected, outstanding)
 - [x] Contracts: show current (active) contract value = value of activated vessels only, in the list column and on the contract detail KPI
 - [x] Contract → Vessels tab: clicking a vessel opens the full vessel page with the grouped Products view (same as the contract), not the old Equipment on Board dashboard
+
+## Vessel modal everywhere (user request 5/8)
+- [x] Vessel modal shows the full vessel view: info + financial KPIs + grouped Products (Equipment/Consumables/Other) + contracts + invoices
+- [x] Every clickable vessel in the app opens the vessel modal instead of navigating (contract Vessels tab, contract financials per-vessel rows, Invoices vessel breakdown, ops pages, search results)
+- [x] Old /ops/vessel/:id dashboard no longer reachable by clicking a vessel

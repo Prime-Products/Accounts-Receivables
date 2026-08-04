@@ -6,16 +6,17 @@ const root = join(__dirname, "..");
 const read = (p: string) => readFileSync(join(root, p), "utf8");
 
 describe("vessel entitlement reads as one compact list", () => {
-  const src = read("client/src/pages/VesselDetail.tsx");
+  // Rendered by the app-wide vessel modal through the shared products table.
+  const src = read("client/src/components/VesselProductsTable.tsx");
 
   it("collapses serial detail by default so all lines fit on one screen", () => {
-    expect(src).toContain("const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())");
-    expect(src).toContain("item.serials.length > 0 && expandedItems.has(itemKey(item))");
+    expect(src).toContain("const [expanded, setExpanded] = useState<Set<string>>(new Set())");
+    expect(src).toContain("item.serials.length > 0 && expanded.has(itemKey(item))");
   });
 
   it("opens the serial table by clicking the product line", () => {
-    expect(src).toContain("onClick={item.serials.length > 0 ? () => toggleItem(itemKey(item)) : undefined}");
-    expect(src).toContain("toggleItem");
+    expect(src).toContain("onClick={item.serials.length > 0 ? () => toggle(itemKey(item)) : undefined}");
+    expect(src).toContain("toggle(itemKey(item))");
   });
 
   it("shows a chevron that rotates only where serial detail exists", () => {
@@ -24,7 +25,7 @@ describe("vessel entitlement reads as one compact list", () => {
   });
 
   it("keeps the contract link clickable without toggling the row", () => {
-    expect(src).toContain("onClick={e => e.stopPropagation()}");
+    expect(src).toContain("e.stopPropagation()");
   });
 
   it("states the serial count on the collapsed line", () => {

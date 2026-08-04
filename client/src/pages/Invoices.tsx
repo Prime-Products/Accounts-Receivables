@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { VesselLink } from "@/components/VesselLink";
 import { matchesStatusFilter } from "@/lib/invoiceFilters";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { trpc } from "@/lib/trpc";
@@ -701,7 +702,9 @@ export default function Invoices() {
                           {c.customerGroup}
                         </Link>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{c.vesselName ?? "—"}</TableCell>
+                      <TableCell className="text-xs">
+                        <VesselLink vesselId={c.vesselId ?? null} name={c.vesselName} />
+                      </TableCell>
                       <TableCell>
                         {c.branch ? (
                           <Badge variant="outline" className={branchColors[c.branch] ?? ""}>
@@ -785,10 +788,7 @@ export default function Invoices() {
                     <TableCell className="font-mono text-muted-foreground">{idx + 1}</TableCell>
                     <TableCell>
                       {v.vesselId != null ? (
-                        <Link href={`/vessels/${v.vesselId}`} className="font-medium hover:underline inline-flex items-center gap-1">
-                          {v.vessel}
-                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                        </Link>
+                        <VesselLink vesselId={v.vesselId} name={v.vessel} className="font-medium" />
                       ) : (
                         <span className="font-medium text-muted-foreground">{v.vessel}</span>
                       )}

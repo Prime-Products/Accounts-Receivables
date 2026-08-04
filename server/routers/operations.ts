@@ -903,6 +903,8 @@ export const opsCertificatesRouter = router({
           ...c,
           assetName: asset?.name ?? "—",
           assetSerial: asset?.serialNumber ?? "—",
+          // Carried so a certificate row can open the vessel modal directly.
+          vesselId: asset?.vesselId ?? null,
           vesselName: asset?.vesselId ? vesselMap.get(asset.vesselId)?.name ?? null : null,
           // Derived server-side so the table, the KPI cards and the reminder
           // engine cannot disagree about how urgent a certificate is.
@@ -1103,6 +1105,7 @@ export const opsDashboardRouter = router({
           ...c,
           assetName: asset?.name ?? "—",
           assetSerial: asset?.serialNumber ?? "—",
+          vesselId: asset?.vesselId ?? null,
           vesselName: asset?.vesselId ? vesselMap.get(asset.vesselId)?.name ?? null : null,
           daysUntilExpiry: Math.ceil((c.expiryDate - now) / (24 * 60 * 60 * 1000)),
         };

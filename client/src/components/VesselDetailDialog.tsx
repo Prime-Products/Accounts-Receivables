@@ -4,9 +4,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { VesselProductsTable, vesselSupplySummary } from "@/components/VesselProductsTable";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { Anchor, FileText, FileSignature, Flag, Ship } from "lucide-react";
+import { Anchor, FileText, FileSignature, Flag, Package, Ship } from "lucide-react";
 import { Link } from "wouter";
 
 /**
@@ -34,11 +35,22 @@ export function VesselDetailDialog({
   const relatedCompanies = data?.relatedCompanies ?? [];
   // Prime 247 contracts this vessel is enrolled in.
   const contracts = data?.contracts ?? [];
+  // Everything the vessel is entitled to under those contracts, read exactly like the
+  // contract's Products card so the modal is the full vessel view, not a summary.
+  const contractItems = data?.contractItems ?? [];
+  const supply = vesselSupplySummary(contractItems);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <ResizableDialogContent storageKey="vessel-detail" className="sm:max-w-none w-[64rem] max-w-[95vw] max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+      {/*
+       * The modal is a fixed-size shell: header stays put and only the body scrolls, so a
+       * wide Products table can never push the KPI row past the dialog edge.
+       */}
+      <ResizableDialogContent
+        storageKey="vessel-detail"
+        className="sm:max-w-none w-[68rem] max-w-[96vw] h-[88vh] max-h-[88vh] overflow-hidden flex flex-col gap-0 p-0"
+      >
+        <DialogHeader className="shrink-0 border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2">
             <Ship className="h-5 w-5 text-sky-600" />
             {vessel ? vessel.name : "Vessel"}
@@ -67,6 +79,7 @@ export function VesselDetailDialog({
           )}
         </DialogHeader>
 
+        <div className="flex-1 overflow-y-auto px-6 py-4">
         {error ? (
           <div className="py-8 text-center text-muted-foreground">Vessel not found.</div>
         ) : isLoading || !vessel || !stats ? (
@@ -187,6 +200,39 @@ export function VesselDetailDialog({
               </div>
             </div>
 
+            {/* Products — the contract's Products card, scoped to this vessel */}
+            <div>
+              <div className="flex items-end justify-between gap-3 mb-2">
+                <div>
+                  <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                    <Package className="h-4 w-4" /> Products
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Grouped by nature — equipment first, then consumables and anything else supplied to this vessel
+                  </p>
+                </div>
+                {supply.unitsTotal > 0 && (
+                  <div className="text-right">
+                    <div className="text-sm font-semibold font-mono">
+                      {supply.unitsSupplied} / {supply.unitsTotal}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {supply.linesOutstanding > 0 ? `${supply.linesOutstanding} line(s) still to deliver` : "nothing outstanding"}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {contractItems.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground text-sm rounded-lg border">
+                  This vessel is not assigned to any Prime 247 contract yet. Items appear here as soon as the vessel joins a contract.
+                </div>
+              ) : (
+                <div className="rounded-lg border">
+                  <VesselProductsTable items={contractItems} onNavigate={() => onOpenChange(false)} />
+                </div>
+              )}
+            </div>
+
             {/* Invoices */}
             <div>
               <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2 mb-2">
@@ -206,6 +252,7 @@ export function VesselDetailDialog({
             </div>
           </div>
         )}
+        </div>
       </ResizableDialogContent>
     </Dialog>
   );

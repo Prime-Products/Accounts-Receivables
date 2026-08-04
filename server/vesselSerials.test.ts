@@ -34,21 +34,22 @@ describe("vessels.detail exposes serial-tracked instruments", () => {
   });
 });
 
-describe("vessel page shows grouped contract items with serials under the description", () => {
-  const page = read("client/src/pages/VesselDetail.tsx");
+describe("vessel modal shows grouped contract items with serials under the description", () => {
+  const page = read("client/src/components/VesselProductsTable.tsx");
+  const modal = read("client/src/components/VesselDetailDialog.tsx");
 
   it("renders the products card for the vessel", () => {
-    expect(page).toContain("<Package className=\"h-4 w-4\" /> Products");
+    expect(modal).toContain("<Package className=\"h-4 w-4\" /> Products");
   });
 
   it("reads the contract items from the query result", () => {
-    expect(page).toContain("const contractItems = data?.contractItems ?? []");
+    expect(modal).toContain("const contractItems = data?.contractItems ?? []");
   });
 
   it("groups the items exactly like the contract card", () => {
     expect(page).toContain('from "@shared/productGrouping"');
-    expect(page).toContain("groupContractProducts(contractItems)");
-    expect(page).toContain("itemGroups.map(group =>");
+    expect(page).toContain("groupContractProducts(items)");
+    expect(page).toContain("groups.map(group =>");
   });
 
   it("puts the serials on sub-rows under the item name", () => {
@@ -81,20 +82,11 @@ describe("vessel page shows grouped contract items with serials under the descri
   });
 
   it("explains the empty state", () => {
-    expect(page).toContain("This vessel is not assigned to any Prime 247 contract yet");
+    expect(modal).toContain("This vessel is not assigned to any Prime 247 contract yet");
   });
 });
 
 describe("serial-under-name layout is consistent across the app", () => {
-  it("ops vessel dashboard drops the standalone serial column", () => {
-    const page = read("client/src/pages/ops/OpsVesselDashboard.tsx");
-    expect(page).not.toContain("<TableHead>Serial #</TableHead>");
-    expect(page).toContain("<TableHead>Instrument</TableHead>");
-    expect(page).toContain("S/N {a.serialNumber}");
-    // Empty-state colSpan must match the reduced column count.
-    expect(page).toContain('colSpan={3} className="text-center py-8 text-muted-foreground">No equipment assigned');
-  });
-
   it("equipment page shows the serial under the instrument name", () => {
     const page = read("client/src/pages/ops/OpsAssets.tsx");
     expect(page).toContain("S/N {a.serialNumber}");

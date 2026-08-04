@@ -3,12 +3,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { VesselDetailDialog } from "@/components/VesselDetailDialog";
+import { useVesselModal } from "@/contexts/VesselModalContext";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
 import { ArrowDown, ArrowUp, ArrowUpDown, Ship } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type SortKey = "name" | "ownerGroup" | "vesselType" | "flag" | "openBalance" | "overdueAmount" | "invoiceCount" | "contractCount";
 
@@ -33,18 +33,22 @@ export default function Vessels() {
   );
   const [sortKey, setSortKey] = useState<SortKey>("openBalance");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [dialogVesselId, setDialogVesselId] = useState<number | null>(() => {
+  const cols = useResizableColumns("vessels", COL_DEFAULTS);
+  // One vessel modal serves the whole app; this page just asks it to open.
+  const { openVessel } = useVesselModal();
+  /**
+   * `?vessel=<id>` opens that vessel straight away, which is how the legacy
+   * /vessels/:id and /ops/vessel/:id links now land on the modal.
+   */
+  const [deepLinkId] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
     const v = new URLSearchParams(window.location.search).get("vessel");
     const n = v ? Number(v) : NaN;
     return Number.isFinite(n) && n > 0 ? n : null;
   });
-  const [dialogOpen, setDialogOpen] = useState(dialogVesselId != null);
-  const cols = useResizableColumns("vessels", COL_DEFAULTS);
-  const openVessel = (id: number) => {
-    setDialogVesselId(id);
-    setDialogOpen(true);
-  };
+  useEffect(() => {
+    if (deepLinkId != null) openVessel(deepLinkId);
+  }, [deepLinkId, openVessel]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -226,12 +230,6 @@ export default function Vessels() {
           )}
         </CardContent>
       </Card>
-
-      <VesselDetailDialog
-        vesselId={dialogVesselId}
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-      />
     </div>
   );
 }

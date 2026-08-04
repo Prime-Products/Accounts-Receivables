@@ -10,17 +10,20 @@ const read = (p: string) => readFileSync(join(root, p), "utf8");
  * These tests pin the shared vocabulary so the two cards cannot drift apart again.
  */
 describe("vessel products card mirrors the contract products card", () => {
-  const vessel = read("client/src/pages/VesselDetail.tsx");
+  // A vessel opens as a modal; the card itself is the shared products table.
+  const vessel = read("client/src/components/VesselProductsTable.tsx");
+  const modal = read("client/src/components/VesselDetailDialog.tsx");
   const contract = read("client/src/pages/ops/OpsContractDetail.tsx");
 
   it("uses the same card title and subtitle wording", () => {
-    expect(vessel).toContain("<Package className=\"h-4 w-4\" /> Products");
-    expect(vessel).toContain("Grouped by nature — equipment first, then consumables");
+    expect(modal).toContain("<Package className=\"h-4 w-4\" /> Products");
+    expect(modal).toContain("Grouped by nature — equipment first, then consumables");
     expect(contract).toContain("Grouped by nature — equipment first, then consumables");
   });
 
   it("drops the old vessel-only heading", () => {
-    expect(vessel).not.toContain("Contract items on board");
+    expect(modal).not.toContain("Contract items on board");
+    expect(modal).not.toContain("Equipment on Board");
   });
 
   it("heads each nature with the same coloured badge, line count and per-vessel value", () => {
@@ -50,7 +53,7 @@ describe("vessel products card mirrors the contract products card", () => {
   it("closes with a total row stating this vessel's value and supply progress", () => {
     expect(vessel).toContain("This vessel total");
     expect(vessel).toContain("fmtEur(vesselValue)");
-    expect(vessel).toContain("const vesselValue = contractItems.reduce((s, i) => s + Number(i.sellingPrice) * i.quantity, 0)");
+    expect(vessel).toContain("const vesselValue = items.reduce((s, i) => s + Number(i.sellingPrice) * i.quantity, 0)");
   });
 
   it("keeps the supply badge and contract link columns that only the vessel needs", () => {

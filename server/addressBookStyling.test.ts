@@ -97,10 +97,10 @@ describe("Address Book record card", () => {
   });
 
   it("links a vessel directory record to its financial AR card", () => {
-    expect(cardBody).toContain('import { VesselDetailDialog } from "@/components/VesselDetailDialog"');
-    expect(cardBody).toContain("Open AR card");
-    expect(cardBody).toContain("setArVesselId(vesselRow.id)");
-    expect(cardBody).toMatch(/vesselId=\{arVesselId\}/);
+    // The panel no longer owns a dialog instance: it opens the app-wide vessel modal.
+    expect(cardBody).toContain('import { useVesselModal } from "@/contexts/VesselModalContext"');
+    expect(cardBody).toContain("Open vessel card");
+    expect(cardBody).toContain("openVessel(vesselRow.id)");
   });
 
   it("tells the user while the record is still loading", () => {

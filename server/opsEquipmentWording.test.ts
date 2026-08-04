@@ -16,7 +16,6 @@ const equipmentPage = read("client/src/pages/ops/OpsAssets.tsx");
 const catalogPage = read("client/src/pages/ops/OpsCatalog.tsx");
 const sidebar = read("client/src/components/DashboardLayout.tsx");
 const opsDashboard = read("client/src/pages/ops/OpsDashboard.tsx");
-const vesselDashboard = read("client/src/pages/ops/OpsVesselDashboard.tsx");
 const certificatesPage = read("client/src/pages/ops/OpsCertificates.tsx");
 
 describe("equipment terminology (renamed from Assets)", () => {
@@ -82,10 +81,9 @@ describe("catalog terminology", () => {
 
 describe("equipment wording across the other ops screens", () => {
   it("KPI cards read Active Equipment", () => {
-    for (const page of [opsDashboard, vesselDashboard]) {
-      expect(page).toContain("Active Equipment");
-      expect(page).not.toContain(">Active Assets<");
-    }
+    // The per-vessel dashboard was retired — a vessel now opens in the app-wide modal.
+    expect(opsDashboard).toContain("Active Equipment");
+    expect(opsDashboard).not.toContain(">Active Assets<");
   });
 
   it("ops dashboard subtitle and returns hint avoid the word assets", () => {
@@ -101,10 +99,5 @@ describe("equipment wording across the other ops screens", () => {
   it("certificates table column is Equipment while the sort key stays assetName", () => {
     expect(certificatesPage).toContain("Equipment <SortIcon");
     expect(certificatesPage).toContain('col="assetName"');
-  });
-
-  it("vessel dashboard back button returns to Equipment", () => {
-    expect(vesselDashboard).toContain("Back to Equipment");
-    expect(vesselDashboard).not.toContain("Back to Assets");
   });
 });

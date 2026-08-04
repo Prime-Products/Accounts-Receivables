@@ -34,8 +34,9 @@ describe("vessels.detail serial payload", () => {
   });
 });
 
-describe("vessel page equipment detail", () => {
-  const src = read("client/src/pages/VesselDetail.tsx");
+describe("vessel modal equipment detail", () => {
+  // A vessel opens in the app-wide modal, which renders the shared products table.
+  const src = read("client/src/components/VesselProductsTable.tsx");
 
   it("renders a per-serial table under each tracked item line", () => {
     for (const header of ["Serial number", "Status", "Certificate", "Return port", "Updated"]) {

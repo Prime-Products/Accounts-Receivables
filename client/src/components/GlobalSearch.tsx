@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
+import { useVesselModal } from "@/contexts/VesselModalContext";
 import { scrollPageToTop } from "@/lib/scrollToTop";
 import { normalizeRemittanceMethod } from "@shared/remittanceMethods";
 import { ArrowLeftRight, Banknote, Building2, FileText, ListChecks, Loader2, Mail, Search, Ship, StickyNote, Users, X } from "lucide-react";
@@ -17,6 +18,7 @@ export default function GlobalSearch() {
   const [debounced, setDebounced] = useState("");
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
+  const { openVessel } = useVesselModal();
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -57,6 +59,12 @@ export default function GlobalSearch() {
     setQuery("");
     navigate(path);
     scrollPageToTop();
+  };
+  /** A vessel hit opens the vessel modal straight from the results list. */
+  const goVessel = (id: number) => {
+    setOpen(false);
+    setQuery("");
+    openVessel(id);
   };
 
   const hasResults =
@@ -182,7 +190,7 @@ export default function GlobalSearch() {
               {(data!.vessels?.length ?? 0) > 0 && (
                 <Section title="Vessels">
                   {data!.vessels!.map(v => (
-                    <Row key={`v-${v.id}`} onClick={() => go(`/vessels?q=${encodeURIComponent(v.name)}`)}>
+                    <Row key={`v-${v.id}`} onClick={() => goVessel(v.id)}>
                       <Ship className="h-4 w-4 text-muted-foreground shrink-0" />
                       <div className="min-w-0 flex-1">
                         <div className="truncate">{v.name}</div>

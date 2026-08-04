@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { VesselLink } from "@/components/VesselLink";
 import { fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
@@ -250,7 +251,9 @@ export default function OpsAssets() {
                         <div className="font-medium truncate">{a.name}</div>
                         <div className="font-mono text-xs text-muted-foreground mt-0.5 truncate">S/N {a.serialNumber}</div>
                       </TableCell>
-                      <TableCell className="text-sm">{a.vesselName ?? "—"}</TableCell>
+                      <TableCell className="text-sm overflow-hidden">
+                        <VesselLink vesselId={a.vesselId} name={a.vesselName} />
+                      </TableCell>
                       <TableCell>
                         <Select value={a.status} onValueChange={v => updateStatus.mutate({ id: a.id, status: v as any })}>
                           <SelectTrigger className="h-7 w-[130px] text-xs border-0 p-0">

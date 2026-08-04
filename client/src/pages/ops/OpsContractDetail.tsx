@@ -19,6 +19,7 @@ import { ProductPicker } from "@/components/ProductPicker";
 import { ArrowLeft, CalendarRange, CheckCircle2, ChevronDown, ChevronRight, Clock, Package, Pencil, Plus, Ship, Trash2, Wallet } from "lucide-react";
 import { Play, XCircle } from "lucide-react";
 import { useLocation, useParams } from "wouter";
+import { useVesselModal } from "@/contexts/VesselModalContext";
 import { toast } from "sonner";
 import { Fragment, useState } from "react";
 
@@ -68,6 +69,8 @@ export default function OpsContractDetail() {
   const params = useParams<{ id: string }>();
   const contractId = Number(params.id);
   const [, navigate] = useLocation();
+  // Vessels always open as a modal on top of the contract, never as a separate page.
+  const { openVessel } = useVesselModal();
   const { data, isLoading } = trpc.opsContracts.get.useQuery({ id: contractId }, { enabled: contractId > 0 });
   const { data: vessels } = trpc.vessels.list.useQuery();
   const utils = trpc.useUtils();
@@ -753,10 +756,10 @@ export default function OpsContractDetail() {
               ) : (
                 assignments.map(a => (
                   <TableRow key={a.id} className="hover:bg-muted/50">
-                    {/* Open the full vessel page: it carries the same grouped Products view as this contract. */}
+                    {/* Open the vessel modal in place: it carries the same grouped Products view as this contract. */}
                     <TableCell
                       className="font-medium cursor-pointer hover:text-primary hover:underline underline-offset-2"
-                      onClick={() => navigate(`/vessels/${a.vesselId}`)}
+                      onClick={() => openVessel(a.vesselId)}
                       title={`Open ${a.vesselName}`}
                     >
                       {a.vesselName}
@@ -995,7 +998,7 @@ export default function OpsContractDetail() {
                                         <div key={v.vesselId} className="flex items-center gap-3 text-xs">
                                           <span
                                             className="w-52 truncate text-primary hover:underline underline-offset-2 cursor-pointer"
-                                            onClick={e => { e.stopPropagation(); navigate(`/vessels/${v.vesselId}`); }}
+                                            onClick={e => { e.stopPropagation(); openVessel(v.vesselId); }}
                                           >
                                             {v.vesselName}
                                           </span>

@@ -9,7 +9,7 @@
  *  - as the "Details" tab of the group / company card
  */
 import { CustomFieldsBlock } from "@/components/CustomFieldsBlock";
-import { VesselDetailDialog } from "@/components/VesselDetailDialog";
+import { useVesselModal } from "@/contexts/VesselModalContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -53,8 +53,8 @@ export function RecordDetailsPanel({
   showCollectionsLink?: boolean;
 }) {
   const [, navigate] = useLocation();
-  /** Vessel whose financial (AR) card is open on top of this one. */
-  const [arVesselId, setArVesselId] = useState<number | null>(null);
+  // The full vessel view is the app-wide vessel modal, opened on top of this card.
+  const { openVessel } = useVesselModal();
   const utils = trpc.useUtils();
   /** Person ↔ Department is edited straight from the card and saved immediately. */
   const setContactType = trpc.addressBook.setContactType.useMutation({
@@ -132,9 +132,9 @@ export function RecordDetailsPanel({
               variant="outline"
               size="sm"
               className="h-7 gap-1 text-xs"
-              onClick={() => setArVesselId(vesselRow.id)}
+              onClick={() => openVessel(vesselRow.id)}
             >
-              <ExternalLink className="h-3 w-3" /> Open AR card
+              <ExternalLink className="h-3 w-3" /> Open vessel card
             </Button>
           )}
         </div>
@@ -285,8 +285,8 @@ export function RecordDetailsPanel({
             items={relatedVessels.map(v => ({
               key: v.recordKey,
               label: v.name,
-              onClick: () =>
-                openRecord({ entity: "vessel", recordKey: v.recordKey, title: v.name, subtitle: v.ownerGroup }),
+              // Clicking a vessel anywhere opens the vessel modal, not a directory record.
+              onClick: () => openVessel(v.id),
             }))}
           />
           <RelatedList
@@ -306,15 +306,6 @@ export function RecordDetailsPanel({
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Custom fields</p>
         {recordKey && <CustomFieldsBlock entity={entity} recordKey={recordKey} />}
       </section>
-
-      {/* Financial view of the same vessel — opened on demand from the directory card. */}
-      <VesselDetailDialog
-        vesselId={arVesselId}
-        open={arVesselId != null}
-        onOpenChange={v => {
-          if (!v) setArVesselId(null);
-        }}
-      />
     </div>
   );
 }

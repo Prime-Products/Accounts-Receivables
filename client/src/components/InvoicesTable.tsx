@@ -10,18 +10,14 @@ import { Textarea } from "@/components/ui/textarea";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import { AllocateCreditNoteDialog } from "@/components/AllocateCreditNoteDialog";
 import { AllocateWireTransferDialog } from "@/components/AllocateWireTransferDialog";
+import { VesselBadge } from "@/components/VesselLink";
 import { branchColors, branchShort, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { invoiceDisplayStatus } from "@/lib/invoiceFilters";
 import { trpc } from "@/lib/trpc";
 import { normalizeRemittanceMethod } from "@shared/remittanceMethods";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, HelpCircle, Link2, Ship, Undo2, X } from "lucide-react";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Banknote, ChevronDown, FileMinus2, FileSignature, HelpCircle, Link2, Undo2, X } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
-
-// Lazy import to break the circular dependency (VesselDetailDialog renders InvoicesTable).
-const VesselDetailDialog = lazy(() =>
-  import("@/components/VesselDetailDialog").then(m => ({ default: m.VesselDetailDialog })),
-);
 
 /** The unified invoice row shape shared by invoices.list, groupDetail and get360. */
 export interface InvoiceRowData {
@@ -211,10 +207,7 @@ function CreditNoteRow({
       )}
       <TableCell className="overflow-hidden">
         {cn.vesselName ? (
-          <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-full" title={`Vessel: ${cn.vesselName}`}>
-            <Ship className="h-3 w-3 shrink-0" />
-            <span className="truncate">{cn.vesselName}</span>
-          </Badge>
+          <VesselBadge vesselId={(cn as { vesselId?: number | null }).vesselId ?? null} name={cn.vesselName} />
         ) : cn.contractNo ? (
           <span className="text-xs text-muted-foreground truncate" title={`Contract ${cn.contractNo}`}>{cn.contractNo}</span>
         ) : (
@@ -458,8 +451,6 @@ export function InvoicesTable({
   const utils = trpc.useUtils();
   const [dispTarget, setDispTarget] = useState<{ id: number; invoiceNumber: string } | null>(null);
   const [dispReason, setDispReason] = useState("");
-  const [vesselDialogId, setVesselDialogId] = useState<number | null>(null);
-  const [vesselDialogOpen, setVesselDialogOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -672,19 +663,7 @@ export function InvoicesTable({
               )}
               <TableCell className="overflow-hidden">
                 {i.vesselName ? (
-                  i.vesselId && !disableVesselDialog ? (
-                    <button type="button" onClick={() => { setVesselDialogId(i.vesselId!); setVesselDialogOpen(true); }} className="max-w-full">
-                      <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-full cursor-pointer hover:bg-sky-100 transition-colors" title={`View vessel: ${i.vesselName}`}>
-                        <Ship className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{i.vesselName}</span>
-                      </Badge>
-                    </button>
-                  ) : (
-                    <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200 gap-1 font-normal max-w-full" title={`Vessel: ${i.vesselName}`}>
-                      <Ship className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{i.vesselName}</span>
-                    </Badge>
-                  )
+                  <VesselBadge vesselId={disableVesselDialog ? null : i.vesselId} name={i.vesselName} />
                 ) : (
                   <span className="text-muted-foreground/50 text-xs">—</span>
                 )}
@@ -811,16 +790,6 @@ export function InvoicesTable({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {!disableVesselDialog && vesselDialogId != null && (
-        <Suspense fallback={null}>
-          <VesselDetailDialog
-            vesselId={vesselDialogId}
-            open={vesselDialogOpen}
-            onOpenChange={setVesselDialogOpen}
-          />
-        </Suspense>
-      )}
 
       {/* Floating bulk-action bar for selected invoices */}
       {enableSelection && selectedIds.size > 0 && (

@@ -8,6 +8,7 @@ import { Redirect, Route, Switch } from "wouter";
 import DashboardLayout from "./components/DashboardLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { VesselModalProvider } from "./contexts/VesselModalContext";
 import Home from "./pages/Home";
 
 // Route-level code splitting: each page loads its own JS chunk on demand,
@@ -23,7 +24,6 @@ const Settings = lazy(() => import("./pages/Settings"));
 const WireTransfersPage = lazy(() => import("./pages/WireTransfersPage"));
 const Team = lazy(() => import("./pages/Team"));
 const Vessels = lazy(() => import("./pages/Vessels"));
-const VesselDetail = lazy(() => import("./pages/VesselDetail"));
 
 // Operations module pages
 const OpsDashboard = lazy(() => import("./pages/ops/OpsDashboard"));
@@ -31,7 +31,6 @@ const OpsContractsList = lazy(() => import("./pages/ops/OpsContractsList"));
 const OpsContractDetail = lazy(() => import("./pages/ops/OpsContractDetail"));
 const OpsAssets = lazy(() => import("./pages/ops/OpsAssets"));
 const OpsCertificates = lazy(() => import("./pages/ops/OpsCertificates"));
-const OpsVesselDashboard = lazy(() => import("./pages/ops/OpsVesselDashboard"));
 
 function PageFallback() {
   return (
@@ -71,7 +70,11 @@ function Router() {
           <Route path={"/groups/:name"} component={GroupDetail} />
           <Route path={"/invoices"} component={Invoices} />
           <Route path={"/vessels"} component={Vessels} />
-          <Route path={"/vessels/:id"} component={VesselDetail} />
+          {/*
+            A vessel is always shown as a modal on top of the current page, so the old
+            per-vessel pages just hand the id to the Vessels list, which opens the modal.
+          */}
+          <Route path={"/vessels/:id"}>{(p: { id: string }) => <Redirect to={`/vessels?vessel=${p.id}`} />}</Route>
           <Route path={"/address-book"} component={AddressBook} />
           {/* Legacy path kept so old links and bookmarks still land somewhere useful. */}
           <Route path={"/contacts"} component={AddressBook} />
@@ -95,7 +98,7 @@ function Router() {
           <Route path={"/ops/contracts/:id"} component={OpsContractDetail} />
           <Route path={"/ops/assets"} component={OpsAssets} />
           <Route path={"/ops/certificates"} component={OpsCertificates} />
-          <Route path={"/ops/vessel/:id"} component={OpsVesselDashboard} />
+          <Route path={"/ops/vessel/:id"}>{(p: { id: string }) => <Redirect to={`/vessels?vessel=${p.id}`} />}</Route>
           <Route path={"/ops/catalog"} component={OpsCatalog} />
           <Route path={"/404"} component={NotFound} />
           <Route component={NotFound} />
@@ -119,7 +122,10 @@ function App() {
       >
         <TooltipProvider>
           <Toaster />
-          <Router />
+          {/* One vessel modal for the whole app: any vessel click opens it in place. */}
+          <VesselModalProvider>
+            <Router />
+          </VesselModalProvider>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
