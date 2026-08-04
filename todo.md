@@ -2058,3 +2058,5 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Vessel page: show supply status per item — Not Supplied until the serial-tracked units are supplied
 - [x] Update the affected vitest specs for the new taxonomy (965 tests passing)
 - [x] Contract Vessels tab: supply column per vessel (x/y supplied)
+- [x] Vessel page: supply badge on every item line (supplied / partial / not supplied), not only serial-tracked ones
+- [x] Contract: fleet-wide outstanding supply summary — what is still to be delivered per item and per vessel

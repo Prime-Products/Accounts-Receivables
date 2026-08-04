@@ -17,13 +17,14 @@ describe("per-vessel supply counts on the contract", () => {
   });
 
   it("treats anything that left the warehouse as supplied", () => {
-    expect(opsRouter).toContain('const suppliedStatuses = new Set(["In Transit", "Active", "Pending Return", "Returned"])');
-    expect(opsRouter).not.toMatch(/suppliedStatuses = new Set\(\[[^\]]*"Not Supplied"/);
+    // The rule lives in one shared helper so the vessel card and the contract agree.
+    expect(opsRouter).toContain('import { isSuppliedStatus } from "@shared/supplyState"');
+    expect(opsRouter).not.toContain('new Set(["In Transit", "Active", "Pending Return", "Returned"])');
   });
 
   it("returns a total and a supplied count on every vessel assignment", () => {
     expect(opsRouter).toContain("equipmentTotal: own.length");
-    expect(opsRouter).toContain("equipmentSupplied: own.filter(x => suppliedStatuses.has(String(x.status))).length");
+    expect(opsRouter).toContain("equipmentSupplied: own.filter(x => isSuppliedStatus(String(x.status))).length");
   });
 
   it("counts only the equipment of the vessel being described", () => {

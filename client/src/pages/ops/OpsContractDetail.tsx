@@ -13,7 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { fmtDate, fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { groupContractProducts } from "@shared/productGrouping";
-import { ArrowLeft, CheckCircle2, Clock, CreditCard, Package, Pencil, Plus, Ship, Trash2, Wallet } from "lucide-react";
+import { SupplyBadge } from "@/components/SupplyBadge";
+import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, Clock, CreditCard, Package, Pencil, Plus, Ship, Trash2, Wallet } from "lucide-react";
 import { Play, XCircle } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
@@ -88,6 +89,9 @@ export default function OpsContractDetail() {
 
   /* ─── Add Vessel Dialog ─── */
   const [assignOpen, setAssignOpen] = useState(false);
+  /* ─── Supply tab: narrow to open lines, expand one line at a time ─── */
+  const [onlyOutstanding, setOnlyOutstanding] = useState(false);
+  const [expandedLine, setExpandedLine] = useState<number | null>(null);
   const [assignForm, setAssignForm] = useState({ vesselId: "", notes: "" });
   const [vesselSearch, setVesselSearch] = useState("");
   const assignVessel = trpc.opsContracts.assignVessel.useMutation({
@@ -218,7 +222,7 @@ export default function OpsContractDetail() {
     );
   }
 
-  const { contract, library, schedule, assignments, customer, totals } = data;
+  const { contract, library, schedule, assignments, customer, totals, supplyLines, supplySummary } = data;
   const collected = schedule.filter(p => p.status === "Paid").reduce((s, p) => s + Number(p.amount), 0);
   const remaining = Number(contract.totalValue) - collected;
   /**
@@ -273,6 +277,13 @@ export default function OpsContractDetail() {
   };
   /** Products grouped by nature: instruments, then cylinders, then ampoules, then the rest. */
   const productGroups = groupContractProducts(library);
+  /**
+   * Supply view: the same nature grouping as the product list, but read as a delivery
+   * checklist. Lines with nothing outstanding are kept — the user wants to see both what
+   * has been supplied and what has not — while the toggle narrows it to the open ones.
+   */
+  const supplyGroups = groupContractProducts(supplyLines);
+  const outstandingGroups = groupContractProducts(supplyLines.filter(l => l.outstanding > 0));
 
   return (
     <div className="p-2 sm:p-4 space-y-6">
@@ -371,6 +382,9 @@ export default function OpsContractDetail() {
           <TabsTrigger value="products">Products ({library.length})</TabsTrigger>
           <TabsTrigger value="financials">Financials</TabsTrigger>
           <TabsTrigger value="vessels">Vessels ({assignments.length})</TabsTrigger>
+          <TabsTrigger value="supply">
+            Supply{supplySummary.unitsOutstanding > 0 ? ` (${supplySummary.unitsOutstanding} left)` : ""}
+          </TabsTrigger>
         </TabsList>
 
         {/* ── Products: one agreed list per vessel, grouped by nature ── */}
@@ -801,6 +815,158 @@ export default function OpsContractDetail() {
         </CardContent>
       </Card>
 
+        </TabsContent>
+
+        {/* ── Supply: the delivery checklist — what the fleet is owed and what is still open ── */}
+        <TabsContent value="supply" className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Units supplied</div>
+                <div className="text-xl font-bold font-mono text-emerald-700">
+                  {supplySummary.unitsSupplied}
+                  <span className="text-sm text-muted-foreground font-normal"> / {supplySummary.unitsExpected}</span>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Still to deliver</div>
+                <div className={`text-xl font-bold font-mono ${supplySummary.unitsOutstanding > 0 ? "text-amber-600" : "text-emerald-700"}`}>
+                  {supplySummary.unitsOutstanding}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">unit(s) across the fleet</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Open lines</div>
+                <div className="text-xl font-bold font-mono">{supplySummary.linesOutstanding}</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">of {supplyLines.length} product line(s)</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Vessels awaiting delivery</div>
+                <div className="text-xl font-bold font-mono">{supplySummary.vesselsOutstanding}</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">of {assignments.length} on contract</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4" /> Supply status per product</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Fleet entitlement is the agreed quantity across {assignments.length || 1} vessel(s). Expand a line to see which vessel is still waiting.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() => setOnlyOutstanding(v => !v)}
+                >
+                  {onlyOutstanding ? "Show all lines" : "Show only outstanding"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-center">Qty / Vessel</TableHead>
+                    <TableHead className="text-center">Fleet total</TableHead>
+                    <TableHead className="text-center">Supplied</TableHead>
+                    <TableHead className="text-center">Still to deliver</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(onlyOutstanding ? outstandingGroups : supplyGroups).length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        {onlyOutstanding
+                          ? "Nothing outstanding — every line has been supplied to every vessel."
+                          : "No products yet — add the contract's product list first."}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    (onlyOutstanding ? outstandingGroups : supplyGroups).map(group => (
+                      <Fragment key={group.group}>
+                        <TableRow className="bg-muted/60 hover:bg-muted/60">
+                          <TableCell colSpan={6} className="py-2">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className={productTypeColors[group.group] ?? ""}>{group.label}</Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {group.items.reduce((s, l) => s + l.outstanding, 0)} unit(s) still to deliver
+                              </span>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {group.items.map(line => (
+                          <Fragment key={line.id}>
+                            <TableRow
+                              className="cursor-pointer hover:bg-muted/40"
+                              onClick={() => setExpandedLine(expandedLine === line.id ? null : line.id)}
+                            >
+                              <TableCell className="pl-6">
+                                <div className="font-medium flex items-center gap-1.5">
+                                  {expandedLine === line.id
+                                    ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                                    : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                                  {line.name}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center font-mono text-sm">{line.quantityPerVessel}</TableCell>
+                              <TableCell className="text-center font-mono text-sm">{line.expected}</TableCell>
+                              <TableCell className="text-center font-mono text-sm text-emerald-700">{line.supplied}</TableCell>
+                              <TableCell className={`text-center font-mono text-sm ${line.outstanding > 0 ? "text-amber-600 font-semibold" : "text-muted-foreground"}`}>
+                                {line.outstanding}
+                              </TableCell>
+                              <TableCell>
+                                <SupplyBadge supplied={line.supplied} total={line.expected} />
+                              </TableCell>
+                            </TableRow>
+                            {expandedLine === line.id && (
+                              <TableRow className="hover:bg-transparent">
+                                <TableCell colSpan={6} className="bg-muted/20 py-2">
+                                  <div className="pl-10 space-y-1">
+                                    {line.byVessel.length === 0 ? (
+                                      <div className="text-xs text-muted-foreground">No vessels on this contract yet.</div>
+                                    ) : (
+                                      line.byVessel.map(v => (
+                                        <div key={v.vesselId} className="flex items-center gap-3 text-xs">
+                                          <span
+                                            className="w-52 truncate text-primary hover:underline underline-offset-2 cursor-pointer"
+                                            onClick={e => { e.stopPropagation(); navigate(`/vessels/${v.vesselId}`); }}
+                                          >
+                                            {v.vesselName}
+                                          </span>
+                                          <span className="font-mono text-muted-foreground w-20">{v.supplied}/{v.expected}</span>
+                                          <SupplyBadge supplied={v.supplied} total={v.expected} showCount={false} />
+                                          {v.outstanding > 0 && (
+                                            <span className="text-amber-600">{v.outstanding} to deliver</span>
+                                          )}
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Fragment>
+                        ))}
+                      </Fragment>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

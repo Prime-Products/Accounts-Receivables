@@ -4,6 +4,7 @@ import * as opsDb from "../opsDb";
 import * as db from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { certUrgency, daysUntilExpiry } from "@shared/certificateExpiry";
+import { isSuppliedStatus } from "@shared/supplyState";
 import { runCertificateReminders } from "../lib/certificateReminders";
 import {
   opsQuotationStatuses,
@@ -390,7 +391,6 @@ export const opsContractsRouter = router({
     const customer = customers.find(c => c.id === contract.customerId);
     // Supply progress per vessel: an equipment unit counts as supplied once it has left the warehouse.
     const contractAssets = await opsDb.listAssets({ contractId: input.id });
-    const suppliedStatuses = new Set(["In Transit", "Active", "Pending Return", "Returned"]);
     const assignedVessels = assignments.map(a => {
       const v = vessels.find(v => v.id === a.vesselId);
       const own = contractAssets.filter(x => x.vesselId === a.vesselId);
@@ -399,9 +399,49 @@ export const opsContractsRouter = router({
         vesselName: v?.name ?? "—",
         vesselImo: v?.imo ?? null,
         equipmentTotal: own.length,
-        equipmentSupplied: own.filter(x => suppliedStatuses.has(String(x.status))).length,
+        equipmentSupplied: own.filter(x => isSuppliedStatus(String(x.status))).length,
       };
     });
+    // Fleet-wide supply picture: for every product line, what the whole fleet is entitled to
+    // (agreed quantity x vessels), what has already left the warehouse and what is still owed,
+    // plus the same figure per vessel so the outstanding delivery list is actionable.
+    const vesselCount = assignments.length;
+    const supplyLines = library.map(item => {
+      const units = contractAssets.filter(a => a.name === item.name);
+      const serialTracked = units.length > 0;
+      const expected = serialTracked ? units.length : item.quantity * Math.max(vesselCount, 1);
+      const supplied = units.filter(u => isSuppliedStatus(String(u.status))).length;
+      return {
+        id: item.id,
+        name: item.name,
+        itemType: item.itemType,
+        quantityPerVessel: item.quantity,
+        serialTracked,
+        expected,
+        supplied,
+        outstanding: Math.max(expected - supplied, 0),
+        // Per-vessel breakdown of what is still to deliver for this line.
+        byVessel: assignments.map(a => {
+          const own = units.filter(u => u.vesselId === a.vesselId);
+          const vExpected = serialTracked ? own.length : item.quantity;
+          const vSupplied = own.filter(u => isSuppliedStatus(String(u.status))).length;
+          return {
+            vesselId: a.vesselId,
+            vesselName: vessels.find(v => v.id === a.vesselId)?.name ?? `Vessel ${a.vesselId}`,
+            expected: vExpected,
+            supplied: vSupplied,
+            outstanding: Math.max(vExpected - vSupplied, 0),
+          };
+        }),
+      };
+    });
+    const supplySummary = {
+      unitsExpected: supplyLines.reduce((s, l) => s + l.expected, 0),
+      unitsSupplied: supplyLines.reduce((s, l) => s + l.supplied, 0),
+      unitsOutstanding: supplyLines.reduce((s, l) => s + l.outstanding, 0),
+      linesOutstanding: supplyLines.filter(l => l.outstanding > 0).length,
+      vesselsOutstanding: assignedVessels.filter(v => v.equipmentSupplied < v.equipmentTotal || v.equipmentTotal === 0).length,
+    };
     // Each vessel is billed on its own schedule, so label every installment with its vessel.
     const vesselName = (id: number | null) =>
       id == null ? null : (vessels.find(v => v.id === id)?.name ?? `Vessel ${id}`);
@@ -421,6 +461,8 @@ export const opsContractsRouter = router({
       assignments: assignedVessels,
       customer,
       totals: { costPerVessel, listPricePerVessel, margin },
+      supplyLines,
+      supplySummary,
     };
   }),
   create: protectedProcedure

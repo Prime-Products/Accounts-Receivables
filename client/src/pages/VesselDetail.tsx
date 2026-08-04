@@ -8,10 +8,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { SupplyBadge } from "@/components/SupplyBadge";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { groupContractProducts } from "@shared/productGrouping";
-import { ArrowLeft, Anchor, CheckCircle2, Circle, FileText, Flag, Package, Pencil, Ship } from "lucide-react";
+import { ArrowLeft, Anchor, FileText, Flag, Package, Pencil, Ship } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { Link, useLocation, useRoute } from "wouter";
 import { toast } from "sonner";
@@ -75,8 +76,11 @@ export default function VesselDetail() {
   }
 
   const { vessel, stats, invoices, relatedCompanies } = data;
-  const suppliedCount = contractItems.filter(i => i.supplied === true).length;
-  const trackedCount = contractItems.filter(i => i.serialTracked).length;
+  // Supply progress across every line of the vessel's entitlement, units not lines, so
+  // the header states exactly how much is still owed to this vessel.
+  const unitsTotal = contractItems.reduce((s, i) => s + i.unitsExpected, 0);
+  const unitsSupplied = contractItems.reduce((s, i) => s + i.unitsSupplied, 0);
+  const linesOutstanding = contractItems.filter(i => i.unitsSupplied < i.unitsExpected).length;
 
   const openEdit = () => {
     setForm({
@@ -213,9 +217,12 @@ export default function VesselDetail() {
           <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
             <Package className="h-4 w-4" /> Contract items on board ({contractItems.length})
           </CardTitle>
-          {trackedCount > 0 && (
+          {unitsTotal > 0 && (
             <p className="text-xs text-muted-foreground">
-              {suppliedCount} of {trackedCount} serial-tracked line(s) fully supplied
+              {unitsSupplied} of {unitsTotal} unit(s) supplied
+              {linesOutstanding > 0
+                ? ` · ${linesOutstanding} line(s) still to deliver`
+                : " · nothing outstanding"}
             </p>
           )}
         </CardHeader>
@@ -263,22 +270,15 @@ export default function VesselDetail() {
                         </TableCell>
                         <TableCell className="text-right font-mono">{item.quantity}</TableCell>
                         <TableCell>
-                          {!item.serialTracked ? (
-                            <span className="text-muted-foreground text-sm">—</span>
-                          ) : item.supplied ? (
-                            <Badge variant="outline" className="gap-1 bg-emerald-100 text-emerald-800 border-emerald-200">
-                              <CheckCircle2 className="h-3 w-3" /> Supplied
-                            </Badge>
-                          ) : (
-                            <div className="space-y-1">
-                              <Badge variant="outline" className="gap-1 bg-slate-100 text-slate-700 border-slate-200">
-                                <Circle className="h-3 w-3" /> Not Supplied
-                              </Badge>
+                          {/* Every line carries a badge, tracked or not, so the eye can scan the column */}
+                          <div className="space-y-1">
+                            <SupplyBadge supplied={item.unitsSupplied} total={item.unitsExpected} />
+                            {item.unitsSupplied < item.unitsExpected && (
                               <div className="text-[11px] text-muted-foreground">
-                                {item.unitsSupplied} of {item.unitsTotal} unit(s) shipped
+                                {item.unitsExpected - item.unitsSupplied} unit(s) still to deliver
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           {item.contractId ? (

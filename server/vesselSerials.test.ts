@@ -66,8 +66,10 @@ describe("vessel page shows grouped contract items with serials under the descri
 
   it("shows the supply status per line", () => {
     expect(page).toContain("Supply status");
-    expect(page).toContain("Not Supplied");
-    expect(page).toContain("unit(s) shipped");
+    // Every line renders the shared badge, tracked or not.
+    expect(page).toContain('import { SupplyBadge } from "@/components/SupplyBadge"');
+    expect(page).toContain("<SupplyBadge supplied={item.unitsSupplied} total={item.unitsExpected} />");
+    expect(page).toContain("unit(s) still to deliver");
   });
 
   it("links each instrument back to its contract", () => {

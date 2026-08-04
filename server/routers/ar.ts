@@ -12,6 +12,7 @@ import {
 } from "../../drizzle/schema";
 import { matchScore, matchesAllTokens } from "../../shared/textMatch";
 import { parseMentions, stripMentionMarkup } from "../../shared/mentions";
+import { isSuppliedStatus } from "../../shared/supplyState";
 import * as db from "../db";
 import * as opsDb from "../opsDb";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -3123,8 +3124,11 @@ export const vesselsRouter = router({
       const contract = contractById.get(cid);
       return libraries[i].map(item => {
         const units = assets.filter(a => a.contractId === cid && a.name === item.name);
-        const suppliedUnits = units.filter(u => u.status !== "Not Supplied");
+        const suppliedUnits = units.filter(u => isSuppliedStatus(String(u.status)));
         const serialTracked = units.length > 0;
+        // Non serial-tracked lines (consumables, other) have no equipment rows, so the
+        // agreed quantity is what the vessel is owed and nothing counts as shipped yet.
+        const unitsExpected = serialTracked ? units.length : item.quantity;
         return {
           id: item.id,
           contractId: cid,
@@ -3136,6 +3140,7 @@ export const vesselsRouter = router({
           quotaLimit: item.quotaLimit,
           serialTracked,
           unitsTotal: units.length,
+          unitsExpected,
           unitsSupplied: suppliedUnits.length,
           supplied: serialTracked ? suppliedUnits.length === units.length : null,
           serials: units.map(u => ({
