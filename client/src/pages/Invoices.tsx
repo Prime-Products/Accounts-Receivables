@@ -77,7 +77,7 @@ export default function Invoices() {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("view") === "credits";
   });
-  const { data: creditNotes } = trpc.invoices.openCreditNotes.useQuery();
+  const { data: creditNotes } = trpc.invoices.creditNotes.useQuery();
   const [creditStatusFilter, setCreditStatusFilter] = useState("all");
 
   // Receipt dialog

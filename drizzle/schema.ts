@@ -1005,6 +1005,8 @@ export const creditNotes = mysqlTable(
     amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
     /** Still unmatched (open) part of the credit note, stored positive. */
     openAmount: decimal("openAmount", { precision: 14, scale: 2 }).notNull(),
+    /** SoftOne settlement date when the credit note became fully used/closed. */
+    closedAt: bigint("closedAt", { mode: "number" }),
     /** openAmount converted to EUR with the FX rates in app settings. */
     openAmountEur: decimal("openAmountEur", { precision: 14, scale: 2 }),
     /** Optional vessel the credit note concerns; FK to vessels.id. */
@@ -1019,6 +1021,7 @@ export const creditNotes = mysqlTable(
     index("idx_credit_notes_customerId").on(t.customerId),
     index("idx_credit_notes_docNumber").on(t.docNumber),
     index("idx_credit_notes_docDate").on(t.docDate),
+    index("idx_credit_notes_closedAt").on(t.closedAt),
     index("idx_credit_notes_branch").on(t.branch),
   ]
 );
