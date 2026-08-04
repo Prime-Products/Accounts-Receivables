@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, like, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { monthRange } from "./lib/arLogic";
 import {
@@ -2001,6 +2001,23 @@ export async function upsertSoftOneCreditNotes(records: SoftOneCreditNoteUpsert[
       }});
   }
   return { synced: values.length };
+}
+
+/** Remove ERP-sourced ordinary ΔΑΤ invoices that were previously misclassified as credits. */
+export async function deleteMisclassifiedSoftOneCreditNotes() {
+  const database = await requireDb();
+  const invalid = await database
+    .select({ id: creditNotes.id })
+    .from(creditNotes)
+    .where(and(
+      isNotNull(creditNotes.softoneId),
+      like(creditNotes.docNumber, "ΔΑΤ-%"),
+    ));
+  const ids = invalid.map(row => row.id);
+  if (ids.length === 0) return { deleted: 0 };
+  await database.delete(creditNoteAllocations).where(inArray(creditNoteAllocations.creditNoteId, ids));
+  await database.delete(creditNotes).where(inArray(creditNotes.id, ids));
+  return { deleted: ids.length };
 }
 
 

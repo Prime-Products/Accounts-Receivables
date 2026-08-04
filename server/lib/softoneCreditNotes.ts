@@ -92,6 +92,18 @@ WHERE document.[COMPANY] = 1
   AND document.[TRNDATE] >= '${rangeStart}'
   AND document.[TRNDATE] < '${rangeEnd}'
   AND document.[FINDOC] > ${afterFindoc}
+  AND document.[FINCODE] NOT LIKE N'ΔΑΤ-%'
+  AND EXISTS (
+    SELECT 1
+    FROM [dbo].[FINPAYTERMS] AS open_terms
+    WHERE open_terms.[COMPANY] = document.[COMPANY]
+      AND open_terms.[FINDOC] = document.[FINDOC]
+      AND open_terms.[ISCANCEL] = 0
+      AND open_terms.[APPRV] = 1
+      AND open_terms.[PAYDEMANDMD] IN (-1, 1)
+    GROUP BY open_terms.[FINDOC]
+    HAVING ABS(SUM(open_terms.[OPNTAMNT] * open_terms.[PAYDEMANDMD])) > 0.005
+  )
   AND NOT EXISTS (
     SELECT 1
     FROM [dbo].[TRDR] AS internal_customer
@@ -134,7 +146,7 @@ export function normalizeSoftOneCreditNotes(
   currencies: Map<string, string>,
 ) {
   const seen = new Set<string>();
-  return rows.map(row => {
+  return rows.flatMap<SoftOneCreditNoteUpsert>(row => {
     const softoneId = identity(row, "FINDOC");
     if (seen.has(softoneId)) throw new Error(`SoftOne returned duplicate credit note ${softoneId}.`);
     seen.add(softoneId);
@@ -142,13 +154,14 @@ export function normalizeSoftOneCreditNotes(
     const branch = companies.get(identity(row, "COMPANY"));
     const currencyName = currencies.get(identity(row, "SOCURRENCY"));
     if (!docNumber || !branch || !currencyName) throw new Error(`SoftOne credit note ${softoneId} has incomplete lookup data.`);
+    if (/^ΔΑΤ-/iu.test(docNumber)) return [];
     const sourceAmount = Math.round(numberValue(row, "AMOUNT") * 100) / 100;
     const sourceOpen = Math.round(numberValue(row, "OPEN_AMOUNT") * 100) / 100;
     const amount = Math.max(sourceAmount, sourceOpen);
     const openAmount = Math.min(amount, Math.max(0, sourceOpen));
     if (amount <= 0) throw new Error(`SoftOne credit note ${softoneId} has invalid amount.`);
     const currency = normalizeSoftOneCurrencyName(currencyName);
-    return {
+    const record = {
       customerSoftoneId: identity(row, "TRDR"),
       docNumber,
       softoneId,
@@ -161,6 +174,7 @@ export function normalizeSoftOneCreditNotes(
       vesselId: numberValue(row, "VESSEL_ID") > 0 ? numberValue(row, "VESSEL_ID") : null,
       notes: `SoftOne series ${identity(row, "SERIES")}`,
     } satisfies SoftOneCreditNoteUpsert;
+    return Number(record.openAmount) > 0.005 ? [record] : [];
   });
 }
 
@@ -228,6 +242,8 @@ export async function syncSoftOneCreditNotes(onProgress: (stage: string) => void
   try {
     const month = monthSetting();
     const records = await load(value => { stage = value; onProgress(value); }, month);
+    stage = "remove misclassified SoftOne credit notes";
+    await db.deleteMisclassifiedSoftOneCreditNotes();
     stage = "upsert Hub credit notes";
     const result = await db.upsertSoftOneCreditNotes(records);
     const period = month ? `${yearSetting()}-${String(month).padStart(2, "0")}` : String(yearSetting());

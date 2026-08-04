@@ -10,6 +10,8 @@ describe("SoftOne credit-note synchronization", () => {
     expect(query).toContain("7062, 7063, 7064, 7066");
     expect(query).toContain("4301, 4302, 4303, 4304, 4308, 6651");
     expect(query).toContain("document.[ISCANCEL] = 0");
+    expect(query).toContain("document.[FINCODE] NOT LIKE N'ΔΑΤ-%'");
+    expect(query).toContain("HAVING ABS(SUM(open_terms.[OPNTAMNT] * open_terms.[PAYDEMANDMD])) > 0.005");
     expect(query).toContain("internal_customer.[TRDGROUP] = 473");
   });
 
@@ -29,19 +31,20 @@ describe("SoftOne credit-note synchronization", () => {
     expect(december).toContain("document.[TRNDATE] < '20270101'");
   });
 
-  it("normalizes open, partial and fully used balances without duplicates", () => {
+  it("keeps only open credit notes and rejects ordinary ΔΑΤ invoices", () => {
     const base = { TRDR: 10, COMPANY: 1, VESSEL_ID: 0, SOCURRENCY: 999, DOC_DATE: 20260110, SERIES: 7063 };
     const records = normalizeSoftOneCreditNotes(
       [
         { ...base, FINDOC: 1, AMOUNT: 100, OPEN_AMOUNT: 100 },
         { ...base, FINDOC: 2, AMOUNT: 100, OPEN_AMOUNT: 40 },
         { ...base, FINDOC: 3, AMOUNT: 100, OPEN_AMOUNT: 0 },
+        { ...base, FINDOC: 4, AMOUNT: 100, OPEN_AMOUNT: 100 },
       ],
-      new Map([["1", "CN-1"], ["2", "CN-2"], ["3", "CN-3"]]),
+      new Map([["1", "CN-1"], ["2", "CN-2"], ["3", "CN-3"], ["4", "ΔΑΤ-100"]]),
       new Map([["1", "Prime Products LTD"]]),
       new Map([["999", "EUR"]]),
     );
-    expect(records.map(record => record.openAmount)).toEqual(["100.00", "40.00", "0.00"]);
-    expect(records.map(record => record.softoneId)).toEqual(["1", "2", "3"]);
+    expect(records.map(record => record.openAmount)).toEqual(["100.00", "40.00"]);
+    expect(records.map(record => record.softoneId)).toEqual(["1", "2"]);
   });
 });

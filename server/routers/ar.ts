@@ -506,13 +506,14 @@ async function listCreditNotesWithStatus(customerIds: Set<number>, customerNames
   const ids = Array.from(customerIds);
   if (ids.length === 0) return [];
   const rows = await db.listCreditNotesByCustomerIds(ids).catch(() => []);
-  if (rows.length === 0) return [];
+  const creditRows = rows.filter(row => !/^ΔΑΤ-/iu.test(row.docNumber));
+  if (creditRows.length === 0) return [];
   const allocated = await db
-    .sumAllocationsByCreditNoteIds(rows.map(r => r.id))
+    .sumAllocationsByCreditNoteIds(creditRows.map(r => r.id))
     .catch(() => new Map<number, number>());
   const vesselRows = await db.listVessels().catch(() => []);
   const vesselName = new Map(vesselRows.map(v => [v.id, v.name]));
-  return rows
+  return creditRows
     .map(r => {
       const alloc = allocated.get(r.id) ?? 0;
       const open = Math.max(0, Number(r.openAmount) - alloc);
@@ -2878,11 +2879,11 @@ export const invoicesRouter = router({
     return rows.map(r => ({ ...r, customerGroup: groupOf.get(r.customerId) ?? r.customerName }));
   }),
 
-  /** All credit notes, including fully and partially used SoftOne documents. */
+  /** Open credit notes only; closed credits disappear just like paid invoices. */
   creditNotes: protectedProcedure.query(async () => {
     const customers = await db.listCustomers();
     const names = new Map(customers.map(c => [c.id, c.name]));
-    const rows = await listCreditNotesWithStatus(new Set(customers.map(c => c.id)), names);
+    const rows = await listOpenCreditNotes(new Set(customers.map(c => c.id)), names);
     const groupOf = new Map(customers.map(c => [c.id, ((c.customerGroup ?? "").trim() || c.name) as string]));
     return rows.map(r => ({ ...r, customerGroup: groupOf.get(r.customerId) ?? r.customerName }));
   }),
