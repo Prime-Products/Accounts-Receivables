@@ -742,6 +742,31 @@ export const opsContractsRouter = router({
   purgeSampleData: protectedProcedure.mutation(async () => {
     return await opsDb.purgeSampleContracts();
   }),
+  /**
+   * What deleting a contract would take with it, so the confirmation dialog can spell
+   * out the damage before the user commits.
+   */
+  deleteImpact: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      const contract = await opsDb.getOpsContract(input.id);
+      if (!contract) throw new TRPCError({ code: "NOT_FOUND", message: "Contract not found" });
+      const counts = await opsDb.countContractDependents(input.id);
+      return { contractNumber: contract.contractNumber, ...counts };
+    }),
+  /**
+   * Delete a contract and everything hanging off it (vessels, products, equipment,
+   * certificates, consumable orders, installments). The pricelist catalogue is never
+   * touched, so the products stay available for the next contract.
+   */
+  remove: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const contract = await opsDb.getOpsContract(input.id);
+      if (!contract) throw new TRPCError({ code: "NOT_FOUND", message: "Contract not found" });
+      const removed = await opsDb.deleteContractsCascade([input.id]);
+      return { success: true, contractNumber: contract.contractNumber, ...removed };
+    }),
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

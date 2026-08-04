@@ -20,9 +20,14 @@ describe("sample data marker", () => {
 });
 
 describe("purgeSampleContracts", () => {
-  const fn = opsDbSrc.slice(
-    opsDbSrc.indexOf("export async function purgeSampleContracts"),
-  );
+  // The purge delegates to the shared cascade helper, so the guarantees live there.
+  const cascadeStart = opsDbSrc.indexOf("export async function deleteContractsCascade");
+  const fn = opsDbSrc.slice(cascadeStart, opsDbSrc.indexOf("// CONTRACT LIBRARY", cascadeStart));
+
+  it("delegates the sample purge to the shared cascade helper", () => {
+    const purge = opsDbSrc.slice(opsDbSrc.indexOf("export async function purgeSampleContracts"));
+    expect(purge.slice(0, 300)).toContain("deleteContractsCascade");
+  });
 
   it("returns a zeroed summary when nothing is seeded, without touching any table", () => {
     const guard = fn.slice(0, fn.indexOf("const conn"));

@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { fmtDate, fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
-import { ArrowDown, ArrowUp, ArrowUpDown, FileCheck2, FlaskConical, Plus, Search, Ship } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, FileCheck2, FlaskConical, Plus, Search, Ship, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -40,6 +40,7 @@ const COL_DEFAULTS: Record<string, number> = {
   status: 110,
   startDate: 110,
   endDate: 110,
+  actions: 60,
 };
 
 export default function OpsContractsList() {
@@ -69,6 +70,25 @@ export default function OpsContractsList() {
       utils.opsAssets.invalidate();
     },
     onError: (err) => toast.error(err.message || "Could not remove the sample data"),
+  });
+
+  /* ─── Delete a single contract ─── */
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const { data: impact, isLoading: impactLoading } = trpc.opsContracts.deleteImpact.useQuery(
+    { id: deleteId ?? 0 },
+    { enabled: deleteId !== null },
+  );
+  const removeContract = trpc.opsContracts.remove.useMutation({
+    onSuccess: (res) => {
+      setDeleteId(null);
+      toast.success(`Deleted contract ${res.contractNumber}`, {
+        description: `${res.vessels} vessel assignment(s) · ${res.products} product line(s) · ${res.equipment} equipment unit(s) · ${res.installments} installment(s) removed. The pricelist was left untouched.`,
+      });
+      utils.opsContracts.invalidate();
+      utils.vessels.invalidate();
+      utils.opsAssets.invalidate();
+    },
+    onError: (err) => toast.error(err.message || "Could not delete the contract"),
   });
 
   /* ─── Create Dialog ─── */
@@ -256,12 +276,15 @@ export default function OpsContractsList() {
                     <span className="flex items-center">End <SortIcon col="endDate" /></span>
                     <ColResizer col="endDate" api={cols} />
                   </TableHead>
+                  <TableHead style={cols.style("actions")} className="relative text-right">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
                       <FileCheck2 className="h-8 w-8 mx-auto mb-2 opacity-40" />
                       <p>No contracts found</p>
                     </TableCell>
@@ -291,6 +314,19 @@ export default function OpsContractsList() {
                           <ContractExpiryIndicator endDate={c.endDate} variant="dot" />
                           {fmtDate(c.endDate)}
                         </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {/* Row click navigates, so the delete button must stop propagation. */}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-red-600"
+                          title={`Delete ${c.contractNumber}`}
+                          onClick={e => { e.stopPropagation(); setDeleteId(c.id); }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Delete {c.contractNumber}</span>
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))
@@ -459,6 +495,57 @@ export default function OpsContractsList() {
               onClick={() => purgeSamples.mutate()}
             >
               {purgeSamples.isPending ? "Removing..." : "Remove sample data"}
+            </Button>
+          </DialogFooter>
+        </ResizableDialogContent>
+      </Dialog>
+
+      {/* Deleting a contract takes its vessels, products and equipment with it, so the
+          dialog states the exact counts before the user commits. */}
+      <Dialog open={deleteId !== null} onOpenChange={o => { if (!o) setDeleteId(null); }}>
+        <ResizableDialogContent storageKey="ops-delete-contract" defaultWidth={520} defaultHeight={440}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+              Delete contract {impact?.contractNumber ?? ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            {impactLoading || !impact ? (
+              <Skeleton className="h-24 w-full" />
+            ) : (
+              <>
+                <p className="text-muted-foreground">
+                  This permanently deletes the contract and everything recorded against it.
+                </p>
+                <div className="rounded-md border bg-muted/40 p-3">
+                  <p className="font-medium mb-2">Will be removed</p>
+                  <ul className="text-xs text-muted-foreground space-y-1">
+                    <li>{impact.vessels} vessel assignment{impact.vessels !== 1 ? "s" : ""}</li>
+                    <li>{impact.products} product line{impact.products !== 1 ? "s" : ""}</li>
+                    <li>{impact.equipment} equipment unit{impact.equipment !== 1 ? "s" : ""} and {impact.certificates} certificate{impact.certificates !== 1 ? "s" : ""}</li>
+                    <li>{impact.installments} installment{impact.installments !== 1 ? "s" : ""} and {impact.orders} consumable order{impact.orders !== 1 ? "s" : ""}</li>
+                  </ul>
+                </div>
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="font-medium text-emerald-900 mb-1">Will be kept</p>
+                  <p className="text-xs text-emerald-800">
+                    The customer, the vessels themselves and the product pricelist stay as they are —
+                    only their link to this contract goes.
+                  </p>
+                </div>
+                <p className="text-xs text-red-600">This cannot be undone.</p>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={removeContract.isPending || deleteId === null}
+              onClick={() => deleteId !== null && removeContract.mutate({ id: deleteId })}
+            >
+              {removeContract.isPending ? "Deleting..." : "Delete contract"}
             </Button>
           </DialogFooter>
         </ResizableDialogContent>

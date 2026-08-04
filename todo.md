@@ -2070,3 +2070,4 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Create 10 clearly-marked sample contracts (DEMO-2026-xxx) with products, real vessels and equipment units
 - [x] Provide a one-click cleanup that removes every sample contract and its dependants
 - [x] Vessel page: products card identical to the contract Products card — same group badges with line count and per-vessel value, same columns and totals, one card
+- [x] Delete a contract (cascade vessels, products, equipment, certificates, installments) with impact confirmation

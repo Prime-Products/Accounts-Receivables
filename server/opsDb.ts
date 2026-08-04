@@ -236,7 +236,53 @@ export async function listSampleContracts() {
  */
 export async function purgeSampleContracts() {
   const contracts = await listSampleContracts();
-  const contractIds = contracts.map(c => c.id);
+  return deleteContractsCascade(contracts.map(c => c.id));
+}
+
+/**
+ * What a contract drags with it when deleted. Shown to the user before they confirm,
+ * and returned again afterwards so the toast can state exactly what went.
+ */
+export type ContractCascadeCounts = {
+  contracts: number;
+  vessels: number;
+  products: number;
+  equipment: number;
+  certificates: number;
+  orders: number;
+  installments: number;
+};
+
+/** Count everything hanging off a contract without deleting anything. */
+export async function countContractDependents(contractId: number): Promise<ContractCascadeCounts> {
+  const conn = getDb();
+  const assets = await conn.select().from(opsAssets).where(eq(opsAssets.contractId, contractId));
+  const assetIds = assets.map(a => a.id);
+  const certs = assetIds.length > 0
+    ? await conn.select().from(opsCertificates).where(inArray(opsCertificates.assetId, assetIds))
+    : [];
+  const [orders, products, assignments, installments] = await Promise.all([
+    conn.select().from(opsConsumableOrders).where(eq(opsConsumableOrders.contractId, contractId)),
+    conn.select().from(opsContractLibrary).where(eq(opsContractLibrary.contractId, contractId)),
+    conn.select().from(opsVesselAssignments).where(eq(opsVesselAssignments.contractId, contractId)),
+    conn.select().from(opsPaymentSchedule).where(eq(opsPaymentSchedule.contractId, contractId)),
+  ]);
+  return {
+    contracts: 1,
+    vessels: assignments.length,
+    products: products.length,
+    equipment: assetIds.length,
+    certificates: certs.length,
+    orders: orders.length,
+    installments: installments.length,
+  };
+}
+
+/**
+ * Delete the given contracts and everything hanging off them, leaf tables first so no
+ * row is ever orphaned. The product catalogue is never touched — it holds real pricing.
+ */
+export async function deleteContractsCascade(contractIds: number[]): Promise<ContractCascadeCounts> {
   if (contractIds.length === 0) {
     return { contracts: 0, vessels: 0, products: 0, equipment: 0, certificates: 0, orders: 0, installments: 0 };
   }

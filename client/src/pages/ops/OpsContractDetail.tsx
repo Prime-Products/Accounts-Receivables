@@ -85,6 +85,26 @@ export default function OpsContractDetail() {
     onError: (e) => toast.error(e.message),
   });
 
+  /* ─── Delete the whole contract ─── */
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const { data: impact, isLoading: impactLoading } = trpc.opsContracts.deleteImpact.useQuery(
+    { id: contractId },
+    { enabled: deleteOpen && contractId > 0 },
+  );
+  const removeContract = trpc.opsContracts.remove.useMutation({
+    onSuccess: (res) => {
+      setDeleteOpen(false);
+      toast.success(`Deleted contract ${res.contractNumber}`, {
+        description: `${res.vessels} vessel assignment(s) · ${res.products} product line(s) · ${res.equipment} equipment unit(s) removed.`,
+      });
+      utils.opsContracts.invalidate();
+      utils.vessels.invalidate();
+      utils.opsAssets.invalidate();
+      navigate("/ops/contracts");
+    },
+    onError: (e) => toast.error(e.message || "Could not delete the contract"),
+  });
+
   /* ─── Add Vessel Dialog ─── */
   const [assignOpen, setAssignOpen] = useState(false);
   /* ─── Supply tab: narrow to open lines, expand one line at a time ─── */
@@ -343,6 +363,16 @@ export default function OpsContractDetail() {
               Reactivate
             </Button>
           )}
+          {/* Deleting is separate from cancelling: cancel keeps the record, delete removes it. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="gap-1.5 text-muted-foreground hover:text-red-600"
+            onClick={() => setDeleteOpen(true)}
+            title="Delete this contract"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </Button>
         </div>
       </div>
 
@@ -1211,6 +1241,58 @@ export default function OpsContractDetail() {
               }}
             >
               {addLibItem.isPending || editLibItem.isPending ? "Saving..." : editingId ? "Save Changes" : "Add Product"}
+            </Button>
+          </DialogFooter>
+        </ResizableDialogContent>
+      </Dialog>
+
+      {/* Deleting a contract takes its vessels, products and equipment with it, so the
+          dialog states the exact counts before the user commits. */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <ResizableDialogContent storageKey="ops-contract-delete" defaultWidth={520} defaultHeight={440}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4 text-red-600" />
+              Delete contract {contract.contractNumber}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            {impactLoading || !impact ? (
+              <Skeleton className="h-24 w-full" />
+            ) : (
+              <>
+                <p className="text-muted-foreground">
+                  This permanently deletes the contract and everything recorded against it.
+                  To keep the record instead, use Cancel.
+                </p>
+                <div className="rounded-md border bg-muted/40 p-3">
+                  <p className="font-medium mb-2">Will be removed</p>
+                  <ul className="text-xs text-muted-foreground space-y-1">
+                    <li>{impact.vessels} vessel assignment{impact.vessels !== 1 ? "s" : ""}</li>
+                    <li>{impact.products} product line{impact.products !== 1 ? "s" : ""}</li>
+                    <li>{impact.equipment} equipment unit{impact.equipment !== 1 ? "s" : ""} and {impact.certificates} certificate{impact.certificates !== 1 ? "s" : ""}</li>
+                    <li>{impact.installments} installment{impact.installments !== 1 ? "s" : ""} and {impact.orders} consumable order{impact.orders !== 1 ? "s" : ""}</li>
+                  </ul>
+                </div>
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="font-medium text-emerald-900 mb-1">Will be kept</p>
+                  <p className="text-xs text-emerald-800">
+                    The customer, the vessels themselves and the product pricelist stay as they are —
+                    only their link to this contract goes.
+                  </p>
+                </div>
+                <p className="text-xs text-red-600">This cannot be undone.</p>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={removeContract.isPending}
+              onClick={() => removeContract.mutate({ id: contractId })}
+            >
+              {removeContract.isPending ? "Deleting..." : "Delete contract"}
             </Button>
           </DialogFooter>
         </ResizableDialogContent>
