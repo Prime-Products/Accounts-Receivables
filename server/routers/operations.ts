@@ -292,6 +292,7 @@ export const opsContractsRouter = router({
       endDate: z.number(),
       installmentCount: z.number().int().min(1).max(30),
       notes: z.string().optional(),
+      vesselIds: z.array(z.number()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (input.endDate <= input.startDate) throw new TRPCError({ code: "BAD_REQUEST", message: "End date must be after start date" });
@@ -299,7 +300,7 @@ export const opsContractsRouter = router({
         contractNumber: input.contractNumber,
         customerId: input.customerId,
         title: input.title,
-        status: "Active",
+        status: "Draft",
         totalValue: input.totalValue.toFixed(2),
         startDate: input.startDate,
         endDate: input.endDate,
@@ -318,6 +319,17 @@ export const opsContractsRouter = router({
           dueDate: due,
           amount: amount.toFixed(2),
         });
+      }
+      // Assign vessels if provided
+      if (input.vesselIds && input.vesselIds.length > 0) {
+        for (const vesselId of input.vesselIds) {
+          await opsDb.createVesselAssignment({
+            vesselId,
+            contractId: id,
+            assignedDate: Date.now(),
+            notes: "Assigned at contract creation",
+          });
+        }
       }
       return { id };
     }),

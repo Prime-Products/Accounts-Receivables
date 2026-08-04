@@ -28,7 +28,6 @@ const VesselDetail = lazy(() => import("./pages/VesselDetail"));
 
 // Operations module pages
 const OpsDashboard = lazy(() => import("./pages/ops/OpsDashboard"));
-const OpsQuotations = lazy(() => import("./pages/ops/OpsQuotations"));
 const OpsContractsList = lazy(() => import("./pages/ops/OpsContractsList"));
 const OpsContractDetail = lazy(() => import("./pages/ops/OpsContractDetail"));
 const OpsAssets = lazy(() => import("./pages/ops/OpsAssets"));
@@ -96,7 +95,6 @@ function Router() {
           <Route path={"/settings"} component={Settings} />
           {/* Operations module */}
           <Route path={"/ops"} component={OpsDashboard} />
-          <Route path={"/ops/quotations"} component={OpsQuotations} />
           <Route path={"/ops/contracts"} component={OpsContractsList} />
           <Route path={"/ops/contracts/:id"} component={OpsContractDetail} />
           <Route path={"/ops/assets"} component={OpsAssets} />

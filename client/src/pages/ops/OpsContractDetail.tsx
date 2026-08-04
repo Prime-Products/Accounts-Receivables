@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { fmtDate, fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, CheckCircle2, Clock, Package, Plus, Ship } from "lucide-react";
+import { Send, Play } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
 import { useState } from "react";
@@ -40,6 +41,15 @@ export default function OpsContractDetail() {
 
   const updatePayment = trpc.opsContracts.updatePayment.useMutation({
     onSuccess: () => { utils.opsContracts.get.invalidate({ id: contractId }); toast.success("Payment updated"); },
+  });
+
+  const updateContract = trpc.opsContracts.update.useMutation({
+    onSuccess: () => {
+      utils.opsContracts.get.invalidate({ id: contractId });
+      utils.opsContracts.list.invalidate();
+      toast.success("Contract status updated");
+    },
+    onError: (e) => toast.error(e.message),
   });
 
   /* ─── Assign Vessel Dialog ─── */
@@ -92,11 +102,52 @@ export default function OpsContractDetail() {
         <Button variant="ghost" size="icon" onClick={() => navigate("/ops/contracts")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold tracking-tight">{contract.contractNumber} — {contract.title}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {customer?.name ?? "—"} · {fmtDate(contract.startDate)} → {fmtDate(contract.endDate)}
           </p>
+        </div>
+        {/* Status Actions */}
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className={
+            contract.status === "Draft" ? "bg-slate-100 text-slate-700 border-slate-200" :
+            contract.status === "Sent" ? "bg-blue-100 text-blue-800 border-blue-200" :
+            contract.status === "Active" ? "bg-emerald-100 text-emerald-800 border-emerald-200" :
+            contract.status === "Expired" ? "bg-gray-100 text-gray-600 border-gray-200" :
+            "bg-red-100 text-red-700 border-red-200"
+          }>{contract.status}</Badge>
+          {contract.status === "Draft" && (
+            <Button
+              size="sm"
+              className="gap-1.5"
+              onClick={() => updateContract.mutate({ id: contractId, status: "Sent" })}
+              disabled={updateContract.isPending}
+            >
+              <Send className="h-3.5 w-3.5" /> Mark as Sent
+            </Button>
+          )}
+          {contract.status === "Sent" && (
+            <Button
+              size="sm"
+              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+              onClick={() => updateContract.mutate({ id: contractId, status: "Active" })}
+              disabled={updateContract.isPending}
+            >
+              <Play className="h-3.5 w-3.5" /> Activate
+            </Button>
+          )}
+          {contract.status === "Active" && (
+            <Button
+              size="sm"
+              variant="destructive"
+              className="gap-1.5"
+              onClick={() => updateContract.mutate({ id: contractId, status: "Terminated" })}
+              disabled={updateContract.isPending}
+            >
+              Terminate
+            </Button>
+          )}
         </div>
       </div>
 

@@ -19,3 +19,11 @@
 - [x] Build Statement of Account (SoA) in Reports page
 - [x] Build Vessel Dashboard with KPIs, equipment, quota, history
 - [x] Add Catalog management page (Services, Assets, Consumables CRUD)
+- [ ] Remove Quotations page from sidebar and routing
+- [x] Remove Quotations page from sidebar and routing
+- [x] Update New Contract dialog to support multiple vessels (fleet)
+- [x] Update contract flow: Draft → Sent → Active → Expired/Terminated
+- [x] Update contract flow: Draft → Sent → Active → Expired/Terminated
+- [ ] Add UI actions in contract detail to change status (Draft → Sent → Active)
+- [x] Add UI actions in contract detail to change status (Draft → Sent → Active)
+- [x] Remove stale 'Completed' status from contracts UI filter
