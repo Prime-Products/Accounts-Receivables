@@ -2012,3 +2012,11 @@ destination of the record is group-level.
 - [x] Equipment: inline return-port editing plus "Request return" / "Returned" actions
 - [x] Overview: point the Pending Returns KPI at Equipment filtered by Pending Return
 - [x] Vitest coverage for the Returns removal and the Equipment return workflow (919 tests passing)
+
+## Contract approval → vessel orders — DEFERRED (user 4/8: "δεν το θέλω... αργότερα θα τα κάνουμε αυτά")
+The user explained the intended business flow for context only, not as a build request. Nothing
+was implemented: contract statuses stay Offer → Active → Expired → Cancelled (no Approved step),
+and the app does not create orders. Revisit together with the Softone order integration.
+- [~] DEFERRED: Approved status step between Offer and Active
+- [~] DEFERRED: one Pending order per assigned vessel, carrying the contract's product lines
+- [~] DEFERRED: dispatch queue + ERP push of those orders to Softone
