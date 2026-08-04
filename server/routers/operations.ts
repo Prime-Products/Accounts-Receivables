@@ -388,9 +388,19 @@ export const opsContractsRouter = router({
       db.listVessels(),
     ]);
     const customer = customers.find(c => c.id === contract.customerId);
+    // Supply progress per vessel: an equipment unit counts as supplied once it has left the warehouse.
+    const contractAssets = await opsDb.listAssets({ contractId: input.id });
+    const suppliedStatuses = new Set(["In Transit", "Active", "Pending Return", "Returned"]);
     const assignedVessels = assignments.map(a => {
       const v = vessels.find(v => v.id === a.vesselId);
-      return { ...a, vesselName: v?.name ?? "—", vesselImo: v?.imo ?? null };
+      const own = contractAssets.filter(x => x.vesselId === a.vesselId);
+      return {
+        ...a,
+        vesselName: v?.name ?? "—",
+        vesselImo: v?.imo ?? null,
+        equipmentTotal: own.length,
+        equipmentSupplied: own.filter(x => suppliedStatuses.has(String(x.status))).length,
+      };
     });
     // Each vessel is billed on its own schedule, so label every installment with its vessel.
     const vesselName = (id: number | null) =>

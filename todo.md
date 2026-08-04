@@ -2057,4 +2057,4 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Vessel page: show all contract items grouped Equipment / Consumables / Other, same order and style as the contract
 - [x] Vessel page: show supply status per item — Not Supplied until the serial-tracked units are supplied
 - [x] Update the affected vitest specs for the new taxonomy (965 tests passing)
-- [ ] Contract Vessels tab: supply column per vessel (x/y supplied)
+- [x] Contract Vessels tab: supply column per vessel (x/y supplied)

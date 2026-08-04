@@ -678,6 +678,7 @@ export default function OpsContractDetail() {
                 <TableHead>IMO</TableHead>
                 <TableHead>Added</TableHead>
                 <TableHead>Shipped / Activated</TableHead>
+                <TableHead>Supply</TableHead>
                 <TableHead>Notes</TableHead>
                 <TableHead className="w-[100px] text-right">Actions</TableHead>
               </TableRow>
@@ -685,7 +686,7 @@ export default function OpsContractDetail() {
             <TableBody>
               {assignments.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     No vessels yet — add the fleet covered by this contract.
                   </TableCell>
                 </TableRow>
@@ -749,6 +750,25 @@ export default function OpsContractDetail() {
                         >
                           <Clock className="h-3 w-3" /> Record shipment
                         </Button>
+                      )}
+                    </TableCell>
+                    {/* Supply progress: how much of this vessel's equipment has actually gone out */}
+                    <TableCell className="text-sm whitespace-nowrap">
+                      {(a as any).equipmentTotal > 0 ? (
+                        <span
+                          className={
+                            (a as any).equipmentSupplied === (a as any).equipmentTotal
+                              ? "font-medium text-emerald-600"
+                              : (a as any).equipmentSupplied > 0
+                                ? "font-medium text-amber-600"
+                                : "text-muted-foreground"
+                          }
+                          title="Equipment units supplied out of the units this vessel is entitled to"
+                        >
+                          {(a as any).equipmentSupplied}/{(a as any).equipmentTotal} supplied
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{a.notes ?? "—"}</TableCell>
