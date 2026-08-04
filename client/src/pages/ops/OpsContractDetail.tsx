@@ -15,7 +15,7 @@ import { trpc } from "@/lib/trpc";
 import { groupContractProducts } from "@shared/productGrouping";
 import { SupplyBadge } from "@/components/SupplyBadge";
 import { ProductPicker } from "@/components/ProductPicker";
-import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, Clock, CreditCard, Package, Pencil, Plus, Ship, Trash2, Wallet } from "lucide-react";
+import { ArrowLeft, CalendarRange, CheckCircle2, ChevronDown, ChevronRight, Clock, Package, Pencil, Plus, Ship, Trash2, Wallet } from "lucide-react";
 import { Play, XCircle } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
@@ -52,10 +52,15 @@ const contractStatusColors: Record<string, string> = {
 
 const emptyProduct = { itemType: "Equipment", pricelistKey: "", catalogId: null as number | null, name: "", quantity: "1", unitCost: "", sellingPrice: "", quotaType: "", quotaLimit: "", notes: "" };
 
-/** Payment methods offered on a contract, mirroring the DB enum. */
-const paymentMethods = ["Bank Transfer", "Cheque", "Credit Card", "Cash", "Letter of Credit"] as const;
+/** Prime 247 is sold as a 3, 4 or 5-year commitment. */
+const CONTRACT_PERIODS = [3, 4, 5] as const;
 
-/** Human wording for the credit terms shown next to the payment method. */
+/** Human wording for the agreed length of the contract. */
+function periodLabel(years: number): string {
+  return `${years} year${years === 1 ? "" : "s"}`;
+}
+
+/** Human wording for the credit terms shown next to the contract period. */
 function termsLabel(days: number): string {
   if (days <= 0) return "Due on receipt";
   return `${days} days from invoice date`;
@@ -192,10 +197,15 @@ export default function OpsContractDetail() {
 
   /* ─── Financials Dialog ─── */
   const [finOpen, setFinOpen] = useState(false);
+  // The open tab is reflected in the URL (?tab=financials) so a tab can be linked to
+  // and survives a reload.
+  const [activeTab, setActiveTab] = useState(
+    () => new URLSearchParams(window.location.search).get("tab") ?? "products",
+  );
   const [finForm, setFinForm] = useState({
     pricePerVessel: "",
     installmentCount: "",
-    paymentMethod: "Bank Transfer",
+    contractPeriodYears: "3",
     paymentTermsDays: "30",
     paymentNotes: "",
   });
@@ -259,7 +269,7 @@ export default function OpsContractDetail() {
     setFinForm({
       pricePerVessel: Number(contract.pricePerVessel) ? String(Number(contract.pricePerVessel)) : "",
       installmentCount: String(contract.installmentCount),
-      paymentMethod: (contract as any).paymentMethod ?? "Bank Transfer",
+      contractPeriodYears: String((contract as any).contractPeriodYears ?? 3),
       paymentTermsDays: String((contract as any).paymentTermsDays ?? 30),
       paymentNotes: (contract as any).paymentNotes ?? "",
     });
@@ -367,7 +377,7 @@ export default function OpsContractDetail() {
       </div>
 
       {/* Tabs: the contract is read in three passes — what is supplied, what it costs, where it goes */}
-      <Tabs defaultValue="products" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="products">Products ({library.length})</TabsTrigger>
           <TabsTrigger value="financials">Financials</TabsTrigger>
@@ -484,7 +494,7 @@ export default function OpsContractDetail() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-base flex items-center gap-2"><Wallet className="h-4 w-4" /> Commercial Terms</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-1">Agreed price, installments and how the customer settles them</p>
+                  <p className="text-xs text-muted-foreground mt-1">Agreed price, contract length, installments and credit terms</p>
                 </div>
                 <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={openFinancials}>
                   <Pencil className="h-3 w-3" /> Edit
@@ -510,10 +520,13 @@ export default function OpsContractDetail() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">Payment Method</div>
+                  <div className="text-xs text-muted-foreground">Contract Period</div>
                   <div className="font-medium mt-0.5 flex items-center gap-1.5">
-                    <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
-                    {(contract as any).paymentMethod ?? "Bank Transfer"}
+                    <CalendarRange className="h-3.5 w-3.5 text-muted-foreground" />
+                    {periodLabel(Number((contract as any).contractPeriodYears ?? 3))}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {fmtDate(contract.startDate)} → {fmtDate(contract.endDate)}
                   </div>
                 </div>
                 <div>
@@ -1040,13 +1053,16 @@ export default function OpsContractDetail() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Payment Method</Label>
-                <Select value={finForm.paymentMethod} onValueChange={v => setFinForm({ ...finForm, paymentMethod: v })}>
+                <Label>Contract Period</Label>
+                <Select value={finForm.contractPeriodYears} onValueChange={v => setFinForm({ ...finForm, contractPeriodYears: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {paymentMethods.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                    {CONTRACT_PERIODS.map(y => <SelectItem key={y} value={String(y)}>{periodLabel(y)}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  Sets the end date to {periodLabel(Number(finForm.contractPeriodYears) || 3)} after the start date.
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label>Payment Terms (days)</Label>
@@ -1086,7 +1102,7 @@ export default function OpsContractDetail() {
                   id: contractId,
                   pricePerVessel: Number(finForm.pricePerVessel),
                   installmentCount: Number(finForm.installmentCount),
-                  paymentMethod: finForm.paymentMethod as any,
+                  contractPeriodYears: Number(finForm.contractPeriodYears) || 3,
                   paymentTermsDays: Number(finForm.paymentTermsDays) || 0,
                   paymentNotes: finForm.paymentNotes || null,
                 });

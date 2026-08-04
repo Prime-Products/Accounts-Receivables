@@ -1124,6 +1124,11 @@ export const opsContracts = mysqlTable("ops_contracts", {
   installmentCount: int("installmentCount").default(1).notNull(),
   /** How the customer settles the installments (bank transfer, cheque, ...). */
   paymentMethod: mysqlEnum("paymentMethod", opsPaymentMethods).default("Bank Transfer").notNull(),
+  /**
+   * Length of the agreement in years. Prime 247 is sold as a 3, 4 or 5-year
+   * commitment, and the number of yearly installments follows from it.
+   */
+  contractPeriodYears: int("contractPeriodYears").default(3).notNull(),
   /** Credit terms in days from invoice date; 0 means due on receipt. */
   paymentTermsDays: int("paymentTermsDays").default(30).notNull(),
   /** Free-text commercial remarks (currency clauses, discounts, escalation). */

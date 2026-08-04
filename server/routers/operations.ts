@@ -518,17 +518,30 @@ export const opsContractsRouter = router({
       pricePerVessel: z.number().min(0).optional(),
       installmentCount: z.number().int().min(1).max(30).optional(),
       paymentMethod: z.enum(opsPaymentMethods).optional(),
+      contractPeriodYears: z.number().int().min(1).max(10).optional(),
       paymentTermsDays: z.number().int().min(0).max(365).optional(),
       paymentNotes: z.string().nullable().optional(),
     }))
     .mutation(async ({ input }) => {
-      const { id, pricePerVessel, installmentCount, ...rest } = input;
+      const { id, pricePerVessel, installmentCount, contractPeriodYears, ...rest } = input;
       const contract = await opsDb.getOpsContract(id);
       if (!contract) throw new TRPCError({ code: "NOT_FOUND" });
       const data: Record<string, unknown> = { ...rest };
       const financialsChanged = pricePerVessel !== undefined || installmentCount !== undefined;
       if (pricePerVessel !== undefined) data.pricePerVessel = pricePerVessel.toFixed(2);
       if (installmentCount !== undefined) data.installmentCount = installmentCount;
+      // The period is the commercial length of the agreement, so the end date follows it:
+      // a 5-year contract starting 02 Jul 2026 ends 01 Jul 2031.
+      if (contractPeriodYears !== undefined) {
+        data.contractPeriodYears = contractPeriodYears;
+        if (rest.endDate === undefined) {
+          const start = new Date(rest.startDate ?? contract.startDate);
+          const end = new Date(start);
+          end.setFullYear(end.getFullYear() + contractPeriodYears);
+          end.setDate(end.getDate() - 1);
+          data.endDate = end.getTime();
+        }
+      }
       if (financialsChanged) {
         const assignments = await opsDb.listVesselAssignments(id);
         const price = pricePerVessel ?? Number(contract.pricePerVessel);

@@ -59,7 +59,8 @@ describe("contract detail tab structure", () => {
   });
 
   it("opens on the products tab", () => {
-    expect(detailPage).toMatch(/<Tabs defaultValue="products"/);
+    // The tab comes from the URL, falling back to products.
+    expect(detailPage).toContain('.get("tab") ?? "products"');
   });
 
   it("renders products through the shared grouping helper", () => {
@@ -77,8 +78,11 @@ describe("contract detail tab structure", () => {
     expect(scheduleHeading).toBeLessThan(vesselsStart);
   });
 
-  it("shows the payment method and terms in the financials tab", () => {
-    expect(detailPage).toContain("Payment Method");
+  it("shows the contract period and payment terms in the financials tab", () => {
+    // The commercial length of the agreement replaced the payment method, which
+    // was never used in practice.
+    expect(detailPage).toContain("Contract Period");
+    expect(detailPage).not.toContain(">Payment Method<");
     expect(detailPage).toContain("Payment Terms");
     expect(detailPage).toContain("Commercial Terms");
   });
@@ -98,19 +102,31 @@ describe("contract detail tab structure", () => {
 });
 
 describe("contract payment terms persistence", () => {
-  it("stores the payment method, terms and notes on the contract", () => {
-    expect(schema).toContain('mysqlEnum("paymentMethod", opsPaymentMethods)');
+  it("stores the contract period, terms and notes on the contract", () => {
+    expect(schema).toContain('contractPeriodYears: int("contractPeriodYears")');
     expect(schema).toContain('paymentTermsDays: int("paymentTermsDays")');
     expect(schema).toContain('paymentNotes: text("paymentNotes")');
   });
 
-  it("offers bank transfer, cheque, credit card, cash and letter of credit", () => {
-    expect(schema).toContain('export const opsPaymentMethods = ["Bank Transfer", "Cheque", "Credit Card", "Cash", "Letter of Credit"]');
+  it("offers 3, 4 and 5-year periods in the UI", () => {
+    expect(detailPage).toContain("const CONTRACT_PERIODS = [3, 4, 5] as const");
+    expect(detailPage).toContain("CONTRACT_PERIODS.map(y =>");
+    expect(detailPage).toContain("periodLabel(");
   });
 
-  it("accepts the payment fields on the contract update procedure", () => {
-    expect(opsRouter).toContain("paymentMethod: z.enum(opsPaymentMethods).optional()");
+  it("accepts the period and payment fields on the contract update procedure", () => {
+    expect(opsRouter).toContain("contractPeriodYears: z.number().int().min(1).max(10).optional()");
     expect(opsRouter).toContain("paymentTermsDays: z.number().int().min(0).max(365).optional()");
+  });
+
+  it("derives the contract end date from the chosen period", () => {
+    expect(opsRouter).toContain("end.setFullYear(end.getFullYear() + contractPeriodYears)");
+    expect(opsRouter).toContain("data.endDate = end.getTime()");
+  });
+
+  it("keeps the open tab in the URL so a tab can be linked to", () => {
+    expect(detailPage).toContain('new URLSearchParams(window.location.search).get("tab")');
+    expect(detailPage).toContain("<Tabs value={activeTab} onValueChange={setActiveTab}");
   });
 });
 
