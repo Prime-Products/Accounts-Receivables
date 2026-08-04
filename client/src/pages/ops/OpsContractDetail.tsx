@@ -14,6 +14,7 @@ import { fmtDate, fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { groupContractProducts } from "@shared/productGrouping";
 import { SupplyBadge } from "@/components/SupplyBadge";
+import { ProductPicker } from "@/components/ProductPicker";
 import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, Clock, CreditCard, Package, Pencil, Plus, Ship, Trash2, Wallet } from "lucide-react";
 import { Play, XCircle } from "lucide-react";
 import { useLocation, useParams } from "wouter";
@@ -50,12 +51,6 @@ const contractStatusColors: Record<string, string> = {
 };
 
 const emptyProduct = { itemType: "Equipment", pricelistKey: "", catalogId: null as number | null, name: "", quantity: "1", unitCost: "", sellingPrice: "", quotaType: "", quotaLimit: "", notes: "" };
-
-/** Wording for each pricelist source, so the picker shows where a price comes from. */
-const pricelistSourceLabel: Record<string, string> = {
-  product: "Product",
-  consumable: "Consumable",
-};
 
 /** Payment methods offered on a contract, mirroring the DB enum. */
 const paymentMethods = ["Bank Transfer", "Cheque", "Credit Card", "Cash", "Letter of Credit"] as const;
@@ -139,14 +134,9 @@ export default function OpsContractDetail() {
   const [libOpen, setLibOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [libForm, setLibForm] = useState({ ...emptyProduct });
-  const [pricelistSearch, setPricelistSearch] = useState("");
-  const resetLibForm = () => { setLibForm({ ...emptyProduct }); setEditingId(null); setPricelistSearch(""); };
+  const resetLibForm = () => { setLibForm({ ...emptyProduct }); setEditingId(null); };
   /** Pricelist entries feed the picker; prices flow into the form but stay editable. */
   const { data: pricelist } = trpc.opsCatalog.pricelist.useQuery();
-  const pricelistMatches = (pricelist ?? []).filter(p =>
-    p.name.toLowerCase().includes(pricelistSearch.toLowerCase()) ||
-    (p.category ?? "").toLowerCase().includes(pricelistSearch.toLowerCase()),
-  );
   /** Picking an entry fills name, cost, price and a sensible nature — all overridable. */
   const applyPricelistEntry = (key: string) => {
     const entry = (pricelist ?? []).find(p => p.key === key);
@@ -1111,52 +1101,26 @@ export default function OpsContractDetail() {
 
       {/* ─── Product Dialog (add / edit) ─── */}
       <Dialog open={libOpen} onOpenChange={o => { setLibOpen(o); if (!o) resetLibForm(); }}>
-        <ResizableDialogContent storageKey="ops-lib-item" defaultWidth={540} defaultHeight={520} minWidth={420} minHeight={400}>
+        <ResizableDialogContent storageKey="ops-lib-item-v2" defaultWidth={860} defaultHeight={680} minWidth={560} minHeight={460}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" /> {editingId ? "Edit Product" : "Add Product"}
             </DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
-            {/* Pick from the Pricelist to inherit cost and price; typing by hand still works. */}
-            {!editingId && (
-              <div className="space-y-1.5 col-span-2">
-                <Label>From Pricelist (optional)</Label>
-                {(pricelist ?? []).length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    Pricelist is empty — add items under Prime 247 &gt; Pricelist to auto-fill cost and price here.
-                  </p>
-                ) : (
-                  <Select value={libForm.pricelistKey} onValueChange={applyPricelistEntry}>
-                    <SelectTrigger><SelectValue placeholder="Search the pricelist..." /></SelectTrigger>
-                    <SelectContent>
-                      <div className="p-2">
-                        <Input
-                          autoFocus
-                          placeholder="Search item..."
-                          value={pricelistSearch}
-                          onChange={e => setPricelistSearch(e.target.value)}
-                          onKeyDown={e => e.stopPropagation()}
-                          className="h-8"
-                        />
-                      </div>
-                      {pricelistMatches.length === 0 ? (
-                        <div className="px-2 py-3 text-xs text-muted-foreground">No matching item</div>
-                      ) : (
-                        pricelistMatches.slice(0, 50).map(p => (
-                          <SelectItem key={p.key} value={p.key}>
-                            {p.name} · {pricelistSourceLabel[p.source]} · {fmtEur(Number(p.sellingPrice))}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Fills name, cost and price from the pricelist — you can still change any of them below.
-                </p>
-              </div>
-            )}
+            {/* The product itself is chosen from the pricelist, so names and prices stay uniform. */}
+            <div className="space-y-1.5 col-span-2">
+              <Label>Product *</Label>
+              <ProductPicker
+                value={libForm.name}
+                onSelectEntry={applyPricelistEntry}
+                onFreeText={name => setLibForm(f => ({ ...f, name, pricelistKey: "", catalogId: null }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Picking an item fills the nature, cost and price below — all still editable.
+                {(pricelist ?? []).length === 0 && " Pricelist is empty: add items under Prime 247 > Pricelist."}
+              </p>
+            </div>
             <div className="space-y-1.5 col-span-2">
               <Label>Type *</Label>
               <Select value={libForm.itemType} onValueChange={v => setLibForm({ ...libForm, itemType: v })}>
@@ -1167,9 +1131,10 @@ export default function OpsContractDetail() {
               </Select>
               <p className="text-xs text-muted-foreground">{productTypeHint[libForm.itemType]}</p>
             </div>
+            {/* The chosen name stays editable, e.g. to add a spec to a catalogue item. */}
             <div className="space-y-1.5 col-span-2">
-              <Label>Product Name *</Label>
-              <Input value={libForm.name} onChange={e => setLibForm({ ...libForm, name: e.target.value })} placeholder="e.g. RIKEN KEIKI GX-3R" />
+              <Label>Name on the contract *</Label>
+              <Input value={libForm.name} onChange={e => setLibForm({ ...libForm, name: e.target.value })} placeholder="Select a product above, or type a one-off name" />
             </div>
             <div className="space-y-1.5">
               <Label>Quantity per Vessel</Label>

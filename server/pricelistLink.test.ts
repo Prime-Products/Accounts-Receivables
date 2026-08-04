@@ -93,14 +93,27 @@ describe("pricelist procedure", () => {
 
 describe("contract Add Product dialog", () => {
   const src = read("client/src/pages/ops/OpsContractDetail.tsx");
+  const picker = read("client/src/components/ProductPicker.tsx");
 
   it("queries the pricelist", () => {
-    expect(src).toContain("trpc.opsCatalog.pricelist.useQuery()");
+    expect(picker).toContain("trpc.opsCatalog.pricelist.useQuery()");
   });
 
-  it("offers the picker as optional so manual entry still works", () => {
-    expect(src).toContain("From Pricelist (optional)");
-    expect(src).toContain("you can still change any of them below");
+  it("chooses the product from a searchable picker rather than a plain text field", () => {
+    expect(src).toContain('import { ProductPicker } from "@/components/ProductPicker"');
+    expect(src).toContain("<ProductPicker");
+    expect(src).toContain("onSelectEntry={applyPricelistEntry}");
+    expect(src).not.toContain("From Pricelist (optional)");
+  });
+
+  it("still allows a one-off product that is not in the pricelist", () => {
+    expect(src).toContain("onFreeText={name =>");
+    expect(picker).toContain("as a one-off line");
+    expect(picker).toContain("onFreeText(typed)");
+  });
+
+  it("opens the dialog wide enough to read long product names", () => {
+    expect(src).toMatch(/storageKey="ops-lib-item-v2" defaultWidth=\{860\} defaultHeight=\{680\}/);
   });
 
   it("auto-fills name, cost and price from the chosen entry", () => {
@@ -111,15 +124,19 @@ describe("contract Add Product dialog", () => {
     expect(apply).toContain("catalogId: entry.catalogId");
   });
 
-  it("lets the user search the pricelist by name or category", () => {
-    expect(src).toContain("pricelistSearch");
-    expect(src).toContain("p.name.toLowerCase().includes(pricelistSearch.toLowerCase())");
-    expect(src).toContain('(p.category ?? "").toLowerCase().includes(pricelistSearch.toLowerCase())');
+  it("lets the user search the pricelist by name, category or nature", () => {
+    expect(picker).toContain("<CommandInput");
+    expect(picker).toContain('value={`${e.name} ${e.category ?? ""} ${sourceLabel[e.source] ?? ""}`}');
+  });
+
+  it("shows the price and nature of every option in the list", () => {
+    expect(picker).toContain("fmtEur(Number(e.sellingPrice))");
+    expect(picker).toContain("sourceLabel[e.source]");
   });
 
   it("explains an empty pricelist instead of showing a dead dropdown", () => {
     expect(src).toContain("Pricelist is empty");
-    expect(src).toContain("Prime 247 &gt; Pricelist");
+    expect(picker).toContain("Prime 247 > Pricelist");
   });
 
   it("sends the catalog link when saving the product line", () => {
