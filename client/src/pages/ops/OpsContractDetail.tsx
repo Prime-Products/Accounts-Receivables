@@ -90,6 +90,26 @@ export default function OpsContractDetail() {
 
   /* ─── Delete the whole contract ─── */
   const [deleteOpen, setDeleteOpen] = useState(false);
+  /*
+   * Inline title editing. The title is the one field that gets corrected most often
+   * (typos, renamed scope), so it is editable straight from the header instead of
+   * hiding behind a dialog: click the title or the pencil, Enter saves, Esc cancels.
+   */
+  const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const saveTitle = () => {
+    const next = (titleDraft ?? "").trim();
+    if (!next) {
+      toast.error("The contract title cannot be empty");
+      return;
+    }
+    // Nothing changed — close the editor without a pointless round trip.
+    if (next === contractTitle) {
+      setTitleDraft(null);
+      return;
+    }
+    updateContract.mutate({ id: contractId, title: next });
+    setTitleDraft(null);
+  };
   const { data: impact, isLoading: impactLoading } = trpc.opsContracts.deleteImpact.useQuery(
     { id: contractId },
     { enabled: deleteOpen && contractId > 0 },
@@ -244,6 +264,7 @@ export default function OpsContractDetail() {
   }
 
   const { contract, library, schedule, assignments, customer, totals, supplyLines, supplySummary } = data;
+  const contractTitle = contract.title;
   const collected = schedule.filter(p => p.status === "Paid").reduce((s, p) => s + Number(p.amount), 0);
   const remaining = Number(contract.totalValue) - collected;
   /**
@@ -319,7 +340,49 @@ export default function OpsContractDetail() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold tracking-tight">{contract.contractNumber} — {contract.title}</h1>
+          {titleDraft === null ? (
+            <div className="flex items-start gap-1.5">
+              <h1 className="text-2xl font-bold tracking-tight min-w-0">
+                {contract.contractNumber} —{" "}
+                <button
+                  type="button"
+                  onClick={() => setTitleDraft(contractTitle)}
+                  title="Click to rename this contract"
+                  className="rounded px-1 -mx-1 text-left underline-offset-4 transition-colors hover:bg-accent/60 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {contractTitle}
+                </button>
+              </h1>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 shrink-0 translate-y-0.5 text-muted-foreground"
+                onClick={() => setTitleDraft(contractTitle)}
+                title="Edit contract title"
+                aria-label="Edit contract title"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-bold tracking-tight shrink-0">{contract.contractNumber} —</span>
+              <Input
+                autoFocus
+                value={titleDraft}
+                onChange={e => setTitleDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") saveTitle();
+                  if (e.key === "Escape") setTitleDraft(null);
+                }}
+                placeholder="Contract title"
+                aria-label="Contract title"
+                className="h-9 max-w-md text-base font-semibold"
+              />
+              <Button size="sm" onClick={saveTitle} disabled={updateContract.isPending}>Save</Button>
+              <Button size="sm" variant="ghost" onClick={() => setTitleDraft(null)}>Cancel</Button>
+            </div>
+          )}
           <p className="text-sm text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
             {/* The list shows the group only; here we name the contracting company behind it. */}
             <span className="font-medium text-foreground">{customerGroupName}</span>

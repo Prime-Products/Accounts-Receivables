@@ -2088,3 +2088,8 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Tighter rows/spacing so the menu reads as a compact list instead of a loose long column
 - [x] Icon-only (collapsed) mode: grouped icons with separators, no section headers, tooltips on hover
 - [x] Active row styling is clearly readable (accent bar + solid contrast), one active row at a time
+
+## Contract title editing (user request 5/8)
+- [x] Contract title editable inline from the contract header (click title / pencil, Enter saves, Esc cancels)
+- [x] Saved title refreshes the header and the contracts list without a reload
+- [x] Empty title rejected with a clear message; unchanged title does not fire a save
