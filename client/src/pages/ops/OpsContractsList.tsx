@@ -3,23 +3,26 @@ import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtDate, fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
-import { ArrowDown, ArrowUp, ArrowUpDown, FileCheck2, Plus, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, FileCheck2, Plus, Search, Ship } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 const statusColors: Record<string, string> = {
+  Draft: "bg-slate-100 text-slate-700 border-slate-200",
+  Sent: "bg-blue-100 text-blue-800 border-blue-200",
   Active: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  Completed: "bg-sky-100 text-sky-800 border-sky-200",
   Terminated: "bg-red-100 text-red-700 border-red-200",
   Expired: "bg-gray-100 text-gray-600 border-gray-200",
 };
@@ -42,6 +45,7 @@ const COL_DEFAULTS: Record<string, number> = {
 export default function OpsContractsList() {
   const { data: contracts, isLoading } = trpc.opsContracts.list.useQuery();
   const { data: customers } = trpc.customers.options.useQuery();
+  const { data: vessels } = trpc.vessels.list.useQuery();
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
@@ -52,12 +56,50 @@ export default function OpsContractsList() {
 
   /* ─── Create Dialog ─── */
   const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({ customerId: "", contractNumber: "", title: "", totalValue: "", startDate: "", endDate: "", installmentCount: "12", notes: "" });
-  const resetForm = () => setForm({ customerId: "", contractNumber: "", title: "", totalValue: "", startDate: "", endDate: "", installmentCount: "12", notes: "" });
+  const [form, setForm] = useState({
+    customerId: "",
+    contractNumber: "",
+    title: "",
+    totalValue: "",
+    startDate: "",
+    endDate: "",
+    installmentCount: "12",
+    notes: "",
+  });
+  const [selectedVesselIds, setSelectedVesselIds] = useState<number[]>([]);
+  const [vesselSearch, setVesselSearch] = useState("");
+
+  const resetForm = () => {
+    setForm({ customerId: "", contractNumber: "", title: "", totalValue: "", startDate: "", endDate: "", installmentCount: "12", notes: "" });
+    setSelectedVesselIds([]);
+    setVesselSearch("");
+  };
+
+  const filteredVessels = useMemo(() => {
+    if (!vessels) return [];
+    const q = vesselSearch.trim().toLowerCase();
+    if (!q) return vessels;
+    return vessels.filter(v => v.name?.toLowerCase().includes(q) || v.imo?.toLowerCase().includes(q));
+  }, [vessels, vesselSearch]);
+
+  const toggleVessel = (id: number) => {
+    setSelectedVesselIds(prev =>
+      prev.includes(id) ? prev.filter(v => v !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllVessels = () => {
+    if (!vessels) return;
+    if (selectedVesselIds.length === vessels.length) {
+      setSelectedVesselIds([]);
+    } else {
+      setSelectedVesselIds(vessels.map(v => v.id));
+    }
+  };
 
   const create = trpc.opsContracts.create.useMutation({
     onSuccess: () => {
-      toast.success("Contract created with payment schedule");
+      toast.success("Contract created as Draft with payment schedule");
       utils.opsContracts.list.invalidate();
       setCreateOpen(false);
       resetForm();
@@ -129,8 +171,9 @@ export default function OpsContractsList() {
           <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="Draft">Draft</SelectItem>
+            <SelectItem value="Sent">Sent</SelectItem>
             <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Completed">Completed</SelectItem>
             <SelectItem value="Terminated">Terminated</SelectItem>
             <SelectItem value="Expired">Expired</SelectItem>
           </SelectContent>
@@ -225,53 +268,94 @@ export default function OpsContractsList() {
 
       {/* ─── Create Contract Dialog ─── */}
       <Dialog open={createOpen} onOpenChange={o => { setCreateOpen(o); if (!o) resetForm(); }}>
-        <ResizableDialogContent storageKey="ops-contract-create" defaultWidth={560} defaultHeight={520} minWidth={420} minHeight={400}>
+        <ResizableDialogContent storageKey="ops-contract-create" defaultWidth={640} defaultHeight={680} minWidth={500} minHeight={500}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Plus className="h-5 w-5" /> New Operations Contract
             </DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5 col-span-2">
-              <Label>Customer *</Label>
-              <Select value={form.customerId} onValueChange={v => setForm({ ...form, customerId: v })}>
-                <SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger>
-                <SelectContent>
-                  {(customers ?? []).map(c => (
-                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <ScrollArea className="flex-1 pr-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5 col-span-2">
+                <Label>Customer *</Label>
+                <Select value={form.customerId} onValueChange={v => setForm({ ...form, customerId: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger>
+                  <SelectContent>
+                    {(customers ?? []).map(c => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Contract # *</Label>
+                <Input value={form.contractNumber} onChange={e => setForm({ ...form, contractNumber: e.target.value })} placeholder="OPS-2026-001" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Title *</Label>
+                <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Service agreement title" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Total Value (€) *</Label>
+                <Input type="number" value={form.totalValue} onChange={e => setForm({ ...form, totalValue: e.target.value })} placeholder="0" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Installments</Label>
+                <Input type="number" min="1" max="30" value={form.installmentCount} onChange={e => setForm({ ...form, installmentCount: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Start Date *</Label>
+                <Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>End Date *</Label>
+                <Input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} />
+              </div>
+              <div className="space-y-1.5 col-span-2">
+                <Label>Notes</Label>
+                <Input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes..." />
+              </div>
+
+              {/* ─── Vessel Selection (Multi) ─── */}
+              <div className="space-y-2 col-span-2 border rounded-lg p-3 bg-muted/30">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-2">
+                    <Ship className="h-4 w-4" /> Assign Vessels ({selectedVesselIds.length} selected)
+                  </Label>
+                  <Button type="button" variant="ghost" size="sm" onClick={selectAllVessels}>
+                    {selectedVesselIds.length === (vessels?.length ?? 0) ? "Deselect All" : "Select All"}
+                  </Button>
+                </div>
+                <Input
+                  placeholder="Search vessels by name or IMO..."
+                  value={vesselSearch}
+                  onChange={e => setVesselSearch(e.target.value)}
+                  className="h-8 text-sm"
+                />
+                <ScrollArea className="h-[140px] border rounded bg-background">
+                  <div className="p-1 space-y-0.5">
+                    {filteredVessels.length === 0 ? (
+                      <p className="text-center text-xs text-muted-foreground py-4">No vessels found</p>
+                    ) : (
+                      filteredVessels.map(v => (
+                        <label
+                          key={v.id}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer text-sm"
+                        >
+                          <Checkbox
+                            checked={selectedVesselIds.includes(v.id)}
+                            onCheckedChange={() => toggleVessel(v.id)}
+                          />
+                          <span className="font-medium">{v.name}</span>
+                          {v.imo && <span className="text-xs text-muted-foreground">IMO: {v.imo}</span>}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Contract # *</Label>
-              <Input value={form.contractNumber} onChange={e => setForm({ ...form, contractNumber: e.target.value })} placeholder="OPS-2026-001" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Title *</Label>
-              <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Service agreement title" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Total Value (€) *</Label>
-              <Input type="number" value={form.totalValue} onChange={e => setForm({ ...form, totalValue: e.target.value })} placeholder="0" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Installments (annual)</Label>
-              <Input type="number" min="1" max="24" value={form.installmentCount} onChange={e => setForm({ ...form, installmentCount: e.target.value })} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Start Date *</Label>
-              <Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>End Date *</Label>
-              <Input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} />
-            </div>
-            <div className="space-y-1.5 col-span-2">
-              <Label>Notes</Label>
-              <Input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes..." />
-            </div>
-          </div>
+          </ScrollArea>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button
@@ -285,6 +369,7 @@ export default function OpsContractsList() {
                 endDate: new Date(form.endDate).getTime(),
                 installmentCount: Number(form.installmentCount) || 12,
                 notes: form.notes || undefined,
+                vesselIds: selectedVesselIds.length > 0 ? selectedVesselIds : undefined,
               })}
             >
               {create.isPending ? "Creating..." : "Create Contract"}

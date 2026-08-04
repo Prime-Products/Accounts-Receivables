@@ -1099,7 +1099,7 @@ export type OpsQuotationItem = typeof opsQuotationItems.$inferSelect;
 export type InsertOpsQuotationItem = typeof opsQuotationItems.$inferInsert;
 
 /** Operations contract statuses. */
-export const opsContractStatuses = ["Draft", "Active", "Expired", "Terminated"] as const;
+export const opsContractStatuses = ["Draft", "Sent", "Active", "Expired", "Terminated"] as const;
 
 /** Operations contracts — umbrella agreements created from approved quotations. */
 export const opsContracts = mysqlTable("ops_contracts", {

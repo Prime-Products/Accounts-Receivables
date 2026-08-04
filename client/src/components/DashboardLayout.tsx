@@ -49,7 +49,6 @@ import {
 } from "lucide-react";
 import {
   Briefcase,
-  ClipboardList,
   FileCheck2,
   Package,
   RotateCcw,
@@ -96,7 +95,6 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
     label: "Operations",
     items: [
       { icon: Briefcase, label: "Ops Dashboard", path: "/ops" },
-      { icon: ClipboardList, label: "Quotations", path: "/ops/quotations" },
       { icon: FileCheck2, label: "Ops Contracts", path: "/ops/contracts" },
       { icon: Package, label: "Assets", path: "/ops/assets" },
       { icon: ShieldCheck, label: "Certificates", path: "/ops/certificates" },
