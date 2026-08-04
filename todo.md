@@ -2081,3 +2081,10 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Vessel modal shows the full vessel view: info + financial KPIs + grouped Products (Equipment/Consumables/Other) + contracts + invoices
 - [x] Every clickable vessel in the app opens the vessel modal instead of navigating (contract Vessels tab, contract financials per-vessel rows, Invoices vessel breakdown, ops pages, search results)
 - [x] Old /ops/vessel/:id dashboard no longer reachable by clicking a vessel
+
+## Sidebar menu rework (user request 5/8)
+- [x] Section headers behave honestly: the section holding the current page can also be collapsed (active item stays reachable)
+- [x] Sidebar footer (Mentions + user) never overlaps or hides the last nav rows at short viewport heights
+- [x] Tighter rows/spacing so the menu reads as a compact list instead of a loose long column
+- [x] Icon-only (collapsed) mode: grouped icons with separators, no section headers, tooltips on hover
+- [x] Active row styling is clearly readable (accent bar + solid contrast), one active row at a time

@@ -84,12 +84,37 @@ describe("Sidebar sections", () => {
     expect(layout).toMatch(/-rotate-90/);
   });
 
-  it("never hides the section holding the current page, and keeps state across reloads", () => {
-    // The active section stays open regardless of the stored preference.
-    expect(layout).toContain("holdsCurrentPage");
-    expect(layout).toMatch(/isCollapsed \|\| holdsCurrentPage/);
-    // Preference is persisted.
+  it("lets every section collapse, including the one holding the current page", () => {
+    // Earlier the active section was force-opened, so clicking its header did
+    // nothing and the control felt broken. Now the stored preference decides.
+    expect(layout).toMatch(/const isOpen = !hasHeader \|\| openSections\.includes\(section\.label!\)/);
+    expect(layout).not.toMatch(/isCollapsed \|\| holdsCurrentPage/);
+  });
+
+  it("keeps the active destination reachable inside a collapsed section", () => {
+    // A closed section still renders its active row, and flags itself with a dot,
+    // so you never lose sight of where you are.
+    expect(layout).toMatch(/const hidden = !isOpen && !isActive/);
+    expect(layout).toContain("!isOpen && holdsCurrentPage");
+  });
+
+  it("persists the open/closed preference across reloads", () => {
     expect(layout).toContain("SIDEBAR_SECTIONS_KEY");
     expect(layout).toMatch(/localStorage\.setItem\(SIDEBAR_SECTIONS_KEY/);
+  });
+
+  it("scrolls the nav instead of letting the footer cover the last entries", () => {
+    // The footer used to sit on top of Reports/Team/Settings on a short screen.
+    // Nav = the only scrolling region; footer is a shrink-0 sibling.
+    expect(layout).toMatch(/<SidebarContent className="[^"]*overflow-y-auto/);
+    expect(layout).toMatch(/<SidebarFooter className="[^"]*shrink-0/);
+  });
+
+  it("keeps the rows compact and separates the groups in icon-only mode", () => {
+    // Rows were h-10 with loose gaps, which made the menu read as a long column.
+    expect(layout).toContain('const NAV_ROW = "relative h-8');
+    expect(layout).not.toMatch(/className=\{`h-10 transition-all font-normal`\}/);
+    // No headers exist in the icon rail, so a hairline marks each group.
+    expect(layout).toMatch(/SidebarSeparator[\s\S]{0,160}group-data-\[collapsible=icon\]:block/);
   });
 });

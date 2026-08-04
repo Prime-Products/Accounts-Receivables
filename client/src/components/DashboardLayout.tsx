@@ -18,6 +18,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
+  SidebarSeparator,
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
@@ -159,6 +160,13 @@ function readOpenSections(): string[] {
     return collapsibleSectionLabels;
   }
 }
+
+/**
+ * Shared row styling for a navigation entry. The active row gets a solid accent
+ * background plus a left accent bar, so exactly one row reads as "you are here"
+ * without relying on colour alone.
+ */
+const NAV_ROW = "relative h-8 rounded-md px-2 text-sm font-normal transition-colors";
 
 export default function DashboardLayout({
   children,
@@ -314,111 +322,130 @@ function DashboardLayoutContent({
             </div>
           </SidebarHeader>
 
-          <SidebarContent className="gap-1 py-1">
+          {/*
+           * The nav is the only scrolling region: `SidebarContent` is flex-1 with its own
+           * overflow, and header/footer are shrink-0 siblings. That is what keeps the
+           * footer (Mentions + user) from ever covering the last rows on a short screen.
+           */}
+          <SidebarContent className="gap-0 overflow-y-auto overscroll-contain py-1 group-data-[collapsible=icon]:overflow-y-auto">
             {navSections.map((section, i) => {
               /*
-               * A section header is a control: clicking it expands or collapses the
-               * items below. Two rules keep it from getting in the way — the section
-               * holding the current page cannot be closed (you must always see where
-               * you are), and when the sidebar is icon-only every item stays visible
-               * because there is no header left to click.
+               * A section header is a control and it tells the truth: any section can be
+               * collapsed, including the one holding the current page. To avoid hiding
+               * where you are, a collapsed section that owns the active route still shows
+               * that single row (and marks itself with a dot), so you never lose your
+               * place but you do get the compact menu you asked for.
                */
               const hasHeader = Boolean(section.label);
               const holdsCurrentPage = section.label !== null && section.label === activeSection;
-              const isOpen =
-                !hasHeader || isCollapsed || holdsCurrentPage || openSections.includes(section.label!);
+              const isOpen = !hasHeader || openSections.includes(section.label!);
               return (
-              <SidebarGroup
-                key={section.label ?? `section-${i}`}
-                className={`shrink-0 px-0 ${section.label ? "pt-2 pb-0" : "py-0"}`}
-              >
-                {section.label ? (
-                  /*
-                   * Deliberately NOT shadcn's `SidebarGroupLabel`: that component is a
-                   * fixed `h-8` flex box which, in icon mode, pulls itself out of flow with
-                   * `-mt-8`. Wrapping our toggle button in it made the header sit on top of
-                   * the first menu row. A plain block keeps the header in normal flow.
-                   */
-                  <div className="mb-1 shrink-0 px-2 group-data-[collapsible=icon]:hidden">
-                    <button
-                      type="button"
-                      onClick={() => toggleSection(section.label!)}
-                      aria-expanded={isOpen}
-                      aria-controls={`nav-section-${section.label}`}
-                      title={
-                        holdsCurrentPage
-                          ? `${section.label} — contains the page you are on`
-                          : isOpen
-                            ? `Collapse ${section.label}`
-                            : `Expand ${section.label}`
-                      }
-                      className="flex w-full items-center justify-between rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:bg-accent/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <span className="truncate">{section.label}</span>
-                      <ChevronDown
-                        className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
-                          isOpen ? "" : "-rotate-90"
-                        }`}
-                        aria-hidden="true"
-                      />
-                    </button>
-                  </div>
-                ) : null}
-                <SidebarMenu
-                  id={section.label ? `nav-section-${section.label}` : undefined}
-                  className={`shrink-0 px-2 py-1 ${isOpen ? "" : "hidden"}`}
+                <SidebarGroup
+                  key={section.label ?? `section-${i}`}
+                  className={`shrink-0 px-0 py-0 ${section.label ? "mt-1.5" : ""}`}
                 >
-                  {section.items.map(item => {
-                    const isActive = matchesNavPath(location, item.path);
+                  {/* In the icon rail there is no room for a header, so a hairline separates groups. */}
+                  {section.label && i > 0 ? (
+                    <SidebarSeparator className="my-1 hidden group-data-[collapsible=icon]:block" />
+                  ) : null}
+                  {section.label ? (
                     /*
-                     * A menu click always takes you to the top of the page. Deep in a
-                     * 5,000-row invoice list the fastest way back to the filters is the
-                     * menu entry you are already on, so clicking the active item must
-                     * scroll up instead of doing nothing. On a different route we still
-                     * reset the scroll, because wouter keeps the window position.
+                     * Deliberately NOT shadcn's `SidebarGroupLabel`: that component is a
+                     * fixed `h-8` flex box which, in icon mode, pulls itself out of flow with
+                     * `-mt-8`. Wrapping our toggle button in it made the header sit on top of
+                     * the first menu row. A plain block keeps the header in normal flow.
                      */
-                    const handleClick = () => {
-                      if (!isActive) setLocation(item.path);
-                      if (sidebarIsMobile) setOpenMobile(false);
-                      scrollPageToTop();
-                    };
-                    return (
-                      <SidebarMenuItem key={item.path}>
-                        <SidebarMenuButton
-                          isActive={isActive}
-                          onClick={handleClick}
-                          tooltip={item.label}
-                          className={`h-10 transition-all font-normal`}
-                        >
-                          <item.icon
-                            className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
+                    <div className="px-2 group-data-[collapsible=icon]:hidden">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection(section.label!)}
+                        aria-expanded={isOpen}
+                        aria-controls={`nav-section-${section.label}`}
+                        title={isOpen ? `Collapse ${section.label}` : `Expand ${section.label}`}
+                        className="group/sec flex h-6 w-full items-center gap-1.5 rounded-md px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-sidebar-foreground/45 transition-colors hover:text-sidebar-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                      >
+                        <ChevronDown
+                          className={`h-3 w-3 shrink-0 opacity-60 transition-transform duration-150 ${
+                            isOpen ? "" : "-rotate-90"
+                          }`}
+                          aria-hidden="true"
+                        />
+                        <span className="truncate">{section.label}</span>
+                        {/* Closed but it owns the current page: say so instead of silently hiding it. */}
+                        {!isOpen && holdsCurrentPage ? (
+                          <span
+                            className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-sidebar-primary"
+                            aria-hidden="true"
                           />
-                          <span>{item.label}</span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroup>
+                        ) : null}
+                      </button>
+                    </div>
+                  ) : null}
+                  <SidebarMenu
+                    id={section.label ? `nav-section-${section.label}` : undefined}
+                    className="gap-0.5 px-2 pt-0.5"
+                  >
+                    {section.items.map(item => {
+                      const isActive = matchesNavPath(location, item.path);
+                      /*
+                       * A menu click always takes you to the top of the page. Deep in a
+                       * 5,000-row invoice list the fastest way back to the filters is the
+                       * menu entry you are already on, so clicking the active item must
+                       * scroll up instead of doing nothing. On a different route we still
+                       * reset the scroll, because wouter keeps the window position.
+                       */
+                      const handleClick = () => {
+                        if (!isActive) setLocation(item.path);
+                        if (sidebarIsMobile) setOpenMobile(false);
+                        scrollPageToTop();
+                      };
+                      // Collapsed section: keep only the active row visible (and the whole
+                      // group visible in the icon rail, where headers do not exist).
+                      const hidden = !isOpen && !isActive;
+                      return (
+                        <SidebarMenuItem
+                          key={item.path}
+                          className={hidden ? "hidden group-data-[collapsible=icon]:block" : undefined}
+                        >
+                          <SidebarMenuButton
+                            isActive={isActive}
+                            onClick={handleClick}
+                            tooltip={item.label}
+                            className={NAV_ROW}
+                          >
+                            {isActive ? (
+                              <span
+                                className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r-full bg-sidebar-primary group-data-[collapsible=icon]:hidden"
+                                aria-hidden="true"
+                              />
+                            ) : null}
+                            <item.icon className="h-4 w-4 shrink-0 opacity-80" />
+                            <span className="truncate">{item.label}</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </SidebarMenu>
+                </SidebarGroup>
               );
             })}
           </SidebarContent>
 
-          <SidebarFooter className="p-3">
+          <SidebarFooter className="shrink-0 gap-1 border-t border-sidebar-border p-2">
             <MentionsInbox collapsed={isCollapsed} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0">
+                <button className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-sidebar-accent/60 group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
+                  <Avatar className="h-7 w-7 border shrink-0">
                     <AvatarFallback className="text-xs font-medium">
                       {user?.name?.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none">
+                    <p className="truncate text-xs font-medium leading-none">
                       {user?.name || "-"}
                     </p>
-                    <p className="text-xs text-muted-foreground truncate mt-1.5">
+                    <p className="mt-1 truncate text-[10px] text-sidebar-foreground/60">
                       {user?.email || "-"}
                     </p>
                   </div>
