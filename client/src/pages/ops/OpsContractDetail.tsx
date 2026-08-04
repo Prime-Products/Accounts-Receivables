@@ -14,6 +14,7 @@ import { fmtDate, fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { groupContractProducts } from "@shared/productGrouping";
 import { SupplyBadge } from "@/components/SupplyBadge";
+import { ContractExpiryIndicator } from "@/components/ContractExpiryIndicator";
 import { ProductPicker } from "@/components/ProductPicker";
 import { ArrowLeft, CalendarRange, CheckCircle2, ChevronDown, ChevronRight, Clock, Package, Pencil, Plus, Ship, Trash2, Wallet } from "lucide-react";
 import { Play, XCircle } from "lucide-react";
@@ -294,8 +295,10 @@ export default function OpsContractDetail() {
         </Button>
         <div className="flex-1">
           <h1 className="text-2xl font-bold tracking-tight">{contract.contractNumber} — {contract.title}</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {customer?.name ?? "—"} · {fmtDate(contract.startDate)} → {fmtDate(contract.endDate)}
+          <p className="text-sm text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            <span>{customer?.name ?? "—"} · {fmtDate(contract.startDate)} → {fmtDate(contract.endDate)}</span>
+            {/* The end date carries its own colour, so an expiring contract is visible on arrival. */}
+            <ContractExpiryIndicator endDate={contract.endDate} />
           </p>
         </div>
         {/* Status Actions */}
@@ -527,6 +530,9 @@ export default function OpsContractDetail() {
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {fmtDate(contract.startDate)} → {fmtDate(contract.endDate)}
+                  </div>
+                  <div className="mt-1.5">
+                    <ContractExpiryIndicator endDate={contract.endDate} />
                   </div>
                 </div>
                 <div>

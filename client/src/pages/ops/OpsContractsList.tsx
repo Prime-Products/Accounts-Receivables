@@ -1,4 +1,5 @@
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
+import { ContractExpiryIndicator } from "@/components/ContractExpiryIndicator";
 import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -254,7 +255,13 @@ export default function OpsContractsList() {
                         <Badge variant="outline" className={statusColors[c.status] ?? ""}>{c.status}</Badge>
                       </TableCell>
                       <TableCell className="text-sm">{fmtDate(c.startDate)}</TableCell>
-                      <TableCell className="text-sm">{fmtDate(c.endDate)}</TableCell>
+                      <TableCell className="text-sm">
+                        {/* Dense row, so the countdown lives in a tooltip behind a coloured dot. */}
+                        <span className="flex items-center gap-1.5">
+                          <ContractExpiryIndicator endDate={c.endDate} variant="dot" />
+                          {fmtDate(c.endDate)}
+                        </span>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
