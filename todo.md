@@ -2020,3 +2020,8 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [~] DEFERRED: Approved status step between Offer and Active
 - [~] DEFERRED: one Pending order per assigned vessel, carrying the contract's product lines
 - [~] DEFERRED: dispatch queue + ERP push of those orders to Softone
+
+## Rename Catalog to Pricelist (user request 4/8)
+- [x] Sidebar label and page header renamed to Pricelist, with a subtitle explaining it holds standard costs/prices
+- [x] Equipment dialog wording points to the Pricelist instead of "Catalog Management"
+- [x] Wording tests updated for the rename (920 tests passing)

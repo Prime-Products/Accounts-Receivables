@@ -93,7 +93,7 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
       { icon: FileCheck2, label: "Contracts", path: "/ops/contracts" },
       { icon: Package, label: "Equipment", path: "/ops/assets" },
       { icon: ShieldCheck, label: "Certificates", path: "/ops/certificates" },
-      { icon: Settings, label: "Catalog", path: "/ops/catalog" },
+      { icon: Settings, label: "Pricelist", path: "/ops/catalog" },
     ],
   },
   {

@@ -347,16 +347,16 @@ function ConsumablesCatalogTab() {
   );
 }
 
-// ─── Main Catalog Page ───────────────────────────────────────────────────────
+// ─── Main Pricelist Page ─────────────────────────────────────────────────────
 export default function OpsCatalog() {
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Settings2 className="h-6 w-6" /> Catalog Management
+          <Settings2 className="h-6 w-6" /> Pricelist
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage your service offerings, products, and consumable items
+          Standard costs and prices for services, products and consumables — reused across contracts
         </p>
       </div>
 

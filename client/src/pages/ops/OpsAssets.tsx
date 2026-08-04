@@ -350,19 +350,19 @@ export default function OpsAssets() {
               <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. RIKEN KEIKI GX-3R" />
             </div>
 
-            {/* Product from catalog — fills the name automatically */}
+            {/* Product from the pricelist — fills the name automatically */}
             <div className="space-y-1.5 col-span-2">
               <Label>Product <span className="text-muted-foreground font-normal">(optional)</span></Label>
               {(assetCatalog ?? []).filter(a => a.active).length === 0 ? (
                 <p className="text-xs text-muted-foreground border rounded-md px-3 py-2 bg-muted/40">
-                  No products in the catalog yet — add them in Catalog Management to auto-fill names.
+                  No products in the pricelist yet — add them under Pricelist to auto-fill names.
                 </p>
               ) : (
                 <Select value={form.catalogItemId} onValueChange={v => {
                   const item = assetCatalog?.find(a => a.id === Number(v));
                   setForm({ ...form, catalogItemId: v, name: item?.name ?? form.name });
                 }}>
-                  <SelectTrigger><SelectValue placeholder="Select from catalog" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select from pricelist" /></SelectTrigger>
                   <SelectContent>
                     {(assetCatalog ?? []).filter(a => a.active).map(a => (
                       <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>

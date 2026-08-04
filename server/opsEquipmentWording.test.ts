@@ -44,10 +44,10 @@ describe("equipment terminology (renamed from Assets)", () => {
     expect(equipmentPage).not.toContain("Search assets...");
   });
 
-  it("the catalog link inside the dialog is labelled Product", () => {
+  it("the pricelist link inside the dialog is labelled Product", () => {
     expect(equipmentPage).toContain("<Label>Product <span");
     expect(equipmentPage).not.toContain("<Label>Asset Type");
-    expect(equipmentPage).toContain("No products in the catalog yet");
+    expect(equipmentPage).toContain("No products in the pricelist yet");
   });
 });
 
@@ -68,7 +68,14 @@ describe("catalog terminology", () => {
   });
 
   it("keeps the three catalog tabs (services, products, consumables)", () => {
-    expect(catalogPage).toContain("Manage your service offerings, products, and consumable items");
+    expect(catalogPage).toContain("Standard costs and prices for services, products and consumables");
+  });
+
+  it("the catalog page is presented as the Pricelist", () => {
+    expect(catalogPage).toContain("Pricelist");
+    expect(catalogPage).not.toContain("Catalog Management");
+    expect(sidebar).toContain('label: "Pricelist"');
+    expect(sidebar).not.toContain('label: "Catalog"');
   });
 });
 

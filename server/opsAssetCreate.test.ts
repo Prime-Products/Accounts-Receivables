@@ -33,8 +33,8 @@ describe("New Asset dialog — creation is not blocked by empty lookups", () => 
     }
   });
 
-  it("explains empty catalog and contract dropdowns instead of showing a blank list", () => {
-    expect(page).toMatch(/No products in the catalog yet/);
+  it("explains empty pricelist and contract dropdowns instead of showing a blank list", () => {
+    expect(page).toMatch(/No products in the pricelist yet/);
     expect(page).toMatch(/No contracts yet/);
   });
 
