@@ -1996,8 +1996,6 @@ destination of the record is group-level.
 - [x] Products tab: categorised product list with per-vessel totals
 - [x] Financials tab: contract commercials, payment method/terms, and the payment schedule inside it
 - [x] Vessels tab: separate from products, with add/remove and equipment generation
-- [ ] Schema: payment method + payment terms fields on ops contracts
 - [x] Vitest coverage for product grouping order and the tab structure (17 tests)
 - [x] Remove "Orders" (Consumable Orders) from the Prime 247 menu — orders belong to the ERP; keep tables/procedures for a future ERP feed
 - [x] Schema: payment method + payment terms fields on ops contracts (applied to live DB)
-- [ ] Remove "Orders" (Consumable Orders) from the Prime 247 menu — orders live in the ERP; keep the tables/procedures for a future ERP feed
