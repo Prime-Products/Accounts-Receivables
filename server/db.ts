@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, like, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, like, lt, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { monthRange } from "./lib/arLogic";
 import {
@@ -396,7 +396,10 @@ export type SoftOneInvoiceUpsert = Omit<InsertInvoice, "customerId"> & {
   }>;
 };
 
-export async function upsertSoftOneInvoices(records: SoftOneInvoiceUpsert[]) {
+export async function upsertSoftOneInvoices(
+  records: SoftOneInvoiceUpsert[],
+  options: { reconcileOpenSnapshot?: boolean } = {},
+) {
   const database = await requireDb();
   const syncVesselAllocations = records.some(record => record.vesselAllocations !== undefined);
   const customerRows = await database
@@ -464,6 +467,25 @@ export async function upsertSoftOneInvoices(records: SoftOneInvoiceUpsert[]) {
             softoneId: sql`VALUES(${invoices.softoneId})`,
           },
         });
+    }
+    if (options.reconcileOpenSnapshot) {
+      const snapshotIds = records
+        .map(record => record.softoneId)
+        .filter((value): value is string => Boolean(value));
+      if (snapshotIds.length === 0) {
+        throw new Error("Cannot reconcile an empty SoftOne open-invoice snapshot.");
+      }
+      await tx
+        .update(invoices)
+        .set({
+          paidAmount: sql`${invoices.amount}`,
+          status: "Paid",
+        })
+        .where(and(
+          isNotNull(invoices.softoneId),
+          notInArray(invoices.softoneId, snapshotIds),
+          notInArray(invoices.status, ["Paid"]),
+        ));
     }
     const softoneIds = records.map(record => record.softoneId).filter((value): value is string => Boolean(value));
     if (syncVesselAllocations && softoneIds.length > 0) {

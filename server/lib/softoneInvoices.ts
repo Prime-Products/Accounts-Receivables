@@ -972,14 +972,14 @@ export async function syncSoftOneOpenInvoices() {
     });
     stage = "resolve invoice-only customers";
     const insertedCustomers = await ensureInvoiceCustomers(records);
-    stage = "upsert MariaDB invoices";
-    await db.upsertSoftOneInvoices(records);
+    stage = "apply MariaDB open-invoice snapshot";
+    await db.upsertSoftOneInvoices(records, { reconcileOpenSnapshot: true });
     await db.addSyncLog({
       direction: "Pull",
       entityType: "invoices",
       recordCount: records.length,
       status: "Success",
-      message: `Read-only SQL sync upserted ${records.length} open invoices`,
+      message: `Read-only SQL sync applied a snapshot of ${records.length} open invoices`,
     });
     return { synced: records.length, insertedCustomers };
   } catch (error) {

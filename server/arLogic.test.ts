@@ -111,6 +111,8 @@ describe("misc", () => {
     expect(isOverdue({ dueDate: NOW - DAY_MS, amount: "100", paidAmount: "0", status: "Disputed" }, NOW)).toBe(true);
     // Partially paid with a remaining balance past due is overdue.
     expect(isOverdue({ dueDate: NOW - DAY_MS, amount: "100", paidAmount: "40", status: "Partially Paid" }, NOW)).toBe(true);
+    // Prime 247 includes invoices due today in overdue totals.
+    expect(isOverdue({ dueDate: NOW, amount: "100", paidAmount: "0", status: "Open" }, NOW + 12 * 60 * 60 * 1000)).toBe(true);
     // Not yet due, and fully settled invoices, are never overdue.
     expect(isOverdue({ dueDate: NOW + DAY_MS, amount: "100", paidAmount: "0", status: "Open" }, NOW)).toBe(false);
     expect(isOverdue({ dueDate: NOW - DAY_MS, amount: "100", paidAmount: "100", status: "Paid" }, NOW)).toBe(false);
