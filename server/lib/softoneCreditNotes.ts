@@ -155,7 +155,6 @@ LEFT JOIN [dbo].[TRDGROUP] AS customer_group
 WHERE customer.[TRDR] = ${softoneId}
   AND customer.[COMPANY] = 1
   AND customer.[SODTYPE] = 13
-  AND customer.[ISACTIVE] = 1
   AND (customer.[TRDGROUP] IS NULL OR customer.[TRDGROUP] <> ${SOFTONE_INTERNAL_CUSTOMER_GROUP_ID})`;
 }
 
@@ -285,7 +284,7 @@ export async function syncSoftOneCreditNoteCustomer(softoneId: number) {
     pool = await openSoftOneSqlPool();
     const result = await querySoftOneWithWatchdog<SourceRow>(pool, buildSoftOneCreditNoteCustomerQuery(softoneId), stage);
     if (result.recordset.length !== 1) {
-      throw new Error(`SoftOne customer ${softoneId} was not found or is not an eligible active customer.`);
+      throw new Error(`SoftOne customer ${softoneId} was not found or is not an eligible customer.`);
     }
     const row = result.recordset[0];
     const customerName = identity(row, "CUSTOMER_NAME");
