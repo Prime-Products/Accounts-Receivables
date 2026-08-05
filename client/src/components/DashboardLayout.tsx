@@ -39,7 +39,6 @@ import {
   LogOut,
   PanelLeft,
   Phone,
-  ScrollText,
   Settings,
   Ship,
   TrendingUp,
@@ -51,9 +50,7 @@ import {
   Briefcase,
   FileCheck2,
   Package,
-  RotateCcw,
   ShieldCheck,
-  Truck,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -74,7 +71,7 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
   {
     label: "Receivables",
     items: [
-      { icon: Users, label: "Collections Desk", path: "/customers" },
+      { icon: Users, label: "Customers", path: "/customers" },
       { icon: FileText, label: "Invoices", path: "/invoices" },
       // "Remittances" covers every instrument the customer pays with: bank wire, cheque, credit card.
       { icon: Banknote, label: "Remittances", path: "/remittances" },
@@ -88,19 +85,17 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
     items: [
       { icon: Contact, label: "Address Book", path: "/address-book" },
       { icon: Ship, label: "Vessels", path: "/vessels" },
-      { icon: ScrollText, label: "Contracts", path: "/contracts" },
     ],
   },
   {
     label: "Prime 247",
     items: [
-      { icon: Briefcase, label: "Ops Dashboard", path: "/ops" },
-      { icon: FileCheck2, label: "Ops Contracts", path: "/ops/contracts" },
-      { icon: Package, label: "Assets", path: "/ops/assets" },
+      { icon: Briefcase, label: "Overview", path: "/ops" },
+      { icon: FileCheck2, label: "Contracts", path: "/ops/contracts" },
+      { icon: Ship, label: "Vessels", path: "/vessels" },
+      { icon: Package, label: "Equipment", path: "/ops/assets" },
       { icon: ShieldCheck, label: "Certificates", path: "/ops/certificates" },
-      { icon: Truck, label: "Orders", path: "/ops/orders" },
-      { icon: RotateCcw, label: "Returns", path: "/ops/returns" },
-      { icon: Settings, label: "Catalog", path: "/ops/catalog" },
+      { icon: Settings, label: "Pricelist", path: "/ops/catalog" },
     ],
   },
   {
@@ -117,7 +112,9 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
 const menuItems = navSections.flatMap(s => s.items);
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const SIDEBAR_SECTIONS_KEY = "sidebar-open-sections";
+// Version the preference whenever the information architecture changes so an
+// old collapsed state cannot hide the newly aligned Manus navigation.
+const SIDEBAR_SECTIONS_KEY = "sidebar-open-sections-v2";
 const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
@@ -345,7 +342,7 @@ function DashboardLayoutContent({
                             ? `Collapse ${section.label}`
                             : `Expand ${section.label}`
                       }
-                      className="flex w-full items-center gap-1.5 px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex w-fit items-center gap-1.5 px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:text-foreground focus:outline-none"
                     >
                       <ChevronDown
                         className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
