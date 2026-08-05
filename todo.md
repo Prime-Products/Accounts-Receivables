@@ -2129,3 +2129,9 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Keep collections entry points (Collections Desk rows, mentions) on the Receivables module
 - [x] Tests for the new routes, hub tiles and the rename
 - [x] Identity modal for group/company dropped — the customer opens as a page (user decision "oxi")
+- [x] Sidebar section renamed Collections → Receivables; desk entry renamed → Customers
+- [x] Reusable RecordBreadcrumb with a colour-coded GROUP / COMPANY type badge
+- [x] Breadcrumb wired into the group card, the group Receivables module and the company card
+- [x] Company card: owning group moved into the breadcrumb as a clickable ancestor (duplicate chip removed)
+- [x] Tests pinning badge labels, colours, hover explanations and per-page entity wiring
+- [ ] Later (option B step 2): restructure the company card to mirror the group card — identity + key figures + module tiles at /customers/:id, collections work at /customers/:id/receivables

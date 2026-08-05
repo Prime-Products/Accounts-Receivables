@@ -5,6 +5,7 @@ import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { PeopleRow } from "@/components/PeopleRow";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { RecordBreadcrumb } from "@/components/RecordBreadcrumb";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
@@ -168,9 +169,30 @@ export default function CustomerDetail() {
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
-      <Button variant="ghost" size="sm" className="gap-1 -ml-2" onClick={() => navigate("/customers")}>
-        <ArrowLeft className="h-4 w-4" /> Customers
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="ghost" size="sm" className="gap-1 -ml-2" onClick={() => navigate("/customers")}>
+          <ArrowLeft className="h-4 w-4" /> Customers
+        </Button>
+        {/*
+         * COMPANY badge plus the owning group as a clickable ancestor: the company
+         * card looks just like the group card, so the kind must be stated, and the
+         * group must be one click away instead of a dead end.
+         */}
+        <RecordBreadcrumb
+          entity="company"
+          trail={[
+            ...(customer.customerGroup
+              ? [
+                  {
+                    label: customer.customerGroup.trim(),
+                    href: `/groups/${encodeURIComponent(customer.customerGroup.trim())}`,
+                  },
+                ]
+              : []),
+            { label: customer.name },
+          ]}
+        />
+      </div>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -186,16 +208,10 @@ export default function CustomerDetail() {
               </Badge>
             )}
             <WatchStatusSelect group={data.groupKey} effective={data.watchStatus ?? null} />
-            {customer.customerGroup && (
-              <Badge
-                variant="outline"
-                className="cursor-pointer gap-1 bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
-                onClick={() => navigate(`/groups/${encodeURIComponent(customer.customerGroup!.trim())}`)}
-                title="Open the group card"
-              >
-                <Layers className="h-3 w-3" /> {customer.customerGroup}
-              </Badge>
-            )}
+            {/*
+             * The owning group used to be a chip here; it now lives in the
+             * breadcrumb above, where an ancestor belongs, so it is not repeated.
+             */}
             {/* Ownership inline after the badges, same compact strip as the group card. */}
             <span className="border-l pl-2 text-base font-normal">
               <PeopleRow

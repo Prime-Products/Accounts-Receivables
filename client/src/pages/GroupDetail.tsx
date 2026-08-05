@@ -5,6 +5,7 @@ import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
 import { CommunicationPanel, CommunicationToggle, useCommunicationPanel } from "@/components/CommunicationPanel";
 import { buildTimeline } from "@/lib/timeline";
+import { RecordBreadcrumb } from "@/components/RecordBreadcrumb";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { PeopleRow } from "@/components/PeopleRow";
 import { InvoicesTable } from "@/components/InvoicesTable";
@@ -739,6 +740,14 @@ export default function GroupDetail() {
             <ArrowLeft className="h-4 w-4" /> Customer card
           </Button>
           <div>
+            {/* Kind of record + the trail, so the module never hides whose money this is. */}
+            <RecordBreadcrumb
+              entity="group"
+              trail={[
+                { label: group, href: `/groups/${encodeURIComponent(group)}` },
+              ]}
+              module="Receivables"
+            />
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <Layers className="h-6 w-6" /> {group}
               {data?.rating && (

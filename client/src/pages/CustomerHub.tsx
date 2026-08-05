@@ -1,6 +1,7 @@
 import { PeopleRow } from "@/components/PeopleRow";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { VesselLink } from "@/components/VesselLink";
+import { RecordBreadcrumb } from "@/components/RecordBreadcrumb";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -166,6 +167,14 @@ export default function CustomerHub() {
             <ArrowLeft className="h-4 w-4" /> Customers
           </Button>
           <div>
+            {/*
+             * Say what kind of record this is before the title: a group card and a
+             * company card carry the same figures, so the badge tells them apart.
+             */}
+            <RecordBreadcrumb
+              entity="group"
+              trail={[{ label: group }]}
+            />
             <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold tracking-tight">
               <Layers className="h-6 w-6" /> {group}
               {data?.rating && (
