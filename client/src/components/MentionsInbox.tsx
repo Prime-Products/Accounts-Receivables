@@ -78,7 +78,12 @@ export default function MentionsInbox({ collapsed }: { collapsed?: boolean }) {
                 onClick={() => {
                   markRead.mutate({ mentionId: m.id });
                   setOpen(false);
-                  setLocation(`/groups/${encodeURIComponent(m.group)}`);
+                  /*
+                   * A mention always comes out of collections work (a note, a call,
+                   * a task), so it lands in the Receivables module rather than on
+                   * the customer card, where the conversation is not visible.
+                   */
+                  setLocation(`/groups/${encodeURIComponent(m.group)}/receivables`);
                   scrollPageToTop();
                 }}
                 className={`block w-full px-3 py-2 text-left transition-colors hover:bg-accent/50 ${

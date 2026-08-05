@@ -2119,3 +2119,13 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Global search: add products (asset & consumable catalog) by name
 - [x] Global search: update placeholder text to reflect wider coverage
 - [x] Global search: tests pinning contracts and new record types
+
+## Customer architecture restructure (Aug 2026)
+- [x] Rename the group workspace from Collections to Receivables (labels, headings, breadcrumbs)
+- [x] Move the workspace route to /groups/:name/receivables with a redirect from /groups/:name/collections
+- [x] Build the customer hub page at /groups/:name with identity + key figures + module tiles
+- [x] Add module tiles: Receivables, Prime 247 contracts, Vessels (live) + Financials, Quotations, Orders (planned, toast)
+- [x] Hub: list the group's member companies and its fleet as shortcuts
+- [x] Keep collections entry points (Collections Desk rows, mentions) on the Receivables module
+- [x] Tests for the new routes, hub tiles and the rename
+- [x] Identity modal for group/company dropped — the customer opens as a page (user decision "oxi")

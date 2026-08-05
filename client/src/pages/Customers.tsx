@@ -916,7 +916,12 @@ export default function Customers() {
                             ? "bg-amber-50/70 hover:bg-amber-50 dark:bg-amber-500/5"
                             : ""
                       }`}
-                      onClick={() => navigate(`/groups/${encodeURIComponent(g.group)}`)}
+                      /*
+                       * The desk is the collections worklist, so a row opens the
+                       * Receivables module directly. The customer card is one click
+                       * up from there.
+                       */
+                      onClick={() => navigate(`/groups/${encodeURIComponent(g.group)}/receivables`)}
                     >
                       <TableCell className="font-medium overflow-hidden">
                         <div className="flex items-center gap-1.5">

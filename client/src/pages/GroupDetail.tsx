@@ -422,7 +422,7 @@ function GroupPromiseDialog({ companies, defaultCustomerId, open: externalOpen, 
 }
 
 export default function GroupDetail() {
-  const [, params] = useRoute("/groups/:name");
+  const [, params] = useRoute("/groups/:name/receivables");
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
   const group = decodeURIComponent(params?.name ?? "");
@@ -725,8 +725,18 @@ export default function GroupDetail() {
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" className="gap-1" onClick={() => navigate("/customers")}>
-            <ArrowLeft className="h-4 w-4" /> Collections Desk
+          {/*
+           * This page is one module of the customer, so the escape route goes up
+           * to the customer hub rather than all the way back to the desk.
+           */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1"
+            onClick={() => navigate(`/groups/${encodeURIComponent(group)}`)}
+            title="Back to the customer card"
+          >
+            <ArrowLeft className="h-4 w-4" /> Customer card
           </Button>
           <div>
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
@@ -776,7 +786,7 @@ export default function GroupDetail() {
               )}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Group card — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}
+              Receivables — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}
             </p>
             {data && <LastContactLine data={data as any} />}
           </div>

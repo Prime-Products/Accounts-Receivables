@@ -60,7 +60,13 @@ export default function OpsContractsList() {
   const { data: vessels } = trpc.vessels.list.useQuery();
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
-  const [search, setSearch] = useState("");
+  /*
+   * A `?q=` param lets other pages (the customer hub, global search) hand off to
+   * this list already narrowed to one customer group.
+   */
+  const [search, setSearch] = useState(() =>
+    typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("q") ?? ""),
+  );
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("startDate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");

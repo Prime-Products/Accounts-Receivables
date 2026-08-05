@@ -15,6 +15,7 @@ import Home from "./pages/Home";
 // keeping the initial bundle small and first paint fast.
 const Customers = lazy(() => import("./pages/Customers"));
 const CustomerDetail = lazy(() => import("@/pages/CustomerDetail"));
+const CustomerHub = lazy(() => import("@/pages/CustomerHub"));
 const GroupDetail = lazy(() => import("@/pages/GroupDetail"));
 const Invoices = lazy(() => import("./pages/Invoices"));
 const AddressBook = lazy(() => import("./pages/AddressBook"));
@@ -67,7 +68,19 @@ function Router() {
           <Route path={"/"} component={Home} />
           <Route path={"/customers"} component={Customers} />
           <Route path={"/customers/:id"} component={CustomerDetail} />
-          <Route path={"/groups/:name"} component={GroupDetail} />
+          {/*
+           * Customer architecture (three levels):
+           *  1. identity — the group/company modal, opened from anywhere
+           *  2. hub      — /groups/:name, the customer's home with module tiles
+           *  3. modules  — /groups/:name/receivables and future siblings
+           * The old group URL was the receivables workspace itself, so it now
+           * redirects to the module and the bare path serves the hub.
+           */}
+          <Route path={"/groups/:name"} component={CustomerHub} />
+          <Route path={"/groups/:name/receivables"} component={GroupDetail} />
+          <Route path={"/groups/:name/collections"}>
+            {(p: { name: string }) => <Redirect to={`/groups/${p.name}/receivables`} />}
+          </Route>
           <Route path={"/invoices"} component={Invoices} />
           <Route path={"/vessels"} component={Vessels} />
           {/*
