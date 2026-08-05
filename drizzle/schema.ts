@@ -226,7 +226,7 @@ export const contractInstallments = mysqlTable("contract_installments", {
  * `Help` is a request for help addressed to a colleague ("ask a colleague"):
  * deliberately a normal task, so there is one queue and one place to look.
  */
-export const taskTypes = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Manual", "Help"] as const;
+export const taskTypes = ["Follow-up +2", "Follow-up +15", "Follow-up +20 SOA", "Escalation +30", "Contract Expiry", "Certificate Expiry", "Manual", "Help"] as const;
 export const taskStatuses = ["Pending", "In Progress", "Completed", "Cancelled"] as const;
 
 export const tasks = mysqlTable("tasks", {
@@ -1056,6 +1056,7 @@ export const opsServices = mysqlTable("ops_services", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   defaultCost: decimal("defaultCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  sellingPrice: decimal("sellingPrice", { precision: 12, scale: 2 }).default("0").notNull(),
   category: varchar("category", { length: 100 }),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -1070,6 +1071,7 @@ export const opsAssetCatalog = mysqlTable("ops_asset_catalog", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   defaultCost: decimal("defaultCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  sellingPrice: decimal("sellingPrice", { precision: 12, scale: 2 }).default("0").notNull(),
   category: varchar("category", { length: 100 }),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -1085,6 +1087,7 @@ export const opsConsumableCatalog = mysqlTable("ops_consumable_catalog", {
   description: text("description"),
   unit: varchar("unit", { length: 50 }).default("pcs").notNull(),
   defaultCostPerUnit: decimal("defaultCostPerUnit", { precision: 12, scale: 2 }).default("0").notNull(),
+  sellingPricePerUnit: decimal("sellingPricePerUnit", { precision: 12, scale: 2 }).default("0").notNull(),
   category: varchar("category", { length: 100 }),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -1138,7 +1141,9 @@ export type OpsQuotationItem = typeof opsQuotationItems.$inferSelect;
 export type InsertOpsQuotationItem = typeof opsQuotationItems.$inferInsert;
 
 /** Operations contract statuses. */
-export const opsContractStatuses = ["Draft", "Sent", "Active", "Expired", "Terminated"] as const;
+export const opsContractStatuses = ["Offer", "Active", "Expired", "Cancelled"] as const;
+/** How a contract's installments are settled. */
+export const opsPaymentMethods = ["Bank Transfer", "Cheque", "Credit Card", "Cash", "Letter of Credit"] as const;
 
 /** Operations contracts — umbrella agreements created from approved quotations. */
 export const opsContracts = mysqlTable("ops_contracts", {
@@ -1148,8 +1153,14 @@ export const opsContracts = mysqlTable("ops_contracts", {
   /** Links to existing AR customers table. */
   customerId: int("customerId").notNull(),
   title: varchar("title", { length: 255 }).notNull(),
-  status: mysqlEnum("status", opsContractStatuses).default("Draft").notNull(),
+  status: mysqlEnum("status", opsContractStatuses).default("Offer").notNull(),
   totalValue: decimal("totalValue", { precision: 12, scale: 2 }).default("0").notNull(),
+  pricePerVessel: decimal("pricePerVessel", { precision: 12, scale: 2 }).default("0").notNull(),
+  installmentCount: int("installmentCount").default(1).notNull(),
+  paymentMethod: mysqlEnum("paymentMethod", opsPaymentMethods).default("Bank Transfer").notNull(),
+  contractPeriodYears: int("contractPeriodYears").default(3).notNull(),
+  paymentTermsDays: int("paymentTermsDays").default(30).notNull(),
+  paymentNotes: text("paymentNotes"),
   startDate: bigint("startDate", { mode: "number" }).notNull(),
   endDate: bigint("endDate", { mode: "number" }).notNull(),
   notes: text("notes"),
@@ -1164,7 +1175,9 @@ export type OpsContract = typeof opsContracts.$inferSelect;
 export type InsertOpsContract = typeof opsContracts.$inferInsert;
 
 /** Contract library item types. */
-export const opsLibraryItemTypes = ["Service", "Asset", "Consumable"] as const;
+export const opsLibraryItemTypes = ["Equipment", "Consumable", "Other"] as const;
+/** Natures that produce serial-tracked asset records when a vessel is activated. */
+export const opsSerialTrackedTypes = ["Equipment"] as const;
 /** Quota types for consumables. */
 export const opsQuotaTypes = ["Annual", "ContractLife"] as const;
 
@@ -1173,9 +1186,11 @@ export const opsContractLibrary = mysqlTable("ops_contract_library", {
   id: int("id").autoincrement().primaryKey(),
   contractId: int("contractId").notNull(),
   itemType: mysqlEnum("itemType", opsLibraryItemTypes).notNull(),
-  catalogId: int("catalogId").notNull(),
+  catalogId: int("catalogId"),
   name: varchar("name", { length: 255 }).notNull(),
   quantity: int("quantity").default(1).notNull(),
+  unitCost: decimal("unitCost", { precision: 12, scale: 2 }).default("0").notNull(),
+  sellingPrice: decimal("sellingPrice", { precision: 12, scale: 2 }).default("0").notNull(),
   /** For consumables: Annual or ContractLife limit type. */
   quotaType: mysqlEnum("quotaType", opsQuotaTypes),
   /** Maximum quantity allowed under the quota. */
@@ -1192,6 +1207,7 @@ export const opsPaymentStatuses = ["Pending", "Invoiced", "Paid"] as const;
 export const opsPaymentSchedule = mysqlTable("ops_payment_schedule", {
   id: int("id").autoincrement().primaryKey(),
   contractId: int("contractId").notNull(),
+  vesselId: int("vesselId"),
   installmentNumber: int("installmentNumber").notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   dueDate: bigint("dueDate", { mode: "number" }).notNull(),
@@ -1203,6 +1219,7 @@ export const opsPaymentSchedule = mysqlTable("ops_payment_schedule", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, t => [
   index("idx_ops_payment_schedule_contractId").on(t.contractId),
+  index("idx_ops_payment_schedule_vesselId").on(t.vesselId),
   index("idx_ops_payment_schedule_status").on(t.status),
 ]);
 export type OpsPaymentSchedule = typeof opsPaymentSchedule.$inferSelect;
@@ -1215,6 +1232,7 @@ export const opsVesselAssignments = mysqlTable("ops_vessel_assignments", {
   vesselId: int("vesselId").notNull(),
   contractId: int("contractId").notNull(),
   assignedDate: bigint("assignedDate", { mode: "number" }).notNull(),
+  shipmentDate: bigint("shipmentDate", { mode: "number" }),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, t => [

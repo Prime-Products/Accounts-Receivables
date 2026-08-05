@@ -9,54 +9,102 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { VesselLink } from "@/components/VesselLink";
 import { fmtDate } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
-import { ArrowDown, ArrowUp, ArrowUpDown, Package, Plus, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { certUrgencyClass } from "@shared/certificateExpiry";
+import { ArrowDown, ArrowUp, ArrowUpDown, Package, Plus, RotateCcw, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { VesselDetailDialog } from "@/components/VesselDetailDialog";
+import { useSearch } from "wouter";
 
 const statusColors: Record<string, string> = {
   "Not Supplied": "bg-gray-100 text-gray-700 border-gray-200",
+  "In Transit": "bg-indigo-100 text-indigo-800 border-indigo-200",
   Active: "bg-emerald-100 text-emerald-800 border-emerald-200",
   "Pending Return": "bg-amber-100 text-amber-800 border-amber-200",
   Returned: "bg-sky-100 text-sky-800 border-sky-200",
-  "Written Off": "bg-red-100 text-red-700 border-red-200",
 };
+
+/** Mirrors opsAssetStatuses in drizzle/schema.ts — keep in sync. */
+const ASSET_STATUSES = ["Not Supplied", "In Transit", "Active", "Pending Return", "Returned"] as const;
 
 type SortKey = "serialNumber" | "name" | "vesselName" | "status" | "updatedAt";
 
 const COL_DEFAULTS: Record<string, number> = {
-  serialNumber: 180,
-  name: 180,
+  name: 300,
   vessel: 160,
   status: 130,
+  certificate: 150,
   returnPort: 130,
   updated: 120,
+  action: 110,
 };
 
 export default function OpsAssets() {
   const { data: assets, isLoading } = trpc.opsAssets.list.useQuery({});
   const { data: contracts } = trpc.opsContracts.list.useQuery();
   const { data: assetCatalog } = trpc.opsCatalog.assets.list.useQuery();
+  const { data: vessels } = trpc.vessels.list.useQuery();
   const utils = trpc.useUtils();
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  // A serial can be opened straight from a vessel row (?q=<serial>), so the search box
+  // is seeded from the URL and kept in sync when the link is followed again.
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get("q") ?? "");
+  /**
+   * The retired Returns page lived at /ops/returns; its work now happens here.
+   * The Overview "Pending Returns" card links in with ?status=Pending Return,
+   * so the filter has to be seeded from the URL and stay in sync with it.
+   */
+  const searchStr = useSearch();
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    const p = new URLSearchParams(window.location.search).get("status");
+    return p && (ASSET_STATUSES as readonly string[]).includes(p) ? p : "all";
+  });
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const cols = useResizableColumns("ops-assets", COL_DEFAULTS);
-  const [vesselDialogOpen, setVesselDialogOpen] = useState(false);
-  const [vesselDialogId, setVesselDialogId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const p = new URLSearchParams(searchStr).get("status");
+    if (p && (ASSET_STATUSES as readonly string[]).includes(p)) setStatusFilter(p);
+    const q = new URLSearchParams(searchStr).get("q");
+    if (q) setSearch(q);
+  }, [searchStr]);
 
   /* ─── Create Dialog ─── */
   const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({ contractId: "", catalogItemId: "", serialNumber: "", name: "", vesselId: "" });
-  const resetForm = () => setForm({ contractId: "", catalogItemId: "", serialNumber: "", name: "", vesselId: "" });
+  const EMPTY_FORM = {
+    contractId: "",
+    catalogItemId: "",
+    serialNumber: "",
+    name: "",
+    vesselId: "",
+    status: "Not Supplied" as (typeof ASSET_STATUSES)[number],
+    targetReturnPort: "",
+    notes: "",
+    // Instruments arrive with a calibration certificate; capturing it here starts
+    // the expiry clock (60 / 15-day reminders) on day one.
+    certificateNumber: "",
+    certificateIssueDate: "",
+    certificateExpiryDate: "",
+  };
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [vesselSearch, setVesselSearch] = useState("");
+  const resetForm = () => { setForm(EMPTY_FORM); setVesselSearch(""); };
+
+  /** Vessel list is large (180+), so the dropdown gets its own search box. */
+  const vesselOptions = useMemo(() => {
+    const list = (vessels ?? []) as any[];
+    const q = vesselSearch.trim();
+    const matched = q ? list.filter(v => matchesAllTokens(q, [v.name ?? "", v.imo ?? "", v.code ?? ""])) : list;
+    return matched.slice(0, 60);
+  }, [vessels, vesselSearch]);
 
   const create = trpc.opsAssets.create.useMutation({
     onSuccess: () => {
-      toast.success("Asset created");
+      toast.success("Equipment created");
       utils.opsAssets.list.invalidate();
       setCreateOpen(false);
       resetForm();
@@ -66,11 +114,26 @@ export default function OpsAssets() {
 
   const updateStatus = trpc.opsAssets.updateStatus.useMutation({
     onSuccess: () => {
-      toast.success("Asset status updated");
+      toast.success("Status updated");
       utils.opsAssets.list.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
+
+  /** Return port is edited inline — it was the one field the Returns page owned. */
+  const [portDraft, setPortDraft] = useState<{ id: number; value: string } | null>(null);
+  const updateAsset = trpc.opsAssets.update.useMutation({
+    onSuccess: () => {
+      toast.success("Return port saved");
+      utils.opsAssets.list.invalidate();
+      setPortDraft(null);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const savePort = () => {
+    if (!portDraft) return;
+    updateAsset.mutate({ id: portDraft.id, targetReturnPort: portDraft.value.trim() || null });
+  };
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -111,28 +174,28 @@ export default function OpsAssets() {
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Asset Tracking</h1>
-          <p className="text-sm text-muted-foreground mt-1">{filtered.length} asset{filtered.length !== 1 ? "s" : ""}</p>
+          <h1 className="text-2xl font-bold tracking-tight">Equipment on Vessels</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {statusFilter === "Pending Return"
+              ? `${filtered.length} unit${filtered.length !== 1 ? "s" : ""} awaiting collection — set the port, then mark returned`
+              : `${filtered.length} unit${filtered.length !== 1 ? "s" : ""} tracked — one row per serial number, from supply through return`}
+          </p>
         </div>
         <Button className="gap-2" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" /> New Asset
+          <Plus className="h-4 w-4" /> New Equipment
         </Button>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search assets..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Search equipment..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="Not Supplied">Not Supplied</SelectItem>
-            <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Pending Return">Pending Return</SelectItem>
-            <SelectItem value="Returned">Returned</SelectItem>
-            <SelectItem value="Written Off">Written Off</SelectItem>
+            {ASSET_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -143,12 +206,8 @@ export default function OpsAssets() {
             <Table style={{ tableLayout: "fixed", width: cols.totalWidth }}>
               <TableHeader>
                 <TableRow>
-                  <TableHead style={cols.style("serialNumber")} className="relative cursor-pointer select-none" onClick={() => toggleSort("serialNumber")}>
-                    <span className="flex items-center">Serial # <SortIcon col="serialNumber" /></span>
-                    <ColResizer col="serialNumber" api={cols} />
-                  </TableHead>
                   <TableHead style={cols.style("name")} className="relative cursor-pointer select-none" onClick={() => toggleSort("name")}>
-                    <span className="flex items-center">Name <SortIcon col="name" /></span>
+                    <span className="flex items-center">Instrument <SortIcon col="name" /></span>
                     <ColResizer col="name" api={cols} />
                   </TableHead>
                   <TableHead style={cols.style("vessel")} className="relative cursor-pointer select-none" onClick={() => toggleSort("vesselName")}>
@@ -159,6 +218,10 @@ export default function OpsAssets() {
                     <span className="flex items-center">Status <SortIcon col="status" /></span>
                     <ColResizer col="status" api={cols} />
                   </TableHead>
+                  <TableHead style={cols.style("certificate")} className="relative">
+                    <span>Certificate</span>
+                    <ColResizer col="certificate" api={cols} />
+                  </TableHead>
                   <TableHead style={cols.style("returnPort")} className="relative">
                     <span>Return Port</span>
                     <ColResizer col="returnPort" api={cols} />
@@ -167,37 +230,29 @@ export default function OpsAssets() {
                     <span className="flex items-center">Updated <SortIcon col="updatedAt" /></span>
                     <ColResizer col="updated" api={cols} />
                   </TableHead>
+                  <TableHead style={cols.style("action")} className="relative">
+                    <span>Action</span>
+                    <ColResizer col="action" api={cols} />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                       <Package className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                      <p>No assets found</p>
+                      <p>{statusFilter === "Pending Return" ? "Nothing awaiting collection" : "No equipment yet"}</p>
                     </TableCell>
                   </TableRow>
                 ) : (
                   filtered.map(a => (
                     <TableRow key={a.id} className="cursor-pointer hover:bg-muted/50">
-                      <TableCell className="font-mono text-sm">{a.serialNumber}</TableCell>
-                      <TableCell className="font-medium truncate">{a.name}</TableCell>
-                      <TableCell className="text-sm">
-                        {a.vesselId ? (
-                          <button
-                            type="button"
-                            className="text-primary hover:underline underline-offset-2"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setVesselDialogId(a.vesselId);
-                              setVesselDialogOpen(true);
-                            }}
-                          >
-                            {a.vesselName}
-                          </button>
-                        ) : (
-                          a.vesselName ?? "—"
-                        )}
+                      <TableCell>
+                        <div className="font-medium truncate">{a.name}</div>
+                        <div className="font-mono text-xs text-muted-foreground mt-0.5 truncate">S/N {a.serialNumber}</div>
+                      </TableCell>
+                      <TableCell className="text-sm overflow-hidden">
+                        <VesselLink vesselId={a.vesselId} name={a.vesselName} />
                       </TableCell>
                       <TableCell>
                         <Select value={a.status} onValueChange={v => updateStatus.mutate({ id: a.id, status: v as any })}>
@@ -205,16 +260,72 @@ export default function OpsAssets() {
                             <Badge variant="outline" className={statusColors[a.status] ?? ""}>{a.status}</Badge>
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Not Supplied">Not Supplied</SelectItem>
-                            <SelectItem value="Active">Active</SelectItem>
-                            <SelectItem value="Pending Return">Pending Return</SelectItem>
-                            <SelectItem value="Returned">Returned</SelectItem>
-                            <SelectItem value="Written Off">Written Off</SelectItem>
+                            {ASSET_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       </TableCell>
-                      <TableCell className="text-sm">{a.targetReturnPort ?? "—"}</TableCell>
+                      <TableCell className="text-sm">
+                        {a.certificateExpiry == null ? (
+                          <span className="text-xs text-muted-foreground">No certificate</span>
+                        ) : (
+                          <div className={certUrgencyClass(a.certificateExpiry)}>
+                            <div className="text-xs">{fmtDate(a.certificateExpiry)}</div>
+                            <div className="text-[11px]">
+                              {a.certificateDaysLeft != null && a.certificateDaysLeft <= 0
+                                ? "Expired"
+                                : `${a.certificateDaysLeft}d left`}
+                            </div>
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {portDraft?.id === a.id ? (
+                          <Input
+                            autoFocus
+                            value={portDraft.value}
+                            onChange={e => setPortDraft({ id: a.id, value: e.target.value })}
+                            onBlur={savePort}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") savePort();
+                              if (e.key === "Escape") setPortDraft(null);
+                            }}
+                            placeholder="e.g. Piraeus"
+                            className="h-7 text-xs"
+                          />
+                        ) : (
+                          <button
+                            className="text-left w-full hover:underline decoration-dotted"
+                            title="Click to set the collection port"
+                            onClick={() => setPortDraft({ id: a.id, value: a.targetReturnPort ?? "" })}
+                          >
+                            {a.targetReturnPort ?? <span className="text-muted-foreground">—</span>}
+                          </button>
+                        )}
+                      </TableCell>
                       <TableCell className="text-sm">{fmtDate(new Date(a.updatedAt).getTime())}</TableCell>
+                      <TableCell>
+                        {a.status === "Pending Return" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 gap-1.5 text-xs"
+                            disabled={updateStatus.isPending}
+                            onClick={() => updateStatus.mutate({ id: a.id, status: "Returned" })}
+                          >
+                            <RotateCcw className="h-3 w-3" /> Returned
+                          </Button>
+                        ) : a.status === "Active" ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs text-muted-foreground"
+                            disabled={updateStatus.isPending}
+                            onClick={() => updateStatus.mutate({ id: a.id, status: "Pending Return" })}
+                          >
+                            Request return
+                          </Button>
+                        ) : null}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -224,72 +335,175 @@ export default function OpsAssets() {
         </CardContent>
       </Card>
 
-      {/* ─── Create Asset Dialog ─── */}
+      {/* ─── Create Equipment Dialog ─── */}
       <Dialog open={createOpen} onOpenChange={o => { setCreateOpen(o); if (!o) resetForm(); }}>
-        <ResizableDialogContent storageKey="ops-asset-create" defaultWidth={480} defaultHeight={420} minWidth={380} minHeight={350}>
+        <ResizableDialogContent storageKey="ops-asset-create" defaultWidth={560} defaultHeight={620} minWidth={420} minHeight={420}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5" /> New Asset
+              <Plus className="h-5 w-5" /> New Equipment
             </DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5 col-span-2">
-              <Label>Contract *</Label>
-              <Select value={form.contractId} onValueChange={v => setForm({ ...form, contractId: v })}>
-                <SelectTrigger><SelectValue placeholder="Select contract" /></SelectTrigger>
-                <SelectContent>
-                  {(contracts ?? []).map(c => (
-                    <SelectItem key={c.id} value={String(c.id)}>{c.contractNumber} - {c.title}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5 col-span-2">
-              <Label>Catalog Item</Label>
-              <Select value={form.catalogItemId} onValueChange={v => {
-                const item = assetCatalog?.find(a => a.id === Number(v));
-                setForm({ ...form, catalogItemId: v, name: item?.name ?? form.name });
-              }}>
-                <SelectTrigger><SelectValue placeholder="Select from catalog (optional)" /></SelectTrigger>
-                <SelectContent>
-                  {(assetCatalog ?? []).filter(a => a.active).map(a => (
-                    <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid grid-cols-2 gap-3 overflow-y-auto pr-1">
+            {/* Identity — the only mandatory part: serial + name */}
             <div className="space-y-1.5">
               <Label>Serial Number *</Label>
-              <Input value={form.serialNumber} onChange={e => setForm({ ...form, serialNumber: e.target.value })} placeholder="SN-001" />
+              <Input value={form.serialNumber} onChange={e => setForm({ ...form, serialNumber: e.target.value })} placeholder="e.g. GX3R-24-00187" />
             </div>
             <div className="space-y-1.5">
               <Label>Name *</Label>
-              <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Asset name" />
+              <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. RIKEN KEIKI GX-3R" />
             </div>
+
+            {/* Product from the pricelist — fills the name automatically */}
+            <div className="space-y-1.5 col-span-2">
+              <Label>Product <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              {(assetCatalog ?? []).filter(a => a.active).length === 0 ? (
+                <p className="text-xs text-muted-foreground border rounded-md px-3 py-2 bg-muted/40">
+                  No products in the pricelist yet — add them under Pricelist to auto-fill names.
+                </p>
+              ) : (
+                <Select value={form.catalogItemId} onValueChange={v => {
+                  const item = assetCatalog?.find(a => a.id === Number(v));
+                  setForm({ ...form, catalogItemId: v, name: item?.name ?? form.name });
+                }}>
+                  <SelectTrigger><SelectValue placeholder="Select from pricelist" /></SelectTrigger>
+                  <SelectContent>
+                    {(assetCatalog ?? []).filter(a => a.active).map(a => (
+                      <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {/* Placement — vessel and contract are both optional */}
+            <div className="space-y-1.5 col-span-2">
+              <Label>Vessel <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Select value={form.vesselId} onValueChange={v => setForm({ ...form, vesselId: v })}>
+                <SelectTrigger><SelectValue placeholder="Not on a vessel yet" /></SelectTrigger>
+                <SelectContent>
+                  <div className="p-2 sticky top-0 bg-popover z-10">
+                    <Input
+                      placeholder="Search vessel..."
+                      value={vesselSearch}
+                      onChange={e => setVesselSearch(e.target.value)}
+                      onKeyDown={e => e.stopPropagation()}
+                      className="h-8"
+                    />
+                  </div>
+                  {vesselOptions.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-muted-foreground">No vessel matches "{vesselSearch}"</p>
+                  ) : (
+                    vesselOptions.map((v: any) => (
+                      <SelectItem key={v.id} value={String(v.id)}>{v.name}{v.imo ? ` (${v.imo})` : ""}</SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5 col-span-2">
+              <Label>Contract <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              {(contracts ?? []).length === 0 ? (
+                <p className="text-xs text-muted-foreground border rounded-md px-3 py-2 bg-muted/40">
+                  No contracts yet — you can create the equipment now and link it to a contract later.
+                </p>
+              ) : (
+                <Select value={form.contractId} onValueChange={v => setForm({ ...form, contractId: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select contract" /></SelectTrigger>
+                  <SelectContent>
+                    {(contracts ?? []).map(c => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.contractNumber} - {c.title}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {/* State */}
+            <div className="space-y-1.5">
+              <Label>Initial Status</Label>
+              <Select value={form.status} onValueChange={v => setForm({ ...form, status: v as (typeof ASSET_STATUSES)[number] })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ASSET_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Return Port <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Input value={form.targetReturnPort} onChange={e => setForm({ ...form, targetReturnPort: e.target.value })} placeholder="e.g. Piraeus" />
+            </div>
+            <div className="space-y-1.5 col-span-2">
+              <Label>Notes <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Textarea
+                value={form.notes}
+                onChange={e => setForm({ ...form, notes: e.target.value })}
+                placeholder="Condition, calibration reference, accessories included..."
+                className="min-h-[64px]"
+              />
+            </div>
+
+            {/* Calibration certificate — optional, but the expiry date is what
+                switches on the 60 and 15-day renewal reminders. */}
+            <div className="col-span-2 border-t pt-3">
+              <p className="text-xs font-medium">
+                Calibration certificate{" "}
+                <span className="font-normal text-muted-foreground">(optional — expiry date enables 60 / 15-day reminders)</span>
+              </p>
+            </div>
+            <div className="space-y-1.5 col-span-2">
+              <Label>Certificate Number</Label>
+              <Input
+                value={form.certificateNumber}
+                onChange={e => setForm({ ...form, certificateNumber: e.target.value })}
+                placeholder="e.g. CAL-2026-01187"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Issue Date</Label>
+              <Input
+                type="date"
+                value={form.certificateIssueDate}
+                onChange={e => setForm({ ...form, certificateIssueDate: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Expiry Date</Label>
+              <Input
+                type="date"
+                value={form.certificateExpiryDate}
+                onChange={e => setForm({ ...form, certificateExpiryDate: e.target.value })}
+              />
+            </div>
+            {form.certificateNumber.trim() && !form.certificateExpiryDate && (
+              <p className="col-span-2 text-xs text-amber-700">
+                Add an expiry date, otherwise the certificate is not saved and no reminders can be raised.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button
-              disabled={!form.contractId || !form.serialNumber || !form.name || create.isPending}
+              disabled={!form.serialNumber.trim() || !form.name.trim() || create.isPending}
               onClick={() => create.mutate({
-                contractId: Number(form.contractId),
+                contractId: form.contractId ? Number(form.contractId) : undefined,
                 catalogItemId: form.catalogItemId ? Number(form.catalogItemId) : undefined,
-                serialNumber: form.serialNumber,
-                name: form.name,
+                serialNumber: form.serialNumber.trim(),
+                name: form.name.trim(),
                 vesselId: form.vesselId ? Number(form.vesselId) : undefined,
+                status: form.status,
+                targetReturnPort: form.targetReturnPort.trim() || undefined,
+                notes: form.notes.trim() || undefined,
+                certificateNumber: form.certificateNumber.trim() || undefined,
+                certificateIssueDate: form.certificateIssueDate ? new Date(form.certificateIssueDate).getTime() : undefined,
+                certificateExpiryDate: form.certificateExpiryDate ? new Date(form.certificateExpiryDate).getTime() : undefined,
               })}
             >
-              {create.isPending ? "Creating..." : "Create Asset"}
+              {create.isPending ? "Creating..." : "Create Equipment"}
             </Button>
           </DialogFooter>
         </ResizableDialogContent>
       </Dialog>
-
-      <VesselDetailDialog
-        vesselId={vesselDialogId}
-        open={vesselDialogOpen}
-        onOpenChange={setVesselDialogOpen}
-      />
     </div>
   );
 }

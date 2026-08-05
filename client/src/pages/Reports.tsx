@@ -181,7 +181,7 @@ export default function Reports() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Briefcase className="h-4 w-4" /> Operations Overview
+              <Briefcase className="h-4 w-4" /> Prime 247 Overview
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -199,7 +199,7 @@ export default function Reports() {
                 <p className="text-lg font-bold font-mono text-emerald-700">{fmtEur(opsSummary.collectedAmount)}</p>
               </div>
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Active Assets</p>
+                <p className="text-xs text-muted-foreground">Active Equipment</p>
                 <p className="text-lg font-bold font-mono">{opsSummary.activeAssets}</p>
               </div>
               <div className="space-y-1">

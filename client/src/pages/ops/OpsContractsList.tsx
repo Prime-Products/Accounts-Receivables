@@ -1,8 +1,10 @@
 import { ColResizer, useResizableColumns } from "@/components/ResizableTable";
+import { ContractExpiryIndicator } from "@/components/ContractExpiryIndicator";
 import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -14,32 +16,42 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { fmtDate, fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
-import { ArrowDown, ArrowUp, ArrowUpDown, FileCheck2, Plus, Search, Ship } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, FileCheck2, FlaskConical, Plus, Search, Ship, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 const statusColors: Record<string, string> = {
-  Draft: "bg-slate-100 text-slate-700 border-slate-200",
-  Sent: "bg-blue-100 text-blue-800 border-blue-200",
+  Offer: "bg-blue-100 text-blue-800 border-blue-200",
   Active: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  Terminated: "bg-red-100 text-red-700 border-red-200",
   Expired: "bg-gray-100 text-gray-600 border-gray-200",
+  Cancelled: "bg-red-100 text-red-700 border-red-200",
 };
 
-type SortKey = "contractNumber" | "customerName" | "totalValue" | "status" | "startDate" | "endDate";
+type SortKey = "contractNumber" | "customerGroup" | "totalValue" | "status" | "startDate" | "endDate";
+
+/**
+ * Current value = the value of the vessels that have actually been activated (shipped).
+ * Agreed totals are only used as the per-vessel basis, never shown as the contract value.
+ */
+export function contractCurrentValue(c: { totalValue: unknown; vesselCount?: number | null; activatedVesselCount?: number | null }) {
+  const value = Number(c.totalValue) || 0;
+  const vessels = c.vesselCount ?? 0;
+  const active = c.activatedVesselCount ?? 0;
+  if (vessels <= 0 || active <= 0) return 0;
+  return (value / vessels) * active;
+}
 
 const COL_DEFAULTS: Record<string, number> = {
   contractNumber: 130,
-  title: 200,
   customer: 180,
+  title: 200,
   totalValue: 130,
-  collected: 130,
-  vessels: 80,
-  installments: 110,
+  vessels: 100,
   status: 110,
   startDate: 110,
   endDate: 110,
+  actions: 60,
 };
 
 export default function OpsContractsList() {
@@ -48,11 +60,53 @@ export default function OpsContractsList() {
   const { data: vessels } = trpc.vessels.list.useQuery();
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
-  const [search, setSearch] = useState("");
+  /*
+   * A `?q=` param lets other pages (the customer hub, global search) hand off to
+   * this list already narrowed to one customer group.
+   */
+  const [search, setSearch] = useState(() =>
+    typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("q") ?? ""),
+  );
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("startDate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const cols = useResizableColumns("ops-contracts", COL_DEFAULTS);
+
+  /* ─── Sample data cleanup ─── */
+  const { data: sampleStatus } = trpc.opsContracts.sampleDataStatus.useQuery();
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const purgeSamples = trpc.opsContracts.purgeSampleData.useMutation({
+    onSuccess: (res) => {
+      setPurgeOpen(false);
+      toast.success(
+        `Removed ${res.contracts} sample contract${res.contracts !== 1 ? "s" : ""}`,
+        { description: `${res.vessels} vessel assignments · ${res.products} product lines · ${res.equipment} equipment units. The pricelist was left untouched.` },
+      );
+      utils.opsContracts.invalidate();
+      utils.vessels.invalidate();
+      utils.opsAssets.invalidate();
+    },
+    onError: (err) => toast.error(err.message || "Could not remove the sample data"),
+  });
+
+  /* ─── Delete a single contract ─── */
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const { data: impact, isLoading: impactLoading } = trpc.opsContracts.deleteImpact.useQuery(
+    { id: deleteId ?? 0 },
+    { enabled: deleteId !== null },
+  );
+  const removeContract = trpc.opsContracts.remove.useMutation({
+    onSuccess: (res) => {
+      setDeleteId(null);
+      toast.success(`Deleted contract ${res.contractNumber}`, {
+        description: `${res.vessels} vessel assignment(s) · ${res.products} product line(s) · ${res.equipment} equipment unit(s) · ${res.installments} installment(s) removed. The pricelist was left untouched.`,
+      });
+      utils.opsContracts.invalidate();
+      utils.vessels.invalidate();
+      utils.opsAssets.invalidate();
+    },
+    onError: (err) => toast.error(err.message || "Could not delete the contract"),
+  });
 
   /* ─── Create Dialog ─── */
   const [createOpen, setCreateOpen] = useState(false);
@@ -60,17 +114,17 @@ export default function OpsContractsList() {
     customerId: "",
     contractNumber: "",
     title: "",
-    totalValue: "",
+    pricePerVessel: "",
     startDate: "",
     endDate: "",
-    installmentCount: "12",
+    installmentCount: "3",
     notes: "",
   });
   const [selectedVesselIds, setSelectedVesselIds] = useState<number[]>([]);
   const [vesselSearch, setVesselSearch] = useState("");
 
   const resetForm = () => {
-    setForm({ customerId: "", contractNumber: "", title: "", totalValue: "", startDate: "", endDate: "", installmentCount: "12", notes: "" });
+    setForm({ customerId: "", contractNumber: "", title: "", pricePerVessel: "", startDate: "", endDate: "", installmentCount: "3", notes: "" });
     setSelectedVesselIds([]);
     setVesselSearch("");
   };
@@ -99,7 +153,7 @@ export default function OpsContractsList() {
 
   const create = trpc.opsContracts.create.useMutation({
     onSuccess: () => {
-      toast.success("Contract created as Draft with payment schedule");
+      toast.success("Contract created as an Offer — add its products next");
       utils.opsContracts.list.invalidate();
       setCreateOpen(false);
       resetForm();
@@ -120,6 +174,8 @@ export default function OpsContractsList() {
     if (q) rows = rows.filter(c => matchesAllTokens(q, [c.contractNumber, c.title, c.customerName, c.customerGroup]));
     const dir = sortDir === "asc" ? 1 : -1;
     return [...rows].sort((a, b) => {
+      // The Value column shows current value, so it must sort by that, not the agreed total.
+      if (sortKey === "totalValue") return (contractCurrentValue(a) - contractCurrentValue(b)) * dir;
       const va = a[sortKey as keyof typeof a];
       const vb = b[sortKey as keyof typeof b];
       if (typeof va === "string") return String(va).localeCompare(String(vb ?? "")) * dir;
@@ -142,23 +198,57 @@ export default function OpsContractsList() {
     );
   }
 
-  const totals = filtered.reduce((acc, c) => ({
-    value: acc.value + Number(c.totalValue),
-    collected: acc.collected + c.collectedAmount,
-  }), { value: 0, collected: 0 });
+  /**
+   * Fleet dashboard figures, expressed in current (activated) terms: the value and the
+   * vessels that have actually shipped. Cash (collected / outstanding) is intentionally
+   * left out — that belongs to the contract page and to Invoices.
+   */
+  const kpi = filtered.reduce(
+    (acc, c) => {
+      const vessels = c.vesselCount || 0;
+      const activeVessels = (c as { activatedVesselCount?: number }).activatedVesselCount ?? 0;
+      return {
+        contracts: acc.contracts + 1,
+        activeContracts: acc.activeContracts + (c.status === "Active" ? 1 : 0),
+        agreedValue: acc.agreedValue + (Number(c.totalValue) || 0),
+        currentValue: acc.currentValue + contractCurrentValue(c),
+        agreedVessels: acc.agreedVessels + vessels,
+        pipelineVessels: acc.pipelineVessels + Math.max(vessels - activeVessels, 0),
+        activatedVessels: acc.activatedVessels + activeVessels,
+      };
+    },
+    {
+      contracts: 0, activeContracts: 0, agreedValue: 0, currentValue: 0, agreedVessels: 0, pipelineVessels: 0,
+      activatedVessels: 0,
+    },
+  );
+  const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Operations Contracts</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Prime 247 Contracts</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {filtered.length} contract{filtered.length !== 1 ? "s" : ""} · Value: {fmtEur(totals.value)} · Collected: {fmtEur(totals.collected)}
+            {filtered.length} contract{filtered.length !== 1 ? "s" : ""} · Current: {fmtEur(kpi.currentValue)} of {fmtEur(kpi.agreedValue)} agreed
           </p>
         </div>
-        <Button className="gap-2" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" /> New Contract
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Sample data is disposable: offer the cleanup only while demo contracts exist. */}
+          {sampleStatus && sampleStatus.count > 0 && (
+            <Button
+              variant="outline"
+              className="gap-2 text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100"
+              onClick={() => setPurgeOpen(true)}
+            >
+              <FlaskConical className="h-4 w-4" />
+              {sampleStatus.count} sample contract{sampleStatus.count !== 1 ? "s" : ""}
+            </Button>
+          )}
+          <Button className="gap-2" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" /> New Contract
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -171,13 +261,48 @@ export default function OpsContractsList() {
           <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="Draft">Draft</SelectItem>
-            <SelectItem value="Sent">Sent</SelectItem>
+            <SelectItem value="Offer">Offer</SelectItem>
             <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Terminated">Terminated</SelectItem>
+            <SelectItem value="Cancelled">Cancelled</SelectItem>
             <SelectItem value="Expired">Expired</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      {/*
+       * Fleet KPI dashboard — the activated position only. Cash figures (collected /
+       * outstanding) deliberately live on the contract page and in Invoices, not here:
+       * this list is about scope and activation, not collections.
+       */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Card className="border-l-4 border-l-[oklch(0.55_0.14_255)]">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground whitespace-nowrap">Current / Agreed Value</CardTitle></CardHeader>
+          <CardContent>
+            {/* Agreed is the signed total; current is only what has been activated (shipped). */}
+            <div className="text-lg font-bold font-mono leading-tight">{fmtEur(kpi.currentValue)}</div>
+            <div className="text-xs text-muted-foreground font-mono mt-0.5">of {fmtEur(kpi.agreedValue)} agreed</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {pct(kpi.currentValue, kpi.agreedValue)}% activated · {kpi.activatedVessels} vessel{kpi.activatedVessels !== 1 ? "s" : ""}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-[oklch(0.65_0.12_140)]">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground whitespace-nowrap">Active / Agreed Vessels</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold font-mono leading-tight">{kpi.activatedVessels}</div>
+            <div className="text-xs text-muted-foreground font-mono mt-0.5">of {kpi.agreedVessels} agreed</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {kpi.pipelineVessels} awaiting shipment
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-[oklch(0.65_0.12_80)]">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Contracts</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-lg font-bold font-mono">{kpi.contracts}</div>
+            <p className="text-xs text-muted-foreground mt-1">{kpi.activeContracts} active</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Table */}
@@ -191,29 +316,21 @@ export default function OpsContractsList() {
                     <span className="flex items-center">Contract # <SortIcon col="contractNumber" /></span>
                     <ColResizer col="contractNumber" api={cols} />
                   </TableHead>
+                  <TableHead style={cols.style("customer")} className="relative cursor-pointer select-none" onClick={() => toggleSort("customerGroup")}>
+                    <span className="flex items-center">Customer <SortIcon col="customerGroup" /></span>
+                    <ColResizer col="customer" api={cols} />
+                  </TableHead>
                   <TableHead style={cols.style("title")} className="relative">
                     <span>Title</span>
                     <ColResizer col="title" api={cols} />
                   </TableHead>
-                  <TableHead style={cols.style("customer")} className="relative cursor-pointer select-none" onClick={() => toggleSort("customerName")}>
-                    <span className="flex items-center">Customer <SortIcon col="customerName" /></span>
-                    <ColResizer col="customer" api={cols} />
-                  </TableHead>
                   <TableHead style={cols.style("totalValue")} className="relative cursor-pointer select-none text-right" onClick={() => toggleSort("totalValue")}>
-                    <span className="flex items-center justify-end">Value <SortIcon col="totalValue" /></span>
+                    <span className="flex items-center justify-end">Current Value <SortIcon col="totalValue" /></span>
                     <ColResizer col="totalValue" api={cols} />
-                  </TableHead>
-                  <TableHead style={cols.style("collected")} className="relative text-right">
-                    <span>Collected</span>
-                    <ColResizer col="collected" api={cols} />
                   </TableHead>
                   <TableHead style={cols.style("vessels")} className="relative text-center">
                     <span>Vessels</span>
                     <ColResizer col="vessels" api={cols} />
-                  </TableHead>
-                  <TableHead style={cols.style("installments")} className="relative text-center">
-                    <span>Installments</span>
-                    <ColResizer col="installments" api={cols} />
                   </TableHead>
                   <TableHead style={cols.style("status")} className="relative cursor-pointer select-none" onClick={() => toggleSort("status")}>
                     <span className="flex items-center">Status <SortIcon col="status" /></span>
@@ -227,12 +344,15 @@ export default function OpsContractsList() {
                     <span className="flex items-center">End <SortIcon col="endDate" /></span>
                     <ColResizer col="endDate" api={cols} />
                   </TableHead>
+                  <TableHead style={cols.style("actions")} className="relative text-right">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                       <FileCheck2 className="h-8 w-8 mx-auto mb-2 opacity-40" />
                       <p>No contracts found</p>
                     </TableCell>
@@ -241,22 +361,55 @@ export default function OpsContractsList() {
                   filtered.map(c => (
                     <TableRow key={c.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/ops/contracts/${c.id}`)}>
                       <TableCell className="font-mono text-sm">{c.contractNumber}</TableCell>
-                      <TableCell className="truncate">{c.title}</TableCell>
                       <TableCell>
-                        <div className="truncate font-medium">{c.customerGroup}</div>
-                        {c.customerName !== c.customerGroup && (
-                          <div className="text-xs text-muted-foreground truncate">{c.customerName}</div>
-                        )}
+                        {/* Group only — the specific contracting company is shown inside the contract. */}
+                        <div className="truncate font-medium" title={c.customerName !== c.customerGroup ? `Contracting company: ${c.customerName}` : undefined}>
+                          {c.customerGroup}
+                        </div>
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm">{fmtEur(Number(c.totalValue))}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{fmtEur(c.collectedAmount)}</TableCell>
-                      <TableCell className="text-center">{c.vesselCount}</TableCell>
-                      <TableCell className="text-center text-sm">{c.paidInstallments}/{c.totalInstallments}</TableCell>
+                      <TableCell className="truncate">{c.title}</TableCell>
+                      <TableCell
+                        className="text-right font-mono text-sm"
+                        title={`Current value of the activated vessels. Agreed total: ${fmtEur(Number(c.totalValue))}`}
+                      >
+                        {/* Only what has shipped counts as current value. */}
+                        {contractCurrentValue(c) > 0
+                          ? fmtEur(contractCurrentValue(c))
+                          : <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className="text-center text-sm" title={`${(c as { activatedVesselCount?: number }).activatedVesselCount ?? 0} of ${c.vesselCount} vessel(s) shipped`}>
+                        {/* Activated / agreed, so the pipeline is visible without opening the contract. */}
+                        <span className="font-mono">
+                          <span className={((c as { activatedVesselCount?: number }).activatedVesselCount ?? 0) > 0 ? "text-emerald-700 font-medium" : "text-muted-foreground"}>
+                            {(c as { activatedVesselCount?: number }).activatedVesselCount ?? 0}
+                          </span>
+                          <span className="text-muted-foreground">/{c.vesselCount}</span>
+                        </span>
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline" className={statusColors[c.status] ?? ""}>{c.status}</Badge>
                       </TableCell>
                       <TableCell className="text-sm">{fmtDate(c.startDate)}</TableCell>
-                      <TableCell className="text-sm">{fmtDate(c.endDate)}</TableCell>
+                      <TableCell className="text-sm">
+                        {/* Dense row, so the countdown lives in a tooltip behind a coloured dot. */}
+                        <span className="flex items-center gap-1.5">
+                          <ContractExpiryIndicator endDate={c.endDate} variant="dot" />
+                          {fmtDate(c.endDate)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {/* Row click navigates, so the delete button must stop propagation. */}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-red-600"
+                          title={`Delete ${c.contractNumber}`}
+                          onClick={e => { e.stopPropagation(); setDeleteId(c.id); }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Delete {c.contractNumber}</span>
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -296,8 +449,8 @@ export default function OpsContractsList() {
                 <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Service agreement title" />
               </div>
               <div className="space-y-1.5">
-                <Label>Total Value (€) *</Label>
-                <Input type="number" value={form.totalValue} onChange={e => setForm({ ...form, totalValue: e.target.value })} placeholder="0" />
+                <Label>Price per Vessel (€) *</Label>
+                <Input type="number" min="0" step="0.01" value={form.pricePerVessel} onChange={e => setForm({ ...form, pricePerVessel: e.target.value })} placeholder="e.g. 16950" />
               </div>
               <div className="space-y-1.5">
                 <Label>Installments</Label>
@@ -315,12 +468,23 @@ export default function OpsContractsList() {
                 <Label>Notes</Label>
                 <Input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes..." />
               </div>
+              {form.pricePerVessel && (
+                <div className="col-span-2 rounded-md bg-muted/50 p-2.5 text-sm">
+                  Contract value:{" "}
+                  <span className="font-mono font-semibold">
+                    {fmtEur((Number(form.pricePerVessel) || 0) * Math.max(selectedVesselIds.length, 1))}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {" "}({Math.max(selectedVesselIds.length, 1)} vessel(s) x {form.installmentCount || 1} installment(s))
+                  </span>
+                </div>
+              )}
 
               {/* ─── Vessel Selection (Multi) ─── */}
               <div className="space-y-2 col-span-2 border rounded-lg p-3 bg-muted/30">
                 <div className="flex items-center justify-between">
                   <Label className="flex items-center gap-2">
-                    <Ship className="h-4 w-4" /> Assign Vessels ({selectedVesselIds.length} selected)
+                    <Ship className="h-4 w-4" /> Vessels ({selectedVesselIds.length} selected)
                   </Label>
                   <Button type="button" variant="ghost" size="sm" onClick={selectAllVessels}>
                     {selectedVesselIds.length === (vessels?.length ?? 0) ? "Deselect All" : "Select All"}
@@ -359,20 +523,111 @@ export default function OpsContractsList() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button
-              disabled={!form.customerId || !form.contractNumber || !form.title || !form.totalValue || !form.startDate || !form.endDate || create.isPending}
+              disabled={!form.customerId || !form.contractNumber || !form.title || !form.pricePerVessel || !form.startDate || !form.endDate || create.isPending}
               onClick={() => create.mutate({
                 customerId: Number(form.customerId),
                 contractNumber: form.contractNumber,
                 title: form.title,
-                totalValue: Number(form.totalValue),
+                pricePerVessel: Number(form.pricePerVessel),
                 startDate: new Date(form.startDate).getTime(),
                 endDate: new Date(form.endDate).getTime(),
-                installmentCount: Number(form.installmentCount) || 12,
+                installmentCount: Number(form.installmentCount) || 3,
                 notes: form.notes || undefined,
                 vesselIds: selectedVesselIds.length > 0 ? selectedVesselIds : undefined,
               })}
             >
               {create.isPending ? "Creating..." : "Create Contract"}
+            </Button>
+          </DialogFooter>
+        </ResizableDialogContent>
+      </Dialog>
+
+      {/* Sample data cleanup — irreversible, so state plainly what goes and what stays. */}
+      <Dialog open={purgeOpen} onOpenChange={setPurgeOpen}>
+        <ResizableDialogContent storageKey="ops-purge-samples" defaultWidth={520} defaultHeight={420}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FlaskConical className="h-4 w-4 text-amber-600" /> Remove sample contracts
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            <p className="text-muted-foreground">
+              This deletes the {sampleStatus?.count ?? 0} demo contract{(sampleStatus?.count ?? 0) !== 1 ? "s" : ""} seeded for testing,
+              together with their vessel assignments, product lines, equipment units, certificates and installments.
+            </p>
+            <div className="rounded-md border bg-muted/40 p-3">
+              <p className="font-medium mb-1">Will be removed</p>
+              <ul className="text-xs text-muted-foreground space-y-0.5 list-disc pl-4">
+                {(sampleStatus?.contractNumbers ?? []).map(n => <li key={n}>{n}</li>)}
+              </ul>
+            </div>
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
+              <p className="font-medium text-emerald-900 mb-1">Will be kept</p>
+              <p className="text-xs text-emerald-800">
+                The product pricelist, all real contracts, customers, vessels and their equipment stay exactly as they are.
+              </p>
+            </div>
+            <p className="text-xs text-red-600">This cannot be undone.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPurgeOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={purgeSamples.isPending || (sampleStatus?.count ?? 0) === 0}
+              onClick={() => purgeSamples.mutate()}
+            >
+              {purgeSamples.isPending ? "Removing..." : "Remove sample data"}
+            </Button>
+          </DialogFooter>
+        </ResizableDialogContent>
+      </Dialog>
+
+      {/* Deleting a contract takes its vessels, products and equipment with it, so the
+          dialog states the exact counts before the user commits. */}
+      <Dialog open={deleteId !== null} onOpenChange={o => { if (!o) setDeleteId(null); }}>
+        <ResizableDialogContent storageKey="ops-delete-contract" defaultWidth={520} defaultHeight={440}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+              Delete contract {impact?.contractNumber ?? ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            {impactLoading || !impact ? (
+              <Skeleton className="h-24 w-full" />
+            ) : (
+              <>
+                <p className="text-muted-foreground">
+                  This permanently deletes the contract and everything recorded against it.
+                </p>
+                <div className="rounded-md border bg-muted/40 p-3">
+                  <p className="font-medium mb-2">Will be removed</p>
+                  <ul className="text-xs text-muted-foreground space-y-1">
+                    <li>{impact.vessels} vessel assignment{impact.vessels !== 1 ? "s" : ""}</li>
+                    <li>{impact.products} product line{impact.products !== 1 ? "s" : ""}</li>
+                    <li>{impact.equipment} equipment unit{impact.equipment !== 1 ? "s" : ""} and {impact.certificates} certificate{impact.certificates !== 1 ? "s" : ""}</li>
+                    <li>{impact.installments} installment{impact.installments !== 1 ? "s" : ""} and {impact.orders} consumable order{impact.orders !== 1 ? "s" : ""}</li>
+                  </ul>
+                </div>
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="font-medium text-emerald-900 mb-1">Will be kept</p>
+                  <p className="text-xs text-emerald-800">
+                    The customer, the vessels themselves and the product pricelist stay as they are —
+                    only their link to this contract goes.
+                  </p>
+                </div>
+                <p className="text-xs text-red-600">This cannot be undone.</p>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={removeContract.isPending || deleteId === null}
+              onClick={() => deleteId !== null && removeContract.mutate({ id: deleteId })}
+            >
+              {removeContract.isPending ? "Deleting..." : "Delete contract"}
             </Button>
           </DialogFooter>
         </ResizableDialogContent>

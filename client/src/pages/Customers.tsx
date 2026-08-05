@@ -577,10 +577,10 @@ export default function Customers() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Users className="h-6 w-6" /> Collections Desk
+            <Users className="h-6 w-6" /> Customers
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Group tracking — click a group for its card with member companies
+            The receivables worklist — click a customer for its card and modules
           </p>
         </div>
         <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">
@@ -916,7 +916,12 @@ export default function Customers() {
                             ? "bg-amber-50/70 hover:bg-amber-50 dark:bg-amber-500/5"
                             : ""
                       }`}
-                      onClick={() => navigate(`/groups/${encodeURIComponent(g.group)}`)}
+                      /*
+                       * The desk is the collections worklist, so a row opens the
+                       * Receivables module directly. The customer card is one click
+                       * up from there.
+                       */
+                      onClick={() => navigate(`/groups/${encodeURIComponent(g.group)}/receivables`)}
                     >
                       <TableCell className="font-medium overflow-hidden">
                         <div className="flex items-center gap-1.5">

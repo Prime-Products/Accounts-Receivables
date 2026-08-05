@@ -3,14 +3,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { VesselDetailDialog } from "@/components/VesselDetailDialog";
+import { useVesselModal } from "@/contexts/VesselModalContext";
 import { fmtEur } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 import { matchesAllTokens } from "@shared/textMatch";
 import { ArrowDown, ArrowUp, ArrowUpDown, Ship } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-type SortKey = "name" | "ownerGroup" | "vesselType" | "flag" | "openBalance" | "overdueAmount" | "invoiceCount";
+type SortKey = "name" | "ownerGroup" | "vesselType" | "flag" | "openBalance" | "overdueAmount" | "invoiceCount" | "contractCount";
 
 const COL_DEFAULTS: Record<string, number> = {
   name: 200,
@@ -18,6 +18,7 @@ const COL_DEFAULTS: Record<string, number> = {
   vesselType: 110,
   flag: 90,
   ownerGroup: 220,
+  contractCount: 100,
   invoiceCount: 90,
   openBalance: 130,
   overdueAmount: 130,
@@ -32,25 +33,29 @@ export default function Vessels() {
   );
   const [sortKey, setSortKey] = useState<SortKey>("openBalance");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [dialogVesselId, setDialogVesselId] = useState<number | null>(() => {
+  const cols = useResizableColumns("vessels", COL_DEFAULTS);
+  // One vessel modal serves the whole app; this page just asks it to open.
+  const { openVessel } = useVesselModal();
+  /**
+   * `?vessel=<id>` opens that vessel straight away, which is how the legacy
+   * /vessels/:id and /ops/vessel/:id links now land on the modal.
+   */
+  const [deepLinkId] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
     const v = new URLSearchParams(window.location.search).get("vessel");
     const n = v ? Number(v) : NaN;
     return Number.isFinite(n) && n > 0 ? n : null;
   });
-  const [dialogOpen, setDialogOpen] = useState(dialogVesselId != null);
-  const cols = useResizableColumns("vessels", COL_DEFAULTS);
-  const openVessel = (id: number) => {
-    setDialogVesselId(id);
-    setDialogOpen(true);
-  };
+  useEffect(() => {
+    if (deepLinkId != null) openVessel(deepLinkId);
+  }, [deepLinkId, openVessel]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortDir(d => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
-      const descFirst: SortKey[] = ["openBalance", "overdueAmount", "invoiceCount"];
+      const descFirst: SortKey[] = ["openBalance", "overdueAmount", "invoiceCount", "contractCount"];
       setSortDir(descFirst.includes(key) ? "desc" : "asc");
     }
   };
@@ -78,6 +83,8 @@ export default function Vessels() {
       open: src.reduce((s, v) => s + v.openBalance, 0),
       overdue: src.reduce((s, v) => s + v.overdueAmount, 0),
       invoices: src.reduce((s, v) => s + v.invoiceCount, 0),
+      // How many of the listed vessels are on at least one Prime 247 contract.
+      onContract: src.filter(v => v.contractCount > 0).length,
     };
   }, [filtered]);
 
@@ -132,6 +139,7 @@ export default function Vessels() {
             Overdue: <span className="font-mono font-semibold text-red-600">{fmtEur(totals.overdue)}</span>
           </span>
           <span className="text-muted-foreground">{totals.invoices} invoice(s)</span>
+          <span className="text-muted-foreground">{totals.onContract} on contract</span>
         </div>
       )}
 
@@ -159,6 +167,7 @@ export default function Vessels() {
                   <SortableHead label="Type" k="vesselType" />
                   <SortableHead label="Flag" k="flag" />
                   <SortableHead label="Owner / Group" k="ownerGroup" />
+                  <SortableHead label="Contracts" k="contractCount" align="right" />
                   <SortableHead label="Invoices" k="invoiceCount" align="right" />
                   <SortableHead label="Open Balance" k="openBalance" align="right" />
                   <SortableHead label="Overdue" k="overdueAmount" align="right" />
@@ -192,6 +201,13 @@ export default function Vessels() {
                     <TableCell className="text-sm overflow-hidden">
                       <span className="block truncate" title={v.ownerGroup ?? undefined}>{v.ownerGroup || "—"}</span>
                     </TableCell>
+                    <TableCell className="text-right font-mono">
+                      {v.contractCount > 0 ? (
+                        <span className="font-semibold text-violet-700">{v.contractCount}</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right font-mono">{v.invoiceCount}</TableCell>
                     <TableCell className="text-right font-mono font-semibold">{v.openBalance > 0 ? fmtEur(v.openBalance) : "—"}</TableCell>
                     <TableCell className={`text-right font-mono ${v.overdueAmount > 0 ? "text-red-600 font-semibold" : ""}`}>
@@ -214,12 +230,6 @@ export default function Vessels() {
           )}
         </CardContent>
       </Card>
-
-      <VesselDetailDialog
-        vesselId={dialogVesselId}
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-      />
     </div>
   );
 }

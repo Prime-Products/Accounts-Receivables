@@ -1,4 +1,4 @@
-import { eq, desc, asc, and, inArray, sql } from "drizzle-orm";
+import { eq, desc, asc, and, inArray, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   opsServices, InsertOpsService,
@@ -88,6 +88,72 @@ export async function deleteConsumableCatalogItem(id: number) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// UNIFIED PRICELIST LOOKUP
+// ═══════════════════════════════════════════════════════════════════════════════
+/**
+ * One flat list of every active pricelist entry across services, products and
+ * consumables, so a contract can pick an item and inherit its cost and price
+ * without caring which table it lives in.
+ *
+ * `source` identifies the origin table; `catalogId` is the id inside it. The
+ * contract line stores both so the pricelist origin stays traceable.
+ */
+export type PricelistEntry = {
+  key: string;
+  source: "product" | "consumable";
+  catalogId: number;
+  name: string;
+  category: string | null;
+  unit: string | null;
+  unitCost: string;
+  sellingPrice: string;
+  suggestedItemType: "Equipment" | "Consumable" | "Other";
+};
+
+/**
+ * Flatten the pricelist into one searchable list for the contract product picker.
+ * Services are deliberately excluded: a contract only lists what is physically
+ * supplied to a vessel (equipment, consumables and other items).
+ */
+export async function listPricelist(): Promise<PricelistEntry[]> {
+  const [products, consumables] = await Promise.all([
+    listAssetCatalog(),
+    listConsumableCatalog(),
+  ]);
+
+  const entries: PricelistEntry[] = [
+    ...products
+      .filter(p => p.active)
+      .map(p => ({
+        key: `product-${p.id}`,
+        source: "product" as const,
+        catalogId: p.id,
+        name: p.name,
+        category: p.category ?? null,
+        unit: null,
+        unitCost: p.defaultCost,
+        sellingPrice: p.sellingPrice,
+        suggestedItemType: "Equipment" as const,
+      })),
+    ...consumables
+      .filter(c => c.active)
+      .map(c => ({
+        key: `consumable-${c.id}`,
+        source: "consumable" as const,
+        catalogId: c.id,
+        name: c.name,
+        category: c.category ?? null,
+        unit: c.unit,
+        unitCost: c.defaultCostPerUnit,
+        sellingPrice: c.sellingPricePerUnit,
+        suggestedItemType: "Consumable" as const,
+      })),
+  ];
+
+  return entries;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // QUOTATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function listQuotations() {
@@ -147,6 +213,111 @@ export async function deleteOpsContract(id: number) {
   await getDb().delete(opsContracts).where(eq(opsContracts.id, id));
 }
 
+/**
+ * Prefix that marks a contract as seeded sample data. Everything hanging off such a
+ * contract (vessels, products, equipment, certificates, installments) is disposable,
+ * so the Prime 247 module can be exercised before the real ERP data lands.
+ */
+export const SAMPLE_CONTRACT_PREFIX = "DEMO-";
+
+/** Contracts whose number starts with the sample prefix. */
+export async function listSampleContracts() {
+  return getDb()
+    .select()
+    .from(opsContracts)
+    .where(sql`${opsContracts.contractNumber} LIKE ${SAMPLE_CONTRACT_PREFIX + "%"}`)
+    .orderBy(asc(opsContracts.contractNumber));
+}
+
+/**
+ * Delete every sample contract and its dependents, leaf tables first so no row is ever
+ * orphaned. The product catalogue is deliberately left alone — it holds real Prime
+ * Products pricing, not demo rows.
+ */
+export async function purgeSampleContracts() {
+  const contracts = await listSampleContracts();
+  return deleteContractsCascade(contracts.map(c => c.id));
+}
+
+/**
+ * What a contract drags with it when deleted. Shown to the user before they confirm,
+ * and returned again afterwards so the toast can state exactly what went.
+ */
+export type ContractCascadeCounts = {
+  contracts: number;
+  vessels: number;
+  products: number;
+  equipment: number;
+  certificates: number;
+  orders: number;
+  installments: number;
+};
+
+/** Count everything hanging off a contract without deleting anything. */
+export async function countContractDependents(contractId: number): Promise<ContractCascadeCounts> {
+  const conn = getDb();
+  const assets = await conn.select().from(opsAssets).where(eq(opsAssets.contractId, contractId));
+  const assetIds = assets.map(a => a.id);
+  const certs = assetIds.length > 0
+    ? await conn.select().from(opsCertificates).where(inArray(opsCertificates.assetId, assetIds))
+    : [];
+  const [orders, products, assignments, installments] = await Promise.all([
+    conn.select().from(opsConsumableOrders).where(eq(opsConsumableOrders.contractId, contractId)),
+    conn.select().from(opsContractLibrary).where(eq(opsContractLibrary.contractId, contractId)),
+    conn.select().from(opsVesselAssignments).where(eq(opsVesselAssignments.contractId, contractId)),
+    conn.select().from(opsPaymentSchedule).where(eq(opsPaymentSchedule.contractId, contractId)),
+  ]);
+  return {
+    contracts: 1,
+    vessels: assignments.length,
+    products: products.length,
+    equipment: assetIds.length,
+    certificates: certs.length,
+    orders: orders.length,
+    installments: installments.length,
+  };
+}
+
+/**
+ * Delete the given contracts and everything hanging off them, leaf tables first so no
+ * row is ever orphaned. The product catalogue is never touched — it holds real pricing.
+ */
+export async function deleteContractsCascade(contractIds: number[]): Promise<ContractCascadeCounts> {
+  if (contractIds.length === 0) {
+    return { contracts: 0, vessels: 0, products: 0, equipment: 0, certificates: 0, orders: 0, installments: 0 };
+  }
+  const conn = getDb();
+  const assets = await conn.select().from(opsAssets).where(inArray(opsAssets.contractId, contractIds));
+  const assetIds = assets.map(a => a.id);
+  let certificates = 0;
+  if (assetIds.length > 0) {
+    const certs = await conn.select().from(opsCertificates).where(inArray(opsCertificates.assetId, assetIds));
+    certificates = certs.length;
+    await conn.delete(opsCertificates).where(inArray(opsCertificates.assetId, assetIds));
+  }
+  const [orders, products, assignments, installments] = await Promise.all([
+    conn.select().from(opsConsumableOrders).where(inArray(opsConsumableOrders.contractId, contractIds)),
+    conn.select().from(opsContractLibrary).where(inArray(opsContractLibrary.contractId, contractIds)),
+    conn.select().from(opsVesselAssignments).where(inArray(opsVesselAssignments.contractId, contractIds)),
+    conn.select().from(opsPaymentSchedule).where(inArray(opsPaymentSchedule.contractId, contractIds)),
+  ]);
+  await conn.delete(opsAssets).where(inArray(opsAssets.contractId, contractIds));
+  await conn.delete(opsConsumableOrders).where(inArray(opsConsumableOrders.contractId, contractIds));
+  await conn.delete(opsPaymentSchedule).where(inArray(opsPaymentSchedule.contractId, contractIds));
+  await conn.delete(opsVesselAssignments).where(inArray(opsVesselAssignments.contractId, contractIds));
+  await conn.delete(opsContractLibrary).where(inArray(opsContractLibrary.contractId, contractIds));
+  await conn.delete(opsContracts).where(inArray(opsContracts.id, contractIds));
+  return {
+    contracts: contractIds.length,
+    vessels: assignments.length,
+    products: products.length,
+    equipment: assetIds.length,
+    certificates,
+    orders: orders.length,
+    installments: installments.length,
+  };
+}
+
 // CONTRACT LIBRARY
 export async function listContractLibrary(contractId: number) {
   return getDb().select().from(opsContractLibrary).where(eq(opsContractLibrary.contractId, contractId));
@@ -179,6 +350,25 @@ export async function updatePaymentScheduleItem(id: number, data: Partial<Insert
 export async function deletePaymentScheduleItems(contractId: number) {
   await getDb().delete(opsPaymentSchedule).where(eq(opsPaymentSchedule.contractId, contractId));
 }
+/** Installments belonging to one vessel on a contract, in due order. */
+export async function listPaymentScheduleForVessel(contractId: number, vesselId: number) {
+  return getDb().select().from(opsPaymentSchedule)
+    .where(and(eq(opsPaymentSchedule.contractId, contractId), eq(opsPaymentSchedule.vesselId, vesselId)))
+    .orderBy(asc(opsPaymentSchedule.installmentNumber));
+}
+/**
+ * Remove one vessel's installments only. Used when a vessel's shipment date changes or
+ * the vessel leaves the contract — the rest of the fleet's schedules stay untouched.
+ */
+export async function deletePaymentScheduleItemsForVessel(contractId: number, vesselId: number) {
+  await getDb().delete(opsPaymentSchedule)
+    .where(and(eq(opsPaymentSchedule.contractId, contractId), eq(opsPaymentSchedule.vesselId, vesselId)));
+}
+/** Legacy rows that predate the per-vessel model carry no vesselId. */
+export async function deleteFleetWidePaymentScheduleItems(contractId: number) {
+  await getDb().delete(opsPaymentSchedule)
+    .where(and(eq(opsPaymentSchedule.contractId, contractId), isNull(opsPaymentSchedule.vesselId)));
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // VESSEL ASSIGNMENTS
@@ -195,6 +385,13 @@ export async function getVesselAssignmentsByVessel(vesselId: number) {
 export async function createVesselAssignment(data: Omit<InsertOpsVesselAssignment, "id">) {
   const [result] = await getDb().insert(opsVesselAssignments).values(data).$returningId();
   return result.id;
+}
+export async function getVesselAssignment(id: number) {
+  const [row] = await getDb().select().from(opsVesselAssignments).where(eq(opsVesselAssignments.id, id)).limit(1);
+  return row;
+}
+export async function updateVesselAssignment(id: number, data: Partial<InsertOpsVesselAssignment>) {
+  await getDb().update(opsVesselAssignments).set(data).where(eq(opsVesselAssignments.id, id));
 }
 export async function deleteVesselAssignment(id: number) {
   await getDb().delete(opsVesselAssignments).where(eq(opsVesselAssignments.id, id));
