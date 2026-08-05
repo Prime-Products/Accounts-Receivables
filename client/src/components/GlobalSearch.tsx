@@ -4,7 +4,25 @@ import { trpc } from "@/lib/trpc";
 import { useVesselModal } from "@/contexts/VesselModalContext";
 import { scrollPageToTop } from "@/lib/scrollToTop";
 import { normalizeRemittanceMethod } from "@shared/remittanceMethods";
-import { ArrowLeftRight, Banknote, Building2, FileText, ListChecks, Loader2, Mail, Search, Ship, StickyNote, Users, X } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Banknote,
+  Building2,
+  FileSignature,
+  FileText,
+  ListChecks,
+  Loader2,
+  Mail,
+  Package,
+  ReceiptText,
+  Search,
+  Ship,
+  ShieldCheck,
+  StickyNote,
+  Users,
+  Wrench,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 
@@ -73,6 +91,12 @@ export default function GlobalSearch() {
       data.companies.length > 0 ||
       (data.contacts?.length ?? 0) > 0 ||
       (data.vessels?.length ?? 0) > 0 ||
+      (data.contracts?.length ?? 0) > 0 ||
+      (data.quotations?.length ?? 0) > 0 ||
+      (data.creditNotes?.length ?? 0) > 0 ||
+      (data.equipment?.length ?? 0) > 0 ||
+      (data.certificates?.length ?? 0) > 0 ||
+      (data.products?.length ?? 0) > 0 ||
       data.invoices.length > 0 ||
       data.notes.length > 0 ||
       data.tasks.length > 0 ||
@@ -116,7 +140,7 @@ export default function GlobalSearch() {
               inputRef.current?.blur();
             }
           }}
-          placeholder="Search people, vessels, companies, invoices…"
+          placeholder="Search anything — contracts, vessels, people, invoices…"
           className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground min-w-0"
         />
         {isFetching && enabled ? (
@@ -203,6 +227,94 @@ export default function GlobalSearch() {
                   ))}
                 </Section>
               )}
+              {(data!.contracts?.length ?? 0) > 0 && (
+                <Section title="Prime 247 contracts">
+                  {data!.contracts!.map(c => (
+                    <Row key={`oc-${c.id}`} onClick={() => go(`/ops/contracts/${c.id}`)}>
+                      <FileSignature className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">
+                          <span className="font-mono">{c.contractNumber}</span>
+                          <span className="text-muted-foreground"> · </span>
+                          {c.title}
+                        </div>
+                        <div className="truncate text-[10px] text-muted-foreground">{c.customerName}</div>
+                      </div>
+                      <span className="font-mono text-xs shrink-0">{fmtEur(c.totalValue)}</span>
+                      <Badge variant="outline" className="text-[10px] shrink-0">{c.status}</Badge>
+                    </Row>
+                  ))}
+                </Section>
+              )}
+              {(data!.quotations?.length ?? 0) > 0 && (
+                <Section title="Quotations">
+                  {data!.quotations!.map(qt => (
+                    <Row key={`qt-${qt.id}`} onClick={() => go("/ops/contracts")}>
+                      <FileSignature className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="font-mono shrink-0">{qt.quotationNumber}</span>
+                      <span className="flex-1 truncate text-xs text-muted-foreground">{qt.customerName}</span>
+                      <span className="font-mono text-xs shrink-0">{fmtEur(qt.sellingPrice)}</span>
+                      <Badge variant="outline" className="text-[10px] shrink-0">{qt.status}</Badge>
+                    </Row>
+                  ))}
+                </Section>
+              )}
+              {(data!.equipment?.length ?? 0) > 0 && (
+                <Section title="Equipment on board">
+                  {data!.equipment!.map(a => (
+                    <Row key={`eq-${a.id}`} onClick={() => go(`/ops/assets?q=${encodeURIComponent(a.serialNumber)}`)}>
+                      <Wrench className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">{a.name}</div>
+                        <div className="truncate text-[10px] text-muted-foreground">
+                          <span className="font-mono">{a.serialNumber}</span>
+                          {a.vesselName ? ` · ${a.vesselName}` : ""}
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="text-[10px] shrink-0">{a.status}</Badge>
+                    </Row>
+                  ))}
+                </Section>
+              )}
+              {(data!.certificates?.length ?? 0) > 0 && (
+                <Section title="Certificates">
+                  {data!.certificates!.map(c => (
+                    <Row
+                      key={`cert-${c.id}`}
+                      onClick={() => go(`/ops/certificates?q=${encodeURIComponent(c.certificateNumber)}`)}
+                    >
+                      <ShieldCheck className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-mono">{c.certificateNumber}</div>
+                        <div className="truncate text-[10px] text-muted-foreground">
+                          {[c.assetName, c.vesselName].filter(Boolean).join(" · ")}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        exp. {new Date(Number(c.expiryDate)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                      </span>
+                    </Row>
+                  ))}
+                </Section>
+              )}
+              {(data!.products?.length ?? 0) > 0 && (
+                <Section title="Products (pricelist)">
+                  {data!.products!.map(p => (
+                    <Row
+                      key={`pr-${p.kind}-${p.id}`}
+                      onClick={() => go(`/ops/catalog?tab=${p.kind === "Consumable" ? "consumables" : "assets"}`)}
+                    >
+                      <Package className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">{p.name}</div>
+                        {p.category && <div className="truncate text-[10px] text-muted-foreground">{p.category}</div>}
+                      </div>
+                      <span className="font-mono text-xs shrink-0">{fmtEur(p.price)}</span>
+                      <Badge variant="outline" className="text-[10px] shrink-0">{p.kind}</Badge>
+                    </Row>
+                  ))}
+                </Section>
+              )}
               {data!.invoices.length > 0 && (
                 <Section title="Invoices">
                   {data!.invoices.map(i => (
@@ -215,6 +327,29 @@ export default function GlobalSearch() {
                       </span>
                       <span className="font-mono text-xs shrink-0">{fmtEur(i.amount)}</span>
                       <Badge variant="outline" className="text-[10px] shrink-0">{i.status}</Badge>
+                    </Row>
+                  ))}
+                </Section>
+              )}
+              {(data!.creditNotes?.length ?? 0) > 0 && (
+                <Section title="Credit notes">
+                  {data!.creditNotes!.map(cn => (
+                    <Row
+                      key={`cn-${cn.id}`}
+                      onClick={() => go(`/invoices?view=credits&q=${encodeURIComponent(cn.docNumber)}`)}
+                    >
+                      <ReceiptText className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="font-mono shrink-0">{cn.docNumber}</span>
+                      <span className="flex-1 truncate text-xs text-muted-foreground">
+                        {cn.customerName}
+                        {cn.vesselName ? ` · ${cn.vesselName}` : ""}
+                      </span>
+                      <span className="font-mono text-xs shrink-0">
+                        {Number(cn.amount).toLocaleString()} {cn.currency}
+                      </span>
+                      <Badge variant="outline" className="text-[10px] shrink-0">
+                        {Number(cn.openAmount).toLocaleString()} open
+                      </Badge>
                     </Row>
                   ))}
                 </Section>

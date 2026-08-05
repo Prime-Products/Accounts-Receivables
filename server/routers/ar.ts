@@ -895,6 +895,79 @@ export const customersRouter = router({
           transferDate: a.transferDate,
           transferReference: a.transferReference,
         })),
+        /**
+         * Prime 247 contracts. Matched on number, title or customer name, so
+         * "DEMO-2026-002", "Prime 247 gas detection" and the owner name all land
+         * on the same contract.
+         */
+        contracts: (res.contracts ?? [])
+          .filter(c => matchesAllTokens(q, [c.contractNumber, c.title, c.customerName, c.customerGroup]))
+          .slice(0, 8)
+          .map(c => ({
+            id: c.id,
+            contractNumber: c.contractNumber,
+            title: c.title,
+            status: c.status,
+            totalValue: Number(c.totalValue),
+            customerName: c.customerName ?? "",
+          })),
+        quotations: (res.quotations ?? [])
+          .filter(qt => matchesAllTokens(q, [qt.quotationNumber, qt.customerName]))
+          .slice(0, 6)
+          .map(qt => ({
+            id: qt.id,
+            quotationNumber: qt.quotationNumber,
+            status: qt.status,
+            sellingPrice: Number(qt.sellingPrice),
+            customerName: qt.customerName ?? "",
+          })),
+        /**
+         * Only credit notes that still carry an open balance are listed, because
+         * that is what the Invoices credits view shows — a fully applied note
+         * would produce a result that leads to an empty screen.
+         */
+        creditNotes: (res.creditNotes ?? []).filter(cn => Number(cn.openAmount) > 0).slice(0, 6).map(cn => ({
+          id: cn.id,
+          docNumber: cn.docNumber,
+          docDate: cn.docDate,
+          amount: Number(cn.amount),
+          openAmount: Number(cn.openAmount),
+          currency: cn.currency,
+          customerName: cn.customerName ?? "",
+          vesselName: cn.vesselName ?? null,
+        })),
+        /** Physical units on board, searchable by serial number. */
+        equipment: (res.assets ?? [])
+          .filter(a => matchesAllTokens(q, [a.serialNumber, a.name, a.vesselName]))
+          .slice(0, 8)
+          .map(a => ({
+            id: a.id,
+            serialNumber: a.serialNumber,
+            name: a.name,
+            status: a.status,
+            vesselId: a.vesselId,
+            vesselName: a.vesselName ?? null,
+          })),
+        certificates: (res.certificates ?? []).slice(0, 6).map(c => ({
+          id: c.id,
+          certificateNumber: c.certificateNumber,
+          expiryDate: c.expiryDate,
+          assetName: c.assetName ?? "",
+          serialNumber: c.serialNumber ?? "",
+          vesselId: c.vesselId,
+          vesselName: c.vesselName ?? null,
+        })),
+        /** Catalog products (equipment + consumables) offered in contracts. */
+        products: (res.products ?? [])
+          .filter(p => matchesAllTokens(q, [p.name, p.category]))
+          .slice(0, 8)
+          .map(p => ({
+            id: p.id,
+            name: p.name,
+            kind: p.kind,
+            category: p.category ?? null,
+            price: Number(p.price ?? 0),
+          })),
       };
     }),
   list: protectedProcedure.query(async () => {
@@ -3088,13 +3161,27 @@ export const vesselsRouter = router({
       }
     }
     const owner = vessel.customerId ? custById.get(vessel.customerId) : undefined;
-    // Companies that have invoiced this vessel (context on the card).
-    const relatedCompanies = Array.from(new Set(rows.map(r => r.customerId)))
+    // Which company of the group the vessel actually sits under. The registered owner comes
+    // first — that is the company the vessel belongs to — followed by any other company of
+    // the group that has billed it, with its invoice count, so "who bills this ship" is
+    // answered without guessing.
+    const invoiceCountByCustomer = new Map<number, number>();
+    for (const r of rows) invoiceCountByCustomer.set(r.customerId, (invoiceCountByCustomer.get(r.customerId) ?? 0) + 1);
+    const companyIds = Array.from(new Set([...(owner ? [owner.id] : []), ...rows.map(r => r.customerId)]));
+    const relatedCompanies = companyIds
       .map(cid => {
         const c = custById.get(cid);
-        return c ? { id: c.id, name: c.name, group: (c.customerGroup ?? "").trim() || c.name } : null;
+        return c
+          ? {
+              id: c.id,
+              name: c.name,
+              group: (c.customerGroup ?? "").trim() || c.name,
+              invoiceCount: invoiceCountByCustomer.get(c.id) ?? 0,
+              isOwner: owner ? c.id === owner.id : false,
+            }
+          : null;
       })
-      .filter((x): x is { id: number; name: string; group: string } => x !== null);
+      .filter((x): x is { id: number; name: string; group: string; invoiceCount: number; isOwner: boolean } => x !== null);
     // Serial-tracked instruments physically on board, with the contract they belong to and
     // the calibration certificate that expires soonest for each one.
     const [assets, contracts, allCertificates] = await Promise.all([

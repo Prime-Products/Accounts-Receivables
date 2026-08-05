@@ -39,7 +39,7 @@ describe("vessel modal shows grouped contract items with serials under the descr
   const modal = read("client/src/components/VesselDetailDialog.tsx");
 
   it("renders the products card for the vessel", () => {
-    expect(modal).toContain("<Package className=\"h-4 w-4\" /> Products");
+    expect(modal).toContain("<Package className=\"h-3.5 w-3.5\" /> Products");
   });
 
   it("reads the contract items from the query result", () => {
@@ -54,7 +54,7 @@ describe("vessel modal shows grouped contract items with serials under the descr
 
   it("puts the serials on sub-rows under the item name", () => {
     // The name line comes first, the per-serial detail table directly after it.
-    const idxName = page.indexOf('<div className="font-medium">{item.name}</div>');
+    const idxName = page.indexOf("{item.name}</div>");
     const idxSerial = page.indexOf("{u.serialNumber}");
     expect(idxName).toBeGreaterThan(-1);
     expect(idxSerial).toBeGreaterThan(idxName);

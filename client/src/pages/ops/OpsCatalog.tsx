@@ -244,6 +244,12 @@ function ConsumablesCatalogTab() {
 
 // ─── Main Pricelist Page ─────────────────────────────────────────────────────
 export default function OpsCatalog() {
+  /**
+   * Global search results for a catalog product link here with ?tab=consumables
+   * when the hit is a consumable, so the user lands on the right list.
+   */
+  const initialTab =
+    new URLSearchParams(window.location.search).get("tab") === "consumables" ? "consumables" : "assets";
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <div>
@@ -255,7 +261,7 @@ export default function OpsCatalog() {
         </p>
       </div>
 
-      <Tabs defaultValue="assets" className="w-full">
+      <Tabs defaultValue={initialTab} className="w-full">
         <TabsList>
           <TabsTrigger value="assets" className="gap-1.5"><Package className="h-3.5 w-3.5" /> Equipment</TabsTrigger>
           <TabsTrigger value="consumables" className="gap-1.5"><Truck className="h-3.5 w-3.5" /> Consumables</TabsTrigger>

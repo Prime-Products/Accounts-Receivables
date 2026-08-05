@@ -64,9 +64,15 @@ describe("the modal mirrors the contract Products card", () => {
     expect(productsTable).toContain("This vessel total");
   });
 
-  it("also shows the vessel's KPIs, contracts and invoices", () => {
-    expect(modal).toContain("Open balance");
+  it("shows ownership and contracts inline, with products and invoices as tabs", () => {
+    // The metric cards were deliberately dropped: the modal is a quick reference,
+    // so the space goes to the two lists people actually open it for.
+    expect(modal).not.toContain("Open balance");
+    expect(modal).not.toContain("Total invoiced");
+    expect(modal).toContain("Owner / Group");
     expect(modal).toContain("Prime 247 contracts");
+    expect(modal).toContain('<TabsTrigger value="products"');
+    expect(modal).toContain('<TabsTrigger value="invoices"');
     expect(modal).toContain("<InvoicesTable");
   });
 });

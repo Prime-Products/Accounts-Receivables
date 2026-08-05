@@ -56,7 +56,11 @@ export default function OpsCertificates() {
   const { data: assets } = trpc.opsAssets.list.useQuery({});
   const utils = trpc.useUtils();
 
-  const [search, setSearch] = useState("");
+  /**
+   * A certificate can be opened straight from global search (?q=<certificate #>),
+   * so the filter box is seeded from the URL.
+   */
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get("q") ?? "");
   const [urgencyFilter, setUrgencyFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("expiryDate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");

@@ -57,6 +57,14 @@ import {
 import { teamMembers, InsertTeamMember } from "../drizzle/schema";
 import { noteMentions, InsertNoteMention } from "../drizzle/schema";
 import { contactGifts, giftImportReview, type GiftTier } from "../drizzle/schema";
+import {
+  opsContracts,
+  opsQuotations,
+  opsAssets,
+  opsCertificates,
+  opsAssetCatalog,
+  opsConsumableCatalog,
+} from "../drizzle/schema";
 import { queryTokens } from "../shared/textMatch";
 import {
   customFieldDefs,
@@ -1333,6 +1341,118 @@ export async function globalSearch(query: string, limitPerType = 8) {
       .where(or(like(vessels.name, q), like(vessels.imo, q), like(vessels.name, loose)))
       .limit(limitPerType * 4),
   ]);
+  // Prime 247 operations records and financial documents. Everything the app
+  // stores should be reachable from the one search box, so contracts, quotes,
+  // credit notes, physical equipment (by serial), certificates and the product
+  // catalogs are all queried here too.
+  const [contractRows, quotationRows, creditNoteRows, assetRows, certificateRows, catalogRows, consumableRows] =
+    await Promise.all([
+      db
+        .select({
+          id: opsContracts.id,
+          contractNumber: opsContracts.contractNumber,
+          title: opsContracts.title,
+          status: opsContracts.status,
+          totalValue: opsContracts.totalValue,
+          customerId: opsContracts.customerId,
+          customerName: customers.name,
+          customerGroup: customers.customerGroup,
+        })
+        .from(opsContracts)
+        .leftJoin(customers, eq(opsContracts.customerId, customers.id))
+        .where(
+          or(
+            like(opsContracts.contractNumber, q),
+            like(opsContracts.title, q),
+            like(customers.name, q),
+            like(opsContracts.title, loose),
+            like(customers.name, loose),
+          ),
+        )
+        .limit(limitPerType * 3),
+      db
+        .select({
+          id: opsQuotations.id,
+          quotationNumber: opsQuotations.quotationNumber,
+          status: opsQuotations.status,
+          sellingPrice: opsQuotations.sellingPrice,
+          customerId: opsQuotations.customerId,
+          customerName: customers.name,
+        })
+        .from(opsQuotations)
+        .leftJoin(customers, eq(opsQuotations.customerId, customers.id))
+        .where(or(like(opsQuotations.quotationNumber, q), like(customers.name, q), like(customers.name, loose)))
+        .limit(limitPerType),
+      db
+        .select({
+          id: creditNotes.id,
+          docNumber: creditNotes.docNumber,
+          docDate: creditNotes.docDate,
+          amount: creditNotes.amount,
+          openAmount: creditNotes.openAmount,
+          currency: creditNotes.currency,
+          customerId: creditNotes.customerId,
+          customerName: customers.name,
+          vesselName: vessels.name,
+        })
+        .from(creditNotes)
+        .leftJoin(customers, eq(creditNotes.customerId, customers.id))
+        .leftJoin(vessels, eq(creditNotes.vesselId, vessels.id))
+        .where(or(like(creditNotes.docNumber, q), like(customers.name, q), like(vessels.name, q)))
+        .orderBy(desc(creditNotes.docDate))
+        .limit(limitPerType),
+      db
+        .select({
+          id: opsAssets.id,
+          serialNumber: opsAssets.serialNumber,
+          name: opsAssets.name,
+          status: opsAssets.status,
+          vesselId: opsAssets.vesselId,
+          contractId: opsAssets.contractId,
+          vesselName: vessels.name,
+        })
+        .from(opsAssets)
+        .leftJoin(vessels, eq(opsAssets.vesselId, vessels.id))
+        .where(or(like(opsAssets.serialNumber, q), like(opsAssets.name, q), like(opsAssets.name, loose)))
+        .limit(limitPerType * 2),
+      db
+        .select({
+          id: opsCertificates.id,
+          certificateNumber: opsCertificates.certificateNumber,
+          expiryDate: opsCertificates.expiryDate,
+          assetId: opsCertificates.assetId,
+          assetName: opsAssets.name,
+          serialNumber: opsAssets.serialNumber,
+          vesselId: opsAssets.vesselId,
+          vesselName: vessels.name,
+        })
+        .from(opsCertificates)
+        .leftJoin(opsAssets, eq(opsCertificates.assetId, opsAssets.id))
+        .leftJoin(vessels, eq(opsAssets.vesselId, vessels.id))
+        .where(or(like(opsCertificates.certificateNumber, q), like(opsAssets.serialNumber, q)))
+        .orderBy(desc(opsCertificates.expiryDate))
+        .limit(limitPerType),
+      db
+        .select({
+          id: opsAssetCatalog.id,
+          name: opsAssetCatalog.name,
+          category: opsAssetCatalog.category,
+          price: opsAssetCatalog.sellingPrice,
+        })
+        .from(opsAssetCatalog)
+        .where(or(like(opsAssetCatalog.name, q), like(opsAssetCatalog.name, loose)))
+        .limit(limitPerType),
+      db
+        .select({
+          id: opsConsumableCatalog.id,
+          name: opsConsumableCatalog.name,
+          category: opsConsumableCatalog.category,
+          price: opsConsumableCatalog.sellingPricePerUnit,
+        })
+        .from(opsConsumableCatalog)
+        .where(or(like(opsConsumableCatalog.name, q), like(opsConsumableCatalog.name, loose)))
+        .limit(limitPerType),
+    ]);
   return {
     customers: custRows,
     invoices: invRows,
@@ -1342,6 +1462,15 @@ export async function globalSearch(query: string, limitPerType = 8) {
     allocations: allocationRows,
     contacts: contactRows,
     vessels: vesselRows,
+    contracts: contractRows,
+    quotations: quotationRows,
+    creditNotes: creditNoteRows,
+    assets: assetRows,
+    certificates: certificateRows,
+    products: [
+      ...catalogRows.map(r => ({ ...r, kind: "Equipment" as const })),
+      ...consumableRows.map(r => ({ ...r, kind: "Consumable" as const })),
+    ],
   };
 }
 

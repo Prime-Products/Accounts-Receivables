@@ -16,7 +16,7 @@ describe("vessel products card mirrors the contract products card", () => {
   const contract = read("client/src/pages/ops/OpsContractDetail.tsx");
 
   it("uses the same card title and subtitle wording", () => {
-    expect(modal).toContain("<Package className=\"h-4 w-4\" /> Products");
+    expect(modal).toContain("<Package className=\"h-3.5 w-3.5\" /> Products");
     expect(modal).toContain("Grouped by nature — equipment first, then consumables");
     expect(contract).toContain("Grouped by nature — equipment first, then consumables");
   });
@@ -63,7 +63,9 @@ describe("vessel products card mirrors the contract products card", () => {
   });
 
   it("spans the serial detail and group headings across every column", () => {
-    expect(vessel).toContain("colSpan={7}");
+    // The table computes its own span so the same component works with and
+    // without the Contract column.
+    expect(vessel).toContain("colSpan={columnCount}");
     expect(vessel).not.toContain("colSpan={4}");
   });
 });

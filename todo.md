@@ -2098,3 +2098,24 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Vessels entry duplicated under Prime 247 (same /vessels destination as CRM), unique React keys
 - [x] Collected and Outstanding KPI cards removed from the Prime 247 contracts list
 - [x] Contracts list KPI row reduced to three cards; page subtitle no longer shows collected cash
+
+## Vessel modal restructure (user request 6/8)
+- [x] Remove the four metric cards (open balance, overdue, invoiced, paid) from the vessel modal
+- [x] Turn Products and Invoices into tabs inside the vessel modal
+- [x] Keep the vessel info block visible above the tabs; update tests
+
+- [x] Vessel modal: remove duplicated IMO / Type / Flag row (keep header badges only)
+- [x] Vessel modal: replace vague "Invoiced by" with clear group-company attribution under Owner / Group
+
+- [x] Vessel modal: products table must fit inside the dialog with no clipped Supply column
+- [x] Global search must cover Prime 247 contracts
+- [x] Global search must cover every remaining record type (equipment/serials, certificates, products, invoices, tasks)
+
+- [x] Global search: add Prime 247 contracts (number, title, customer) with link to contract page
+- [x] Global search: add quotations (number, customer)
+- [x] Global search: add credit notes (doc number, customer)
+- [x] Global search: add equipment/assets by serial number and name
+- [x] Global search: add certificates by certificate number
+- [x] Global search: add products (asset & consumable catalog) by name
+- [x] Global search: update placeholder text to reflect wider coverage
+- [x] Global search: tests pinning contracts and new record types

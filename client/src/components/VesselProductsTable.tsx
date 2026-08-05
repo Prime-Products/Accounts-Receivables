@@ -81,10 +81,33 @@ export function VesselProductsTable({
   const unitsTotal = items.reduce((s, i) => s + i.unitsExpected, 0);
   const unitsSupplied = items.reduce((s, i) => s + i.unitsSupplied, 0);
   const vesselValue = items.reduce((s, i) => s + Number(i.sellingPrice) * i.quantity, 0);
+  /*
+   * The Contract column only earns its width when the vessel's items come from more than one
+   * contract. On a single-contract vessel it repeats the same number on every row and pushes
+   * the Supply badge out of view inside the modal, so it is dropped and the serial count moves
+   * next to the badge instead.
+   */
+  const contractIds = new Set(items.map(i => i.contractId));
+  const showContractColumn = contractIds.size > 1;
+  const columnCount = showContractColumn ? 7 : 6;
 
   return (
     <div className="overflow-x-auto">
-      <Table>
+      {/*
+       * table-fixed with an explicit Product width is what keeps the last column (Supply)
+       * on screen: long equipment names wrap inside their own column instead of pushing the
+       * badges past the right edge of a modal.
+       */}
+      <Table className="table-fixed w-full min-w-[52rem]">
+        <colgroup>
+          <col className="w-[44%]" />
+          <col className="w-[8%]" />
+          <col className="w-[9%]" />
+          <col className="w-[9%]" />
+          <col className="w-[8%]" />
+          <col className={showContractColumn ? "w-[13%]" : "w-[22%]"} />
+          {showContractColumn && <col className="w-[9%]" />}
+        </colgroup>
         <TableHeader>
           <TableRow>
             <TableHead>Product</TableHead>
@@ -93,7 +116,7 @@ export function VesselProductsTable({
             <TableHead className="text-right">Line Total</TableHead>
             <TableHead>Quota</TableHead>
             <TableHead>Supply</TableHead>
-            <TableHead>Contract</TableHead>
+            {showContractColumn && <TableHead>Contract</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -101,7 +124,7 @@ export function VesselProductsTable({
             <Fragment key={group.group}>
               {/* Same badge heading as the contract card, with the per-vessel value */}
               <TableRow className="bg-muted/60 hover:bg-muted/60">
-                <TableCell colSpan={7} className="py-2">
+                <TableCell colSpan={columnCount} className="py-2">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className={productGroupBadgeColors[group.group] ?? ""}>{group.label}</Badge>
                     <span className="text-xs text-muted-foreground">
@@ -117,7 +140,7 @@ export function VesselProductsTable({
                     className={`${item.serials.length > 0 ? "cursor-pointer" : ""} ${expanded.has(itemKey(item)) ? "border-b-0 bg-muted/20" : ""}`}
                     onClick={item.serials.length > 0 ? () => toggle(itemKey(item)) : undefined}
                   >
-                    <TableCell className="pl-6">
+                    <TableCell className="pl-6 pr-4">
                       <div className="flex items-start gap-1.5">
                         {/* The chevron only appears where there is serial detail to open. */}
                         {item.serials.length > 0 ? (
@@ -128,7 +151,12 @@ export function VesselProductsTable({
                           <span className="h-3.5 w-3.5 shrink-0" />
                         )}
                         <div className="min-w-0">
-                          <div className="font-medium">{item.name}</div>
+                          {/*
+                           * whitespace-normal + break-all guarantee the name stays inside its own
+                           * column even when it is one long unbroken token, so the numeric columns
+                           * and the Supply badge are never overlapped inside a modal.
+                           */}
+                          <div className="font-medium whitespace-normal [overflow-wrap:anywhere]" title={item.name}>{item.name}</div>
                           {item.notes && <div className="text-xs text-muted-foreground mt-0.5">{item.notes}</div>}
                         </div>
                       </div>
@@ -142,8 +170,14 @@ export function VesselProductsTable({
                       {item.quotaType ? `${item.quotaLimit} / ${item.quotaType === "ContractLife" ? "contract" : "year"}` : "—"}
                     </TableCell>
                     <TableCell>
-                      <SupplyBadge supplied={item.unitsSupplied} total={item.unitsExpected} />
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <SupplyBadge supplied={item.unitsSupplied} total={item.unitsExpected} />
+                        {!showContractColumn && item.serials.length > 0 && (
+                          <span className="hidden lg:inline text-[11px] text-muted-foreground">{item.serials.length} serial(s)</span>
+                        )}
+                      </div>
                     </TableCell>
+                    {showContractColumn && (
                     <TableCell>
                       <div className="flex items-center justify-between gap-2">
                         {item.contractId ? (
@@ -164,11 +198,12 @@ export function VesselProductsTable({
                         )}
                       </div>
                     </TableCell>
+                    )}
                   </TableRow>
                   {/* One nested row per serial, carrying every field the Equipment page shows. */}
                   {item.serials.length > 0 && expanded.has(itemKey(item)) && (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={7} className="pt-0 pb-3">
+                      <TableCell colSpan={columnCount} className="pt-0 pb-3">
                         <div className="rounded-md border bg-muted/20 overflow-x-auto">
                           <table className="w-full text-xs">
                             <thead>
@@ -243,7 +278,7 @@ export function VesselProductsTable({
           <TableRow className="bg-muted/40 font-medium">
             <TableCell colSpan={3} className="text-sm">This vessel total</TableCell>
             <TableCell className="text-right font-mono text-sm">{fmtEur(vesselValue)}</TableCell>
-            <TableCell colSpan={3} className="text-sm text-muted-foreground">
+            <TableCell colSpan={columnCount - 4} className="text-sm text-muted-foreground">
               {unitsTotal > 0 ? `${unitsSupplied} of ${unitsTotal} unit(s) supplied` : "—"}
             </TableCell>
           </TableRow>
