@@ -108,7 +108,7 @@ export default function GlobalSearch() {
               inputRef.current?.blur();
             }
           }}
-          placeholder="Search people, vessels, companies, invoices…"
+          placeholder="Search anything — contracts, vessels, companies…"
           className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground min-w-0"
         />
         {isFetching && enabled ? (
