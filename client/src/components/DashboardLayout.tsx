@@ -310,7 +310,7 @@ function DashboardLayoutContent({
             </div>
           </SidebarHeader>
 
-          <SidebarContent className="gap-0">
+          <SidebarContent className="gap-0 px-1">
             {navSections.map((section, i) => {
               /*
                * A section header is a control: clicking it expands or collapses the
@@ -324,11 +324,14 @@ function DashboardLayoutContent({
               const isOpen =
                 !hasHeader || isCollapsed || holdsCurrentPage || openSections.includes(section.label!);
               return (
-              <SidebarGroup key={section.label ?? `section-${i}`} className="px-0 py-0">
+              <SidebarGroup
+                key={section.label ?? `section-${i}`}
+                className={section.label ? "px-0 pb-1 pt-2" : "px-0 pb-1 pt-0"}
+              >
                 {section.label ? (
                   <SidebarGroupLabel
                     asChild
-                    className="px-2 pt-3 group-data-[collapsible=icon]:hidden"
+                    className="h-7 px-0 group-data-[collapsible=icon]:hidden"
                   >
                     <button
                       type="button"
@@ -342,21 +345,21 @@ function DashboardLayoutContent({
                             ? `Collapse ${section.label}`
                             : `Expand ${section.label}`
                       }
-                      className="flex w-full items-center justify-between rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:bg-accent/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex w-full items-center gap-1.5 px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <span className="truncate">{section.label}</span>
                       <ChevronDown
                         className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
                           isOpen ? "" : "-rotate-90"
                         }`}
                         aria-hidden="true"
                       />
+                      <span className="truncate">{section.label}</span>
                     </button>
                   </SidebarGroupLabel>
                 ) : null}
                 <SidebarMenu
                   id={section.label ? `nav-section-${section.label}` : undefined}
-                  className={`px-2 py-1 ${isOpen ? "" : "hidden"}`}
+                  className={`px-0 py-1 ${isOpen ? "" : "hidden"}`}
                 >
                   {section.items.map(item => {
                     const isActive = item.path === "/" ? location === "/" : location.startsWith(item.path);
