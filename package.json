@@ -29,7 +29,9 @@
     "inspect:softone-vessels": "tsx scripts/inspect-softone-vessels.ts",
     "sync:softone-vessels": "tsx scripts/sync-softone-vessels.ts",
     "sync:softone-vessel-owner": "tsx scripts/sync-softone-vessel-owner.ts",
-    "inspect:softone-contract-installments": "tsx scripts/inspect-softone-contract-installments.ts"
+    "inspect:softone-contract-installments": "tsx scripts/inspect-softone-contract-installments.ts",
+    "sync:softone-auto-financials": "tsx scripts/sync-softone-scheduled.ts financials",
+    "sync:softone-auto-master-data": "tsx scripts/sync-softone-scheduled.ts master-data"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
