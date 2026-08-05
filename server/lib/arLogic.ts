@@ -24,6 +24,21 @@ export function daysOverdue(dueDate: number, now: number): number {
   return Math.floor((now - dueDate) / DAY_MS);
 }
 
+/** Due on or before the current UTC calendar day, matching the Prime 247 rule. */
+export function isInvoiceOverdue(dueDate: number, now: number): boolean {
+  const currentDay = Date.UTC(
+    new Date(now).getUTCFullYear(),
+    new Date(now).getUTCMonth(),
+    new Date(now).getUTCDate(),
+  );
+  const dueDay = Date.UTC(
+    new Date(dueDate).getUTCFullYear(),
+    new Date(dueDate).getUTCMonth(),
+    new Date(dueDate).getUTCDate(),
+  );
+  return dueDay <= currentDay;
+}
+
 /** Classify an overdue invoice into an aging bucket by days overdue (1..30 → 0-30). */
 export function agingBucket(dueDate: number, now: number): AgingBucket {
   const d = daysOverdue(dueDate, now);
@@ -131,7 +146,7 @@ export function computeAging(invoices: InvoiceLike[], now: number) {
     const out = outstanding(inv);
     const cur = (inv.currency ?? "EUR").toUpperCase();
     const outOrig = outstandingOriginal(inv);
-    if (now <= inv.dueDate) {
+    if (!isInvoiceOverdue(inv.dueDate, now)) {
       current += out;
       currentCount += 1;
       currentByCurrency[cur] = (currentByCurrency[cur] ?? 0) + outOrig;
@@ -260,9 +275,9 @@ export function deriveInvoiceStatus(
   return "Open";
 }
 
-/** True when the invoice still owes money and its due date has passed. */
+/** True when the invoice still owes money and is due on or before today. */
 export function isOverdue(inv: InvoiceLike, now: number): boolean {
-  return isOpenInvoice(inv) && now > inv.dueDate;
+  return isOpenInvoice(inv) && isInvoiceOverdue(inv.dueDate, now);
 }
 
 // ---------- Customer payment behavior profiling & smart forecast ----------
@@ -339,7 +354,7 @@ export function buildBehaviorProfile(
   const broken = promises.filter(p => p.status === "Broken").length;
   const promiseReliability = kept + broken > 0 ? kept / (kept + broken) : null;
 
-  const overdueEur = open.filter(i => now > i.dueDate).reduce((s, i) => s + outstanding(i), 0);
+  const overdueEur = open.filter(i => isInvoiceOverdue(i.dueDate, now)).reduce((s, i) => s + outstanding(i), 0);
 
   return {
     avgDelayDays,

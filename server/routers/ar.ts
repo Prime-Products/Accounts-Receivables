@@ -38,6 +38,7 @@ import {
   BehaviorRow,
   getFxRates,
   isOpenInvoice,
+  isInvoiceOverdue,
   monthRange,
   outstanding,
   outstandingOriginal,
@@ -71,6 +72,28 @@ function exportFilenamePart(value: string) {
     .toUpperCase()
     .replace(/[^\p{L}\p{N}]+/gu, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+type SoftOneFinancialCustomer = {
+  softoneId?: string | null;
+  softoneSyncedAt?: Date | null;
+  balance?: string | number | null;
+  overdue?: string | number | null;
+  overdueEndOfMonth?: string | number | null;
+};
+
+function hasSoftOneFinancialSnapshot(customer: SoftOneFinancialCustomer): boolean {
+  return Boolean(customer.softoneId && customer.softoneSyncedAt);
+}
+
+function financialValue(
+  customer: SoftOneFinancialCustomer,
+  field: "balance" | "overdue" | "overdueEndOfMonth",
+  invoiceFallback: number,
+): number {
+  return hasSoftOneFinancialSnapshot(customer)
+    ? Number(customer[field] ?? 0)
+    : invoiceFallback;
 }
 
 async function audit(ctx: { user: { id: number; name: string | null } }, action: string, entityType: string, entityId?: string | number, details?: string) {
@@ -977,15 +1000,11 @@ export const customersRouter = router({
     return customers.map(c => {
       const custInvoices = invoices.filter(i => i.customerId === c.id);
       const open = custInvoices.filter(isOpenInvoice);
-      const overdue = open.filter(i => now > i.dueDate);
+      const overdue = open.filter(i => isInvoiceOverdue(i.dueDate, now));
       const overdueEom = open.filter(i => i.dueDate <= eom);
       const hasInvoiceDetail = custInvoices.length > 0;
-      const openBalance = hasInvoiceDetail
-        ? open.reduce((s, i) => s + outstanding(i), 0)
-        : Number(c.balance ?? 0);
-      const overdueBalance = hasInvoiceDetail
-        ? overdue.reduce((s, i) => s + outstanding(i), 0)
-        : Number(c.overdue ?? 0);
+      const openBalance = financialValue(c, "balance", open.reduce((s, i) => s + outstanding(i), 0));
+      const overdueBalance = financialValue(c, "overdue", overdue.reduce((s, i) => s + outstanding(i), 0));
       const overdue90Plus = overdue.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0);
       const beh = behaviorById.get(c.id);
       const prom = promisesById.get(c.id) ?? { kept: 0, broken: 0 };
@@ -1005,9 +1024,7 @@ export const customersRouter = router({
         ...c,
         openBalance,
         overdueBalance,
-        overdueEomBalance: hasInvoiceDetail
-          ? overdueEom.reduce((s, i) => s + outstanding(i), 0)
-          : Number(c.overdueEndOfMonth ?? 0),
+        overdueEomBalance: financialValue(c, "overdueEndOfMonth", overdueEom.reduce((s, i) => s + outstanding(i), 0)),
         overdueCount: overdue.length,
         /**
          * False for companies imported from the CRM purely so their contacts exist
@@ -1057,7 +1074,11 @@ export const customersRouter = router({
       openByCustomer.set(i.customerId, (openByCustomer.get(i.customerId) ?? 0) + outstanding(i));
     }
     return members
-      .map(c => ({ id: c.id, name: c.name, openBalance: openByCustomer.get(c.id) ?? 0 }))
+      .map(c => ({
+        id: c.id,
+        name: c.name,
+        openBalance: financialValue(c, "balance", openByCustomer.get(c.id) ?? 0),
+      }))
       .sort((a, b) => b.openBalance - a.openBalance);
   }),
   /** Group-level view: aggregated totals per customer group. */
@@ -1246,24 +1267,36 @@ export const customersRouter = router({
         g.openPromiseId = openPromiseIdByCustomer.get(c.id) ?? null;
       }
       const customerInvoices = byCustomer.get(c.id) ?? [];
+      const customerOpenInvoices = customerInvoices.filter(isOpenInvoice);
+      const customerOverdueInvoices = customerOpenInvoices.filter(i => isInvoiceOverdue(i.dueDate, now));
+      g.openBalance += financialValue(
+        c,
+        "balance",
+        customerOpenInvoices.reduce((sum, invoice) => sum + outstanding(invoice), 0),
+      );
+      g.overdueBalance += financialValue(
+        c,
+        "overdue",
+        customerOverdueInvoices.reduce((sum, invoice) => sum + outstanding(invoice), 0),
+      );
+      g.overdueEomBalance += financialValue(
+        c,
+        "overdueEndOfMonth",
+        customerOpenInvoices.filter(invoice => invoice.dueDate <= eom).reduce((sum, invoice) => sum + outstanding(invoice), 0),
+      );
       for (const inv of customerInvoices) {
         if (!isOpenInvoice(inv)) continue;
         gInv.push(inv);
-        g.openBalance += outstanding(inv);
         const cur = inv.currency ?? "EUR";
         g.openByCurrency[cur] = (g.openByCurrency[cur] ?? 0) + outstandingOriginal(inv);
         if (inv.company) g.branches.add(inv.company);
-        if (now > inv.dueDate) {
-          g.overdueBalance += outstanding(inv);
+        if (isInvoiceOverdue(inv.dueDate, now)) {
           g.overdueCount += 1;
           if (now - inv.dueDate > day90) g.overdue90Plus += outstanding(inv);
         }
-        if (inv.dueDate <= eom) g.overdueEomBalance += outstanding(inv);
       }
-      // Keep the list and Group Card on the same source of truth: imported
-      // invoice detail. CustomerGroupFinData totals can be group-level values
-      // repeated on members that have no invoice rows, so mixing them with the
-      // group's invoices double-counts Open, Overdue, and Overdue EOM.
+      // CustomerGroupFinData is authoritative for the net financial KPIs.
+      // Invoice detail remains authoritative for counts, aging and currency splits.
     }
     return Array.from(groups.values())
       .filter(g => groupsWithLedger.has(g.group))
@@ -1421,7 +1454,7 @@ export const customersRouter = router({
       );
       const aging = computeAging(scoped, now);
       const open = scoped.filter(isOpenInvoice);
-      const overdue = open.filter(i => now > i.dueDate);
+      const overdue = open.filter(i => isInvoiceOverdue(i.dueDate, now));
       const openByCurrency: Record<string, number> = {};
       for (const inv of open) {
         const cur = inv.currency ?? "EUR";
@@ -1431,7 +1464,7 @@ export const customersRouter = router({
       const branchScoped = groupInvoices.filter(
         i =>
           (input.branch === undefined || i.company === input.branch) &&
-          (input.minDaysOverdue === undefined || (isOpenInvoice(i) && now > i.dueDate && daysOverdue(i.dueDate, now) >= input.minDaysOverdue)),
+          (input.minDaysOverdue === undefined || (isOpenInvoice(i) && isInvoiceOverdue(i.dueDate, now) && daysOverdue(i.dueDate, now) >= input.minDaysOverdue)),
       );
       const memberBehavior = allBehavior.filter(b => memberIds.has(b.customerId));
       const behaviorByCustomer = new Map(memberBehavior.map(b => [b.customerId, b]));
@@ -1441,13 +1474,35 @@ export const customersRouter = router({
       // Group-level credit rating (full scope, not filtered)
       const day90 = 90 * 24 * 60 * 60 * 1000;
       const gOpen = groupInvoices.filter(isOpenInvoice);
-      const gOverdue = gOpen.filter(i => now > i.dueDate);
+      const gOverdue = gOpen.filter(i => isInvoiceOverdue(i.dueDate, now));
      const eomTs = endOfCurrentMonth();
       const gOverdueEom = gOpen.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
       // Open amount falling due within the NEXT calendar month (for the Open Balance card subtitle)
       const nmStart = Date.UTC(new Date(eomTs).getUTCFullYear(), new Date(eomTs).getUTCMonth() + 1, 1);
       const nmEnd = Date.UTC(new Date(eomTs).getUTCFullYear(), new Date(eomTs).getUTCMonth() + 2, 0, 23, 59, 59, 999);
       const gDueNextMonth = gOpen.filter(i => i.dueDate > eomTs && i.dueDate >= nmStart && i.dueDate <= nmEnd).reduce((s, i) => s + outstanding(i), 0);
+      const financialMembers = input.customerId === undefined
+        ? members
+        : members.filter(member => member.id === input.customerId);
+      const authoritativeOpenBalance = input.branch === undefined
+        ? financialMembers.reduce((sum, member) => {
+            const memberOpen = gOpen.filter(invoice => invoice.customerId === member.id);
+            return sum + financialValue(member, "balance", memberOpen.reduce((value, invoice) => value + outstanding(invoice), 0));
+          }, 0)
+        : open.reduce((sum, invoice) => sum + outstanding(invoice), 0);
+      const authoritativeOverdueBalance = input.branch === undefined
+        ? financialMembers.reduce((sum, member) => {
+            const memberOverdue = gOverdue.filter(invoice => invoice.customerId === member.id);
+            return sum + financialValue(member, "overdue", memberOverdue.reduce((value, invoice) => value + outstanding(invoice), 0));
+          }, 0)
+        : overdue.reduce((sum, invoice) => sum + outstanding(invoice), 0);
+      const authoritativeOverdueEom = input.branch === undefined
+        ? financialMembers.reduce((sum, member) => {
+            const memberOpen = gOpen.filter(invoice => invoice.customerId === member.id);
+            const fallback = memberOpen.filter(invoice => invoice.dueDate <= eomTs).reduce((value, invoice) => value + outstanding(invoice), 0);
+            return sum + financialValue(member, "overdueEndOfMonth", fallback);
+          }, 0)
+        : gOverdueEom;
       const memberPromises = (await db.listPromises()).filter(p => memberIds.has(p.customerId));
       const todayD = new Date();
       const forecastRows = await db.listForecastEntries(todayD.getUTCFullYear(), todayD.getUTCMonth() + 1);
@@ -1462,8 +1517,8 @@ export const customersRouter = router({
       // Rating uses the group's unified account status (companies inherit it).
       const ratingResult = computeCreditRating({
         daysLate: groupBehavior?.medianDaysLate ?? groupBehavior?.avgDaysLate ?? null,
-        openBalance: gOpen.reduce((s, i) => s + outstanding(i), 0),
-        overdueBalance: gOverdue.reduce((s, i) => s + outstanding(i), 0),
+        openBalance: authoritativeOpenBalance,
+        overdueBalance: authoritativeOverdueBalance,
         overdue90Plus: gOverdue.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0),
         promisesKept: memberPromises.filter(p => p.status === "Kept").length,
         promisesBroken: memberPromises.filter(p => p.status === "Broken").length,
@@ -1475,7 +1530,7 @@ export const customersRouter = router({
         .map(m => {
           const mine = branchScoped.filter(i => i.customerId === m.id);
           const mOpen = mine.filter(isOpenInvoice);
-          const mOverdue = mOpen.filter(i => now > i.dueDate);
+          const mOverdue = mOpen.filter(i => isInvoiceOverdue(i.dueDate, now));
           const beh = behaviorByCustomer.get(m.id);
           return {
             id: m.id,
@@ -1483,8 +1538,12 @@ export const customersRouter = router({
             code: m.code,
             // Companies inherit the group's unified account status.
             onHoldStatus: watchStatus,
-            openBalance: mOpen.reduce((s, i) => s + outstanding(i), 0),
-            overdueBalance: mOverdue.reduce((s, i) => s + outstanding(i), 0),
+            openBalance: input.branch === undefined
+              ? financialValue(m, "balance", mOpen.reduce((s, i) => s + outstanding(i), 0))
+              : mOpen.reduce((s, i) => s + outstanding(i), 0),
+            overdueBalance: input.branch === undefined
+              ? financialValue(m, "overdue", mOverdue.reduce((s, i) => s + outstanding(i), 0))
+              : mOverdue.reduce((s, i) => s + outstanding(i), 0),
             invoiceCount: mOpen.length,
             avgDaysLate: beh?.avgDaysLate ?? null,
             medianDaysLate: beh?.medianDaysLate ?? null,
@@ -1600,7 +1659,7 @@ export const customersRouter = router({
         forecastInitial: groupForecastInitial,
         expectedToCollect: gExpectedToCollect,
         expectedVariance: gExpectedToCollect - groupForecast,
-        overdueEomBalance: gOverdueEom,
+        overdueEomBalance: authoritativeOverdueEom,
         confirmationStatus: gConfStatus,
         confirmationAmount: gConfAmount,
         confirmationTaskId: gConfirmationTaskId,
@@ -1615,8 +1674,8 @@ export const customersRouter = router({
         callCount: gCallSummary?.calls ?? 0,
         noAnswerCount: gCallSummary?.noAnswer ?? 0,
         totals: {
-          openBalance: open.reduce((s, i) => s + outstanding(i), 0),
-          overdueBalance: overdue.reduce((s, i) => s + outstanding(i), 0),
+          openBalance: authoritativeOpenBalance,
+          overdueBalance: authoritativeOverdueBalance,
           overdueCount: overdue.length,
           openCount: open.length,
           openByCurrency,
@@ -1624,10 +1683,7 @@ export const customersRouter = router({
           unallocatedPayments: openTransfers.reduce((s, t) => s + t.unallocatedEur, 0),
           openCreditNotes: openCreditNotesEur,
           openCreditNotesCount: openCreditNotes.length,
-          netOpenBalance:
-            open.reduce((s, i) => s + outstanding(i), 0) -
-            openTransfers.reduce((s, t) => s + t.unallocatedEur, 0) -
-            openCreditNotesEur,
+          netOpenBalance: authoritativeOpenBalance,
           turnoverYtd: members.reduce((s, m) => s + (m.turnoverYtd ? Number(m.turnoverYtd) : 0), 0),
           turnoverLastYear: members.reduce((s, m) => s + (m.turnoverLastYear ? Number(m.turnoverLastYear) : 0), 0),
         },
@@ -1805,7 +1861,7 @@ export const customersRouter = router({
       // --- Exposure & month pace, so "what next" can be prioritised ---------
       const invs = allInvoices.filter(i => memberIds.has(i.customerId));
       const open = invs.filter(isOpenInvoice);
-      const overdueInvs = open.filter(i => now > i.dueDate);
+      const overdueInvs = open.filter(i => isInvoiceOverdue(i.dueDate, now));
       const eomTs = endOfCurrentMonth();
       const overdueEom = open.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
       const today = new Date();
@@ -2068,7 +2124,7 @@ export const customersRouter = router({
     // Credit rating with factor breakdown
     const day90 = 90 * 24 * 60 * 60 * 1000;
     const openInv = invoices.filter(isOpenInvoice);
-    const overdueInv = openInv.filter(i => now > i.dueDate);
+    const overdueInv = openInv.filter(i => isInvoiceOverdue(i.dueDate, now));
     const behaviorRow = await db.getPaymentBehavior(input.id).catch(() => null);
     // Group-level watch status & forecast coverage (customer belongs to a group; watch status lives on the group)
     const groupKey = (customer.customerGroup ?? "").trim() || customer.name;
@@ -2092,7 +2148,14 @@ export const customersRouter = router({
     const groupCustomers = (await db.listCustomers()).filter(c => ((c.customerGroup ?? "").trim() || c.name) === groupKey);
     const groupIds = new Set(groupCustomers.map(c => c.id));
     const groupInvoices = (await db.listInvoices()).filter(i => groupIds.has(i.customerId) && isOpenInvoice(i));
-    const groupOverdueEom = groupInvoices.filter(i => i.dueDate <= eomTs).reduce((s, i) => s + outstanding(i), 0);
+    const groupOverdueEom = groupCustomers.reduce((sum, member) => {
+      const memberInvoices = groupInvoices.filter(invoice => invoice.customerId === member.id && invoice.dueDate <= eomTs);
+      return sum + financialValue(
+        member,
+        "overdueEndOfMonth",
+        memberInvoices.reduce((value, invoice) => value + outstanding(invoice), 0),
+      );
+    }, 0);
     const forecastForRule = hasForecast ? groupForecast : 0;
     const autoProblematic = groupOverdueEom > 0 && forecastForRule < 0.8 * groupOverdueEom;
     const resolvedCd = resolveGroupStatus(watchRow, autoProblematic);
@@ -2101,8 +2164,8 @@ export const customersRouter = router({
     // Rating uses the group's unified account status (the company inherits it).
     const ratingResult = computeCreditRating({
       daysLate: behaviorRow?.medianDaysLate ?? behaviorRow?.avgDaysLate ?? null,
-      openBalance: openInv.reduce((s, i) => s + outstanding(i), 0),
-      overdueBalance: overdueInv.reduce((s, i) => s + outstanding(i), 0),
+      openBalance: financialValue(customer, "balance", openInv.reduce((s, i) => s + outstanding(i), 0)),
+      overdueBalance: financialValue(customer, "overdue", overdueInv.reduce((s, i) => s + outstanding(i), 0)),
       overdue90Plus: overdueInv.filter(i => now - i.dueDate > day90).reduce((s, i) => s + outstanding(i), 0),
       promisesKept: promises.filter(p => p.status === "Kept").length,
       promisesBroken: promises.filter(p => p.status === "Broken").length,
@@ -2161,7 +2224,7 @@ export const customersRouter = router({
       rating: ratingResult,
       behavior: behaviorRow,
      groupKey,
-     overdueEomBalance,
+     overdueEomBalance: financialValue(customer, "overdueEndOfMonth", overdueEomBalance),
       dueNextMonth: dueNextMonth360,
      watchStatus,
       watchOverride,
@@ -3988,7 +4051,7 @@ export const tasksRouter = router({
           dueDate: i.dueDate,
           amount: outstanding(i),
           currency: i.currency ?? "EUR",
-          overdue: i.dueDate != null && i.dueDate < Date.now(),
+          overdue: i.dueDate != null && isInvoiceOverdue(i.dueDate, Date.now()),
         }))
         .sort((a, b) => (a.dueDate ?? 0) - (b.dueDate ?? 0));
       return { group, invoices: rows };
@@ -4259,23 +4322,22 @@ export const forecastRouter = router({
     ]);
     const collectedThisMonth = receiptsCollected + dashMonthWires.reduce((s, w) => s + Number(w.amount), 0);
     const aging = computeAging(invoices, now);
-    const invoiceCustomerIds = new Set(invoices.map(invoice => invoice.customerId));
-    const customersWithoutInvoiceDetail = customers.filter(customer => !invoiceCustomerIds.has(customer.id));
-    const softOneArBalance = customersWithoutInvoiceDetail.reduce(
-      (sum, customer) => sum + Number(customer.balance ?? 0),
-      0,
-    );
-    const softOneOverdue = customersWithoutInvoiceDetail.reduce(
-      (sum, customer) => sum + Number(customer.overdue ?? 0),
-      0,
-    );
-    const totalOverdue = aging.totalOverdue + softOneOverdue;
-    const arBalance = aging.totalOverdue + aging.current + softOneArBalance;
+    const syncedCustomerIds = new Set(customers.filter(hasSoftOneFinancialSnapshot).map(customer => customer.id));
+    const softOneArBalance = customers
+      .filter(hasSoftOneFinancialSnapshot)
+      .reduce((sum, customer) => sum + Number(customer.balance ?? 0), 0);
+    const softOneOverdue = customers
+      .filter(hasSoftOneFinancialSnapshot)
+      .reduce((sum, customer) => sum + Number(customer.overdue ?? 0), 0);
+    const unsyncedInvoices = invoices.filter(invoice => !syncedCustomerIds.has(invoice.customerId));
+    const unsyncedAging = computeAging(unsyncedInvoices, now);
+    const totalOverdue = softOneOverdue + unsyncedAging.totalOverdue;
+    const arBalance = softOneArBalance + unsyncedAging.totalOverdue + unsyncedAging.current;
     const last90Sales = await db.sumInvoicedInRange(now - 90 * 24 * 60 * 60 * 1000, now);
     const dso = computeDso(arBalance, last90Sales, 90);
     const forecast = buildForecast(invoices, installments, now, 6);
     // Contract installments are "must pay on time" invoices — even 1 day overdue is a red flag.
-    const overdueContractInvoices = invoices.filter(i => i.isContractInstallment && isOpenInvoice(i) && daysOverdue(i.dueDate, now) > 0);
+    const overdueContractInvoices = invoices.filter(i => i.isContractInstallment && isOpenInvoice(i) && isInvoiceOverdue(i.dueDate, now));
     const overdueContractCount = overdueContractInvoices.length;
     const overdueContractAmount = overdueContractInvoices.reduce((s, i) => s + outstanding(i), 0);
     // Groups with a positive forecast this month whose effective confirmation status
@@ -5248,7 +5310,7 @@ export const callsRouter = router({
       const invoices = await db.listInvoices({ customerId: input.customerId });
       const now = Date.now();
       const open = invoices.filter(isOpenInvoice);
-      const overdue = open.filter(i => i.dueDate < now);
+      const overdue = open.filter(i => isInvoiceOverdue(i.dueDate, now));
       const sum = (list: typeof open) => list.reduce((s, i) => s + toEur(outstanding(i), i.currency ?? "EUR"), 0);
       const fmt = (n: number) => `€${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       const openTotal = sum(open);

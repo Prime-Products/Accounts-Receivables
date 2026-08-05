@@ -12,6 +12,11 @@ type SyncStep = {
 const schedules: Record<ScheduleName, SyncStep[]> = {
   financials: [
     {
+      name: "customer financials",
+      packageScript: "sync:softone-customers",
+      enabledBy: "SOFTONE_SQL_SYNC_ENABLED",
+    },
+    {
       name: "invoices",
       packageScript: "sync:softone-invoices",
       enabledBy: "SOFTONE_SQL_INVOICE_SYNC_ENABLED",
