@@ -381,7 +381,9 @@ function DashboardLayoutContent({
                           className={`h-10 transition-all font-normal`}
                         >
                           <item.icon
-                            className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
+                            className={`h-4 w-4 ${
+                              isActive ? "text-sidebar-accent-foreground" : ""
+                            }`}
                           />
                           <span>{item.label}</span>
                         </SidebarMenuButton>
