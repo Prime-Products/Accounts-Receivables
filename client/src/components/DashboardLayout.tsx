@@ -59,7 +59,7 @@ import { Button } from "./ui/button";
 
 /*
  * Navigation is grouped by what the user is trying to do, not by data type:
- * chasing money (Collections), knowing who and what we deal with (CRM), and
+ * chasing money (Receivables), knowing who and what we deal with (CRM), and
  * running the operation (Management). Dashboard stands alone above the groups
  * because it is the landing view, not a category.
  */
@@ -69,9 +69,13 @@ const navSections: { label: string | null; items: { icon: typeof LayoutDashboard
     items: [{ icon: LayoutDashboard, label: "Dashboard", path: "/" }],
   },
   {
-    label: "Collections",
+    /*
+     * "Receivables" matches the name of the module on the customer card, so the
+     * menu and the customer page call the same work by the same name.
+     */
+    label: "Receivables",
     items: [
-      { icon: Users, label: "Collections Desk", path: "/customers" },
+      { icon: Users, label: "Customers", path: "/customers" },
       { icon: FileText, label: "Invoices", path: "/invoices" },
       // "Remittances" covers every instrument the customer pays with: bank wire, cheque, credit card.
       { icon: Banknote, label: "Remittances", path: "/remittances" },

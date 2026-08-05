@@ -1,5 +1,5 @@
 /**
- * Sidebar structure — the navigation is grouped into Collections / CRM /
+ * Sidebar structure — the navigation is grouped into Receivables / CRM /
  * Management with Dashboard standing alone. This test reads the layout source so
  * a future edit cannot silently drop a destination or orphan a page: every route
  * registered in App.tsx must be reachable from the sidebar (or be an explicitly
@@ -16,8 +16,8 @@ const app = readFileSync(join(root, "client/src/App.tsx"), "utf-8");
 /** Section label -> the item labels that must sit under it, in order. */
 const EXPECTED_SECTIONS: [string, string[]][] = [
   // Tasks sit with the daily chase: follow-ups, promises and help requests all
-  // start from the Collections Desk.
-  ["Collections", ["Collections Desk", "Invoices", "Remittances", "Tasks"]],
+  // start from the customer worklist.
+  ["Receivables", ["Customers", "Invoices", "Remittances", "Tasks"]],
   ["CRM", ["Address Book", "Vessels", "Contracts"]],
   ["Management", ["Reports", "Team", "Settings"]],
 ];
@@ -60,13 +60,13 @@ describe("Sidebar sections", () => {
     }
   });
 
-  it("Tasks is listed once, under Collections", () => {
+  it("Tasks is listed once, under Receivables", () => {
     const occurrences = layout.match(/label: "Tasks"/g) ?? [];
     expect(occurrences).toHaveLength(1);
-    const collectionsAt = layout.indexOf('label: "Collections"');
+    const receivablesAt = layout.indexOf('label: "Receivables"');
     const crmAt = layout.indexOf('label: "CRM"');
     const tasksAt = layout.indexOf('label: "Tasks"');
-    expect(tasksAt).toBeGreaterThan(collectionsAt);
+    expect(tasksAt).toBeGreaterThan(receivablesAt);
     expect(tasksAt).toBeLessThan(crmAt);
   });
 

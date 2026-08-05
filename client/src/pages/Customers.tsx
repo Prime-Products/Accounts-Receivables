@@ -577,10 +577,10 @@ export default function Customers() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Users className="h-6 w-6" /> Collections Desk
+            <Users className="h-6 w-6" /> Customers
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Group tracking — click a group for its card with member companies
+            The receivables worklist — click a customer for its card and modules
           </p>
         </div>
         <div className="flex items-center gap-1.5 rounded-lg border bg-muted/40 p-1">

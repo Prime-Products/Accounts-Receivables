@@ -266,7 +266,7 @@ export function RecordDetailsPanel({
               className="h-7 gap-1 text-xs"
               onClick={() => navigate(`/groups/${encodeURIComponent(groupName)}`)}
             >
-              <ExternalLink className="h-3 w-3" /> Open in Collections Desk
+              <ExternalLink className="h-3 w-3" /> Open customer card
             </Button>
           )}
         </div>

@@ -144,7 +144,7 @@ export default function CustomerHub() {
     return (
       <div className="p-2 sm:p-4">
         <Button variant="ghost" size="sm" className="gap-1" onClick={() => navigate("/customers")}>
-          <ArrowLeft className="h-4 w-4" /> Collections Desk
+          <ArrowLeft className="h-4 w-4" /> Customers
         </Button>
         <Card className="mt-4">
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
@@ -163,7 +163,7 @@ export default function CustomerHub() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <Button variant="ghost" size="sm" className="gap-1" onClick={() => navigate("/customers")}>
-            <ArrowLeft className="h-4 w-4" /> Collections Desk
+            <ArrowLeft className="h-4 w-4" /> Customers
           </Button>
           <div>
             <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold tracking-tight">
