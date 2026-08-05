@@ -19,7 +19,7 @@ import { CommunicationPanel, CommunicationToggle, useCommunicationPanel } from "
 import { buildTimeline } from "@/lib/timeline";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, HandCoins, HelpCircle, Layers, Plus } from "lucide-react";
+import { Banknote, Eye, EyeOff, FileDown, FileMinus2, HandCoins, HelpCircle, Layers, Plus } from "lucide-react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -169,32 +169,24 @@ export default function CustomerDetail() {
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="ghost" size="sm" className="gap-1 -ml-2" onClick={() => navigate("/customers")}>
-          <ArrowLeft className="h-4 w-4" /> Customers
-        </Button>
-        {/*
-         * COMPANY badge plus the owning group as a clickable ancestor: the company
-         * card looks just like the group card, so the kind must be stated, and the
-         * group must be one click away instead of a dead end.
-         */}
-        <RecordBreadcrumb
-          entity="company"
-          trail={[
-            ...(customer.customerGroup
-              ? [
-                  {
-                    label: customer.customerGroup.trim(),
-                    href: `/groups/${encodeURIComponent(customer.customerGroup.trim())}`,
-                  },
-                ]
-              : []),
-            { label: customer.name },
-          ]}
-        />
-      </div>
+      {/*
+       * One locator line. A company card looks identical to a group card, so the
+       * COMPANY badge states the kind, and the way out goes up to the owning group
+       * (falling back to the list for a company with no group) — never a dead end.
+       */}
+      <RecordBreadcrumb
+        entity="company"
+        parent={
+          customer.customerGroup?.trim()
+            ? {
+                label: customer.customerGroup.trim(),
+                href: `/groups/${encodeURIComponent(customer.customerGroup.trim())}`,
+              }
+            : { label: "Customers", href: "/customers" }
+        }
+      />
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3 !mt-1">
         <div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold tracking-tight">{customer.name}</h1>

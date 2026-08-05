@@ -162,19 +162,14 @@ export default function CustomerHub() {
     <div className="p-2 sm:p-4 space-y-4">
       {/* ── Identity ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <Button variant="ghost" size="sm" className="gap-1" onClick={() => navigate("/customers")}>
-            <ArrowLeft className="h-4 w-4" /> Customers
-          </Button>
-          <div>
-            {/*
-             * Say what kind of record this is before the title: a group card and a
-             * company card carry the same figures, so the badge tells them apart.
-             */}
-            <RecordBreadcrumb
-              entity="group"
-              trail={[{ label: group }]}
-            />
+        <div className="min-w-0">
+          {/*
+           * One locator line: the way back (named after where it goes) plus what
+           * kind of record this is. The name itself belongs to the title below and
+           * is deliberately not repeated here.
+           */}
+          <RecordBreadcrumb entity="group" parent={{ label: "Customers", href: "/customers" }} />
+          <div className="mt-1">
             <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold tracking-tight">
               <Layers className="h-6 w-6" /> {group}
               {data?.rating && (
@@ -202,7 +197,7 @@ export default function CustomerHub() {
               )}
             </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Customer card — {data ? `${data.companies.length} companies` : "…"} in the group
+              {data ? `${data.companies.length} companies in this group` : "…"}
             </p>
           </div>
         </div>

@@ -1,19 +1,24 @@
 /**
- * "Where am I?" strip, shown above the title on every customer-related page.
+ * The one-line "where am I?" locator that sits above every record title.
  *
- * Two jobs, and only these two:
- *  1. Name the KIND of record you are looking at — GROUP or COMPANY — because a
- *     group and one of its companies otherwise look identical: same title style,
- *     same figures, same badges. The kind is stated in words and colour-coded
- *     (violet = group, sky = company), so it reads without being read.
- *  2. Name the trail that got you here, with every ancestor clickable, so a
- *     company card is never a dead end back to its group.
+ * It replaces what used to be four separate things fighting for the same space:
+ * a back button, a breadcrumb repeating the record name, the title, and a
+ * subtitle repeating the module. The rule now is: each fact appears once.
  *
- * Deliberately not a generic breadcrumb: the type badge is the point, so the
- * component takes an `entity` and renders the badge itself instead of trusting
- * each page to remember.
+ *   ← MSC SHIPMANAGEMENT LTD · GROUP › Receivables
+ *   MSC SHIPMANAGEMENT LTD          ← the title, stated once, below
+ *
+ * So this component renders, left to right:
+ *  1. the way OUT — the nearest ancestor, drawn as a real back affordance,
+ *     because "up one level" and "the parent's name" are the same fact;
+ *  2. the KIND of record — GROUP or COMPANY, colour-coded (violet / sky),
+ *     since a group and one of its companies look otherwise identical;
+ *  3. the MODULE inside the record, when you are in one (e.g. Receivables).
+ *
+ * On the record's own landing page there is no module and the ancestor is the
+ * list, so the line collapses to "← Customers · GROUP" and stays one line.
  */
-import { Building2, ChevronRight, Layers } from "lucide-react";
+import { ArrowLeft, Building2, ChevronRight, Layers } from "lucide-react";
 import { Link } from "wouter";
 
 export type RecordEntity = "group" | "company";
@@ -32,12 +37,6 @@ export const RECORD_KIND: Record<RecordEntity, { label: string; icon: typeof Lay
   },
 };
 
-export type Crumb = {
-  label: string;
-  /** Omit on the current page: the last crumb is text, not a link. */
-  href?: string;
-};
-
 export function RecordTypeBadge({ entity, className = "" }: { entity: RecordEntity; className?: string }) {
   const kind = RECORD_KIND[entity];
   const Icon = kind.icon;
@@ -54,46 +53,38 @@ export function RecordTypeBadge({ entity, className = "" }: { entity: RecordEnti
 
 export function RecordBreadcrumb({
   entity,
-  trail,
-  /** Module inside the record (e.g. "Receivables"); shown as the final crumb. */
+  /** Nearest level up: its name IS the back button, so it is never repeated. */
+  parent,
+  /** Module inside the record (e.g. "Receivables"); omit on the record's own page. */
   module,
 }: {
   entity: RecordEntity;
-  trail: Crumb[];
+  parent: { label: string; href: string };
   module?: string;
 }) {
-  const crumbs: Crumb[] = module ? [...trail, { label: module }] : trail;
   return (
-    <nav
-      aria-label="Breadcrumb"
-      className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground"
-    >
+    <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
+      {/* Up one level. The label is the parent's name, so "back" needs no second line. */}
+      <Link
+        href={parent.href}
+        className="group/up -ml-1 inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        title={`Back to ${parent.label}`}
+      >
+        <ArrowLeft className="h-3.5 w-3.5 shrink-0 transition-transform duration-150 group-hover/up:-translate-x-0.5" />
+        <span className="max-w-[18rem] truncate font-medium">{parent.label}</span>
+      </Link>
+      <span className="text-muted-foreground/40" aria-hidden>
+        ·
+      </span>
       <RecordTypeBadge entity={entity} />
-      {crumbs.map((c, i) => {
-        const last = i === crumbs.length - 1;
-        return (
-          <span key={`${c.label}-${i}`} className="flex min-w-0 items-center gap-1.5">
-            <ChevronRight className="h-3 w-3 shrink-0 opacity-50" aria-hidden />
-            {c.href && !last ? (
-              <Link
-                href={c.href}
-                className="max-w-[16rem] truncate rounded transition-colors hover:text-foreground hover:underline"
-                title={c.label}
-              >
-                {c.label}
-              </Link>
-            ) : (
-              <span
-                className={`max-w-[16rem] truncate ${last ? "font-medium text-foreground" : ""}`}
-                title={c.label}
-                aria-current={last ? "page" : undefined}
-              >
-                {c.label}
-              </span>
-            )}
+      {module && (
+        <>
+          <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/50" aria-hidden />
+          <span className="max-w-[14rem] truncate font-medium text-foreground" aria-current="page">
+            {module}
           </span>
-        );
-      })}
+        </>
+      )}
     </nav>
   );
 }

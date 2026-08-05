@@ -31,9 +31,11 @@ describe("customer hub architecture", () => {
   });
 
   it("names the workspace Receivables and sends its back button to the customer card", () => {
-    expect(workspace).toContain("Receivables —");
-    expect(workspace).toContain("Customer card");
-    expect(workspace).toContain("navigate(`/groups/${encodeURIComponent(group)}`)");
+    // The module name now lives in the locator line, and the way up is the
+    // locator's parent link rather than a separate back button.
+    expect(workspace).toContain('module="Receivables"');
+    expect(workspace).toContain('label: "Customer card"');
+    expect(workspace).toContain("href: `/groups/${encodeURIComponent(group)}`");
   });
 
   it("reads the hub from the bare group path", () => {

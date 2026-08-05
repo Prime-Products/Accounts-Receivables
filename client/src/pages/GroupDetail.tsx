@@ -23,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, HelpCircle, Layers, Mail, Pencil, Phone, Plus, Trash2, History, MoreVertical } from "lucide-react";
+import { AlertTriangle, Banknote, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, HelpCircle, Layers, Mail, Pencil, Phone, Plus, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { useMemo, useState } from "react";
@@ -725,29 +725,19 @@ export default function GroupDetail() {
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="min-w-0">
           {/*
-           * This page is one module of the customer, so the escape route goes up
-           * to the customer hub rather than all the way back to the desk.
+           * One locator line. This page is a module of the customer, so the way
+           * out goes up to the customer card — and since that card carries the
+           * same name as the title below, the back link is the only place it is
+           * spelled out here.
            */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1"
-            onClick={() => navigate(`/groups/${encodeURIComponent(group)}`)}
-            title="Back to the customer card"
-          >
-            <ArrowLeft className="h-4 w-4" /> Customer card
-          </Button>
-          <div>
-            {/* Kind of record + the trail, so the module never hides whose money this is. */}
-            <RecordBreadcrumb
-              entity="group"
-              trail={[
-                { label: group, href: `/groups/${encodeURIComponent(group)}` },
-              ]}
-              module="Receivables"
-            />
+          <RecordBreadcrumb
+            entity="group"
+            parent={{ label: "Customer card", href: `/groups/${encodeURIComponent(group)}` }}
+            module="Receivables"
+          />
+          <div className="mt-1">
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <Layers className="h-6 w-6" /> {group}
               {data?.rating && (
@@ -795,7 +785,7 @@ export default function GroupDetail() {
               )}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Receivables — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}
+              {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}
             </p>
             {data && <LastContactLine data={data as any} />}
           </div>

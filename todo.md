@@ -2135,3 +2135,5 @@ and the app does not create orders. Revisit together with the Softone order inte
 - [x] Company card: owning group moved into the breadcrumb as a clickable ancestor (duplicate chip removed)
 - [x] Tests pinning badge labels, colours, hover explanations and per-page entity wiring
 - [ ] Later (option B step 2): restructure the company card to mirror the group card — identity + key figures + module tiles at /customers/:id, collections work at /customers/:id/receivables
+- [x] Header cleanup: the record name shows twice (breadcrumb + title) and the back button repeats the parent — state the location once, in one line
+- [x] Locator line: parent name IS the back link; separate back buttons and the duplicated "Receivables —" / "Customer card —" subtitle prefixes removed

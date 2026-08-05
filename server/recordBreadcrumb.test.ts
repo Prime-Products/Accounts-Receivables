@@ -1,14 +1,12 @@
 /**
- * Guards the "where am I?" strip.
+ * Guards the one-line "where am I?" locator.
  *
- * A group card and a company card show the same figures, so the ONLY reliable
- * signal of which one you are on is the type badge plus the trail. These tests
- * read the component source and assert that contract stays in place:
- *  - both record kinds are declared with a distinct label, icon and colour;
- *  - every customer-facing page renders the strip with the right entity;
- *  - the owning group is a clickable ancestor on a company card, so the card is
- *    never a dead end;
- *  - the group is not also repeated as a chip next to the title.
+ * The rule this file enforces: each fact appears exactly ONCE in the header.
+ * The record's name belongs to the title, so the locator above it must not
+ * repeat it as plain text — the only place the parent's name is spelled out is
+ * the back link, because "up one level" and "the parent's name" are one fact.
+ * The type badge stays, since a group card and a company card are otherwise
+ * visually identical.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -43,10 +41,23 @@ describe("record type badge", () => {
     expect(component).toMatch(/A customer group — it owns companies/);
     expect(component).toMatch(/A single company inside a customer group/);
   });
+});
 
-  it("marks the current page and does not link the last crumb", () => {
-    expect(component).toMatch(/aria-current=\{last \? "page" : undefined\}/);
-    expect(component).toMatch(/c\.href && !last/);
+describe("the locator states each fact once", () => {
+  it("takes a single parent instead of a trail that would repeat the title", () => {
+    expect(component).toMatch(/parent: \{ label: string; href: string \}/);
+    expect(component).not.toMatch(/trail/);
+  });
+
+  it("renders the parent as a back affordance labelled with where it goes", () => {
+    expect(component).toMatch(/ArrowLeft/);
+    expect(component).toMatch(/title=\{`Back to \$\{parent\.label\}`\}/);
+    expect(component).toMatch(/\{parent\.label\}/);
+  });
+
+  it("marks the module as the current page when inside one", () => {
+    expect(component).toMatch(/aria-current="page"/);
+    expect(component).toMatch(/\{module\}/);
   });
 
   it("is announced as a breadcrumb to assistive tech", () => {
@@ -55,26 +66,39 @@ describe("record type badge", () => {
 });
 
 describe("pages state which record you are on", () => {
-  it("the group card marks itself as a GROUP", () => {
-    expect(hub).toMatch(/<RecordBreadcrumb\s+entity="group"/);
+  it("the group card marks itself GROUP and leads back to the list", () => {
+    expect(hub).toMatch(/entity="group"/);
+    expect(hub).toMatch(/parent=\{\{ label: "Customers", href: "\/customers" \}\}/);
   });
 
-  it("the receivables module names the module as the final crumb", () => {
+  it("the group card does not repeat its own name above the title", () => {
+    expect(hub).not.toMatch(/trail=/);
+    expect(hub).not.toMatch(/Customer card — /);
+  });
+
+  it("the receivables module names itself and leads up to the customer card", () => {
     expect(receivables).toMatch(/entity="group"/);
     expect(receivables).toMatch(/module="Receivables"/);
-  });
-
-  it("the receivables module keeps the group itself clickable", () => {
+    expect(receivables).toMatch(/label: "Customer card"/);
     expect(receivables).toMatch(/href: `\/groups\/\$\{encodeURIComponent\(group\)\}`/);
   });
 
-  it("the company card marks itself as a COMPANY", () => {
-    expect(company).toMatch(/entity="company"/);
+  it("the receivables module does not repeat the module name in the subtitle", () => {
+    expect(receivables).not.toMatch(/Receivables — \{data/);
   });
 
-  it("the company card offers its owning group as a clickable ancestor", () => {
+  it("the receivables module drops the separate back button", () => {
+    expect(receivables).not.toMatch(/Back to the customer card/);
+  });
+
+  it("the company card marks itself COMPANY and leads up to its owning group", () => {
+    expect(company).toMatch(/entity="company"/);
     expect(company).toMatch(/label: customer\.customerGroup\.trim\(\)/);
     expect(company).toMatch(/href: `\/groups\/\$\{encodeURIComponent\(customer\.customerGroup\.trim\(\)\)\}`/);
+  });
+
+  it("a company with no group still has a way out, to the list", () => {
+    expect(company).toMatch(/\{ label: "Customers", href: "\/customers" \}/);
   });
 
   it("no longer repeats the group as a chip beside the company title", () => {
