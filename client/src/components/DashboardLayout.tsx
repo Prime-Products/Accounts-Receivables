@@ -342,7 +342,7 @@ function DashboardLayoutContent({
                             ? `Collapse ${section.label}`
                             : `Expand ${section.label}`
                       }
-                      className="flex w-fit items-center gap-1.5 px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors hover:text-foreground focus:outline-none"
+                      className="flex w-fit items-center gap-1.5 rounded-md px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/60 transition-colors hover:text-sidebar-accent-foreground focus:outline-none"
                     >
                       <ChevronDown
                         className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
