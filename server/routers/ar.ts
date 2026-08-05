@@ -12,6 +12,7 @@ import {
 } from "../../drizzle/schema";
 import { matchScore, matchesAllTokens } from "../../shared/textMatch";
 import { parseMentions, stripMentionMarkup } from "../../shared/mentions";
+import { isSuppliedStatus } from "../../shared/supplyState";
 import * as db from "../db";
 import * as opsDb from "../opsDb";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -919,6 +920,40 @@ export const customersRouter = router({
           transferDate: a.transferDate,
           transferReference: a.transferReference,
         })),
+        contracts: (res.contracts ?? [])
+          .filter(c => matchesAllTokens(q, [c.contractNumber, c.title, c.customerName, c.customerGroup]))
+          .slice(0, 8).map(c => ({
+            id: c.id, contractNumber: c.contractNumber, title: c.title,
+            status: c.status, totalValue: Number(c.totalValue), customerName: c.customerName ?? "",
+          })),
+        quotations: (res.quotations ?? [])
+          .filter(qt => matchesAllTokens(q, [qt.quotationNumber, qt.customerName]))
+          .slice(0, 6).map(qt => ({
+            id: qt.id, quotationNumber: qt.quotationNumber, status: qt.status,
+            sellingPrice: Number(qt.sellingPrice), customerName: qt.customerName ?? "",
+          })),
+        creditNotes: (res.creditNotes ?? []).filter(cn => Number(cn.openAmount) > 0).slice(0, 6).map(cn => ({
+          id: cn.id, docNumber: cn.docNumber, docDate: cn.docDate,
+          amount: Number(cn.amount), openAmount: Number(cn.openAmount), currency: cn.currency,
+          customerName: cn.customerName ?? "", vesselName: cn.vesselName ?? null,
+        })),
+        equipment: (res.assets ?? [])
+          .filter(a => matchesAllTokens(q, [a.serialNumber, a.name, a.vesselName]))
+          .slice(0, 8).map(a => ({
+            id: a.id, serialNumber: a.serialNumber, name: a.name, status: a.status,
+            vesselId: a.vesselId, vesselName: a.vesselName ?? null,
+          })),
+        certificates: (res.certificates ?? []).slice(0, 6).map(c => ({
+          id: c.id, certificateNumber: c.certificateNumber, expiryDate: c.expiryDate,
+          assetName: c.assetName ?? "", serialNumber: c.serialNumber ?? "",
+          vesselId: c.vesselId, vesselName: c.vesselName ?? null,
+        })),
+        products: (res.products ?? [])
+          .filter(p => matchesAllTokens(q, [p.name, p.category]))
+          .slice(0, 8).map(p => ({
+            id: p.id, name: p.name, kind: p.kind, category: p.category ?? null,
+            price: Number(p.price ?? 0),
+          })),
       };
     }),
   list: protectedProcedure.query(async () => {
@@ -3036,11 +3071,18 @@ export const vesselsRouter = router({
   list: protectedProcedure.query(async () => db.listVessels()),
   /** Vessels enriched with financial aggregates for the Vessels list page. */
   listWithStats: protectedProcedure.query(async () => {
-    const [vesselRows, allInvoices, customers] = await Promise.all([
+    const [vesselRows, allInvoices, customers, assignments] = await Promise.all([
       db.listVessels(),
       db.listInvoices(),
       db.listCustomers(),
+      opsDb.listVesselAssignments(),
     ]);
+    const contractIdsByVessel = new Map<number, Set<number>>();
+    for (const a of assignments) {
+      const set = contractIdsByVessel.get(a.vesselId) ?? new Set<number>();
+      set.add(a.contractId);
+      contractIdsByVessel.set(a.vesselId, set);
+    }
     const vesselAllocations = await db.listInvoiceVesselAllocations();
     const allocationsByInvoice = new Map<number, typeof vesselAllocations>();
     for (const allocation of vesselAllocations) {
@@ -3111,6 +3153,7 @@ export const vesselsRouter = router({
         totalInvoiced: agg?.totalInvoiced ?? 0,
         totalPaid: agg?.totalPaid ?? 0,
         maxDaysOverdue: agg?.maxDaysOverdue ?? 0,
+        contractCount: contractIdsByVessel.get(v.id)?.size ?? 0,
       };
     });
   }),
@@ -3176,21 +3219,97 @@ export const vesselsRouter = router({
       }
     }
     const owner = vessel.customerId ? custById.get(vessel.customerId) : undefined;
-    // Companies that have invoiced this vessel (context on the card).
-    const relatedCompanies = Array.from(new Set(rows.map(r => r.customerId)))
+    const invoiceCountByCustomer = new Map<number, number>();
+    for (const row of rows) {
+      invoiceCountByCustomer.set(row.customerId, (invoiceCountByCustomer.get(row.customerId) ?? 0) + 1);
+    }
+    const companyIds = Array.from(new Set([...(owner ? [owner.id] : []), ...rows.map(row => row.customerId)]));
+    const relatedCompanies = companyIds
       .map(cid => {
         const c = custById.get(cid);
-        return c ? { id: c.id, name: c.name, group: (c.customerGroup ?? "").trim() || c.name } : null;
+        return c ? {
+          id: c.id,
+          name: c.name,
+          group: (c.customerGroup ?? "").trim() || c.name,
+          invoiceCount: invoiceCountByCustomer.get(c.id) ?? 0,
+          isOwner: owner ? c.id === owner.id : false,
+        } : null;
       })
-      .filter((x): x is { id: number; name: string; group: string } => x !== null);
+      .filter((x): x is { id: number; name: string; group: string; invoiceCount: number; isOwner: boolean } => x !== null);
 
-    // Fetch full contract details for each assignment
-    const opsContracts = await Promise.all(
-      assignments.map(async (a) => {
-        const c = await opsDb.getOpsContract(a.contractId);
-        return c ? { ...c, assignedDate: a.assignedDate, assignmentNotes: a.notes } : null;
-      })
-    );
+    const [assets, contracts, allCertificates] = await Promise.all([
+      opsDb.listAssets({ vesselId: input.id }),
+      opsDb.listOpsContracts(),
+      opsDb.listCertificates(),
+    ]);
+    const contractById = new Map(contracts.map(contract => [contract.id, contract]));
+    const certByAsset = new Map<number, { certificateNumber: string; expiryDate: number }>();
+    for (const cert of allCertificates) {
+      const existing = certByAsset.get(cert.assetId);
+      if (!existing || cert.expiryDate < existing.expiryDate) {
+        certByAsset.set(cert.assetId, {
+          certificateNumber: cert.certificateNumber,
+          expiryDate: cert.expiryDate,
+        });
+      }
+    }
+    const equipment = assets.map(asset => {
+      const contract = asset.contractId != null ? contractById.get(asset.contractId) : undefined;
+      const certificate = certByAsset.get(asset.id);
+      return {
+        id: asset.id,
+        serialNumber: asset.serialNumber,
+        name: asset.name,
+        status: asset.status,
+        contractId: asset.contractId,
+        contractNumber: contract?.contractNumber ?? null,
+        targetReturnPort: asset.targetReturnPort,
+        certificateNumber: certificate?.certificateNumber ?? null,
+        certificateExpiry: certificate?.expiryDate ?? null,
+        daysUntilCertificateExpiry: certificate ? Math.ceil((certificate.expiryDate - now) / 86_400_000) : null,
+      };
+    });
+    const vesselContractIds = Array.from(new Set(assignments.map(assignment => assignment.contractId)));
+    const libraries = await Promise.all(vesselContractIds.map(contractId => opsDb.listContractLibrary(contractId)));
+    const contractItems = vesselContractIds.flatMap((contractId, index) => {
+      const contract = contractById.get(contractId);
+      return libraries[index].map(item => {
+        const units = assets.filter(asset => asset.contractId === contractId && asset.name === item.name);
+        const suppliedUnits = units.filter(unit => isSuppliedStatus(String(unit.status)));
+        const serialTracked = units.length > 0;
+        return {
+          id: item.id,
+          contractId,
+          contractNumber: contract?.contractNumber ?? null,
+          itemType: item.itemType,
+          name: item.name,
+          quantity: item.quantity,
+          notes: item.notes ?? null,
+          quotaType: item.quotaType,
+          quotaLimit: item.quotaLimit,
+          unitCost: item.unitCost,
+          sellingPrice: item.sellingPrice,
+          serialTracked,
+          unitsTotal: units.length,
+          unitsExpected: serialTracked ? units.length : item.quantity,
+          unitsSupplied: suppliedUnits.length,
+          supplied: serialTracked ? suppliedUnits.length === units.length : null,
+          serials: units.map(u => ({
+            id: u.id,
+            serialNumber: u.serialNumber,
+            status: u.status,
+            targetReturnPort: u.targetReturnPort,
+            notes: u.notes ?? null,
+            updatedAt: u.updatedAt ? new Date(u.updatedAt).getTime() : null,
+            certificateNumber: certByAsset.get(u.id)?.certificateNumber ?? null,
+            certificateExpiry: certByAsset.get(u.id)?.expiryDate ?? null,
+            daysUntilCertificateExpiry: certByAsset.get(u.id)
+              ? Math.ceil((certByAsset.get(u.id)!.expiryDate - now) / 86_400_000)
+              : null,
+          })),
+        };
+      });
+    });
 
     return {
       vessel: {
@@ -3200,8 +3319,20 @@ export const vesselsRouter = router({
       },
       stats: { openBalance, overdueAmount, overdueCount, totalInvoiced, totalPaid, maxDaysOverdue: maxDays, invoiceCount: rows.length },
       relatedCompanies,
+      equipment,
+      contractItems,
+      contracts: vesselContractIds.map(cid => {
+        const c = contractById.get(cid);
+        return {
+          id: cid,
+          contractNumber: c?.contractNumber ?? null,
+          title: c?.title ?? null,
+          status: c?.status ?? null,
+          startDate: c?.startDate ?? null,
+          endDate: c?.endDate ?? null,
+        };
+      }),
       invoices: invoiceRows,
-      opsContracts: opsContracts.filter(Boolean),
     };
   }),
   create: protectedProcedure

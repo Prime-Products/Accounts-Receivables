@@ -156,9 +156,9 @@ describe("address book UI contract", () => {
     expect(page).toContain("<AddressBookRecordDialog");
   });
 
-  it("opens the same card page as the Collections Desk for groups and companies", () => {
-    // A group/company row lands on its receivables card — the very same card the
-    // Collections Desk opens, so both entry points share one screen. There is no
+  it("opens the same card page as the Customers list for groups and companies", () => {
+    // A group/company row lands on its customer card — the very same card the
+    // Customers list opens, so both entry points share one screen. There is no
     // longer a Details tab to deep-link into.
     expect(page).toMatch(/navigate\(`\/groups\/\$\{encodeURIComponent\(any\.group\)\}`\)/);
     expect(page).toMatch(/navigate\(`\/customers\/\$\{any\.id\}`\)/);
@@ -183,7 +183,7 @@ describe("address book UI contract", () => {
     expect(panel).toContain("relatedCompanies");
     expect(panel).toContain("relatedVessels");
     expect(panel).toContain("relatedContacts");
-    expect(panel).toContain("Open in Collections Desk");
+    expect(panel).toContain("Open customer card");
     expect(read("client/src/components/AddressBookRecordDialog.tsx")).toContain("<RecordDetailsPanel");
   });
 

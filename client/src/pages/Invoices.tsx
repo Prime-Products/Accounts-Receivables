@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors } from "@/lib/format";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { VesselLink } from "@/components/VesselLink";
 import { matchesStatusFilter } from "@/lib/invoiceFilters";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { trpc } from "@/lib/trpc";
@@ -77,8 +78,7 @@ export default function Invoices() {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("view") === "credits";
   });
-  const { data: creditNotes } = trpc.invoices.creditNotes.useQuery();
-  const [creditStatusFilter, setCreditStatusFilter] = useState("all");
+  const { data: openCreditNotes } = trpc.invoices.openCreditNotes.useQuery();
 
   // Receipt dialog
   const [rcOpen, setRcOpen] = useState(false);
@@ -199,12 +199,12 @@ export default function Invoices() {
       [
         search.trim() !== "",
         branchFilter !== "all",
-        creditView ? creditStatusFilter !== "all" : statusFilter !== "all",
+        statusFilter !== "all",
         vesselFilter !== "all",
         contractFilter === "installments",
         bucketFilter !== "all",
       ].filter(Boolean).length,
-    [search, branchFilter, statusFilter, creditStatusFilter, creditView, vesselFilter, contractFilter, bucketFilter],
+    [search, branchFilter, statusFilter, vesselFilter, contractFilter, bucketFilter],
   );
 
   // Incremental rendering: mounting 5000+ table rows freezes the browser for
@@ -234,9 +234,8 @@ export default function Invoices() {
    * invoices only, so they are ignored here instead of emptying the list.
    */
   const filteredCreditNotes = useMemo(() => {
-    const rows = (creditNotes ?? []) as any[];
+    const rows = (openCreditNotes ?? []) as any[];
     return rows.filter(c => {
-      if (creditStatusFilter !== "all" && c.creditStatus !== creditStatusFilter) return false;
       if (branchFilter !== "all" && c.branch !== branchFilter) return false;
       if (vesselFilter === "none") {
         if (c.vesselId != null) return false;
@@ -248,7 +247,7 @@ export default function Invoices() {
         return false;
       return true;
     });
-  }, [creditNotes, creditStatusFilter, branchFilter, vesselFilter, groupDrill, search]);
+  }, [openCreditNotes, branchFilter, vesselFilter, groupDrill, search]);
 
   const creditTotals = useMemo(() => {
     let eurTotal = 0;
@@ -511,16 +510,13 @@ export default function Invoices() {
             ))}
           </SelectContent>
         </Select>
-        <Select
-          value={creditView ? creditStatusFilter : statusFilter}
-          onValueChange={creditView ? setCreditStatusFilter : setStatusFilter}
-        >
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40 h-9 bg-background">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All statuses</SelectItem>
-            {(creditView ? ["Open", "Partially Used", "Used"] : STATUSES).map(s => (
+            {STATUSES.map(s => (
               <SelectItem key={s} value={s}>
                 {s}
               </SelectItem>
@@ -543,14 +539,12 @@ export default function Invoices() {
             </SelectContent>
           </Select>
         )}
-        {!creditView && (
-          <InstallmentToggle
-            value={contractFilter === "installments" ? "installments" : "all"}
-            onChange={v => setContractFilter(v)}
-            count={installmentCounts.total}
-            hiddenCount={installmentCounts.hidden}
-          />
-        )}
+        <InstallmentToggle
+          value={contractFilter === "installments" ? "installments" : "all"}
+          onChange={v => setContractFilter(v)}
+          count={installmentCounts.total}
+          hiddenCount={installmentCounts.hidden}
+        />
         {activeFilterCount > 0 && (
           <Button
             variant="ghost"
@@ -560,7 +554,6 @@ export default function Invoices() {
               setSearch("");
               setBranchFilter("all");
               setStatusFilter("all");
-              setCreditStatusFilter("all");
               setVesselFilter("all");
               setContractFilter("all");
               setBucketFilter("all");
@@ -576,7 +569,7 @@ export default function Invoices() {
         <div className="rounded-lg border bg-muted/30 px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <span className="text-muted-foreground">
             {creditView
-              ? `${creditTotals.count} credit note(s)`
+              ? `${creditTotals.count} open credit note(s)`
               : `${filteredTotals.count} invoice(s) shown`}
           </span>
           {groupDrill && (
@@ -651,9 +644,9 @@ export default function Invoices() {
               setGroupView(false);
               setVesselView(false);
             }}
-            title="Show every credit note across all groups"
+            title="Show every open credit note across all groups"
           >
-            <FileMinus2 className="h-3.5 w-3.5" /> Credit notes ({(creditNotes ?? []).length})
+            <FileMinus2 className="h-3.5 w-3.5" /> Credit notes ({(openCreditNotes ?? []).length})
           </Button>
         </div>
       )}
@@ -669,7 +662,7 @@ export default function Invoices() {
           ) : creditView ? (
             filteredCreditNotes.length === 0 ? (
               <div className="p-10 text-center text-muted-foreground">
-                No credit notes{activeFilterCount > 0 ? " match the current filters" : ""}.
+                No open credit notes{activeFilterCount > 0 ? " match the current filters" : ""}.
               </div>
             ) : (
               <Table>
@@ -681,7 +674,6 @@ export default function Invoices() {
                     <TableHead>Group</TableHead>
                     <TableHead>Vessel</TableHead>
                     <TableHead>Branch</TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead className="text-right">Matched</TableHead>
                     <TableHead className="text-right">Still open</TableHead>
@@ -710,7 +702,9 @@ export default function Invoices() {
                           {c.customerGroup}
                         </Link>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{c.vesselName ?? "—"}</TableCell>
+                      <TableCell className="text-xs">
+                        <VesselLink vesselId={c.vesselId ?? null} name={c.vesselName} />
+                      </TableCell>
                       <TableCell>
                         {c.branch ? (
                           <Badge variant="outline" className={branchColors[c.branch] ?? ""}>
@@ -720,16 +714,9 @@ export default function Invoices() {
                           <span className="text-muted-foreground text-xs">—</span>
                         )}
                       </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={c.creditStatus === "Used" ? "bg-emerald-50 text-emerald-700" : c.creditStatus === "Partially Used" ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"}>
-                          {c.creditStatus}
-                        </Badge>
-                      </TableCell>
                       <TableCell className="text-right font-mono text-sm">{fmtCur(c.amount, c.currency)}</TableCell>
                       <TableCell className="text-right font-mono text-sm text-muted-foreground">
-                        {Number(c.amount) - Number(c.open) > 0.005
-                          ? fmtCur(Number(c.amount) - Number(c.open), c.currency)
-                          : "—"}
+                        {Number(c.allocated) > 0.005 ? fmtCur(c.allocated, c.currency) : "—"}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm font-semibold text-sky-700 dark:text-sky-300">
                         −{fmtCur(c.open, c.currency)}
@@ -801,10 +788,7 @@ export default function Invoices() {
                     <TableCell className="font-mono text-muted-foreground">{idx + 1}</TableCell>
                     <TableCell>
                       {v.vesselId != null ? (
-                        <Link href={`/vessels/${v.vesselId}`} className="font-medium hover:underline inline-flex items-center gap-1">
-                          {v.vessel}
-                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                        </Link>
+                        <VesselLink vesselId={v.vesselId} name={v.vessel} className="font-medium" />
                       ) : (
                         <span className="font-medium text-muted-foreground">{v.vessel}</span>
                       )}

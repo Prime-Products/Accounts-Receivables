@@ -5,9 +5,11 @@ import LogCallDialog from "@/components/LogCallDialog";
 import SendEmailDialog from "@/components/SendEmailDialog";
 import { CommunicationPanel, CommunicationToggle, useCommunicationPanel } from "@/components/CommunicationPanel";
 import { buildTimeline } from "@/lib/timeline";
+import { RecordBreadcrumb } from "@/components/RecordBreadcrumb";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { PeopleRow } from "@/components/PeopleRow";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { VesselLink } from "@/components/VesselLink";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, confirmationStatusColors, confirmationStatusLabels } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, HelpCircle, Layers, Mail, Pencil, Phone, Plus, Trash2, History, MoreVertical } from "lucide-react";
+import { AlertTriangle, Banknote, Eye, EyeOff, FileDown, FileMinus2, Filter, HandCoins, HelpCircle, Layers, Mail, Pencil, Phone, Plus, Trash2, History, MoreVertical } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { useMemo, useState } from "react";
@@ -421,7 +423,7 @@ function GroupPromiseDialog({ companies, defaultCustomerId, open: externalOpen, 
 }
 
 export default function GroupDetail() {
-  const [, params] = useRoute("/groups/:name");
+  const [, params] = useRoute("/groups/:name/receivables");
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
   const group = decodeURIComponent(params?.name ?? "");
@@ -723,11 +725,19 @@ export default function GroupDetail() {
   return (
     <div className="p-2 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" className="gap-1" onClick={() => navigate("/customers")}>
-            <ArrowLeft className="h-4 w-4" /> Collections Desk
-          </Button>
-          <div>
+        <div className="min-w-0">
+          {/*
+           * One locator line. This page is a module of the customer, so the way
+           * out goes up to the customer card — and since that card carries the
+           * same name as the title below, the back link is the only place it is
+           * spelled out here.
+           */}
+          <RecordBreadcrumb
+            entity="group"
+            parent={{ label: "Customer card", href: `/groups/${encodeURIComponent(group)}` }}
+            module="Receivables"
+          />
+          <div className="mt-1">
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <Layers className="h-6 w-6" /> {group}
               {data?.rating && (
@@ -775,7 +785,7 @@ export default function GroupDetail() {
               )}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Group card — {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}
+              {data ? `${data.companies.length} companies` : "…"} · showing: {scopeLabel}
             </p>
             {data && <LastContactLine data={data as any} />}
           </div>
@@ -1233,7 +1243,7 @@ export default function GroupDetail() {
                         // Outstanding per vessel, converted to EUR the same way as the
                         // By branch view. Invoices without a vessel roll up into a
                         // single "No vessel" row so the totals still reconcile.
-                        const byVessel = new Map<string, { label: string; count: number; totalEur: number }>();
+                        const byVessel = new Map<string, { label: string; vesselId: number | null; count: number; totalEur: number }>();
                         for (const i of filteredInvoices) {
                           const raw = Number(i.amount) - Number(i.paidAmount);
                           if (raw <= 0.005) continue;
@@ -1241,7 +1251,7 @@ export default function GroupDetail() {
                           const vid = ((i as any).vesselId ?? null) as number | null;
                           const key = vid != null ? String(vid) : "none";
                           const label = (((i as any).vesselName as string | null) ?? "No vessel") || "No vessel";
-                          const cur = byVessel.get(key) ?? { label, count: 0, totalEur: 0 };
+                          const cur = byVessel.get(key) ?? { label, vesselId: vid, count: 0, totalEur: 0 };
                           cur.count += 1;
                           cur.totalEur += raw * ratio;
                           byVessel.set(key, cur);
@@ -1270,7 +1280,13 @@ export default function GroupDetail() {
                               setInvoiceView("list");
                             }}
                           >
-                            <TableCell className={key === "none" ? "text-muted-foreground" : "font-medium"}>{v.label}</TableCell>
+                            <TableCell className={key === "none" ? "text-muted-foreground" : "font-medium"}>
+                              {v.vesselId != null ? (
+                                <VesselLink vesselId={v.vesselId} name={v.label} className="font-medium" />
+                              ) : (
+                                v.label
+                              )}
+                            </TableCell>
                             <TableCell className="text-right font-mono">{v.count}</TableCell>
                             <TableCell className="text-right font-mono font-semibold">{fmtEur(v.totalEur)}</TableCell>
                             <TableCell className="text-right font-mono text-sm text-muted-foreground">

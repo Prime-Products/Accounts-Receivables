@@ -48,13 +48,13 @@ describe("transactions toolbar — credit notes / payments always visible", () =
 });
 
 describe("Invoices page — global credit notes view", () => {
-  it("queries open and recently closed credit notes across the book", () => {
-    expect(invoices).toContain("trpc.invoices.creditNotes.useQuery()");
+  it("queries every open credit note across the book", () => {
+    expect(invoices).toContain("trpc.invoices.openCreditNotes.useQuery()");
   });
 
   it("offers a Credit notes view next to By group / By vessel", () => {
     expect(invoices).toContain("creditView");
-    expect(invoices).toContain("Credit notes ({(creditNotes ?? []).length})");
+    expect(invoices).toContain("Credit notes ({(openCreditNotes ?? []).length})");
   });
 
   it("shows the unused credit total with its per-currency split", () => {

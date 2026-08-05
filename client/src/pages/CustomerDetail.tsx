@@ -5,6 +5,7 @@ import { WireTransfers } from "@/components/WireTransfers";
 import WatchStatusSelect from "@/components/WatchStatusSelect";
 import { PeopleRow } from "@/components/PeopleRow";
 import { InvoicesTable } from "@/components/InvoicesTable";
+import { RecordBreadcrumb } from "@/components/RecordBreadcrumb";
 import { hideSettled, countSettled, matchesStatusFilter } from "@/lib/invoiceFilters";
 import InstallmentToggle from "@/components/InstallmentToggle";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,7 @@ import { CommunicationPanel, CommunicationToggle, useCommunicationPanel } from "
 import { buildTimeline } from "@/lib/timeline";
 import { branchColors, branchShort, downloadBase64, fmtByCurrency, fmtCur, fmtDate, fmtEur, invoiceStatusColors, ratingColors, taskStatusColors, taskTypeColors, tierColors } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Banknote, Eye, EyeOff, FileDown, FileMinus2, HandCoins, HelpCircle, Layers, Plus } from "lucide-react";
+import { Banknote, Eye, EyeOff, FileDown, FileMinus2, HandCoins, HelpCircle, Layers, Plus } from "lucide-react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -168,11 +169,24 @@ export default function CustomerDetail() {
 
   return (
     <div className="p-2 sm:p-4 space-y-4">
-      <Button variant="ghost" size="sm" className="gap-1 -ml-2" onClick={() => navigate("/customers")}>
-        <ArrowLeft className="h-4 w-4" /> Collections Desk
-      </Button>
+      {/*
+       * One locator line. A company card looks identical to a group card, so the
+       * COMPANY badge states the kind, and the way out goes up to the owning group
+       * (falling back to the list for a company with no group) — never a dead end.
+       */}
+      <RecordBreadcrumb
+        entity="company"
+        parent={
+          customer.customerGroup?.trim()
+            ? {
+                label: customer.customerGroup.trim(),
+                href: `/groups/${encodeURIComponent(customer.customerGroup.trim())}`,
+              }
+            : { label: "Customers", href: "/customers" }
+        }
+      />
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3 !mt-1">
         <div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold tracking-tight">{customer.name}</h1>
@@ -186,16 +200,10 @@ export default function CustomerDetail() {
               </Badge>
             )}
             <WatchStatusSelect group={data.groupKey} effective={data.watchStatus ?? null} />
-            {customer.customerGroup && (
-              <Badge
-                variant="outline"
-                className="cursor-pointer gap-1 bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
-                onClick={() => navigate(`/groups/${encodeURIComponent(customer.customerGroup!.trim())}`)}
-                title="Open the group card"
-              >
-                <Layers className="h-3 w-3" /> {customer.customerGroup}
-              </Badge>
-            )}
+            {/*
+             * The owning group used to be a chip here; it now lives in the
+             * breadcrumb above, where an ancestor belongs, so it is not repeated.
+             */}
             {/* Ownership inline after the badges, same compact strip as the group card. */}
             <span className="border-l pl-2 text-base font-normal">
               <PeopleRow

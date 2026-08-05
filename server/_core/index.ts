@@ -11,6 +11,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { getSetting } from "../db";
 import { setFxRates } from "../lib/arLogic";
+import { certificateRemindersHandler } from "../scheduled/certificateReminders";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -56,6 +57,7 @@ async function startServer() {
     })
   );
   // Heartbeat scheduled callbacks (must be registered before the Vite/static fallthrough)
+  app.post("/api/scheduled/certificateReminders", certificateRemindersHandler);
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

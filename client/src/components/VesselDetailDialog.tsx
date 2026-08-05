@@ -1,18 +1,19 @@
 import { ResizableDialogContent } from "@/components/ResizableDialogContent";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { InvoicesTable } from "@/components/InvoicesTable";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fmtDate, fmtEur } from "@/lib/format";
+import { VesselProductsTable, vesselSupplySummary } from "@/components/VesselProductsTable";
 import { trpc } from "@/lib/trpc";
-import { Anchor, FileText, Flag, LayoutDashboard, Ship, ScrollText } from "lucide-react";
+import { Anchor, FileText, FileSignature, Flag, Package, Ship } from "lucide-react";
 import { Link } from "wouter";
 
 /**
  * Inline vessel detail dialog: opens on top of the current page (no navigation)
- * showing the vessel's information, financial KPIs and its invoices.
+ * showing the vessel's information, then its Products and Invoices as tabs. There is
+ * deliberately no metric row: the vessel card is a record view, and the receivables
+ * figures live on the customer/group pages and in Invoices.
  */
 export function VesselDetailDialog({
   vesselId,
@@ -30,201 +31,245 @@ export function VesselDetailDialog({
   );
 
   const vessel = data?.vessel;
-  const stats = data?.stats;
   const invoices = data?.invoices ?? [];
   const relatedCompanies = data?.relatedCompanies ?? [];
-  const opsContracts = (data as any)?.opsContracts ?? [];
+  // Prime 247 contracts this vessel is enrolled in.
+  const contracts = data?.contracts ?? [];
+  // Everything the vessel is entitled to under those contracts, read exactly like the
+  // contract's Products card so the modal is the full vessel view, not a summary.
+  const contractItems = data?.contractItems ?? [];
+  const supply = vesselSupplySummary(contractItems);
+
+  /*
+   * Ownership chain shown under the header. The group is the umbrella; the "group company"
+   * is the specific member of it that the vessel sits under — the registered owner when the
+   * vessel is linked to one, otherwise the company that has billed it most. Any remaining
+   * companies of the group that also billed the vessel are listed separately, which is what
+   * the old, unexplained "Invoiced by" row was trying to say.
+   */
+  const billingCompanies = [...relatedCompanies].sort(
+    (a, b) => Number(b.isOwner) - Number(a.isOwner) || b.invoiceCount - a.invoiceCount,
+  );
+  const ownerCompany = billingCompanies[0] ?? null;
+  const otherBillingCompanies = billingCompanies.slice(1).filter(c => c.invoiceCount > 0);
+  const groupName = vessel?.ownerGroup ?? ownerCompany?.group ?? null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <ResizableDialogContent storageKey="vessel-detail" className="sm:max-w-none w-[64rem] max-w-[95vw] max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+      {/*
+       * The modal is a fixed-size shell: header stays put and only the body scrolls, so a
+       * wide Products table can never push the layout past the dialog edge.
+       */}
+      <ResizableDialogContent
+        storageKey="vessel-detail"
+        className="sm:max-w-none w-[min(68rem,94vw)] max-w-[94vw] h-[88vh] max-h-[88vh] overflow-hidden flex flex-col gap-0 p-0"
+      >
+        <DialogHeader className="shrink-0 border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2">
             <Ship className="h-5 w-5 text-sky-600" />
             {vessel ? vessel.name : "Vessel"}
           </DialogTitle>
           {vessel && (
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-              <div className="flex flex-wrap items-center gap-2">
-                {vessel.imo && (
-                  <Badge variant="outline" className="gap-1 font-mono">
-                    <Anchor className="h-3 w-3" /> IMO {vessel.imo}
-                  </Badge>
-                )}
-                {vessel.vesselType && (
-                  <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200">{vessel.vesselType}</Badge>
-                )}
-                {vessel.flag && (
-                  <Badge variant="outline" className="gap-1">
-                    <Flag className="h-3 w-3" /> {vessel.flag}
-                  </Badge>
-                )}
-              </div>
-              <Link
-                href={`/ops/vessel/${vessel.id}`}
-                className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
-                onClick={() => onOpenChange(false)}
-              >
-                <LayoutDashboard className="h-3 w-3" /> Ops Dashboard
-              </Link>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {vessel.imo && (
+                <Badge variant="outline" className="gap-1 font-mono">
+                  <Anchor className="h-3 w-3" /> IMO {vessel.imo}
+                </Badge>
+              )}
+              {vessel.vesselType && (
+                <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200">{vessel.vesselType}</Badge>
+              )}
+              {vessel.flag && (
+                <Badge variant="outline" className="gap-1">
+                  <Flag className="h-3 w-3" /> {vessel.flag}
+                </Badge>
+              )}
+              {contracts.length > 0 && (
+                <Badge variant="outline" className="gap-1 bg-violet-50 text-violet-700 border-violet-200">
+                  <FileSignature className="h-3 w-3" /> {contracts.length} contract{contracts.length === 1 ? "" : "s"}
+                </Badge>
+              )}
             </div>
           )}
-
         </DialogHeader>
 
+        {/*
+         * The body is the only scroll container: min-w-0 stops a wide table from stretching the
+         * dialog, and overflow-auto (not just -y) means a table wider than the dialog can be
+         * scrolled to instead of being clipped at the right edge.
+         */}
+        <div className="flex-1 min-w-0 overflow-auto px-6 py-4">
         {error ? (
           <div className="py-8 text-center text-muted-foreground">Vessel not found.</div>
-        ) : isLoading || !vessel || !stats ? (
+        ) : isLoading || !vessel ? (
           <div className="space-y-3">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[...Array(4)].map((_, i) => (
-                <Skeleton key={i} className="h-20" />
-              ))}
-            </div>
+            <Skeleton className="h-28" />
+            <Skeleton className="h-9 w-64" />
             <Skeleton className="h-48" />
           </div>
         ) : (
-          <div className="space-y-4">
-            {/* KPIs */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Card>
-                <CardContent className="p-3">
-                  <div className="text-xs text-muted-foreground">Open balance</div>
-                  <div className="text-lg font-bold font-mono">{fmtEur(stats.openBalance)}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-3">
-                  <div className="text-xs text-muted-foreground">Overdue</div>
-                  <div className={`text-lg font-bold font-mono ${stats.overdueAmount > 0 ? "text-red-600" : ""}`}>{fmtEur(stats.overdueAmount)}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {stats.overdueCount > 0 ? `${stats.overdueCount} invoice(s) · max ${stats.maxDaysOverdue}d` : "nothing overdue"}
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-3">
-                  <div className="text-xs text-muted-foreground">Total invoiced</div>
-                  <div className="text-lg font-bold font-mono">{fmtEur(stats.totalInvoiced)}</div>
-                  <div className="text-[11px] text-muted-foreground">{stats.invoiceCount} invoice(s)</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-3">
-                  <div className="text-xs text-muted-foreground">Total paid</div>
-                  <div className="text-lg font-bold font-mono text-emerald-700">{fmtEur(stats.totalPaid)}</div>
-                </CardContent>
-              </Card>
-            </div>
-
+          <div className="space-y-4 min-w-0">
             {/* Info */}
+            {/*
+             * IMO, type and flag are already stated as badges in the header, so they are not
+             * repeated here. What this block adds is the chain of ownership: which group the
+             * vessel belongs to, and which company inside that group it sits under / is billed by.
+             */}
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm rounded-lg border bg-muted/30 p-4">
-              <div>
-                <div className="text-xs text-muted-foreground">Owner / Group</div>
+              <div className="col-span-2 grid grid-cols-2 gap-x-6 gap-y-3">
                 <div>
-                  {vessel.ownerGroup ? (
-                    <Link
-                      href={`/groups/${encodeURIComponent(vessel.ownerGroup)}`}
-                      className="text-primary hover:underline underline-offset-2"
-                      onClick={() => onOpenChange(false)}
-                    >
-                      {vessel.ownerGroup}
-                    </Link>
-                  ) : relatedCompanies.length > 0 ? (
-                    <Link
-                      href={`/groups/${encodeURIComponent(relatedCompanies[0].group)}`}
-                      className="text-primary hover:underline underline-offset-2"
-                      onClick={() => onOpenChange(false)}
-                    >
-                      {relatedCompanies[0].group}
-                    </Link>
+                  <div className="text-xs text-muted-foreground">Owner / Group</div>
+                  <div>
+                    {groupName ? (
+                      <Link
+                        href={`/groups/${encodeURIComponent(groupName)}`}
+                        className="text-primary hover:underline underline-offset-2"
+                        onClick={() => onOpenChange(false)}
+                      >
+                        {groupName}
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Group company</div>
+                  {ownerCompany ? (
+                    <div>
+                      <Link
+                        href={`/customers/${ownerCompany.id}`}
+                        className="text-primary hover:underline underline-offset-2"
+                        onClick={() => onOpenChange(false)}
+                      >
+                        {ownerCompany.name}
+                      </Link>
+                      {ownerCompany.isOwner && (
+                        <span className="text-xs text-muted-foreground"> · registered owner</span>
+                      )}
+                    </div>
                   ) : (
-                    "—"
+                    <div className="text-muted-foreground">Not linked to a company of the group yet</div>
                   )}
                 </div>
               </div>
-              <div>
-                <div className="text-xs text-muted-foreground">IMO / Type / Flag</div>
-                <div className="font-mono text-xs pt-0.5">
-                  {[vessel.imo, vessel.vesselType, vessel.flag].filter(Boolean).join(" · ") || "—"}
+              {otherBillingCompanies.length > 0 && (
+                <div className="col-span-2">
+                  <div className="text-xs text-muted-foreground mb-1">
+                    Other companies of the group billing this vessel
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {otherBillingCompanies.map(c => (
+                      <Link key={c.id} href={`/customers/${c.id}`} onClick={() => onOpenChange(false)}>
+                        <Badge variant="outline" className="cursor-pointer hover:bg-muted font-normal gap-1">
+                          {c.name}
+                          <span className="text-muted-foreground font-mono text-[11px]">
+                            {c.invoiceCount} inv
+                          </span>
+                        </Badge>
+                      </Link>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
               {vessel.notes && (
                 <div className="col-span-2">
                   <div className="text-xs text-muted-foreground">Notes</div>
                   <div className="whitespace-pre-wrap">{vessel.notes}</div>
                 </div>
               )}
-              {relatedCompanies.length > 0 && (
-                <div className="col-span-2">
-                  <div className="text-xs text-muted-foreground mb-1">Invoiced by</div>
+              <div className="col-span-2">
+                <div className="text-xs text-muted-foreground mb-1">
+                  Prime 247 contracts ({contracts.length})
+                </div>
+                {contracts.length === 0 ? (
+                  <div className="text-muted-foreground text-xs">Not enrolled in any contract yet.</div>
+                ) : (
                   <div className="flex flex-wrap gap-1.5">
-                    {relatedCompanies.map(c => (
-                      <Link key={c.id} href={`/customers/${c.id}`} onClick={() => onOpenChange(false)}>
-                        <Badge variant="outline" className="cursor-pointer hover:bg-muted font-normal">{c.name}</Badge>
+                    {contracts.map(c => (
+                      <Link key={c.id} href={`/ops/contracts/${c.id}`} onClick={() => onOpenChange(false)}>
+                        <Badge
+                          variant="outline"
+                          className="cursor-pointer hover:bg-muted font-normal gap-1"
+                          title={c.title ?? undefined}
+                        >
+                          <span className="font-mono text-[11px]">{c.contractNumber ?? `#${c.id}`}</span>
+                          {c.status && <span className="text-muted-foreground">· {c.status}</span>}
+                        </Badge>
                       </Link>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
-            {/* Active Contracts */}
-            {opsContracts.length > 0 && (
-              <div>
-                <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2 mb-2">
-                  <ScrollText className="h-4 w-4" /> Active Operations Contracts ({opsContracts.length})
-                </div>
-                <div className="rounded-lg border overflow-hidden">
-                  <Table>
-                    <TableHeader className="bg-muted/50">
-                      <TableRow>
-                        <TableHead className="h-9 text-xs">Contract #</TableHead>
-                        <TableHead className="h-9 text-xs">Title</TableHead>
-                        <TableHead className="h-9 text-xs">Status</TableHead>
-                        <TableHead className="h-9 text-xs text-right">Value</TableHead>
-                        <TableHead className="h-9 text-xs">End Date</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {opsContracts.map((c: any) => (
-                        <TableRow key={c.id} className="cursor-pointer hover:bg-muted/50" onClick={() => { onOpenChange(false); window.location.href = `/ops/contracts/${c.id}`; }}>
-                          <TableCell className="py-2 font-mono text-xs text-primary">{c.contractNumber}</TableCell>
-                          <TableCell className="py-2 text-xs font-medium">{c.title}</TableCell>
-                          <TableCell className="py-2">
-                            <Badge variant="outline" className="text-[10px] px-1.5 h-4 bg-emerald-50 text-emerald-700 border-emerald-200">
-                              {c.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="py-2 text-right font-mono text-xs">{fmtEur(Number(c.totalValue))}</TableCell>
-                          <TableCell className="py-2 text-xs text-muted-foreground">{fmtDate(c.endDate)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            )}
+            {/*
+             * Products and Invoices are two ways of looking at the same vessel — what it is
+             * entitled to, and what it has been billed. Stacking both tables made the modal a
+             * long scroll, so they are tabs: pick one, see it whole. Products opens first
+             * because it is what the office looks at when a vessel is on the phone.
+             */}
+            <Tabs defaultValue="products">
+              <TabsList>
+                <TabsTrigger value="products" className="gap-1.5">
+                  <Package className="h-3.5 w-3.5" /> Products
+                  {contractItems.length > 0 && (
+                    <span className="text-xs text-muted-foreground font-mono">({contractItems.length})</span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="invoices" className="gap-1.5">
+                  <FileText className="h-3.5 w-3.5" /> Invoices
+                  {invoices.length > 0 && (
+                    <span className="text-xs text-muted-foreground font-mono">({invoices.length})</span>
+                  )}
+                </TabsTrigger>
+              </TabsList>
 
-            {/* Invoices */}
-            <div>
-              <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2 mb-2">
-                <FileText className="h-4 w-4" /> Invoices for this vessel ({invoices.length})
-              </div>
-              {invoices.length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground rounded-lg border">No invoices linked to this vessel yet.</div>
-              ) : (
-                <div className="rounded-lg border overflow-x-auto">
-                  <InvoicesTable
-                    rows={invoices}
-                    disableVesselDialog
-                    onDisputeChanged={() => utils.vessels.detail.invalidate({ id: vesselId ?? -1 })}
-                  />
+              {/* Products — the contract's Products card, scoped to this vessel */}
+              <TabsContent value="products" className="mt-3">
+                <div className="flex items-end justify-between gap-3 mb-2">
+                  <p className="text-xs text-muted-foreground">
+                    Grouped by nature — equipment first, then consumables and anything else supplied to this vessel
+                  </p>
+                  {supply.unitsTotal > 0 && (
+                    <div className="text-right shrink-0">
+                      <div className="text-sm font-semibold font-mono">
+                        {supply.unitsSupplied} / {supply.unitsTotal}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {supply.linesOutstanding > 0 ? `${supply.linesOutstanding} line(s) still to deliver` : "nothing outstanding"}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+                {contractItems.length === 0 ? (
+                  <div className="p-8 text-center text-muted-foreground text-sm rounded-lg border">
+                    This vessel is not assigned to any Prime 247 contract yet. Items appear here as soon as the vessel joins a contract.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border">
+                    <VesselProductsTable items={contractItems} onNavigate={() => onOpenChange(false)} />
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="invoices" className="mt-3">
+                {invoices.length === 0 ? (
+                  <div className="p-8 text-center text-muted-foreground rounded-lg border">No invoices linked to this vessel yet.</div>
+                ) : (
+                  <div className="rounded-lg border overflow-x-auto">
+                    <InvoicesTable
+                      rows={invoices}
+                      disableVesselDialog
+                      onDisputeChanged={() => utils.vessels.detail.invalidate({ id: vesselId ?? -1 })}
+                    />
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </div>
         )}
+        </div>
       </ResizableDialogContent>
     </Dialog>
   );
